@@ -1,0 +1,204 @@
+// Copyright (C) Hypertensor.
+// SPDX-License-Identifier: Apache-2.0
+
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+// 	http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+use super::*;
+use sp_runtime::Saturating;
+
+impl<T: Config> Pallet<T> {
+    pub fn do_add_stake(
+        origin: T::RuntimeOrigin,
+        subnet_id: u32,
+        hotkey: T::AccountId,
+        stake_to_be_added: u128,
+    ) -> DispatchResult {
+        let coldkey: T::AccountId = ensure_signed(origin)?;
+
+        ensure!(stake_to_be_added != 0, Error::<T>::InvalidAmount);
+
+        let stake_as_balance = Self::u128_to_balance(stake_to_be_added);
+
+        let balance = match stake_as_balance {
+            Some(b) => b,
+            None => return Err(Error::<T>::CouldNotConvertToBalance.into()),
+        };
+
+        let account_stake_balance: u128 = AccountSubnetStake::<T>::get(&hotkey, subnet_id);
+
+        ensure!(
+            account_stake_balance.saturating_add(stake_to_be_added)
+                >= SubnetMinStakeBalance::<T>::get(subnet_id),
+            Error::<T>::MinStakeNotReached
+        );
+
+        ensure!(
+            account_stake_balance.saturating_add(stake_to_be_added)
+                <= SubnetMaxStakeBalance::<T>::get(subnet_id),
+            Error::<T>::MaxStakeReached
+        );
+
+        // --- Ensure the callers coldkey has enough stake to perform the transaction.
+        ensure!(
+            Self::can_remove_balance_from_coldkey_account(&coldkey, balance),
+            Error::<T>::NotEnoughBalanceToStake
+        );
+
+        // to-do: add AddStakeRateLimit instead of universal rate limiter
+        //        this allows peers to come in freely
+        let block: u32 = Self::get_current_block_as_u32();
+        ensure!(
+            !Self::exceeds_tx_rate_limit(Self::get_last_tx_block(&coldkey), block),
+            Error::<T>::TxRateLimitExceeded
+        );
+
+        // --- Ensure the remove operation from the coldkey is a success.
+        ensure!(
+            Self::remove_balance_from_coldkey_account(&coldkey, balance) == true,
+            Error::<T>::BalanceWithdrawalError
+        );
+
+        Self::increase_account_stake(&hotkey, subnet_id, stake_to_be_added);
+
+        // Set last block for rate limiting
+        Self::set_last_tx_block(&coldkey, block);
+
+        Self::deposit_event(Event::StakeAdded(
+            subnet_id,
+            coldkey,
+            hotkey,
+            stake_to_be_added,
+        ));
+
+        Ok(())
+    }
+
+    pub fn do_remove_stake(
+        origin: T::RuntimeOrigin,
+        subnet_id: u32,
+        hotkey: T::AccountId,
+        is_subnet_node: bool,
+        stake_to_be_removed: u128,
+    ) -> DispatchResult {
+        let coldkey: T::AccountId = ensure_signed(origin)?;
+
+        let account_stake_balance: u128 = AccountSubnetStake::<T>::get(&hotkey, subnet_id);
+
+        ensure!(stake_to_be_removed > 0, Error::<T>::AmountZero);
+
+        // --- Ensure that the stake amount to be removed is above zero.
+        // --- Ensure that the account has enough stake to withdraw.
+        ensure!(
+            account_stake_balance >= stake_to_be_removed,
+            Error::<T>::NotEnoughStakeToWithdraw
+        );
+
+        // if user is still a subnet node they must keep the required minimum balance
+        if is_subnet_node {
+            ensure!(
+                account_stake_balance.saturating_sub(stake_to_be_removed)
+                    >= SubnetMinStakeBalance::<T>::get(subnet_id),
+                Error::<T>::MinStakeNotReached
+            );
+        } else if stake_to_be_removed >= account_stake_balance {
+            // In case a subnet was removed, we clean up elements that wouldn't
+            // be cleaned up in the subnet removal. Elements that have an account
+            // as the key.
+            HotkeySubnetId::<T>::remove(&hotkey);
+            let mut hotkeys = ColdkeyHotkeys::<T>::get(&coldkey);
+            hotkeys.remove(&hotkey);
+            ColdkeyHotkeys::<T>::insert(&coldkey, hotkeys);
+            HotkeyOwner::<T>::remove(&hotkey);
+            Self::clean_coldkey_subnet_nodes(coldkey.clone()); // cleans ColdkeySubnetNodes
+        }
+
+        // --- Ensure that we can convert this u128 to a balance.
+        match Self::u128_to_balance(stake_to_be_removed) {
+            Some(b) => b,
+            None => return Err(Error::<T>::CouldNotConvertToBalance.into()),
+        };
+
+        let block: u32 = Self::get_current_block_as_u32();
+        ensure!(
+            !Self::exceeds_tx_rate_limit(Self::get_last_tx_block(&coldkey), block),
+            Error::<T>::TxRateLimitExceeded
+        );
+
+        // --- 7. We remove the balance from the hotkey.
+        Self::decrease_account_stake(&hotkey, subnet_id, stake_to_be_removed);
+
+        // --- 9. We add the balancer to the coldkey.  If the above fails we will not credit this coldkey.
+        Self::add_balance_to_unbonding_ledger(
+            &coldkey,
+            stake_to_be_removed,
+            StakeCooldownEpochs::<T>::get() * T::EpochLength::get(),
+            block,
+        )
+        .map_err(|e| e)?;
+
+        // Set last block for rate limiting
+        Self::set_last_tx_block(&coldkey, block);
+
+        Self::deposit_event(Event::StakeRemoved(
+            subnet_id,
+            coldkey,
+            hotkey,
+            stake_to_be_removed,
+        ));
+
+        Ok(())
+    }
+
+    pub fn do_swap_hotkey_stake_balance(
+        subnet_id: u32,
+        old_hotkey: &T::AccountId,
+        new_hotkey: &T::AccountId,
+    ) {
+        Self::swap_account_stake(old_hotkey, new_hotkey, subnet_id)
+    }
+
+    pub fn increase_account_stake(hotkey: &T::AccountId, subnet_id: u32, amount: u128) {
+        // -- increase account subnet staking balance
+        AccountSubnetStake::<T>::mutate(hotkey, subnet_id, |mut n| n.saturating_accrue(amount));
+
+        // -- increase total subnet stake
+        TotalSubnetStake::<T>::mutate(subnet_id, |mut n| n.saturating_accrue(amount));
+
+        // -- increase total stake overall
+        TotalStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
+    }
+
+    pub fn decrease_account_stake(hotkey: &T::AccountId, subnet_id: u32, amount: u128) {
+        // -- decrease account subnet staking balance
+        AccountSubnetStake::<T>::mutate(hotkey, subnet_id, |mut n| n.saturating_reduce(amount));
+
+        // -- decrease total subnet stake
+        TotalSubnetStake::<T>::mutate(subnet_id, |mut n| n.saturating_reduce(amount));
+
+        // -- decrease total stake overall
+        TotalStake::<T>::mutate(|mut n| n.saturating_reduce(amount));
+    }
+
+    fn swap_account_stake(old_hotkey: &T::AccountId, new_hotkey: &T::AccountId, subnet_id: u32) {
+        // -- swap old_hotkey subnet staking balance
+        let old_hotkey_stake_balance = AccountSubnetStake::<T>::take(old_hotkey, subnet_id);
+        // --- Redundant take of new hotkeys stake balance
+        // --- New hotkey is always checked before updating
+        let new_hotkey_stake_balance = AccountSubnetStake::<T>::get(new_hotkey, subnet_id);
+        AccountSubnetStake::<T>::insert(
+            new_hotkey,
+            subnet_id,
+            old_hotkey_stake_balance.saturating_add(new_hotkey_stake_balance),
+        );
+    }
+}

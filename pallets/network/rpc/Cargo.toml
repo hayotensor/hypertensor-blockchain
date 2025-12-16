@@ -1,0 +1,44 @@
+[package]
+name = "network-custom-rpc"
+version = "0.0.1"
+authors = ["Parity Technologies <admin@parity.io>"]
+edition = "2021"
+license = "Apache-2.0"
+homepage = "https://substrate.io"
+repository = "https://github.com/paritytech/substrate/"
+description = "RPC runtime API for transaction payment FRAME pallet"
+readme = "README.md"
+
+[dependencies]
+codec = { features = [
+	"derive",
+], workspace = true }
+jsonrpsee = { features = ["client-core", "server", "macros"], workspace = true }
+
+serde = { features = [
+	"derive",
+], workspace = true }
+
+# Substrate packages
+sp-api.workspace = true
+sp-blockchain.workspace = true
+sp-rpc.workspace = true
+sp-runtime.workspace = true
+frame-support.workspace = true
+fp-account = { workspace = true, features = ["serde"] }
+
+# Local
+network-custom-rpc-runtime-api.workspace = true
+pallet-network.workspace = true
+
+[features]
+default = ["std"]
+std = [
+  "sp-api/std",
+  "frame-support/std",
+  "pallet-network/std",
+  "sp-runtime/std",
+  "serde/std",
+  "network-custom-rpc-runtime-api/std",
+  "codec/std",
+]
