@@ -4200,7 +4200,6 @@ dependencies = [
 name = "hypertensor-runtime"
 version = "0.1.0"
 dependencies = [
- "cumulus-primitives-storage-weight-reclaim",
  "fp-account",
  "fp-evm",
  "fp-rpc",

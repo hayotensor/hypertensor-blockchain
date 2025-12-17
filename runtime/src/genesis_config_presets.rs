@@ -338,13 +338,13 @@ pub fn hoskinson_config_genesis() -> Value {
         vec![
             // Hypertensor Team
             authority_keys_from_ss58(
-                "5E4mc4NDegQ9PmrWfVXLM8J9JRLbiihKTjbryTH4ERiuMzVf",
-                "5CNH3bFLnT3pdojebX9yGTEzusmTNK1WVJnEbYMojkULk2Ye",
+                "5D7CuBKcrpkaoY7mB9HssDm4Qt6fhGLTRGvR4hTLF8hMPrQP",
+                "5H9ug49LNth7CKY8wdL8kwF53k4JRX1v5mAw4DGWKQiRKcN3",
             ),
             // Rizzo
             authority_keys_from_ss58(
-                "5D5CaW7QNMftHKrVVZ6YAW2fsiw8SCuaiRbFYxcUv7RTf7Lm",
-                "5CNH3bFLnT3pdojebX9yGTEzusmTNK1WVJnEbYMojkULk2Ye",
+                "5FeRDsozqUivqCufKfUNBQbztoMkCFkHYX6FAwSZvgXmmE4z",
+                "5D82ZPib1E1LPqsMtq5t9XkY3Rb8pgDDUE2YC1RQpfEdFu39",
             ),
             // Seeker
             authority_keys_from_ss58(
