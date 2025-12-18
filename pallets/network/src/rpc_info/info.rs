@@ -306,6 +306,7 @@ impl<T: Config> Pallet<T> {
         } else {
             return false;
         };
+        
         let min_stake = SubnetMinStakeBalance::<T>::get(subnet_id);
         let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
         let peer_id = PeerId(peer_id);
@@ -315,7 +316,18 @@ impl<T: Config> Pallet<T> {
             mapping(subnet_id, peer_id.clone())
                 .ok()
                 .and_then(|subnet_node_id| {
-                    SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id).ok()
+                    // First try SubnetNodesData, then fall back to RegisteredSubnetNodesData
+                    // since nodes with SubnetNodeClass::Registered are stored in the latter
+                    SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
+                        .ok()
+                        .or_else(|| {
+                            // Only SubnetNodeClass::Registered nodes are stored in RegisteredSubnetNodesData
+                            if class == SubnetNodeClass::Registered {
+                                RegisteredSubnetNodesData::<T>::try_get(subnet_id, subnet_node_id).ok()
+                            } else {
+                                None
+                            }
+                        })
                 })
                 .map(|subnet_node| {
                     subnet_node.has_classification(&class, current_subnet_epoch)

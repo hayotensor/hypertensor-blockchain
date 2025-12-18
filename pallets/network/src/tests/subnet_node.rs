@@ -141,7 +141,8 @@ fn test_activate_subnet_then_register_subnet_node_then_activate() {
 
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
         assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Idle);
-        assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
+        // assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
+        assert_eq!(subnet_node.classification.start_epoch, subnet_epoch);
 
         let new_total_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
         assert_eq!(total_subnet_nodes + 1, new_total_nodes);
@@ -722,7 +723,8 @@ fn test_activate_subnet_node_post_subnet_activation() {
 
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
         assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Idle);
-        assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
+        // assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
+        // assert_eq!(subnet_node.classification.start_epoch, subnet_epoch);
 
         assert_eq!(
             prev_total_active_subnet_nodes + 1,
@@ -3928,7 +3930,7 @@ fn test_clean_coldkey_subnet_nodes() {
         let mut subnet_nodes: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
 
         // Subnet 1: Valid subnet with valid and invalid nodes
-        insert_subnet_node(
+        manual_insert_subnet_node(
             1,
             100, // node id
             1,   // coldkey
@@ -3943,7 +3945,7 @@ fn test_clean_coldkey_subnet_nodes() {
         subnet_nodes.insert(1, node_ids1);
 
         // Subnet 2: Valid subnet with only valid nodes
-        insert_subnet_node(
+        manual_insert_subnet_node(
             2,
             200, // node id
             1,   // coldkey

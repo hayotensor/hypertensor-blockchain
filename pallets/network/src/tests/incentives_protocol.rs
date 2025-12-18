@@ -21,6 +21,7 @@ use frame_support::traits::Currency;
 use frame_support::weights::WeightMeter;
 use frame_support::{assert_err, assert_ok};
 use sp_std::collections::btree_map::BTreeMap;
+use frame_support::pallet_prelude::DispatchResult;
 
 //
 //
@@ -573,6 +574,338 @@ fn test_attest() {
                 );
             }
         }
+    });
+}
+
+#[test]
+fn test_attest_invalid_hotkey_subnet_node_id() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
+
+        let epoch_length = EpochLength::get();
+        let block_number = System::block_number();
+        let epoch = block_number / epoch_length;
+
+        set_block_to_subnet_slot_epoch(epoch, subnet_id);
+        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+
+        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+
+        let subnet_node_data_vec =
+            get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
+
+        let validator_id = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch);
+        assert!(validator_id != None, "Validator is None");
+        assert!(validator_id != Some(0), "Validator is 0");
+
+        let mut validator =
+            SubnetNodeIdHotkey::<Test>::get(subnet_id, validator_id.unwrap()).unwrap();
+
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(validator.clone()),
+            subnet_id,
+            subnet_node_data_vec.clone(),
+            None,
+            None,
+            None,
+            None,
+        ));
+
+        let submission = SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
+
+        assert_eq!(submission.validator_id, validator_id.unwrap());
+        assert_eq!(submission.data.len(), subnet_node_data_vec.len());
+
+        let attestor = get_hotkey(subnet_id, max_subnet_nodes, MaxSubnets::<Test>::get(), total_subnet_nodes + 1);
+
+        assert_err!(
+            Network::attest(
+                RuntimeOrigin::signed(attestor.clone()),
+                subnet_id,
+                None,
+            ),
+            Error::<Test>::InvalidHotkeySubnetNodeId,
+        );
+    });
+}
+
+#[test]
+fn test_attest_invalid_subnet_node_classification() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
+
+        let epoch_length = EpochLength::get();
+        let block_number = System::block_number();
+        let epoch = block_number / epoch_length;
+
+        set_block_to_subnet_slot_epoch(epoch, subnet_id);
+        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+
+        // Network::elect_validator(subnet_id, subnet_epoch, block_number);
+
+        SubnetElectedValidator::<Test>::insert(subnet_id, subnet_epoch, 1);
+
+        let subnet_node_data_vec =
+            get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
+
+        let validator_id = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch);
+        assert!(validator_id != None, "Validator is None");
+        assert!(validator_id != Some(0), "Validator is 0");
+
+        let mut validator =
+            SubnetNodeIdHotkey::<Test>::get(subnet_id, validator_id.unwrap()).unwrap();
+
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(validator.clone()),
+            subnet_id,
+            subnet_node_data_vec.clone(),
+            None,
+            None,
+            None,
+            None,
+        ));
+
+        let submission = SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
+
+        assert_eq!(submission.validator_id, validator_id.unwrap());
+        assert_eq!(submission.data.len(), subnet_node_data_vec.len());
+
+        insert_subnet_node(
+            subnet_id,                  // subnet_id
+            total_subnet_nodes + 1,     // coldkey_n
+            total_subnet_nodes + 2,     // hotkey_n
+            total_subnet_nodes + 1,     // peer_n
+            SubnetNodeClass::Idle,      // class
+            0                           // start_epoch
+        );
+
+        let attestor = account(total_subnet_nodes + 2);
+
+        assert_err!(
+            Network::attest(
+                RuntimeOrigin::signed(attestor.clone()),
+                subnet_id,
+                None,
+            ),
+            Error::<Test>::InvalidSubnetNodeClassification,
+        );
+
+        let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
+
+        insert_subnet_node(
+            subnet_id,                  // subnet_id
+            total_subnet_nodes + 1,     // coldkey_n
+            total_subnet_nodes + 2,     // hotkey_n
+            total_subnet_nodes + 1,     // peer_n
+            SubnetNodeClass::Included,  // class
+            0                           // start_epoch
+        );
+
+        let attestor = account(total_subnet_nodes + 2);
+
+        assert_err!(
+            Network::attest(
+                RuntimeOrigin::signed(attestor.clone()),
+                subnet_id,
+                None,
+            ),
+            Error::<Test>::InvalidSubnetNodeClassification,
+        );
+    });
+}
+
+#[test]
+fn test_attest_invalid_subnet_node_id() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let end = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+
+        let epoch_length = EpochLength::get();
+        let block_number = System::block_number();
+        let epoch = block_number / epoch_length;
+
+        set_block_to_subnet_slot_epoch(epoch, subnet_id);
+        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+
+        // Network::elect_validator(subnet_id, subnet_epoch, block_number);
+
+        SubnetElectedValidator::<Test>::insert(subnet_id, subnet_epoch, 1);
+
+        let subnet_node_data_vec =
+            get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, end);
+
+        let validator_id = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch);
+        assert!(validator_id != None, "Validator is None");
+        assert!(validator_id != Some(0), "Validator is 0");
+
+        let mut validator =
+            SubnetNodeIdHotkey::<Test>::get(subnet_id, validator_id.unwrap()).unwrap();
+
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(validator.clone()),
+            subnet_id,
+            subnet_node_data_vec.clone(),
+            None,
+            None,
+            None,
+            None,
+        ));
+
+        let submission = SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
+
+        assert_eq!(submission.validator_id, validator_id.unwrap());
+        assert_eq!(submission.data.len(), subnet_node_data_vec.len());
+
+        build_registered_subnet_nodes(
+            subnet_id,
+            end + 1,
+            end + 1 + 1,
+            deposit_amount,
+            amount,
+            false
+        );
+
+        let attestor = get_hotkey(subnet_id, max_subnet_nodes, MaxSubnets::<Test>::get(), end + 1 + 1);
+
+        // Sanity check
+        let node_id = HotkeySubnetNodeId::<Test>::try_get(subnet_id, &attestor).unwrap();
+        assert!(RegisteredSubnetNodesData::<Test>::try_get(subnet_id, node_id).is_ok());
+
+        assert_err!(
+            Network::attest(
+                RuntimeOrigin::signed(attestor.clone()),
+                subnet_id,
+                None,
+            ),
+            Error::<Test>::InvalidSubnetNodeId,
+        );
+    });
+}
+
+#[test]
+fn test_attest_invalid_emergency_subnet_node_id() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let max_subnets = MaxSubnets::<Test>::get();
+        let end = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+
+        let owner_coldkey = account(subnets * max_subnets * max_subnet_nodes);
+
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+
+        let epoch_length = EpochLength::get();
+        let block_number = System::block_number();
+        let epoch = block_number / epoch_length;
+
+        set_block_to_subnet_slot_epoch(epoch, subnet_id);
+        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+
+        SubnetElectedValidator::<Test>::insert(subnet_id, subnet_epoch, 1);
+
+        let subnet_node_data_vec =
+            get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, end);
+
+        let validator_id = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch);
+        assert!(validator_id != None, "Validator is None");
+        assert!(validator_id != Some(0), "Validator is 0");
+
+        let mut validator =
+            SubnetNodeIdHotkey::<Test>::get(subnet_id, validator_id.unwrap()).unwrap();
+
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(validator.clone()),
+            subnet_id,
+            subnet_node_data_vec.clone(),
+            None,
+            None,
+            None,
+            None,
+        ));
+
+        let submission = SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
+
+        assert_eq!(submission.validator_id, validator_id.unwrap());
+        assert_eq!(submission.data.len(), subnet_node_data_vec.len());
+
+        let mut subnet_node_ids: Vec<u32> = Vec::new();
+        for (id, _) in SubnetNodesData::<Test>::iter_prefix(subnet_id).take((end - 1) as usize) {
+            subnet_node_ids.push(id);
+        }
+
+        SubnetsData::<Test>::try_mutate_exists(subnet_id, |maybe_params| -> DispatchResult {
+            let params = maybe_params.as_mut().ok_or(Error::<Test>::InvalidSubnetId)?;
+            params.state = SubnetState::Paused;
+            params.start_epoch = epoch;
+            Ok(())
+        });
+
+        assert_ok!(Network::do_owner_set_emergency_validator_set(
+            RuntimeOrigin::signed(owner_coldkey.clone()),
+            subnet_id,
+            subnet_node_ids.clone()
+        ));
+
+        SubnetsData::<Test>::try_mutate_exists(subnet_id, |maybe_params| -> DispatchResult {
+            let params = maybe_params.as_mut().ok_or(Error::<Test>::InvalidSubnetId)?;
+            params.state = SubnetState::Active;
+            params.start_epoch = epoch;
+            Ok(())
+        });
+
+        let attestor = get_hotkey(subnet_id, max_subnet_nodes, MaxSubnets::<Test>::get(), end);
+
+        assert_err!(
+            Network::attest(
+                RuntimeOrigin::signed(attestor.clone()),
+                subnet_id,
+                None,
+            ),
+            Error::<Test>::InvalidEmergencySubnetNodeId,
+        );
     });
 }
 
@@ -3891,7 +4224,7 @@ fn test_distribute_rewards_fork_graduate_idle_to_included() {
 
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
         assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Idle);
-        assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
+        assert_eq!(subnet_node.classification.start_epoch, subnet_epoch);
 
         SubnetNodeIdleConsecutiveEpochs::<Test>::insert(subnet_id, subnet_node.id, idle_epochs);
 

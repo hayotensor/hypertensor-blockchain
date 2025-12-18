@@ -336,10 +336,15 @@ pub fn hoskinson_config_genesis() -> Value {
             AccountId::from(hex!("9B56943b126776b92458cd31FEB8d6cE5D13482c")), // Faucet
         ],
         vec![
-            // Hypertensor Team
+            // Hypertensor Team 1
             authority_keys_from_ss58(
                 "5D7CuBKcrpkaoY7mB9HssDm4Qt6fhGLTRGvR4hTLF8hMPrQP",
                 "5H9ug49LNth7CKY8wdL8kwF53k4JRX1v5mAw4DGWKQiRKcN3",
+            ),
+            // Hypertensor Team 2
+            authority_keys_from_ss58(
+                "5C7y78j5qDW4gUGbgimMVdKckjbXgfSbE5Hqmk1M5p1KDjuP",
+                "5FQFszBdvLMi92SbYZLCrXZiHgRfKQXBFQSxCkyfapegk8Ux",
             ),
             // Rizzo
             authority_keys_from_ss58(

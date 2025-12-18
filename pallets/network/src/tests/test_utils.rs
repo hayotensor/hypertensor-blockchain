@@ -18,7 +18,8 @@ use crate::{
     TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalOverwatchNodeUids,
     TotalOverwatchNodes, TotalOverwatchStake, TotalStake, TotalSubnetDelegateStakeBalance,
     TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids,
-    UniqueParamSubnetNodeId,
+    UniqueParamSubnetNodeId, DefaultMaxVectorLength, ClientPeerIdSubnetNodeId, TotalNodes,
+    SubnetNodeQueue, InitialColdkeyData,
 };
 use fp_account::AccountId20;
 use frame_support::assert_ok;
@@ -35,7 +36,7 @@ use sp_std::collections::btree_set::BTreeSet;
 pub type AccountIdOf<Test> = <Test as frame_system::Config>::AccountId;
 pub const PERCENTAGE_FACTOR: u128 = 1000000000000000000_u128;
 pub const DEFAULT_SCORE: u128 = 500000000000000000;
-pub const MAX_SUBNET_NODES: u32 = 254;
+// pub const MAX_SUBNET_NODES: u32 = 254;
 pub const DEFAULT_REGISTRATION_BLOCKS: u32 = 130_000;
 pub const DEFAULT_DELEGATE_REWARD_RATE: u128 = 100000000000000000; // 10%
 pub const ALICE_EXPECTED_BALANCE: u128 = 1000000000000000000000000; // 1,000,000
@@ -819,6 +820,232 @@ pub fn build_registered_subnet_new(
 
     let subnet = SubnetsData::<Test>::get(subnet_id).unwrap();
     assert_eq!(subnet.state, SubnetState::Registered);
+}
+
+pub fn insert_subnet_node(
+    subnet_id: u32,
+    coldkey_n: u32,
+    hotkey_n: u32,
+    peer_n: u32,
+    class: SubnetNodeClass,
+    start_epoch: u32
+) {
+    TotalSubnetNodeUids::<Test>::mutate(subnet_id, |n: &mut u32| *n += 1);
+    let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
+
+    let coldkey = account(coldkey_n);
+    let hotkey = account(hotkey_n);
+    let peer_id = peer(peer_n);
+    let client_peer_id = peer(peer_n);
+    let bootnode_peer_id = peer(peer_n);
+
+    HotkeySubnetNodeId::<Test>::insert(subnet_id, &hotkey, subnet_node_id);
+
+    // Insert Subnet Node ID -> hotkey
+    SubnetNodeIdHotkey::<Test>::insert(subnet_id, subnet_node_id, &hotkey);
+
+    // Insert unique hotkey to subnet ID mapping
+    // This is used for updating hotkeys that have subnet_id keys
+    HotkeySubnetId::<Test>::insert(&hotkey, subnet_id);
+
+    // Insert hotkey -> coldkey
+    HotkeyOwner::<Test>::insert(&hotkey, &coldkey);
+
+    let mut hotkeys = ColdkeyHotkeys::<Test>::get(&coldkey);
+    // Insert coldkey -> hotkeys
+    hotkeys.insert(hotkey.clone());
+    ColdkeyHotkeys::<Test>::insert(&coldkey, hotkeys);
+
+    // Insert ColdkeySubnetNodes
+    // Used in overwatch node subnet diversity
+    ColdkeySubnetNodes::<Test>::mutate(&coldkey, |node_map| {
+        node_map
+            .entry(subnet_id)
+            .or_insert_with(BTreeSet::new)
+            .insert(subnet_node_id);
+    });
+
+    PeerIdSubnetNodeId::<Test>::insert(subnet_id, &peer_id, subnet_node_id);
+    BootnodePeerIdSubnetNodeId::<Test>::insert(subnet_id, &bootnode_peer_id, subnet_node_id);
+    ClientPeerIdSubnetNodeId::<Test>::insert(subnet_id, &client_peer_id, subnet_node_id);
+
+    let classification: SubnetNodeClassification = SubnetNodeClassification {
+        node_class: class,
+        start_epoch: start_epoch,
+    };
+
+    let subnet_node: SubnetNode<<Test as frame_system::Config>::AccountId> = SubnetNode {
+        id: subnet_node_id,
+        hotkey: hotkey.clone(),
+        peer_id: peer_id.clone(),
+        bootnode_peer_id: bootnode_peer_id.clone(),
+        client_peer_id: client_peer_id.clone(),
+        bootnode: Some(BoundedVec::new()),
+        classification: classification,
+        delegate_reward_rate: 0,
+        last_delegate_reward_rate_update: 0,
+        unique: None,
+        non_unique: None,
+    };
+
+    TotalSubnetNodes::<Test>::mutate(subnet_id, |n: &mut u32| *n += 1);
+    TotalNodes::<Test>::mutate(|n: &mut u32| *n += 1);
+
+    if class == SubnetNodeClass::Registered {
+        RegisteredSubnetNodesData::<Test>::insert(subnet_id, subnet_node_id, &subnet_node);
+
+        SubnetNodeQueue::<Test>::mutate(subnet_id, |nodes| {
+            nodes.push(subnet_node.clone());
+        });
+    } else {
+        SubnetNodesData::<Test>::insert(subnet_id, subnet_node.id, &subnet_node);
+        // Increase total active nodes in subnet
+        TotalActiveSubnetNodes::<Test>::mutate(subnet_id, |n: &mut u32| *n += 1);
+
+        // Increase total active nodes
+        TotalActiveNodes::<Test>::mutate(|n: &mut u32| *n += 1);
+
+        ColdkeyReputation::<Test>::mutate(&coldkey, |rep| {
+            rep.lifetime_node_count = rep.lifetime_node_count.saturating_add(1);
+            rep.total_active_nodes = rep.total_active_nodes.saturating_add(1);
+        });
+
+        InitialColdkeyData::<Test>::mutate(subnet_id, |maybe_map| {
+            let map = maybe_map.get_or_insert_with(BTreeMap::new);
+            map.entry(coldkey.clone())
+                .and_modify(|count| *count += 1)
+                .or_insert(1);
+        });
+    }
+}
+
+pub fn build_registered_subnet_nodes(
+    subnet_id: u32,
+    start: u32,
+    mut end: u32,
+    deposit_amount: u128,
+    amount: u128,
+    use_unique_coldkey: bool, // if to use unique coldkeys for each subnet
+) {
+    let alice = get_alice();
+
+    let epoch_length = EpochLength::get();
+    let block_number = System::block_number();
+    let epoch = block_number.saturating_div(epoch_length);
+
+    let min_nodes = MinSubnetNodes::<Test>::get();
+    let max_subnets = MaxSubnets::<Test>::get();
+    let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+
+    if end == 0 {
+        end = min_nodes;
+    }
+
+    let deposit_amount: u128 = MinSubnetMinStake::<Test>::get() + 10000;
+
+    // --- Add subnet nodes
+    let block_number = Network::get_current_block_as_u32();
+    let mut amount_staked = 0;
+    let burn_amount = Network::calculate_burn_amount(subnet_id);
+    let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+    for n in start..end {
+        let _n = n + 1;
+        let coldkey = get_coldkey(subnet_id, max_subnet_nodes, _n);
+        let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, _n);
+        let peer_id = get_peer_id(subnet_id, max_subnet_nodes, max_subnets, _n);
+        let bootnode_peer_id =
+            get_bootnode_peer_id(subnet_id, max_subnet_nodes, max_subnets, _n);
+        let client_peer_id = get_client_peer_id(subnet_id, max_subnet_nodes, max_subnets, _n);
+        let alice = get_alice();
+        assert_ok!(Balances::transfer(
+            &alice, // alice
+            &coldkey.clone(),
+            (deposit_amount + amount + burn_amount + 500)
+                .try_into()
+                .ok()
+                .expect("REASON"),
+            ExistenceRequirement::KeepAlive,
+        ));
+
+        amount_staked += amount;
+
+        let bootnode: Option<BoundedVec<u8, DefaultMaxVectorLength>> = {
+            let bytes: Vec<u8> = format!("bootnode-{}-{}", subnet_id, _n).into();
+            Some(bytes.try_into().expect("bootnode too long"))
+        };
+        let unique: Option<BoundedVec<u8, DefaultMaxVectorLength>> = {
+            let bytes: Vec<u8> = format!("unique-{}-{}", subnet_id, _n).into();
+            Some(bytes.try_into().expect("unique too long"))
+        };
+        // For non_unique (if applicable)
+        let non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>> = {
+            let bytes: Vec<u8> = format!("non-unique-{}-{}", subnet_id, _n).into();
+            Some(bytes.try_into().expect("non_unique too long"))
+        };
+
+        assert_ok!(Network::register_subnet_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            subnet_id,
+            hotkey.clone(),
+            peer_id.clone(),
+            bootnode_peer_id.clone(),
+            client_peer_id.clone(),
+            bootnode,
+            0,
+            amount,
+            unique,
+            non_unique,
+            u128::MAX
+        ));
+        let hotkey_subnet_node_id =
+            HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+
+        let subnet_node_id_hotkey =
+            SubnetNodeIdHotkey::<Test>::get(subnet_id, hotkey_subnet_node_id).unwrap();
+        assert_eq!(subnet_node_id_hotkey, hotkey.clone());
+
+        let subnet_node_data =
+            RegisteredSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id).unwrap();
+        assert_eq!(subnet_node_data.hotkey, hotkey.clone());
+        assert_eq!(subnet_node_data.delegate_reward_rate, 0);
+
+        let key_owner = HotkeyOwner::<Test>::get(subnet_node_data.hotkey.clone());
+        assert_eq!(key_owner, coldkey.clone());
+
+        assert_eq!(subnet_node_data.peer_id, peer_id.clone());
+
+        // --- Is ``Validator`` if registered before subnet activation
+        log::error!("node_class {:?}", subnet_node_data.classification);
+        log::error!("subnet_epoch {:?}", subnet_epoch);
+        assert_eq!(
+            subnet_node_data.classification.node_class,
+            SubnetNodeClass::Registered
+        );
+        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Registered, subnet_epoch + 1));
+
+        let peer_subnet_node_account = PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id.clone());
+        assert_eq!(peer_subnet_node_account, hotkey_subnet_node_id);
+
+        let account_subnet_stake = AccountSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
+        assert_eq!(account_subnet_stake, amount);
+
+        let hotkey_subnet_id = HotkeySubnetId::<Test>::get(hotkey.clone());
+        assert_eq!(hotkey_subnet_id, Some(subnet_id));
+
+        let mut is_electable = false;
+        for node_id in SubnetNodeElectionSlots::<Test>::get(subnet_id).iter() {
+            if *node_id == hotkey_subnet_node_id {
+                is_electable = true;
+            }
+        }
+        assert!(!is_electable);
+
+        let coldkey_subnet_nodes = ColdkeySubnetNodes::<Test>::get(coldkey.clone());
+        assert!(coldkey_subnet_nodes
+            .get(&subnet_id)
+            .unwrap()
+            .contains(&hotkey_subnet_node_id))
+    }
 }
 
 pub fn build_registered_subnet_and_subnet_nodes(
@@ -2574,7 +2801,7 @@ pub fn insert_subnet_requirements(id: u32) {
     assert_eq!(total_delegate_stake_balance, min_subnet_delegate_stake);
 }
 
-pub fn insert_subnet_node(
+pub fn manual_insert_subnet_node(
     subnet_id: u32,
     node_id: u32,
     coldkey_n: u32,
@@ -2738,7 +2965,7 @@ pub fn make_overwatch_qualified(coldkey_n: u32) {
         let _n = n + 1;
         let hotkey_n = get_hotkey_n(_n, max_subnet_nodes, max_subnets, _n);
         insert_subnet(_n, SubnetState::Active, 0);
-        insert_subnet_node(
+        manual_insert_subnet_node(
             _n,
             1,         // node id
             coldkey_n, // coldkey

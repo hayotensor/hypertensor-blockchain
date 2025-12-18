@@ -689,6 +689,7 @@ pub mod pallet {
         MaxSubnets,
         /// Account has subnet peer under subnet already
         InvalidSubnetNodeId,
+        InvalidSubnetNodeClassification,
         InvalidEmergencySubnetNodeId,
         /// Not subnet owner
         NotSubnetOwner,
@@ -2242,7 +2243,7 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultMinRegistrationQueueEpochs() -> u32 {
         // Require at least one epoch in registration queue
-        4
+        3
     }
     /// This type value is referenced in:
     /// - MaxQueueEpochs
@@ -2335,13 +2336,13 @@ pub mod pallet {
     /// - IdleClassificationEpochs
     #[pallet::type_value]
     pub fn DefaultIdleClassificationEpochs() -> u32 {
-        4
+        2
     }
     /// This type value is referenced in:
     /// - IncludedClassificationEpochs
     #[pallet::type_value]
     pub fn DefaultIncludedClassificationEpochs() -> u32 {
-        7
+        2
     }
     /// This type value is referenced in:
     /// - NodeRewardRateUpdatePeriod
@@ -8577,7 +8578,7 @@ pub mod pallet {
                 Error::<T>::MaxRegisteredNodes
             );
 
-            // This can only return false if electrion slot insertion fails
+            // This can only return false if election slot insertion fails
             ensure!(
                 Self::do_activate_subnet_node(
                     &mut WeightMeter::new(),
@@ -8672,12 +8673,13 @@ pub mod pallet {
             // --- If subnet activated, activate the node starting at `Idle`
             subnet_node.classification.node_class = SubnetNodeClass::Idle;
             // --- Increase subnet_epoch by one to ensure node starts on a fresh subnet_epoch unless subnet is still registering
-            subnet_node.classification.start_epoch = subnet_epoch + 1;
+            subnet_node.classification.start_epoch = subnet_epoch;
 
             if subnet_state == SubnetState::Registered && !queue {
+                // If we're activating a subnet node while subnet is registering, set it to validator
                 subnet_node.classification.node_class = SubnetNodeClass::Validator;
                 // --- Start node on current subnet_epoch for the next era
-                subnet_node.classification.start_epoch = subnet_epoch;
+                // subnet_node.classification.start_epoch = subnet_epoch;
 
                 // --- Insert into election slot if entering as Validator class
                 // The only other way to enter the election slots is by being graduated by consensus

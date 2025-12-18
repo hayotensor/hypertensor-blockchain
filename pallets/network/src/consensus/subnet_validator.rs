@@ -219,87 +219,6 @@ impl<T: Config> Pallet<T> {
         Ok(Pays::No.into())
     }
 
-    /// Attest validator subnet rewards data
-    // Nodes must attest data to receive rewards
-    // pub fn do_attest(
-    //     subnet_id: u32,
-    //     hotkey: T::AccountId,
-    //     data: Option<BoundedVec<u8, DefaultValidatorArgsLimit>>,
-    // ) -> DispatchResultWithPostInfo {
-    //     let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
-
-    //     // --- Ensure subnet node exists under hotkey
-    //     let subnet_node_id = match HotkeySubnetNodeId::<T>::try_get(subnet_id, &hotkey) {
-    //         Ok(subnet_node_id) => subnet_node_id,
-    //         Err(()) => return Err(Error::<T>::InvalidHotkeySubnetNodeId.into()),
-    //     };
-
-    //     // --- Ensure node classified to attest
-    //     match SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id) {
-    //         Ok(subnet_node) => {
-    //             subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
-    //         }
-    //         Err(()) => return Err(Error::<T>::InvalidSubnetNodeId.into()),
-    //     };
-
-    //     // - Note: we don't check stake balance here
-
-    //     let block: u32 = Self::get_current_block_as_u32();
-
-    //     SubnetConsensusSubmission::<T>::try_mutate_exists(
-    //         subnet_id,
-    //         subnet_epoch,
-    //         |maybe_params| -> DispatchResult {
-    //             let params = maybe_params
-    //                 .as_mut()
-    //                 .ok_or(Error::<T>::InvalidSubnetConsensusSubmission)?;
-
-    //             // Reduntantly check they are in the list
-    //             // See `do_propose_attestation`
-    //             // We check they are SubnetNodeClass::Validator above so we only
-    //             // check they are in the list here
-    //             let subnet_nodes = &mut params.subnet_nodes;
-    //             ensure!(
-    //                 subnet_nodes.iter().any(|node| node.id == subnet_node_id),
-    //                 Error::<T>::InvalidSubnetNodeId
-    //             );
-
-    //             let block = params.block;
-    //             let subnet_epoch_data = Self::attestor_subnet_epoch_data(subnet_id, block)
-    //                 .ok_or(Error::<T>::SubnetEpochDataIsNone)?;
-    //             let subnet_epoch_progression = subnet_epoch_data.subnet_epoch_progression;
-
-    //             let reward_factor = Self::get_attestor_reward_multiplier(subnet_epoch_progression);
-
-    //             let mut attests = &mut params.attests;
-
-    //             ensure!(
-    //                 attests.insert(
-    //                     subnet_node_id,
-    //                     AttestEntry {
-    //                         block,
-    //                         attestor_progress: subnet_epoch_progression,
-    //                         reward_factor,
-    //                         data
-    //                     }
-    //                 ) == None,
-    //                 Error::<T>::AlreadyAttested
-    //             );
-
-    //             params.attests = attests.clone();
-    //             Ok(())
-    //         },
-    //     )?;
-
-    //     Self::deposit_event(Event::Attestation {
-    //         subnet_id: subnet_id,
-    //         subnet_node_id: subnet_node_id,
-    //         epoch: subnet_epoch,
-    //     });
-
-    //     Ok(Pays::No.into())
-    // }
-
     pub fn do_attest(
         subnet_id: u32,
         hotkey: T::AccountId,
@@ -316,7 +235,10 @@ impl<T: Config> Pallet<T> {
         // --- Ensure node classified to attest
         match SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id) {
             Ok(subnet_node) => {
-                subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
+                ensure!(
+                    subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch),
+                    Error::<T>::InvalidSubnetNodeClassification
+                );
             }
             Err(()) => return Err(Error::<T>::InvalidSubnetNodeId.into()),
         };
