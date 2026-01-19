@@ -53,6 +53,8 @@ impl<T: Config> Pallet<T> {
         let min_multiplier = Self::percentage_factor_as_u128(); // 100%
         let max_multiplier = MaxMinDelegateStakeMultiplier::<T>::get();
 
+        // Increase multiplier linearly between min and max nodes
+        // This requires subnets with more nodes to have a higher minimum delegate stake
         if electable_node_count <= min_nodes {
             return min_multiplier;
         } else if electable_node_count >= max_nodes {

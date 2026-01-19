@@ -278,8 +278,8 @@ impl<T: Config> Pallet<T> {
                     Error::<T>::InvalidSubnetNodeId
                 );
 
-                let block = params.block;
-                let subnet_epoch_data = Self::attestor_subnet_epoch_data(subnet_id, block)
+                let proposal_block = params.block;
+                let subnet_epoch_data = Self::attestor_subnet_epoch_data(subnet_id, proposal_block)
                     .ok_or(Error::<T>::SubnetEpochDataIsNone)?;
                 let subnet_epoch_progression = subnet_epoch_data.subnet_epoch_progression;
 
@@ -425,11 +425,18 @@ impl<T: Config> Pallet<T> {
         let reputation_decrease_factor =
             ValidatorNonConsensusSubnetNodeReputationFactor::<T>::get(subnet_id);
         let decrease_factor = Self::percent_mul(reputation_decrease_factor, attestation_delta);
-        let mut reputation = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id);
-        weight = weight.saturating_add(db_weight.reads(2));
-        reputation = Self::get_decrease_reputation(reputation, decrease_factor);
-        SubnetNodeReputation::<T>::insert(subnet_id, subnet_node_id, reputation);
-        weight = weight.saturating_add(db_weight.writes(1));
+        let reputation = Self::decrease_and_return_node_reputation(
+            subnet_id,
+            subnet_node_id,
+            SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id),
+            decrease_factor,
+        );
+
+        // let mut reputation = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id);
+        // weight = weight.saturating_add(db_weight.reads(2));
+        // reputation = Self::get_decrease_reputation(reputation, decrease_factor);
+        // SubnetNodeReputation::<T>::insert(subnet_id, subnet_node_id, reputation);
+        // weight = weight.saturating_add(db_weight.writes(1));
 
         weight = weight.saturating_add(db_weight.reads(1));
         if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {

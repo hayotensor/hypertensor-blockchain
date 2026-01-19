@@ -371,14 +371,16 @@ fn test_remove_stake_not_enough_stake_error() {
         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let subnet_id_key_offset = get_subnet_id_key_offset(subnet_id);
+
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
         let amount_staked = TotalSubnetStake::<Test>::get(subnet_id);
 
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let max_subnets = MaxSubnets::<Test>::get();
 
-        let coldkey = get_coldkey(subnet_id, max_subnet_nodes, end);
-        let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, end);
+        let coldkey = get_coldkey(subnet_id_key_offset, max_subnet_nodes, end);
+        let hotkey = get_hotkey(subnet_id_key_offset, max_subnet_nodes, max_subnets, end);
 
         let min_stake_epochs = MinActiveNodeStakeEpochs::<Test>::get();
         increase_epochs(min_stake_epochs + 2);
@@ -416,14 +418,16 @@ fn test_remove_stake_min_stake_not_reached_error() {
         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let subnet_id_key_offset = get_subnet_id_key_offset(subnet_id);
+
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
         let amount_staked = TotalSubnetStake::<Test>::get(subnet_id);
 
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let max_subnets = MaxSubnets::<Test>::get();
 
-        let coldkey = get_coldkey(subnet_id, max_subnet_nodes, end);
-        let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, end);
+        let coldkey = get_coldkey(subnet_id_key_offset, max_subnet_nodes, end);
+        let hotkey = get_hotkey(subnet_id_key_offset, max_subnet_nodes, max_subnets, end);
 
         let min_stake_epochs = MinActiveNodeStakeEpochs::<Test>::get();
         increase_epochs(min_stake_epochs + 2);
@@ -559,6 +563,7 @@ fn test_remove_stake_min_active_node_stake_epochs() {
             None,
             0,
             stake_amount,
+            None,
             None,
             None,
             u128::MAX
@@ -901,6 +906,7 @@ fn test_register_try_removing_all_stake_error() {
             None,
             0,
             stake_amount,
+            None,
             None,
             None,
             u128::MAX

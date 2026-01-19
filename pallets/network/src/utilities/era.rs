@@ -266,7 +266,7 @@ impl<T: Config> Pallet<T> {
     /// # Notes
     ///
     /// - The function uses storage reads and writes extensively; weights are accumulated accordingly.
-    /// - Subnet removal triggers are delegated to `do_remove_subnet`.
+    /// - Subnet removal triggers are delegated to `try_do_remove_subnet`.
     ///
     pub fn do_epoch_preliminaries(weight_meter: &mut WeightMeter, block: u32, epoch: u32) {
         let db_weight = T::DbWeight::get();

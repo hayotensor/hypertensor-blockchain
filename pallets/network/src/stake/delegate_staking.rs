@@ -306,6 +306,11 @@ impl<T: Config> Pallet<T> {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
         ensure!(
+            account_id != to_account_id,
+            Error::<T>::TransferToSelfNotAllowed
+        );
+
+        ensure!(
             delegate_stake_shares_to_transfer != 0,
             Error::<T>::NotEnoughStakeToWithdraw
         );
@@ -332,7 +337,7 @@ impl<T: Config> Pallet<T> {
         Self::decrease_account_delegate_stake(
             &account_id,
             subnet_id,
-            0, // Do not mutate balance
+            0, // Do not mutate balance since we are transferring in the same subnet
             delegate_stake_shares_to_transfer,
         );
 
@@ -340,7 +345,7 @@ impl<T: Config> Pallet<T> {
         Self::increase_account_delegate_stake(
             &to_account_id,
             subnet_id,
-            0, // Do not mutate balance
+            0, // Do not mutate balance since we are transferring in the same subnet
             delegate_stake_shares_to_transfer,
         );
 

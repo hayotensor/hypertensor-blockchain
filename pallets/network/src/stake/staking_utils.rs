@@ -53,6 +53,8 @@ impl<T: Config> Pallet<T> {
                 .or_insert(amount);
         });
 
+        TotalUnbondingBalance::<T>::mutate(|total| *total = total.saturating_add(amount));
+
         Ok(())
     }
 
@@ -80,6 +82,7 @@ impl<T: Config> Pallet<T> {
 
             unbondings_copy.remove(&unbonding_block);
             Self::add_balance_to_coldkey_account(&coldkey, stake_to_be_added_as_currency);
+            TotalUnbondingBalance::<T>::mutate(|total| *total = total.saturating_sub(*amount));
             successful_unbondings += 1;
         }
 

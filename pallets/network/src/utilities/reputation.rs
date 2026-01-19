@@ -217,6 +217,17 @@ impl<T: Config> Pallet<T> {
         prev_reputation.saturating_add(delta).min(one)
     }
 
+    pub fn get_increase_reputation_v2(prev_reputation: u128, factor: u128) -> u128 {
+        let one_f64 = Self::get_percent_as_f64(Self::percentage_factor_as_u128());
+        let factor_f64 = Self::get_percent_as_f64(factor);
+        let prev_reputation_f64 = Self::get_percent_as_f64(prev_reputation);
+
+        let x = Self::pow(prev_reputation_f64, one_f64 + factor_f64);
+        let increase = x * factor_f64;
+        (((prev_reputation_f64 + increase) * Self::percentage_factor_as_f64()) as u128)
+            .min(Self::percentage_factor_as_u128())
+    }
+
     pub fn decrease_node_reputation(subnet_id: u32, subnet_node_id: u32, factor: u128) -> u128 {
         Self::decrease_and_return_node_reputation(
             subnet_id,

@@ -361,6 +361,8 @@ fn test_on_initialize() {
             } else if let Some(subnet_id) = SlotAssignment::<Test>::get(epoch_slot) {
                 let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
+                let subnet_id_key_offset = get_subnet_id_key_offset(subnet_id);
+
                 let submission =
                     SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch - 1);
                 if epochs_complete > 1 {
@@ -370,7 +372,8 @@ fn test_on_initialize() {
                     BTreeMap::new();
                 if submission != None {
                     for n in 0..end {
-                        let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, n + 1);
+                        let hotkey =
+                            get_hotkey(subnet_id_key_offset, max_subnet_nodes, max_subnets, n + 1);
 
                         let stake = AccountSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
 
@@ -386,7 +389,8 @@ fn test_on_initialize() {
                 // - Ensure rewards were distributed
                 if submission != None {
                     for n in 0..end {
-                        let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, n + 1);
+                        let hotkey =
+                            get_hotkey(subnet_id_key_offset, max_subnet_nodes, max_subnets, n + 1);
 
                         let stake = AccountSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
 

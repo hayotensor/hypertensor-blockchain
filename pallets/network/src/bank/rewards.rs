@@ -76,6 +76,7 @@ impl<T: Config> Pallet<T> {
             );
             weight_meter.consume(slash_validator_weight);
 
+            // Decrease subnet reputation
             let new_subnet_reputation = Self::get_decrease_reputation(
                 subnet_reputation,
                 NotInConsensusSubnetReputationFactor::<T>::get(),
@@ -630,6 +631,15 @@ impl<T: Config> Pallet<T> {
             }
 
             // --- Increase account stake and emit event
+            if let Some(delegate_account) = &subnet_node.delegate_account {
+                let delegate_account_deposit =
+                    Self::percent_mul(account_reward, delegate_account.rate);
+                account_reward = account_reward.saturating_sub(delegate_account_deposit);
+                Self::increase_delegate_account_balance(
+                    &delegate_account.account_id,
+                    delegate_account_deposit,
+                );
+            }
             Self::increase_account_stake(&subnet_node.hotkey, subnet_id, account_reward);
             // AccountSubnetStake | TotalSubnetStake | TotalStake
             weight_meter.consume(db_weight.reads_writes(3, 3));

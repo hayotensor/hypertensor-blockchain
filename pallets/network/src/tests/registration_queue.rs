@@ -72,6 +72,7 @@ fn test_register_subnet_node_v2() {
             amount,
             None,
             None,
+            None,
             u128::MAX
         ));
 
@@ -153,6 +154,7 @@ fn test_register_subnet_node_v2_and_activate() {
             None,
             0,
             amount,
+            None,
             None,
             None,
             u128::MAX
@@ -293,6 +295,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
                 None,
                 0,
                 amount,
+                None,
                 None,
                 None,
                 u128::MAX
@@ -467,6 +470,7 @@ fn test_register_subnet_node_v2_with_max_nodes() {
                 amount,
                 None,
                 None,
+                None,
                 u128::MAX
             ));
 
@@ -624,6 +628,7 @@ fn test_register_subnet_node_v2_activate_up_to_max_nodes() {
                 None,
                 0,
                 amount,
+                None,
                 None,
                 None,
                 u128::MAX

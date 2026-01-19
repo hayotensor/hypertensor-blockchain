@@ -89,6 +89,8 @@ pub trait NetworkCustomApi<BlockHash> {
         subnet_id: u32,
         at: Option<BlockHash>,
     ) -> RpcResult<Vec<u8>>;
+    #[method(name = "network_getAllOverwatchNodesInfo")]
+    fn get_all_overwatch_nodes_info(&self, at: Option<BlockHash>) -> RpcResult<Vec<u8>>;
 }
 
 /// A struct that implements the `NetworkCustomApi`.
@@ -329,5 +331,16 @@ where
                 ))
                 .into()
             })
+    }
+
+    fn get_all_overwatch_nodes_info(
+        &self,
+        at: Option<<Block as BlockT>::Hash>,
+    ) -> RpcResult<Vec<u8>> {
+        let api = self.client.runtime_api();
+        let at = at.unwrap_or_else(|| self.client.info().best_hash);
+        api.get_all_overwatch_nodes_info(at).map_err(|e| {
+            Error::RuntimeError(format!("Unable to get all overwatch nodes info: {:?}", e)).into()
+        })
     }
 }

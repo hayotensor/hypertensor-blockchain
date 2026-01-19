@@ -47,16 +47,26 @@ impl<T: Config> Pallet<T> {
 
     /// Get total tokens in circulation
     pub fn get_total_network_issuance() -> u128 {
+        // Balance in accounts
         let total_issuance_as_balance = T::Currency::total_issuance();
         let total_issuance: u128 = total_issuance_as_balance.try_into().unwrap_or(0);
+        // Balance staked as nodes
         let total_staked: u128 = TotalStake::<T>::get();
+        // Balance delegated
         let total_delegate_staked: u128 = TotalDelegateStake::<T>::get();
+        // Balance node delegate staked
         let total_node_delegate_staked: u128 = TotalNodeDelegateStake::<T>::get();
+        // Balance unbonding
+        let unbonding_balance = TotalUnbondingBalance::<T>::get();
+        // Balance delegate accounts
+        let delegate_account_balance = TotalAccountDelegateStake::<T>::get();
 
         total_issuance
             .saturating_add(total_staked)
             .saturating_add(total_delegate_staked)
             .saturating_add(total_node_delegate_staked)
+            .saturating_add(unbonding_balance)
+            .saturating_add(delegate_account_balance)
     }
 
     pub fn get_avg_nodes_per_subnet() -> u128 {

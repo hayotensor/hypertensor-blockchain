@@ -10,7 +10,7 @@ use crate::{
     TotalNodeDelegateStakeBalance,
     NodeSlotIndex, PeerIdSubnetNodeId, SubnetNodeQueue,
     RegisteredSubnetNodesData, SubnetNodeQueueEpochs, Reputation, NodeRewardRateUpdatePeriod,
-    SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
+    SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeIdHotkey, UniqueParamSubnetNodeId,
     SubnetNodesData, SubnetOwner, SubnetState, SubnetsData,
     TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes,
@@ -84,6 +84,7 @@ fn test_register_subnet_node_v2() {
             None,
             0,
             amount,
+            None,
             None,
             None,
             u128::MAX
@@ -166,6 +167,7 @@ fn test_register_subnet_node_v2_and_activate() {
             None,
             0,
             amount,
+            None,
             None,
             None,
             u128::MAX
@@ -308,6 +310,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
                 None,
                 0,
                 amount,
+                None,
                 None,
                 None,
                 u128::MAX

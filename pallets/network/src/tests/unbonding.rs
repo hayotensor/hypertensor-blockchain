@@ -71,6 +71,7 @@ fn test_register_remove_claim_stake_unbondings() {
             amount,
             None,
             None,
+            None,
             u128::MAX
         ));
 
@@ -341,6 +342,7 @@ fn test_register_activate_remove_claim_stake_unbondings() {
             amount,
             None,
             None,
+            None,
             u128::MAX
         ));
 
@@ -479,6 +481,7 @@ fn test_remove_stake_twice_in_epoch() {
             None,
             0,
             stake_amount,
+            None,
             None,
             None,
             u128::MAX
@@ -629,6 +632,7 @@ fn test_claim_stake_unbondings_no_unbondings_err() {
             stake_amount,
             None,
             None,
+            None,
             u128::MAX
         ));
 
@@ -710,6 +714,7 @@ fn test_remove_to_stake_max_unlockings_reached_err() {
             None,
             0,
             stake_amount * 2,
+            None,
             None,
             None,
             u128::MAX

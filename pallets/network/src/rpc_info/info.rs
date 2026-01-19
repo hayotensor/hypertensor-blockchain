@@ -71,8 +71,9 @@ impl<T: Config> Pallet<T> {
             ),
             non_consensus_attestor_decrease_reputation_factor:
                 NonConsensusAttestorDecreaseReputationFactor::<T>::get(subnet_id),
-            validator_absent_subnet_node_reputation_factor:
-                ValidatorAbsentSubnetNodeReputationFactor::<T>::get(subnet_id),
+            validator_absent_subnet_node_reputation_factor: ValidatorAbsentDecreaseReputationFactor::<
+                T,
+            >::get(subnet_id),
             validator_non_consensus_subnet_node_reputation_factor:
                 ValidatorNonConsensusSubnetNodeReputationFactor::<T>::get(subnet_id),
             bootnode_access: SubnetBootnodeAccess::<T>::get(subnet_id),
@@ -93,63 +94,9 @@ impl<T: Config> Pallet<T> {
         let mut infos: Vec<SubnetInfo<T::AccountId>> = Vec::new();
 
         for (subnet_id, subnet_data) in SubnetsData::<T>::iter() {
-            infos.push(SubnetInfo {
-                id: subnet_data.id,
-                friendly_id: SubnetIdFriendlyUid::<T>::get(subnet_id),
-                name: subnet_data.name,
-                repo: subnet_data.repo,
-                description: subnet_data.description,
-                misc: subnet_data.misc,
-                state: subnet_data.state,
-                start_epoch: subnet_data.start_epoch,
-                churn_limit: ChurnLimit::<T>::get(subnet_id),
-                churn_limit_multiplier: ChurnLimitMultiplier::<T>::get(subnet_id),
-                min_stake: SubnetMinStakeBalance::<T>::get(subnet_id),
-                max_stake: SubnetMaxStakeBalance::<T>::get(subnet_id),
-                queue_immunity_epochs: QueueImmunityEpochs::<T>::get(subnet_id),
-                target_node_registrations_per_epoch: TargetNodeRegistrationsPerEpoch::<T>::get(
-                    subnet_id,
-                ),
-                node_registrations_this_epoch: NodeRegistrationsThisEpoch::<T>::get(subnet_id),
-                subnet_node_queue_epochs: SubnetNodeQueueEpochs::<T>::get(subnet_id),
-                idle_classification_epochs: IdleClassificationEpochs::<T>::get(subnet_id),
-                included_classification_epochs: IncludedClassificationEpochs::<T>::get(subnet_id),
-                delegate_stake_percentage: SubnetDelegateStakeRewardsPercentage::<T>::get(
-                    subnet_id,
-                ),
-                last_delegate_stake_rewards_update: LastSubnetDelegateStakeRewardsUpdate::<T>::get(subnet_id),
-                node_burn_rate_alpha: NodeBurnRateAlpha::<T>::get(subnet_id),
-                current_node_burn_rate: CurrentNodeBurnRate::<T>::get(subnet_id),
-                initial_coldkeys: SubnetRegistrationInitialColdkeys::<T>::get(subnet_id),
-                initial_coldkey_data: InitialColdkeyData::<T>::get(subnet_id),
-                max_registered_nodes: MaxRegisteredNodes::<T>::get(subnet_id),
-                owner: SubnetOwner::<T>::get(subnet_id),
-                pending_owner: PendingSubnetOwner::<T>::get(subnet_id),
-                registration_epoch: SubnetRegistrationEpoch::<T>::get(subnet_id),
-                prev_pause_epoch: PreviousSubnetPauseEpoch::<T>::get(subnet_id),
-                key_types: SubnetKeyTypes::<T>::get(subnet_id),
-                slot_index: SubnetSlot::<T>::get(subnet_id),
-                slot_assignment: SlotAssignment::<T>::get(subnet_id),
-                subnet_node_min_weight_decrease_reputation_threshold: SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
-                reputation: SubnetReputation::<T>::get(subnet_id),
-                min_subnet_node_reputation: MinSubnetNodeReputation::<T>::get(subnet_id),
-                absent_decrease_reputation_factor: AbsentDecreaseReputationFactor::<T>::get(subnet_id),
-                included_increase_reputation_factor: IncludedIncreaseReputationFactor::<T>::get(subnet_id),
-                below_min_weight_decrease_reputation_factor: BelowMinWeightDecreaseReputationFactor::<T>::get(subnet_id),
-                non_attestor_decrease_reputation_factor: NonAttestorDecreaseReputationFactor::<T>::get(subnet_id),
-                non_consensus_attestor_decrease_reputation_factor: NonConsensusAttestorDecreaseReputationFactor::<T>::get(subnet_id),
-                validator_absent_subnet_node_reputation_factor: ValidatorAbsentSubnetNodeReputationFactor::<T>::get(subnet_id),
-                validator_non_consensus_subnet_node_reputation_factor: ValidatorNonConsensusSubnetNodeReputationFactor::<T>::get(subnet_id),
-                bootnode_access: SubnetBootnodeAccess::<T>::get(subnet_id),
-                bootnodes: SubnetBootnodes::<T>::get(subnet_id),
-                total_nodes: TotalSubnetNodes::<T>::get(subnet_id),
-                total_active_nodes: TotalActiveSubnetNodes::<T>::get(subnet_id),
-                total_electable_nodes: TotalSubnetElectableNodes::<T>::get(subnet_id),
-                current_min_delegate_stake: Self::get_min_subnet_delegate_stake_balance(subnet_id),
-                total_subnet_stake: TotalSubnetStake::<T>::get(subnet_id),
-                total_subnet_delegate_stake_shares: TotalSubnetDelegateStakeShares::<T>::get(subnet_id),
-                total_subnet_delegate_stake_balance: TotalSubnetDelegateStakeBalance::<T>::get(subnet_id),
-            })
+            if let Some(subnet_info) = Self::get_subnet_info(subnet_id) {
+                infos.push(subnet_info);
+            }
         }
 
         infos
@@ -306,7 +253,7 @@ impl<T: Config> Pallet<T> {
         } else {
             return false;
         };
-        
+
         let min_stake = SubnetMinStakeBalance::<T>::get(subnet_id);
         let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
         let peer_id = PeerId(peer_id);
@@ -323,7 +270,8 @@ impl<T: Config> Pallet<T> {
                         .or_else(|| {
                             // Only SubnetNodeClass::Registered nodes are stored in RegisteredSubnetNodesData
                             if class == SubnetNodeClass::Registered {
-                                RegisteredSubnetNodesData::<T>::try_get(subnet_id, subnet_node_id).ok()
+                                RegisteredSubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
+                                    .ok()
                             } else {
                                 None
                             }
@@ -350,22 +298,28 @@ impl<T: Config> Pallet<T> {
         }
 
         // Check bootnodes
-        SubnetBootnodesV2::<T>::get(subnet_id).contains_key(&peer_id)
+        SubnetBootnodes::<T>::get(subnet_id).contains_key(&peer_id)
     }
 
-    /// Get all bootnodes organized by the official bootnodes and node bootnodes
+    /// Get all bootnodes organized by the official bootnodes, node bootnodes, and registered bootnodes
     pub fn get_bootnodes(subnet_id: u32) -> AllSubnetBootnodes {
-        let bootnodes: BTreeSet<BoundedVec<u8, DefaultMaxVectorLength>> =
+        let subnet_bootnodes: BTreeMap<PeerId, BoundedVec<u8, DefaultMaxVectorLength>> =
             SubnetBootnodes::<T>::get(subnet_id);
 
-        let node_bootnodes: BTreeSet<BoundedVec<u8, DefaultMaxVectorLength>> =
+        let node_bootnodes: BTreeMap<PeerId, Option<BoundedVec<u8, DefaultMaxVectorLength>>> =
             SubnetNodesData::<T>::iter_prefix(subnet_id)
-                .filter_map(|(_, node)| node.bootnode)
+                .map(|(_, node)| (node.bootnode_peer_id, node.bootnode))
+                .collect();
+
+        let registered_bootnodes: BTreeMap<PeerId, Option<BoundedVec<u8, DefaultMaxVectorLength>>> =
+            RegisteredSubnetNodesData::<T>::iter_prefix(subnet_id)
+                .map(|(_, node)| (node.bootnode_peer_id, node.bootnode))
                 .collect();
 
         AllSubnetBootnodes {
-            bootnodes,
+            subnet_bootnodes,
             node_bootnodes,
+            registered_bootnodes,
         }
     }
 
@@ -468,6 +422,35 @@ impl<T: Config> Pallet<T> {
             })
         }
         node_delegate_stake
+    }
+
+    pub fn get_overwatch_node_info(
+        overwatch_node_id: u32,
+    ) -> Option<OverwatchNodeInfo<T::AccountId>> {
+        if let Some(hotkey) = OverwatchNodeIdHotkey::<T>::get(overwatch_node_id) {
+            let coldkey = HotkeyOwner::<T>::get(&hotkey);
+            return Some(OverwatchNodeInfo {
+                overwatch_node_id,
+                coldkey: coldkey.clone(),
+                hotkey: Some(hotkey.clone()),
+                peer_ids: OverwatchNodeIndex::<T>::get(overwatch_node_id),
+                reputation: ColdkeyReputation::<T>::get(&coldkey),
+                account_overwatch_stake: AccountOverwatchStake::<T>::get(&hotkey),
+            });
+        }
+        None
+    }
+
+    pub fn get_all_overwatch_nodes_info() -> Vec<OverwatchNodeInfo<T::AccountId>> {
+        let mut infos: Vec<OverwatchNodeInfo<T::AccountId>> = Vec::new();
+
+        for (overwatch_node_id, _) in OverwatchNodes::<T>::iter() {
+            if let Some(overwatch_node_info) = Self::get_overwatch_node_info(overwatch_node_id) {
+                infos.push(overwatch_node_info);
+            }
+        }
+
+        infos
     }
 
     pub fn get_overwatch_commits_for_epoch_and_node(

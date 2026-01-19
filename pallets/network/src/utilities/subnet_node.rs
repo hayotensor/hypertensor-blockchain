@@ -69,7 +69,6 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // Redundant
         Err(Error::<T>::InvalidSubnetNodeId.into())
     }
 
@@ -162,7 +161,6 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // Redundant
         Err(Error::<T>::InvalidSubnetNodeId.into())
     }
 
@@ -234,7 +232,6 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // Redundant
         Err(Error::<T>::InvalidSubnetNodeId.into())
     }
 
@@ -304,7 +301,6 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // Redundant
         Err(Error::<T>::InvalidSubnetNodeId.into())
     }
 
@@ -379,7 +375,6 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // Redundant
         Err(Error::<T>::InvalidSubnetNodeId.into())
     }
 
@@ -444,7 +439,6 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // Redundant
         Err(Error::<T>::InvalidSubnetNodeId.into())
     }
 
@@ -524,7 +518,6 @@ impl<T: Config> Pallet<T> {
             return Ok(());
         }
 
-        // Redundant
         Err(Error::<T>::InvalidSubnetNodeId.into())
     }
 
@@ -545,6 +538,125 @@ impl<T: Config> Pallet<T> {
             subnet_node_id,
             non_unique: non_unique,
         });
+
+        Ok(())
+    }
+
+    pub fn do_update_delegate_account(
+        subnet_id: u32,
+        subnet_node_id: u32,
+        delegate_account_id: Option<T::AccountId>,
+        delegate_rate: Option<u128>,
+    ) -> DispatchResult {
+        if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
+            SubnetNodesData::<T>::try_mutate_exists(
+                subnet_id,
+                subnet_node_id,
+                |maybe_params| -> DispatchResult {
+                    Self::perform_update_delegate_account(
+                        subnet_id,
+                        subnet_node_id,
+                        maybe_params,
+                        delegate_account_id,
+                        delegate_rate,
+                    )
+                },
+            )?;
+
+            return Ok(());
+        } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
+            RegisteredSubnetNodesData::<T>::try_mutate_exists(
+                subnet_id,
+                subnet_node_id,
+                |maybe_params| -> DispatchResult {
+                    Self::perform_update_delegate_account(
+                        subnet_id,
+                        subnet_node_id,
+                        maybe_params,
+                        delegate_account_id,
+                        delegate_rate,
+                    )
+                },
+            )?;
+
+            return Ok(());
+        }
+
+        Err(Error::<T>::InvalidSubnetNodeId.into())
+    }
+
+    fn perform_update_delegate_account(
+        subnet_id: u32,
+        subnet_node_id: u32,
+        maybe_params: &mut Option<SubnetNode<T::AccountId>>,
+        delegate_account_id: Option<T::AccountId>,
+        delegate_rate: Option<u128>,
+    ) -> DispatchResult {
+        let params = maybe_params
+            .as_mut()
+            .ok_or(Error::<T>::InvalidSubnetNodeId)?;
+
+        ensure!(
+            delegate_account_id.is_some() || delegate_rate.is_some(),
+            Error::<T>::InvalidDelegateAccountParameters
+        );
+
+        if delegate_account_id.is_some() || delegate_rate.is_some() {
+            let account_id = if let Some(id) = delegate_account_id {
+                id
+            } else if let Some(existing_delegate_account) = &params.delegate_account {
+                existing_delegate_account.account_id.clone()
+            } else {
+                return Err(Error::<T>::DelegateAccountIdIsNone.into());
+            };
+
+            let rate = if let Some(r) = delegate_rate {
+                r
+            } else if let Some(existing_delegate_account) = &params.delegate_account {
+                existing_delegate_account.rate
+            } else {
+                return Err(Error::<T>::DelegateAccountRateIsNone.into());
+            };
+
+            let delegate_account = DelegateAccount { account_id, rate };
+
+            Self::is_valid_delegate_account(
+                &delegate_account,
+                &params.hotkey,
+                &HotkeyOwner::<T>::get(&params.hotkey),
+            )?;
+
+            params.delegate_account = Some(delegate_account);
+        } else {
+            params.delegate_account = None;
+        }
+
+        Self::deposit_event(Event::SubnetNodeUpdateDelegateAccount {
+            subnet_id,
+            subnet_node_id,
+            delegate_account: params.delegate_account.clone(),
+        });
+
+        Ok(())
+    }
+
+    pub fn is_valid_delegate_account(
+        delegate_account: &DelegateAccount<T::AccountId>,
+        hotkey: &T::AccountId,
+        coldkey: &T::AccountId,
+    ) -> DispatchResult {
+        ensure!(
+            delegate_account.account_id != *hotkey,
+            Error::<T>::DelegateAccountCannotBeHotkey
+        );
+        ensure!(
+            delegate_account.account_id != *coldkey,
+            Error::<T>::DelegateAccountCannotBeColdkey
+        );
+        ensure!(
+            delegate_account.rate <= Self::percentage_factor_as_u128() && delegate_account.rate > 0,
+            Error::<T>::InvalidDelegateAccountRate
+        );
 
         Ok(())
     }
@@ -655,7 +767,7 @@ impl<T: Config> Pallet<T> {
         ClientPeerIdSubnetNodeId::<T>::remove(subnet_id, subnet_node.client_peer_id);
         HotkeySubnetNodeId::<T>::remove(subnet_id, &hotkey);
         SubnetNodeIdHotkey::<T>::remove(subnet_id, subnet_node_id);
-        SubnetNodeReputation::<T>::remove(subnet_id, subnet_node_id);
+        // SubnetNodeReputation::<T>::remove(subnet_id, subnet_node_id);
         SubnetNodeIdleConsecutiveEpochs::<T>::remove(subnet_id, subnet_node_id);
         SubnetNodeConsecutiveIncludedEpochs::<T>::remove(subnet_id, subnet_node_id);
         // We don't remove `HotkeySubnetId`. This is only removed when a node fully removes stake

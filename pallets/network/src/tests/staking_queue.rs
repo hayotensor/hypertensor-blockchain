@@ -556,6 +556,7 @@ fn test_execute_ready_swap_calls() {
         let name_1: Vec<u8> = "subnet-name".into();
         build_activated_subnet(name_1.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id_1 = SubnetName::<Test>::get(name_1.clone()).unwrap();
+        let subnet_id_1_key_offset = get_subnet_id_key_offset(subnet_id_1);
 
         let queues_count = 12;
 
@@ -569,7 +570,12 @@ fn test_execute_ready_swap_calls() {
                     AccountSubnetDelegateStakeShares::<Test>::get(&account(n), subnet_id_1);
                 assert_eq!(user_shares, 0);
             } else {
-                let hotkey = get_hotkey(subnet_id_1, max_subnet_nodes, max_subnets, end - 1);
+                let hotkey = get_hotkey(
+                    subnet_id_1_key_offset,
+                    max_subnet_nodes,
+                    max_subnets,
+                    end - 1,
+                );
                 let hotkey_subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id_1, hotkey);
                 insert_to_node_swap_call_queue(
                     account(n),
@@ -635,7 +641,12 @@ fn test_execute_ready_swap_calls() {
                 assert!(user_shares > 0);
             } else {
                 // check node delegate stake balance
-                let hotkey = get_hotkey(subnet_id_1, max_subnet_nodes, max_subnets, end - 1);
+                let hotkey = get_hotkey(
+                    subnet_id_1_key_offset,
+                    max_subnet_nodes,
+                    max_subnets,
+                    end - 1,
+                );
                 let hotkey_subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id_1, hotkey);
                 let user_shares = AccountNodeDelegateStakeShares::<Test>::get((
                     &account(n),

@@ -2,9 +2,8 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, SubnetElectedValidator, SubnetName,
-    SubnetNodeClass, TotalActiveSubnets, PeerIdOverwatchNodeId, SubnetBootnodesV2,
-    DefaultMaxVectorLength,
+    DefaultMaxVectorLength, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, PeerIdOverwatchNodeId,
+    SubnetBootnodes, SubnetElectedValidator, SubnetName, SubnetNodeClass, TotalActiveSubnets,
 };
 use frame_support::assert_ok;
 use frame_support::traits::{Currency, ExistenceRequirement};
@@ -118,7 +117,7 @@ fn test_proof_of_stake_all_peer_id_types() {
         let bv = |b: u8| BoundedVec::<u8, DefaultMaxVectorLength>::try_from(vec![b]).unwrap();
         let add_map = BTreeMap::from([(peer(2), bv(2)), (peer(3), bv(3))]);
 
-        SubnetBootnodesV2::<Test>::insert(subnet_id, add_map);
+        SubnetBootnodes::<Test>::insert(subnet_id, add_map);
 
         assert!(
             Network::proof_of_stake(subnet_id, peer(2).0.to_vec(), 0),
@@ -131,7 +130,8 @@ fn test_proof_of_stake_all_peer_id_types() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
         let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
-        let bootnode_peer_id = get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
+        let bootnode_peer_id =
+            get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
         let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
         if Balances::free_balance(&alice.clone()) <= stake_amount {
             let _ = Balances::deposit_creating(&alice.clone(), stake_amount + 500);
@@ -160,6 +160,7 @@ fn test_proof_of_stake_all_peer_id_types() {
             None,
             0,
             stake_amount,
+            None,
             None,
             None,
             u128::MAX
@@ -221,7 +222,6 @@ fn test_proof_of_stake_with_different_classes() {
             !Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 4),
             "Should not work with non-existence class 4"
         );
-
     })
 }
 
@@ -379,6 +379,15 @@ fn test_get_validators_and_attestors() {
 }
 
 #[test]
+fn test_get_all_overwatch_nodes_info() {
+    new_test_ext().execute_with(|| {
+        let overwatch_nodes_info = Network::get_all_overwatch_nodes_info();
+
+        // assert!(overwatch_nodes_info.len() == 12, "Should have overwatch nodes");
+    })
+}
+
+#[test]
 fn test_get_bootnodes() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "test-subnet".into();
@@ -392,7 +401,7 @@ fn test_get_bootnodes() {
 
         // Verify structure exists
         assert!(
-            bootnodes.bootnodes.len() >= 0 || bootnodes.node_bootnodes.len() >= 0,
+            bootnodes.subnet_bootnodes.len() >= 0 || bootnodes.node_bootnodes.len() >= 0,
             "Bootnodes structure should exist"
         );
     })

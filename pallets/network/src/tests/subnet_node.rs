@@ -13,7 +13,7 @@ use crate::{
     SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, TotalActiveNodes,
     TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake,
     TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
-    UniqueParamSubnetNodeId,
+    TotalSubnetUids, UniqueParamSubnetNodeId,
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
@@ -78,6 +78,7 @@ fn test_activate_subnet_then_register_subnet_node_then_activate() {
             None,
             0,
             amount,
+            None,
             None,
             None,
             u128::MAX
@@ -190,6 +191,7 @@ fn test_register_subnet_node_match_coldkey_hotkey_error() {
                 amount,
                 None,
                 None,
+                None,
                 u128::MAX
             ),
             Error::<Test>::ColdkeyMatchesHotkey
@@ -251,6 +253,7 @@ fn test_register_subnet_subnet_is_paused_error() {
                 amount,
                 None,
                 None,
+                None,
                 u128::MAX
             ),
             Error::<Test>::SubnetIsPaused
@@ -309,6 +312,7 @@ fn test_register_subnet_subnet_must_be_registering_or_active() {
                 amount,
                 None,
                 None,
+                None,
                 u128::MAX
             ),
             Error::<Test>::SubnetMustBeRegisteringOrActivated
@@ -361,6 +365,7 @@ fn test_register_subnet_coldkey_registration_whitelist_error() {
                 None,
                 0,
                 amount,
+                None,
                 None,
                 None,
                 u128::MAX
@@ -430,6 +435,7 @@ fn test_register_subnet_max_registered_nodes_error() {
                         amount,
                         None,
                         None,
+                        None,
                         u128::MAX
                     ),
                     Error::<Test>::MaxRegisteredNodes
@@ -445,6 +451,7 @@ fn test_register_subnet_max_registered_nodes_error() {
                     None,
                     0,
                     amount,
+                    None,
                     None,
                     None,
                     u128::MAX
@@ -502,6 +509,7 @@ fn test_register_subnet_node_and_then_update_a_param() {
             amount,
             Some(bounded_unique.clone()),
             None,
+            None,
             u128::MAX
         ));
 
@@ -537,6 +545,7 @@ fn test_register_subnet_node_and_then_update_a_param() {
                 0,
                 amount,
                 Some(bounded_unique.clone()),
+                None,
                 None,
                 u128::MAX
             ),
@@ -584,6 +593,7 @@ fn test_register_subnet_node_post_subnet_activation() {
             None,
             0,
             amount,
+            None,
             None,
             None,
             u128::MAX
@@ -670,6 +680,7 @@ fn test_activate_subnet_node_post_subnet_activation() {
             None,
             0,
             amount,
+            None,
             None,
             None,
             u128::MAX
@@ -782,6 +793,7 @@ fn test_register_after_activate_with_same_keys() {
             amount,
             None,
             None,
+            None,
             u128::MAX
         ));
 
@@ -839,6 +851,7 @@ fn test_register_after_activate_with_same_keys() {
                 amount,
                 None,
                 None,
+                None,
                 u128::MAX
             ),
             Error::<Test>::HotkeyHasOwner
@@ -891,7 +904,8 @@ fn test_register_after_activate_with_same_keys() {
 //                 amount,
 //                 None,
 //                 None,
-// u128::MAX
+//                 None,
+//                 u128::MAX
 //             ),
 //             Error::<Test>::HotkeyHasOwner
 //         );
@@ -938,7 +952,8 @@ fn test_register_after_activate_with_same_keys() {
 //             amount,
 //             None,
 //             None,
-// u128::MAX
+//             None,
+//             u128::MAX
 //         ));
 
 //         let hotkey_subnet_node_id =
@@ -999,7 +1014,8 @@ fn test_register_after_activate_with_same_keys() {
 //             amount,
 //             None,
 //             None,
-// u128::MAX
+//             None,
+//             u128::MAX
 //         ));
 
 //         let hotkey_subnet_node_id =
@@ -1100,7 +1116,8 @@ fn test_register_after_activate_with_same_keys() {
 //             amount,
 //             None,
 //             None,
-// u128::MAX
+//             None,
+//             u128::MAX
 //         ));
 
 //         let hotkey_subnet_node_id =
@@ -1171,7 +1188,8 @@ fn test_register_after_activate_with_same_keys() {
 //             amount,
 //             None,
 //             None,
-// u128::MAX
+//             None,
+//             u128::MAX
 //         ));
 
 //         let hotkey_subnet_node_id =
@@ -1252,6 +1270,7 @@ fn test_remove_subnet_node_registered() {
             amount,
             Some(bounded_unique.clone()),
             Some(bounded_non_unique.clone()),
+            None,
             u128::MAX
         ));
 
@@ -1358,6 +1377,7 @@ fn test_remove_subnet_node_registered() {
             amount,
             Some(bounded_unique.clone()),
             Some(bounded_non_unique.clone()),
+            None,
             u128::MAX
         ));
 
@@ -1495,6 +1515,7 @@ fn test_remove_subnet_node_registered() {
             amount,
             Some(bounded_unique.clone()),
             Some(bounded_non_unique.clone()),
+            None,
             u128::MAX
         ));
 
@@ -1634,6 +1655,7 @@ fn test_remove_subnet_node_registered() {
             amount,
             Some(bounded_unique.clone()),
             Some(bounded_non_unique.clone()),
+            None,
             u128::MAX
         ));
 
@@ -1796,6 +1818,7 @@ fn test_register_subnet_node_subnet_err() {
                 amount,
                 None,
                 None,
+                None,
                 u128::MAX
             ),
             Error::<Test>::InvalidSubnetId
@@ -1814,6 +1837,7 @@ fn test_register_subnet_node_subnet_err() {
                 None,
                 0,
                 amount,
+                None,
                 None,
                 None,
                 u128::MAX
@@ -1896,6 +1920,7 @@ fn test_register_subnet_node_not_exists_err() {
                 amount,
                 None,
                 None,
+                None,
                 u128::MAX
             ),
             Error::<Test>::HotkeyHasOwner
@@ -1916,6 +1941,7 @@ fn test_register_subnet_node_not_exists_err() {
                 None,
                 0,
                 amount,
+                None,
                 None,
                 None,
                 u128::MAX
@@ -1939,6 +1965,7 @@ fn test_register_subnet_node_not_exists_err() {
                 amount,
                 None,
                 None,
+                None,
                 u128::MAX
             ),
             Error::<Test>::BootnodePeerIdExist
@@ -1957,6 +1984,7 @@ fn test_register_subnet_node_not_exists_err() {
                 None,
                 0,
                 amount,
+                None,
                 None,
                 None,
                 u128::MAX
@@ -2009,6 +2037,7 @@ fn test_add_subnet_node_stake_err() {
                 1,
                 None,
                 None,
+                None,
                 u128::MAX
             ),
             Error::<Test>::MinStakeNotReached
@@ -2057,7 +2086,8 @@ fn test_add_subnet_node_stake_err() {
 //                 amount,
 //                 None,
 //                 None,
-// u128::MAX
+//                 None,
+//                 u128::MAX
 //             ),
 //             Error::<Test>::BalanceBurnError
 //         );
@@ -2104,6 +2134,7 @@ fn test_add_subnet_node_stake_not_enough_balance_err() {
                 None,
                 0,
                 amount,
+                None,
                 None,
                 None,
                 u128::MAX
@@ -2156,6 +2187,7 @@ fn test_register_subnet_node_invalid_peer_id_err() {
                 amount,
                 None,
                 None,
+                None,
                 u128::MAX
             ),
             Error::<Test>::InvalidPeerId
@@ -2178,6 +2210,7 @@ fn test_register_subnet_node_invalid_peer_id_err() {
                 amount,
                 None,
                 None,
+                None,
                 u128::MAX
             ),
             Error::<Test>::InvalidBootnodePeerId
@@ -2194,6 +2227,7 @@ fn test_register_subnet_node_invalid_peer_id_err() {
                 None,
                 0,
                 amount,
+                None,
                 None,
                 None,
                 u128::MAX
@@ -2243,6 +2277,7 @@ fn test_add_subnet_node_remove_readd_new_hotkey() {
             amount,
             None,
             None,
+            None,
             u128::MAX
         ));
 
@@ -2283,6 +2318,7 @@ fn test_add_subnet_node_remove_readd_new_hotkey() {
             None,
             0,
             amount,
+            None,
             None,
             None,
             u128::MAX
@@ -2328,6 +2364,7 @@ fn test_remove_subnet_node_not_key_owner() {
             None,
             0,
             amount,
+            None,
             None,
             None,
             u128::MAX
@@ -2381,6 +2418,7 @@ fn test_add_subnet_node_remove_readd_must_unstake_error() {
             None,
             0,
             amount,
+            None,
             None,
             None,
             u128::MAX
@@ -2841,7 +2879,8 @@ fn test_update_delegate_reward_rate_not_key_owner() {
 //             amount,
 //             None,
 //             None,
-// u128::MAX
+//             None,
+//             u128::MAX
 //         ));
 
 //         let hotkey_subnet_node_id =
@@ -3897,6 +3936,7 @@ fn test_subnet_overwatch_node_unique_hotkeys() {
                 amount,
                 None,
                 None,
+                None,
                 u128::MAX
             ),
             Error::<Test>::HotkeyHasOwner
@@ -3912,6 +3952,7 @@ fn test_subnet_overwatch_node_unique_hotkeys() {
             None,
             0,
             amount,
+            None,
             None,
             None,
             u128::MAX
@@ -3938,6 +3979,7 @@ fn test_clean_coldkey_subnet_nodes() {
             2,   // peer
             SubnetNodeClass::Validator,
             0,
+            None,
         );
         let mut node_ids1 = BTreeSet::new();
         node_ids1.insert(100); // Valid node
@@ -3953,6 +3995,7 @@ fn test_clean_coldkey_subnet_nodes() {
             3,   // peer
             SubnetNodeClass::Validator,
             0,
+            None,
         );
         let mut node_ids2 = BTreeSet::new();
         node_ids2.insert(200); // Valid node
@@ -4537,6 +4580,7 @@ fn test_insert_node_into_election_slot() {
             amount,
             None,
             None,
+            None,
             u128::MAX
         ));
 
@@ -4859,12 +4903,16 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
         let max_subnets = MaxSubnets::<Test>::get();
-        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        // let subnets = TotalActiveSubnets::<Test>::get() + 1;
+
+        let subnets = TotalSubnetUids::<Test>::get() + 1;
+        let subnet_id_key_offset = get_subnet_id_key_offset(subnets);
+
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
         let add_subnet_data = default_registration_subnet_data(
-            subnets,
+            subnet_id_key_offset,
             max_subnet_nodes,
             subnet_name.clone().into(),
             0,
@@ -4881,12 +4929,13 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
             Some(add_subnet_data),
         );
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-        let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
-        let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
-        let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
+        let coldkey = get_coldkey(subnet_id_key_offset, max_subnet_nodes, end + 1);
+        let hotkey = get_hotkey(subnet_id_key_offset, max_subnet_nodes, max_subnets, end + 1);
+        let peer_id = get_peer_id(subnet_id_key_offset, max_subnet_nodes, max_subnets, end + 1);
         let bootnode_peer_id =
-            get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
-        let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
+            get_bootnode_peer_id(subnet_id_key_offset, max_subnet_nodes, max_subnets, end + 1);
+        let client_peer_id =
+            get_client_peer_id(subnet_id_key_offset, max_subnet_nodes, max_subnets, end + 1);
 
         let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount);
         let starting_balance = Balances::free_balance(&coldkey.clone());
@@ -4903,14 +4952,16 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
             amount,
             None,
             None,
+            None,
             u128::MAX
         ));
 
-        let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 2);
-        let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end + 2);
+        let hotkey = get_hotkey(subnet_id_key_offset, max_subnet_nodes, max_subnets, end + 2);
+        let peer_id = get_peer_id(subnet_id_key_offset, max_subnet_nodes, max_subnets, end + 2);
         let bootnode_peer_id =
-            get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end + 2);
-        let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end + 2);
+            get_bootnode_peer_id(subnet_id_key_offset, max_subnet_nodes, max_subnets, end + 2);
+        let client_peer_id =
+            get_client_peer_id(subnet_id_key_offset, max_subnet_nodes, max_subnets, end + 2);
 
         assert_err!(
             Network::register_subnet_node(
@@ -4923,6 +4974,7 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
                 None,
                 0,
                 amount,
+                None,
                 None,
                 None,
                 u128::MAX
@@ -4960,6 +5012,7 @@ fn test_do_activate_subnet_node_subnet_active_node_queued() {
             last_delegate_reward_rate_update: 0,
             unique: None,
             non_unique: None,
+            delegate_account: None,
         };
 
         RegisteredSubnetNodesData::<Test>::insert(subnet_id, subnet_node_id, &subnet_node);
@@ -5039,6 +5092,7 @@ fn test_do_activate_subnet_node_failures() {
             last_delegate_reward_rate_update: 0,
             unique: None,
             non_unique: None,
+            delegate_account: None,
         };
 
         RegisteredSubnetNodesData::<Test>::insert(subnet_id, subnet_node_id, &subnet_node);
@@ -5140,6 +5194,7 @@ fn test_do_activate_subnet_node_registered_subnet() {
             last_delegate_reward_rate_update: 0,
             unique: None,
             non_unique: None,
+            delegate_account: None,
         };
 
         HotkeyOwner::<Test>::insert(hotkey.clone(), hotkey.clone());

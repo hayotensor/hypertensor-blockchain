@@ -5755,7 +5755,7 @@ dependencies = [
  "url",
  "x25519-dalek",
  "x509-parser 0.17.0",
- "yamux 0.13.4",
+ "yamux 0.13.8",
  "yasna",
  "zeroize",
 ]
@@ -6954,6 +6954,7 @@ dependencies = [
 name = "pallet-network"
 version = "4.0.0-dev"
 dependencies = [
+ "bs58",
  "env_logger",
  "fp-account",
  "frame-benchmarking",
@@ -13982,16 +13983,16 @@ dependencies = [
 
 [[package]]
 name = "yamux"
-version = "0.13.4"
+version = "0.13.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "17610762a1207ee816c6fadc29220904753648aba0a9ed61c7b8336e80a559c4"
+checksum = "deab71f2e20691b4728b349c6cee8fc7223880fa67b6b4f92225ec32225447e5"
 dependencies = [
  "futures",
  "log",
  "nohash-hasher",
  "parking_lot 0.12.3",
  "pin-project",
- "rand 0.8.5",
+ "rand 0.9.2",
  "static_assertions",
  "web-time",
 ]

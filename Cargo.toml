@@ -49,7 +49,7 @@ similar-asserts = "1.6.1"
 sqlx = { version = "0.7.4", default-features = false, features = ["macros"] }
 thiserror = "2.0"
 tokio = "1.43.0"
-bs58 = { version = "0.4.0" }
+bs58 = { version = "0.5", default-features = false }
 libm = "0.2.8"
 docify = { version = "0.2.7" }
 sp-arithmetic = { version = "0.30", default-features = false }

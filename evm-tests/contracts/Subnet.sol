@@ -22,6 +22,11 @@ interface Subnet {
         string[] memory bootnodes
     ) external payable;
 
+    struct DelegateAccount {
+        address accountId;
+        uint256 rate;
+    }
+
     function registerSubnetNode(
         uint256 subnetId,
         address hotkey,
@@ -33,6 +38,7 @@ interface Subnet {
         uint256 stakeToBeAdded,
         string memory unique,
         string memory nonUnique,
+        DelegateAccount calldata delegateAccount,
         uint256 maxBurnAmount
     ) external payable;
 

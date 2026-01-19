@@ -1,4 +1,5 @@
 mod admin;
+mod delegate_account;
 mod delegate_staking;
 mod era;
 mod identity;
@@ -7,6 +8,7 @@ mod inflation;
 mod keys;
 mod math;
 pub mod mock;
+mod multiaddr;
 mod node_delegate_staking;
 mod on_initialize;
 mod overwatch_nodes;

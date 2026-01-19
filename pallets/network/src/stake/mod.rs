@@ -1,4 +1,5 @@
 use super::*;
+pub mod delegate_account;
 pub mod delegate_staking;
 pub mod node_delegate_staking;
 pub mod overwatch_staking;

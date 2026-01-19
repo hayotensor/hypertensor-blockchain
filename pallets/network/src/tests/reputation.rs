@@ -298,3 +298,20 @@ fn test_factor_clamping() {
         assert_eq!(new_dec, 0);
     });
 }
+
+#[test]
+fn test_get_increase_reputation_v2() {
+    new_test_ext().execute_with(|| {
+        let factor = 50000000000000000; // 5%
+        let mut reputation = 100000000000000000; // 10%
+
+        for i in 0..28 {
+            reputation = Network::get_increase_reputation_v2(reputation, factor);
+            log::error!(
+                "new {:?}, {:?}",
+                i + 1,
+                (reputation as f64 / 1000000000000000000.0)
+            );
+        }
+    });
+}

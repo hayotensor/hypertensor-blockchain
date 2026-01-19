@@ -54,7 +54,6 @@ use frame_support::{
     weights::{constants::WEIGHT_REF_TIME_PER_MILLIS, IdentityFee, Weight},
     PalletId,
 };
-use pallet_network::{DefaultMaxVectorLength, SubnetNode};
 use pallet_transaction_payment::{ConstFeeMultiplier, FungibleAdapter};
 use pallet_tx_pause::RuntimeCallNameOf;
 // Frontier
@@ -171,8 +170,8 @@ pub const YEAR: BlockNumber = DAYS * 365; // 5256000
 
 // Blocks per epoch
 // pub const BLOCKS_PER_EPOCH: u32 = 300; // Mainnet | 30 minutes/e
-pub const BLOCKS_PER_EPOCH: u32 = 100; // Testnet | 10 minutes/e
-// pub const BLOCKS_PER_EPOCH: u32 = 20; // Local | 2 minutes/e
+// pub const BLOCKS_PER_EPOCH: u32 = 100; // Testnet | 10 minutes/e
+pub const BLOCKS_PER_EPOCH: u32 = 20; // Local | 2 minutes/e
 pub const EPOCHS_PER_YEAR: u32 = (YEAR as u32) / BLOCKS_PER_EPOCH;
 
 pub const TENSOR: u128 = 1_000_000_000_000_000_000; // 1e18
@@ -1489,6 +1488,10 @@ impl_runtime_apis! {
         }
         fn get_validators_and_attestors(subnet_id: u32) -> Vec<u8> {
             let result = Network::get_validators_and_attestors(subnet_id);
+            result.encode()
+        }
+        fn get_all_overwatch_nodes_info() -> Vec<u8> {
+            let result = Network::get_all_overwatch_nodes_info();
             result.encode()
         }
     }
