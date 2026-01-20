@@ -64,7 +64,7 @@ fn test_proof_of_stake() {
         let bootnode_peer_id = get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end);
         let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end);
 
-        let rpc_results = Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 1);
+        let rpc_results = Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 1, None);
 
         assert!(rpc_results);
     })
@@ -88,21 +88,21 @@ fn test_proof_of_stake_all_peer_id_types() {
         // Test with main peer_id
         let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end);
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0),
+            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0, None),
             "Proof of stake should work with main peer_id"
         );
 
         // Test with bootnode_peer_id
         let bootnode_peer_id = get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end);
         assert!(
-            Network::proof_of_stake(subnet_id, bootnode_peer_id.0.to_vec(), 0),
+            Network::proof_of_stake(subnet_id, bootnode_peer_id.0.to_vec(), 0, None),
             "Proof of stake should work with bootnode_peer_id"
         );
 
         // Test with client_peer_id
         let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end);
         assert!(
-            Network::proof_of_stake(subnet_id, client_peer_id.0.to_vec(), 0),
+            Network::proof_of_stake(subnet_id, client_peer_id.0.to_vec(), 0, None),
             "Proof of stake should work with client_peer_id"
         );
 
@@ -110,7 +110,7 @@ fn test_proof_of_stake_all_peer_id_types() {
         let overwatch_node_peer_id = peer(1);
         PeerIdOverwatchNodeId::<Test>::insert(subnet_id, &overwatch_node_peer_id, 1);
         assert!(
-            Network::proof_of_stake(subnet_id, overwatch_node_peer_id.0.to_vec(), 0),
+            Network::proof_of_stake(subnet_id, overwatch_node_peer_id.0.to_vec(), 0, None),
             "Proof of stake should work with overwatch node peer_id"
         );
 
@@ -120,7 +120,7 @@ fn test_proof_of_stake_all_peer_id_types() {
         SubnetBootnodes::<Test>::insert(subnet_id, add_map);
 
         assert!(
-            Network::proof_of_stake(subnet_id, peer(2).0.to_vec(), 0),
+            Network::proof_of_stake(subnet_id, peer(2).0.to_vec(), 0, None),
             "Proof of stake should work with bootnode peer_id"
         );
 
@@ -138,7 +138,7 @@ fn test_proof_of_stake_all_peer_id_types() {
         }
 
         assert!(
-            !Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0),
+            !Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0, None),
             "Proof of stake should not work with non-existent peer_id"
         );
 
@@ -170,7 +170,7 @@ fn test_proof_of_stake_all_peer_id_types() {
         increase_epochs(1);
 
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0),
+            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0, None),
             "Proof of stake should work with registered peer_id"
         );
     })
@@ -195,31 +195,31 @@ fn test_proof_of_stake_with_different_classes() {
 
         // Test with class 0 (Registered)
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0),
+            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0, None),
             "Should work with Registered class"
         );
 
         // Test with class 1 (Idle)
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 1),
+            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 1, None),
             "Should work with Idle class"
         );
 
         // Test with class 2 (Included)
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 2),
+            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 2, None),
             "Should work with Included class"
         );
 
         // Test with class 3 (Validator)
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 3),
+            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 3, None),
             "Should work with Validator class"
         );
 
         // Test with class non-existence class
         assert!(
-            !Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 4),
+            !Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 4, None),
             "Should not work with non-existence class 4"
         );
     })
@@ -238,7 +238,7 @@ fn test_proof_of_stake_invalid_peer_id_fails() {
         // Test with non-existent peer_id
         let fake_peer_id = vec![1, 2, 3, 4, 5];
         assert!(
-            !Network::proof_of_stake(subnet_id, fake_peer_id, 1),
+            !Network::proof_of_stake(subnet_id, fake_peer_id, 1, None),
             "Proof of stake should fail with invalid peer_id"
         );
     })

@@ -1455,8 +1455,8 @@ impl_runtime_apis! {
             let result = Network::get_bootnodes(subnet_id);
             result.encode()
         }
-        fn proof_of_stake(subnet_id: u32, peer_id: Vec<u8>, min_class: u8) -> bool {
-            Network::proof_of_stake(subnet_id, peer_id, min_class)
+        fn proof_of_stake(subnet_id: u32, peer_id: Vec<u8>, min_class: u8, min_stake: Option<u128>) -> bool {
+            Network::proof_of_stake(subnet_id, peer_id, min_class, min_stake)
         }
         fn get_coldkey_subnet_nodes_info(coldkey: AccountId) -> Vec<u8> {
             let result = Network::get_coldkey_subnet_nodes_info(coldkey);

@@ -37,6 +37,7 @@ pub trait NetworkCustomApi<BlockHash> {
         subnet_id: u32,
         peer_id: Vec<u8>,
         min_class: u8,
+        min_stake: Option<u128>,
         at: Option<BlockHash>,
     ) -> RpcResult<bool>;
     #[method(name = "network_getBootnodes")]
@@ -197,11 +198,12 @@ where
         subnet_id: u32,
         peer_id: Vec<u8>,
         min_class: u8,
+        min_stake: Option<u128>,
         at: Option<<Block as BlockT>::Hash>,
     ) -> RpcResult<bool> {
         let api = self.client.runtime_api();
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
-        api.proof_of_stake(at, subnet_id, peer_id, min_class)
+        api.proof_of_stake(at, subnet_id, peer_id, min_class, min_stake)
             .map_err(|e| {
                 Error::RuntimeError(format!(
                     "Unable to get subnet nodes by a parameter: {:?}",

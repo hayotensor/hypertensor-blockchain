@@ -124,6 +124,7 @@ impl<T: Config> Pallet<T> {
             bootnode_peer_id: subnet_node.bootnode_peer_id,
             client_peer_id: subnet_node.client_peer_id,
             bootnode: subnet_node.bootnode,
+            delegate_account: subnet_node.delegate_account,
             identity: ColdkeyIdentity::<T>::get(&coldkey),
             classification: subnet_node.classification,
             delegate_reward_rate: subnet_node.delegate_reward_rate,
@@ -242,8 +243,17 @@ impl<T: Config> Pallet<T> {
     /// * `peer_id` - Subnet node peer ID
     /// * `min_class` - Minimum required class
     ///     * A subnet may likely require Registered or Idle to enter subnet
+    /// * `min_stake` - Optional minimum required stake
+    ///     * If not provided, will use the subnet's minimum stake
+    ///     * This is useful because a node can be slashed under the min stake requirement. Subnets can have leeway
+    ///       on its proof of stake requirements in the subnets communications.
     ///
-    pub fn proof_of_stake(subnet_id: u32, peer_id: Vec<u8>, min_class: u8) -> bool {
+    pub fn proof_of_stake(
+        subnet_id: u32,
+        peer_id: Vec<u8>,
+        min_class: u8,
+        min_stake: Option<u128>,
+    ) -> bool {
         if !SubnetsData::<T>::contains_key(subnet_id) {
             return false;
         }
@@ -254,7 +264,7 @@ impl<T: Config> Pallet<T> {
             return false;
         };
 
-        let min_stake = SubnetMinStakeBalance::<T>::get(subnet_id);
+        let min_stake = min_stake.unwrap_or(SubnetMinStakeBalance::<T>::get(subnet_id));
         let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
         let peer_id = PeerId(peer_id);
 

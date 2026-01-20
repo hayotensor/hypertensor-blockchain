@@ -443,10 +443,14 @@ impl<T: Config> Pallet<T> {
 
             let node_score = subnet_node_data.score;
 
+            // We don't `continue` here because we want to calculate the weight percentage of the
+            // node and possibly slash reputation if below the weight threshold
+
             // --- Calculate node weight percentage of peer versus the weighted sum
             let node_weight: u128 =
                 Self::percent_div(node_score, consensus_submission_data.weight_sum);
 
+            // * Optional logic:
             // Decrease reputation if under subnets weight threshold
             // We don't automatically decrease reputation if a node is at ZERO
             // This is an optional feature for subnets

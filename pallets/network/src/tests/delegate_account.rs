@@ -486,9 +486,9 @@ fn test_register_subnet_node_delegate_account_invalid_delegate_accountrate_error
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 hotkey.clone(),
-                peer_id,
-                bootnode_peer_id,
-                client_peer_id,
+                peer_id.clone(),
+                bootnode_peer_id.clone(),
+                client_peer_id.clone(),
                 None,
                 0,
                 amount,
@@ -510,9 +510,9 @@ fn test_register_subnet_node_delegate_account_invalid_delegate_accountrate_error
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 hotkey.clone(),
-                peer_id,
-                bootnode_peer_id,
-                client_peer_id,
+                peer_id.clone(),
+                bootnode_peer_id.clone(),
+                client_peer_id.clone(),
                 None,
                 0,
                 amount,
@@ -523,7 +523,6 @@ fn test_register_subnet_node_delegate_account_invalid_delegate_accountrate_error
             ),
             Error::<Test>::InvalidDelegateAccountRate
         );
-
     })
 }
 

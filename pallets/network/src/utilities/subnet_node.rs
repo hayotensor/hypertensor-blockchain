@@ -205,7 +205,7 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         if let Some(bootnode) = &new_bootnode {
             ensure!(
-                Self::is_owner_of_bootnode_or_ownerless(subnet_id, 0, bootnode.clone()),
+                Self::is_owner_of_multiaddr_or_ownerless(subnet_id, 0, bootnode.clone()),
                 Error::<T>::BootnodeExist
             );
         }
@@ -245,11 +245,21 @@ impl<T: Config> Pallet<T> {
             .ok_or(Error::<T>::InvalidSubnetNodeId)?;
 
         if let Some(bootnode) = &params.bootnode {
-            BootnodeSubnetNodeId::<T>::remove(subnet_id, bootnode);
+            // Remove old bootnode
+            MultiaddrSubnetNodeId::<T>::remove(subnet_id, bootnode);
         }
 
         if let Some(bootnode) = new_bootnode.clone() {
-            BootnodeSubnetNodeId::<T>::insert(subnet_id, bootnode, params.id);
+            // Verify new bootnode
+            let multiaddr: &[u8] = &bootnode.clone();
+
+            ensure!(
+                multiaddr::Multiaddr::verify(multiaddr).is_ok(),
+                Error::<T>::InvalidBootnode
+            );
+
+            // Insert new bootnode
+            MultiaddrSubnetNodeId::<T>::insert(subnet_id, bootnode, params.id);
         }
 
         // Nodes can update bootnode to None
@@ -620,7 +630,7 @@ impl<T: Config> Pallet<T> {
 
             let delegate_account = DelegateAccount { account_id, rate };
 
-            Self::is_valid_delegate_account(
+            Self::validate_delegate_account(
                 &delegate_account,
                 &params.hotkey,
                 &HotkeyOwner::<T>::get(&params.hotkey),
@@ -640,7 +650,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn is_valid_delegate_account(
+    pub fn validate_delegate_account(
         delegate_account: &DelegateAccount<T::AccountId>,
         hotkey: &T::AccountId,
         coldkey: &T::AccountId,
@@ -657,6 +667,48 @@ impl<T: Config> Pallet<T> {
             delegate_account.rate <= Self::percentage_factor_as_u128() && delegate_account.rate > 0,
             Error::<T>::InvalidDelegateAccountRate
         );
+
+        Ok(())
+    }
+
+    pub fn validate_peer_info(
+        subnet_id: u32,
+        subnet_node_id: u32,
+        overwatch_node_id: u32,
+        peer_info: &PeerInfoV3,
+    ) -> DispatchResult {
+        ensure!(
+            Self::validate_peer_id(&peer_info.peer_id),
+            Error::<T>::InvalidBootnodePeerId
+        );
+
+        ensure!(
+            Self::is_owner_of_peer_or_ownerless(
+                subnet_id,
+                subnet_node_id,
+                overwatch_node_id,
+                &peer_info.peer_id
+            ),
+            Error::<T>::BootnodePeerIdExist
+        );
+
+        if let Some(peer_multiaddr) = peer_info.multiaddr.clone() {
+            let multiaddr: &[u8] = &peer_multiaddr;
+
+            ensure!(
+                multiaddr::Multiaddr::verify(multiaddr).is_ok(),
+                Error::<T>::InvalidBootnode
+            );
+
+            ensure!(
+                Self::is_owner_of_multiaddr_or_ownerless(
+                    subnet_id,
+                    subnet_node_id,
+                    peer_multiaddr.clone()
+                ),
+                Error::<T>::BootnodeExist
+            );
+        }
 
         Ok(())
     }
@@ -758,7 +810,7 @@ impl<T: Config> Pallet<T> {
         }
 
         if let Some(bootnode) = subnet_node.bootnode {
-            BootnodeSubnetNodeId::<T>::remove(subnet_id, bootnode);
+            MultiaddrSubnetNodeId::<T>::remove(subnet_id, bootnode);
         }
 
         // Remove all subnet node elements
@@ -957,6 +1009,7 @@ impl<T: Config> Pallet<T> {
                     bootnode_peer_id: subnet_node.bootnode_peer_id,
                     client_peer_id: subnet_node.client_peer_id,
                     bootnode: subnet_node.bootnode,
+                    delegate_account: subnet_node.delegate_account,
                     identity: ColdkeyIdentity::<T>::get(&coldkey),
                     classification: subnet_node.classification,
                     delegate_reward_rate: subnet_node.delegate_reward_rate,
@@ -1138,14 +1191,14 @@ impl<T: Config> Pallet<T> {
             }
     }
 
-    pub fn is_owner_of_bootnode_or_ownerless(
+    pub fn is_owner_of_multiaddr_or_ownerless(
         subnet_id: u32,
         subnet_node_id: u32,
-        bootnode: BoundedVec<u8, DefaultMaxVectorLength>,
+        multiaddr: BoundedVec<u8, DefaultMaxVectorLength>,
     ) -> bool {
-        match BootnodeSubnetNodeId::<T>::try_get(subnet_id, bootnode) {
-            Ok(bootnode_subnet_node_id) => {
-                if bootnode_subnet_node_id == subnet_node_id {
+        match MultiaddrSubnetNodeId::<T>::try_get(subnet_id, multiaddr) {
+            Ok(node_id) => {
+                if node_id == subnet_node_id {
                     return true;
                 }
                 false

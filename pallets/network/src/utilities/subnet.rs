@@ -291,8 +291,16 @@ impl<T: Config> Pallet<T> {
                 bootnodes.remove(item);
             }
 
-            for (peer_id, data) in add.iter() {
-                bootnodes.insert(peer_id.clone(), data.clone());
+            for (peer_id, multiaddr) in add.iter() {
+                // Verify new bootnode
+                let addr: &[u8] = &multiaddr.clone();
+
+                ensure!(
+                    multiaddr::Multiaddr::verify(addr).is_ok(),
+                    Error::<T>::InvalidBootnode
+                );
+
+                bootnodes.insert(peer_id.clone(), multiaddr.clone());
             }
 
             ensure!(

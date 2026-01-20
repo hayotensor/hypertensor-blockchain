@@ -2,7 +2,7 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountSubnetStake, BootnodePeerIdSubnetNodeId, BootnodeSubnetNodeId,
+    AccountSubnetStake, BootnodePeerIdSubnetNodeId, MultiaddrSubnetNodeId,
     ClientPeerIdSubnetNodeId, ColdkeyReputation, DefaultMaxVectorLength, Error,
     HotkeyOwner, HotkeySubnetId, HotkeySubnetNodeId,
     MaxDelegateStakePercentage, MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes,

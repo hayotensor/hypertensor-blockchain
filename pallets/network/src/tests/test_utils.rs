@@ -145,13 +145,28 @@ pub fn get_subnet_id_key_offset(active_subnets: u32) -> u32 {
     active_subnets - STARTING_SUBNET_ID
 }
 
-pub fn get_multiaddr() -> Option<BoundedVec<u8, DefaultMaxVectorLength>> {
+pub fn get_multiaddr(
+    subnet_id: Option<u32>,
+    subnet_node_id: Option<u32>,
+) -> Option<BoundedVec<u8, DefaultMaxVectorLength>> {
+    let ip_append = if let Some(subnet_id) = subnet_id {
+        &[127, 0, 0, subnet_id as u8]
+    } else {
+        &[127, 0, 0, 1]
+    };
+
+    let port_append = if let Some(subnet_node_id) = subnet_node_id {
+        (30303u16 + subnet_node_id as u16).to_be_bytes()
+    } else {
+        30303u16.to_be_bytes()
+    };
+
     let peer = PeerId::new([1u8; 32].to_vec());
     let mut bytes = vec![];
     encode_varint(IP4, &mut bytes);
-    bytes.extend_from_slice(&[127, 0, 0, 1]);
+    bytes.extend_from_slice(ip_append);
     encode_varint(TCP, &mut bytes);
-    bytes.extend_from_slice(&30303u16.to_be_bytes());
+    bytes.extend_from_slice(&port_append);
     encode_varint(P2P, &mut bytes);
     encode_varint(peer.0.len() as u64, &mut bytes);
     bytes.extend_from_slice(&peer.0);
@@ -910,7 +925,7 @@ pub fn insert_subnet_node(
         peer_id: peer_id.clone(),
         bootnode_peer_id: bootnode_peer_id.clone(),
         client_peer_id: client_peer_id.clone(),
-        bootnode: Some(BoundedVec::new()),
+        bootnode: None,
         classification: classification,
         delegate_reward_rate: 0,
         last_delegate_reward_rate_update: 0,
@@ -1003,10 +1018,11 @@ pub fn build_registered_subnet_nodes(
 
         amount_staked += amount;
 
-        let bootnode: Option<BoundedVec<u8, DefaultMaxVectorLength>> = {
-            let bytes: Vec<u8> = format!("bootnode-{}-{}", subnet_id, _n).into();
-            Some(bytes.try_into().expect("bootnode too long"))
-        };
+        // let bootnode: Option<BoundedVec<u8, DefaultMaxVectorLength>> = {
+        //     let bytes: Vec<u8> = format!("bootnode-{}-{}", subnet_id, _n).into();
+        //     Some(bytes.try_into().expect("bootnode too long"))
+        // };
+        let bootnode = get_multiaddr(Some(subnet_id), Some(_n));
         let unique: Option<BoundedVec<u8, DefaultMaxVectorLength>> = {
             let bytes: Vec<u8> = format!("unique-{}-{}", subnet_id, _n).into();
             Some(bytes.try_into().expect("unique too long"))
@@ -2335,7 +2351,7 @@ pub fn default_registration_subnet_data(
         delegate_stake_percentage: 100000000000000000, // 10%
         initial_coldkeys: get_initial_coldkeys(subnets, max_subnet_nodes, start, end),
         key_types: BTreeSet::from([KeyType::Rsa]),
-        bootnodes: BTreeMap::from([(peer(0), get_multiaddr().expect("valid multiaddr"))]),
+        bootnodes: BTreeMap::from([(peer(0), get_multiaddr(None, None).expect("valid multiaddr"))]),
     };
     add_subnet_data
 }
@@ -2369,7 +2385,7 @@ pub fn default_registration_subnet_data_with_onodes(
             overwatch_count,
         ),
         key_types: BTreeSet::from([KeyType::Rsa]),
-        bootnodes: BTreeMap::from([(peer(0), get_multiaddr().expect("valid multiaddr"))]),
+        bootnodes: BTreeMap::from([(peer(0), get_multiaddr(None, None).expect("valid multiaddr"))]),
     };
     add_subnet_data
 }
@@ -2859,7 +2875,7 @@ pub fn manual_insert_subnet_node(
             peer_id: peer(peer_n),
             bootnode_peer_id: peer(peer_n),
             client_peer_id: peer(peer_n),
-            bootnode: get_multiaddr(),
+            bootnode: get_multiaddr(Some(subnet_id), Some(node_id)),
             delegate_reward_rate: 0,
             last_delegate_reward_rate_update: 0,
             classification: SubnetNodeClassification {

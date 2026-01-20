@@ -2,11 +2,11 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountSubnetStake, BootnodePeerIdSubnetNodeId, BootnodeSubnetNodeId, ClientPeerIdSubnetNodeId,
-    ColdkeyReputation, ColdkeySubnetNodes, CurrentNodeBurnRate, DefaultMaxVectorLength, Error,
-    HotkeyOwner, HotkeySubnetId, HotkeySubnetNodeId, MaxDelegateStakePercentage,
-    MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
-    MinSubnetNodes, NodeRewardRateUpdatePeriod, NodeSlotIndex, PeerIdSubnetNodeId,
+    AccountSubnetStake, BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ColdkeyReputation,
+    ColdkeySubnetNodes, CurrentNodeBurnRate, DefaultMaxVectorLength, Error, HotkeyOwner,
+    HotkeySubnetId, HotkeySubnetNodeId, MaxDelegateStakePercentage, MaxRegisteredNodes,
+    MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes,
+    MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex, PeerIdSubnetNodeId,
     RegisteredSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName,
     SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
     SubnetNodeIdHotkey, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodesData, SubnetOwner,
@@ -3296,15 +3296,17 @@ fn test_update_bootnode() {
         let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 
-        let bootnode: Vec<u8> = "new-bootnode".into();
-        let bounded_bootnode: BoundedVec<u8, DefaultMaxVectorLength> =
-            bootnode.try_into().expect("String too long");
+        // let bootnode: Vec<u8> = "new-bootnode".into();
+        // let bounded_bootnode: BoundedVec<u8, DefaultMaxVectorLength> =
+        //     bootnode.try_into().expect("String too long");
+
+        let bounded_bootnode = get_multiaddr(Some(subnet_id), Some(subnet_node_id));
 
         assert_ok!(Network::update_bootnode(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
-            Some(bounded_bootnode.clone())
+            bounded_bootnode.clone()
         ));
 
         assert_eq!(
@@ -3312,14 +3314,14 @@ fn test_update_bootnode() {
             Event::SubnetNodeUpdateBootnode {
                 subnet_id,
                 subnet_node_id,
-                bootnode: Some(bounded_bootnode.clone())
+                bootnode: bounded_bootnode.clone()
             }
         );
 
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.bootnode, Some(bounded_bootnode.clone()));
+        assert_eq!(subnet_node.bootnode, bounded_bootnode);
         assert_eq!(
-            BootnodeSubnetNodeId::<Test>::get(subnet_id, bounded_bootnode.clone()),
+            MultiaddrSubnetNodeId::<Test>::get(subnet_id, bounded_bootnode.clone().unwrap()),
             subnet_node_id
         );
 
@@ -3333,7 +3335,7 @@ fn test_update_bootnode() {
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
         assert_eq!(subnet_node.bootnode, None);
         assert_eq!(
-            BootnodeSubnetNodeId::<Test>::try_get(subnet_id, bounded_bootnode.clone()),
+            MultiaddrSubnetNodeId::<Test>::try_get(subnet_id, bounded_bootnode.clone().unwrap()),
             Err(())
         );
 
@@ -3346,7 +3348,7 @@ fn test_update_bootnode() {
         // let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
         // assert_eq!(subnet_node.bootnode, Some(bounded_bootnode.clone()));
         // assert_eq!(
-        //     BootnodeSubnetNodeId::<Test>::get(subnet_id, bounded_bootnode.clone()),
+        //     MultiaddrSubnetNodeId::<Test>::get(subnet_id, bounded_bootnode.clone()),
         //     subnet_node_id
         // );
 
@@ -3359,12 +3361,12 @@ fn test_update_bootnode() {
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
-            Some(bounded_bootnode.clone())
+            bounded_bootnode.clone()
         ));
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.bootnode, Some(bounded_bootnode.clone()));
+        assert_eq!(subnet_node.bootnode, bounded_bootnode);
         assert_eq!(
-            BootnodeSubnetNodeId::<Test>::get(subnet_id, bounded_bootnode.clone()),
+            MultiaddrSubnetNodeId::<Test>::get(subnet_id, bounded_bootnode.clone().unwrap()),
             subnet_node_id
         );
     })
@@ -3397,16 +3399,18 @@ fn test_update_bootnode_not_key_owner() {
 
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 
-        let bootnode: Vec<u8> = "new-bootnode".into();
-        let bounded_bootnode: BoundedVec<u8, DefaultMaxVectorLength> =
-            bootnode.try_into().expect("String too long");
+        // let bootnode: Vec<u8> = "new-bootnode".into();
+        // let bounded_bootnode: BoundedVec<u8, DefaultMaxVectorLength> =
+        //     bootnode.try_into().expect("String too long");
+
+        let bounded_bootnode = get_multiaddr(Some(subnet_id), Some(subnet_node_id));
 
         assert_err!(
             Network::update_bootnode(
                 RuntimeOrigin::signed(account(2)),
                 subnet_id,
                 subnet_node_id,
-                Some(bounded_bootnode.clone())
+                bounded_bootnode
             ),
             Error::<Test>::NotKeyOwner
         );

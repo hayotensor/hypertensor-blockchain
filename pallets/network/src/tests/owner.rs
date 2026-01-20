@@ -2761,7 +2761,11 @@ fn test_owner_add_bootnode_access() {
         let bv = |b: u8| BoundedVec::<u8, DefaultMaxVectorLength>::try_from(vec![b]).unwrap();
 
         // --- Case 1: Add bootnodes ---
-        let add_map = BTreeMap::from([(peer(1), bv(1)), (peer(2), bv(2))]);
+        // let add_map = BTreeMap::from([(peer(1), bv(1)), (peer(2), bv(2))]);
+        let add_map = BTreeMap::from([
+            (peer(1), get_multiaddr(Some(subnet_id), Some(1)).unwrap()),
+            (peer(2), get_multiaddr(Some(subnet_id), Some(2)).unwrap()),
+        ]);
         assert_ok!(Network::update_bootnodes(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
