@@ -3,7 +3,8 @@ use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
     DefaultMaxVectorLength, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, PeerIdOverwatchNodeId,
-    SubnetBootnodes, SubnetElectedValidator, SubnetName, SubnetNodeClass, TotalActiveSubnets,
+    PeerInfo, SubnetBootnodes, SubnetElectedValidator, SubnetName, SubnetNodeClass,
+    TotalActiveSubnets,
 };
 use frame_support::assert_ok;
 use frame_support::traits::{Currency, ExistenceRequirement};
@@ -154,9 +155,11 @@ fn test_proof_of_stake_all_peer_id_types() {
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             hotkey.clone(),
-            peer_id.clone(),
-            bootnode_peer_id.clone(),
-            client_peer_id.clone(),
+            PeerInfo {
+                peer_id: peer_id.clone(),
+                multiaddr: None,
+            },
+            None,
             None,
             0,
             stake_amount,

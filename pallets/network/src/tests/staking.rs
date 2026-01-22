@@ -2,7 +2,7 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     ColdkeyHotkeys, ColdkeySubnetNodes, Error, HotkeyOwner, HotkeySubnetId, HotkeySubnetNodeId,
-    MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake,
+    MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake, PeerInfo,
     RegisteredSubnetNodesData, StakeCooldownEpochs, StakeUnbondingLedger, SubnetMaxStakeBalance,
     SubnetName, SubnetNodeQueueEpochs, SubnetNodesData, SubnetRemovalReason, SubnetsData,
     TotalActiveSubnets, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
@@ -557,9 +557,11 @@ fn test_remove_stake_min_active_node_stake_epochs() {
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             hotkey.clone(),
-            peer_id.clone(),
-            bootnode_peer_id.clone(),
-            client_peer_id.clone(),
+            PeerInfo {
+                peer_id: peer_id.clone(),
+                multiaddr: None,
+            },
+            None,
             None,
             0,
             stake_amount,
@@ -900,10 +902,18 @@ fn test_register_try_removing_all_stake_error() {
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             hotkey.clone(),
-            peer_id,
-            bootnode_peer_id,
-            client_peer_id,
-            None,
+            PeerInfo {
+                peer_id: peer_id.clone(),
+                multiaddr: None,
+            },
+            Some(PeerInfo {
+                peer_id: bootnode_peer_id.clone(),
+                multiaddr: None,
+            }),
+            Some(PeerInfo {
+                peer_id: client_peer_id.clone(),
+                multiaddr: None,
+            }),
             0,
             stake_amount,
             None,

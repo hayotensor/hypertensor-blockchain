@@ -10,7 +10,7 @@ use crate::{
     MinDelegateStakePercentage, MinIdleClassificationEpochs, MinIncludedClassificationEpochs,
     MinMaxRegisteredNodes, MinQueueEpochs, MinRegistrationCost, MinSubnetMinStake, MinSubnetNodes,
     MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
-    NetworkMaxStakeBalance, PrevSubnetActivationEpoch, RegistrationCostDecayBlocks,
+    NetworkMaxStakeBalance, PeerInfo, PrevSubnetActivationEpoch, RegistrationCostDecayBlocks,
     RegistrationSubnetData, SlotAssignment, SubnetBootnodeAccess, SubnetBootnodes, SubnetData,
     SubnetElectedValidator, SubnetEnactmentEpochs, SubnetName, SubnetOwner,
     SubnetRegistrationEpoch, SubnetRegistrationEpochs, SubnetRemovalReason, SubnetReputation,
@@ -740,9 +740,11 @@ fn test_activate_subnet() {
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 hotkey.clone(),
-                peer_id.clone(),
-                bootnode_peer_id.clone(),
-                client_peer_id.clone(),
+                PeerInfo {
+                    peer_id: peer_id.clone(),
+                    multiaddr: None,
+                },
+                None,
                 None,
                 0,
                 amount,
@@ -857,9 +859,11 @@ fn test_activate_subnet_anytime() {
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 hotkey.clone(),
-                peer_id.clone(),
-                bootnode_peer_id.clone(),
-                client_peer_id.clone(),
+                PeerInfo {
+                    peer_id: peer_id.clone(),
+                    multiaddr: None,
+                },
+                None,
                 None,
                 0,
                 amount,
@@ -1033,9 +1037,11 @@ fn test_activate_subnet_invalid_subnet_id_error() {
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 hotkey.clone(),
-                peer_id.clone(),
-                bootnode_peer_id.clone(),
-                client_peer_id.clone(),
+                PeerInfo {
+                    peer_id: peer_id.clone(),
+                    multiaddr: None,
+                },
+                None,
                 None,
                 0,
                 amount,
@@ -1120,9 +1126,11 @@ fn test_activate_subnet_already_activated_err() {
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 hotkey.clone(),
-                peer_id.clone(),
-                bootnode_peer_id.clone(),
-                client_peer_id.clone(),
+                PeerInfo {
+                    peer_id: peer_id.clone(),
+                    multiaddr: None,
+                },
+                None,
                 None,
                 0,
                 amount,
@@ -1230,9 +1238,11 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 hotkey.clone(),
-                peer_id.clone(),
-                bootnode_peer_id.clone(),
-                client_peer_id.clone(),
+                PeerInfo {
+                    peer_id: peer_id.clone(),
+                    multiaddr: None,
+                },
+                None,
                 None,
                 0,
                 amount,
@@ -1336,9 +1346,11 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 hotkey.clone(),
-                peer_id.clone(),
-                bootnode_peer_id.clone(),
-                client_peer_id.clone(),
+                PeerInfo {
+                    peer_id: peer_id.clone(),
+                    multiaddr: None,
+                },
+                None,
                 None,
                 0,
                 amount,
@@ -1527,9 +1539,11 @@ fn test_activate_subnet_min_delegate_balance_remove_subnet() {
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 hotkey.clone(),
-                peer_id.clone(),
-                bootnode_peer_id.clone(),
-                client_peer_id.clone(),
+                PeerInfo {
+                    peer_id: peer_id.clone(),
+                    multiaddr: None,
+                },
+                None,
                 None,
                 0,
                 amount,
@@ -1686,7 +1700,7 @@ fn test_get_current_registration_cost() {
 }
 
 #[test]
-fn test_update_bootnode() {
+fn test_update_bootnodes() {
     new_test_ext().execute_with(|| {
         increase_epochs(1);
         // --- Setup ---
@@ -1729,8 +1743,8 @@ fn test_update_bootnode() {
         // --- Case 1: Add bootnodes ---
         // let add_map = BTreeMap::from([(peer(1), bv(1)), (peer(2), bv(2))]);
         let add_map = BTreeMap::from([
-            (peer(1), get_multiaddr(Some(1), Some(1)).unwrap()),
-            (peer(2), get_multiaddr(Some(2), Some(2)).unwrap()),
+            (peer(1), get_multiaddr(Some(1), Some(1), None).unwrap()),
+            (peer(2), get_multiaddr(Some(2), Some(2), None).unwrap()),
         ]);
         assert_ok!(Network::update_bootnodes(
             RuntimeOrigin::signed(caller.clone()),
@@ -1767,7 +1781,7 @@ fn test_update_bootnode() {
         for i in 3..=max_bootnodes as u8 {
             add_map.insert(
                 peer(i as u32),
-                get_multiaddr(Some(subnet_id), Some(i as u32)).unwrap(),
+                get_multiaddr(Some(subnet_id), Some(i as u32), None).unwrap(),
             );
         }
         assert_ok!(Network::update_bootnodes(
@@ -1780,10 +1794,10 @@ fn test_update_bootnode() {
         // Try to add one more (should fail)
         // let too_many = BTreeMap::from([(peer(99), bv(99)), (peer(100), bv(100))]);
         let too_many = BTreeMap::from([
-            (peer(99), get_multiaddr(Some(subnet_id), Some(99)).unwrap()),
+            (peer(99), get_multiaddr(Some(subnet_id), Some(99), None).unwrap()),
             (
                 peer(100),
-                get_multiaddr(Some(subnet_id), Some(100)).unwrap(),
+                get_multiaddr(Some(subnet_id), Some(100), None).unwrap(),
             ),
         ]);
         assert_err!(
@@ -1844,8 +1858,8 @@ fn test_update_bootnode_owner_updates() {
         // --- Case 1: Add bootnodes ---
         // let add_map = BTreeMap::from([(peer(1), bv(1)), (peer(2), bv(2))]);
         let add_map = BTreeMap::from([
-            (peer(1), get_multiaddr(Some(1), Some(1)).unwrap()),
-            (peer(2), get_multiaddr(Some(2), Some(2)).unwrap()),
+            (peer(1), get_multiaddr(Some(1), Some(1), None).unwrap()),
+            (peer(2), get_multiaddr(Some(2), Some(2), None).unwrap()),
         ]);
 
         assert_ok!(Network::update_bootnodes(

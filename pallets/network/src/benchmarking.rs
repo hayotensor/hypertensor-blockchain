@@ -323,7 +323,7 @@ fn build_activated_subnet<T: Config>(
         let key_owner = HotkeyOwner::<T>::get(subnet_node_data.hotkey.clone());
         assert_eq!(key_owner, coldkey.clone());
 
-        assert_eq!(subnet_node_data.peer_id, peer_id.clone());
+        assert_eq!(subnet_node_data.peer_info.peer_id, peer_id.clone());
 
         // --- Is ``Validator`` if registered before subnet activation
         assert_eq!(
@@ -530,7 +530,7 @@ fn build_registered_subnet<T: Config>(
         let key_owner = HotkeyOwner::<T>::get(subnet_node_data.hotkey.clone());
         assert_eq!(key_owner, coldkey.clone());
 
-        assert_eq!(subnet_node_data.peer_id, peer_id.clone());
+        assert_eq!(subnet_node_data.peer_info.peer_id, peer_id.clone());
 
         // --- Is ``Validator`` if registered before subnet activation
         assert_eq!(
@@ -699,7 +699,7 @@ fn build_registered_subnet_nodes<T: Config>(
         let key_owner = HotkeyOwner::<T>::get(subnet_node_data.hotkey.clone());
         assert_eq!(key_owner, coldkey.clone());
 
-        assert_eq!(subnet_node_data.peer_id, peer_id.clone());
+        assert_eq!(subnet_node_data.peer_info.peer_id, peer_id.clone());
 
         // --- Is ``Validator`` if registered before subnet activation
         assert_eq!(
@@ -1409,7 +1409,7 @@ mod benchmarks {
             let key_owner = HotkeyOwner::<T>::get(subnet_node_data.hotkey.clone());
             assert_eq!(key_owner, coldkey.clone());
 
-            assert_eq!(subnet_node_data.peer_id, peer_id.clone());
+            assert_eq!(subnet_node_data.peer_info.peer_id, peer_id.clone());
 
             // --- Is ``Validator`` if registered before subnet activation
             assert_eq!(

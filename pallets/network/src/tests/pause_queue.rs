@@ -15,7 +15,7 @@ use crate::{
     SubnetNodesData, SubnetOwner, SubnetState, SubnetsData,
     TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes,
     TotalStake, TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
-    ChurnLimit
+    ChurnLimit, PeerInfo,
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
@@ -78,9 +78,11 @@ fn test_register_subnet_node_v2() {
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             hotkey.clone(),
-            peer_id,
-            bootnode_peer_id,
-            client_peer_id,
+            PeerInfo {
+                peer_id: peer_id.clone(),
+                multiaddr: None,
+            },
+            None,
             None,
             0,
             amount,
@@ -161,9 +163,11 @@ fn test_register_subnet_node_v2_and_activate() {
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             hotkey.clone(),
-            peer_id,
-            bootnode_peer_id,
-            client_peer_id,
+            PeerInfo {
+                peer_id: peer_id.clone(),
+                multiaddr: None,
+            },
+            None,
             None,
             0,
             amount,
@@ -304,9 +308,11 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 hotkey.clone(),
-                peer_id,
-                bootnode_peer_id,
-                client_peer_id,
+                PeerInfo {
+                    peer_id: peer_id.clone(),
+                    multiaddr: None,
+                },
+                None,
                 None,
                 0,
                 amount,
