@@ -77,7 +77,6 @@ describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
 
     let publicClient: PublicClient;
     // init substrate part
-    const KEY_TYPES = [1, 2]
     const BOOTNODES = [
         generateRandomString(6),
         generateRandomString(6)
@@ -149,7 +148,6 @@ describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
         )
@@ -173,7 +171,6 @@ describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
         )

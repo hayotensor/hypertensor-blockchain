@@ -547,11 +547,6 @@ pub mod pallet {
             owner: T::AccountId,
             coldkeys: BTreeSet<T::AccountId>,
         },
-        SubnetKeyTypesUpdate {
-            subnet_id: u32,
-            owner: T::AccountId,
-            value: BTreeSet<KeyType>,
-        },
         SubnetMinMaxStakeBalanceUpdate {
             subnet_id: u32,
             owner: T::AccountId,
@@ -1027,30 +1022,6 @@ pub mod pallet {
         Paused,
     }
 
-    /// All key types a subnet can support
-    #[derive(
-        Default,
-        EnumIter,
-        FromRepr,
-        Copy,
-        Encode,
-        Decode,
-        Clone,
-        PartialOrd,
-        PartialEq,
-        Eq,
-        RuntimeDebug,
-        Ord,
-        scale_info::TypeInfo,
-    )]
-    pub enum KeyType {
-        #[default]
-        Rsa,
-        Ed25519,
-        Secp256k1,
-        Ecdsa,
-    }
-
     /// Configuration data for a subnet during its registration phase before activation.
     ///
     /// This struct contains all the parameters and metadata needed to register a new subnet.
@@ -1079,8 +1050,6 @@ pub mod pallet {
     //    while subnet is registering, granted permission to register nodes.
     ///   during the subnet's registration phase. After activation, registration typically
     ///   opens to all eligible participants.
-    /// * `key_types` - Set of cryptographic key types (signature algorithms) that the subnet
-    ///   accepts for node registration. This is informational metadata not enforced onchain.
     /// * `bootnodes` - Set of multiaddresses or connection information for official bootnodes
     ///   that help new nodes discover and connect to the subnet network. Can be updated by
     ///   the subnet owner and whitelisted accounts. This is informational metadata for
@@ -1095,7 +1064,6 @@ pub mod pallet {
         pub max_stake: u128,
         pub delegate_stake_percentage: u128,
         pub initial_coldkeys: BTreeMap<AccountId, u32>,
-        pub key_types: BTreeSet<KeyType>,
         pub bootnodes: BTreeMap<PeerId, BoundedVec<u8, DefaultMaxVectorLength>>,
     }
 
@@ -1143,8 +1111,6 @@ pub mod pallet {
     /// * `pending_owner` - Optional account ID of a pending new owner during ownership transfer.
     /// * `registration_epoch` - Optional epoch when the subnet was registered. Present during
     ///   the enactment period before activation.
-    /// * `key_types` - Set of key types (cryptographic algorithms) accepted for node registration
-    ///   in this subnet.
     /// * `slot_index` - Optional slot index if the subnet is scheduled for consensus operations
     ///   in a specific slot rotation.
     /// * `bootnode_access` - Set of coldkey accounts that are authorized to register and operate
@@ -1191,7 +1157,6 @@ pub mod pallet {
         pub pending_owner: Option<AccountId>,
         pub registration_epoch: Option<u32>,
         pub prev_pause_epoch: u32,
-        pub key_types: BTreeSet<KeyType>,
         pub slot_index: Option<u32>,
         pub slot_assignment: Option<u32>,
         pub subnet_node_min_weight_decrease_reputation_threshold: u128,
@@ -3380,10 +3345,6 @@ pub mod pallet {
     #[pallet::storage]
     pub type SubnetRegistrationInitialColdkeys<T: Config> =
         StorageMap<_, Identity, u32, BTreeMap<T::AccountId, u32>>;
-
-    /// Keytypes the subnet accepts, set by the subnet
-    #[pallet::storage]
-    pub type SubnetKeyTypes<T> = StorageMap<_, Identity, u32, BTreeSet<KeyType>, ValueQuery>;
 
     /// Min required stake balance for a Subnet Node in a specified subnet
     #[pallet::storage]
@@ -7079,7 +7040,6 @@ pub mod pallet {
         /// - `SubnetRegistrationInitialColdkeys` - Whitelisted node operators (temporary)
         /// - `SubnetBootnodes` - P2P network entry points
         /// - `SubnetName` / `SubnetRepo` - Reverse lookups for uniqueness
-        /// - `SubnetKeyTypes` - Cryptographic key types allowed
         /// - `SubnetRegistrationEpoch` - Registration timestamp (temporary, removed on activation)
         /// - `TotalSubnetUids` - Incremented to generate unique subnet ID
         ///
@@ -7303,7 +7263,6 @@ pub mod pallet {
             // Store unique name
             SubnetName::<T>::insert(&subnet_data.name, subnet_id);
             SubnetRepo::<T>::insert(&subnet_data.repo, subnet_id);
-            SubnetKeyTypes::<T>::insert(subnet_id, subnet_registration_data.key_types);
             // Update latest registration epoch for all subnets
             // This is used for one subnet per registration phase
 
@@ -7733,7 +7692,6 @@ pub mod pallet {
         /// ### Network Configuration
         /// - `SubnetBootnodes` - P2P network entry points
         /// - `SubnetBootnodeAccess` - Accounts allowed to update bootnodes
-        /// - `SubnetKeyTypes` - Allowed cryptographic key types
         ///
         /// ### Reputation System
         /// - `SubnetReputation` - Overall subnet reputation score
@@ -8016,7 +7974,6 @@ pub mod pallet {
             SubnetRegistrationInitialColdkeys::<T>::remove(subnet_id);
             InitialColdkeyData::<T>::remove(subnet_id);
             MaxRegisteredNodes::<T>::remove(subnet_id);
-            SubnetKeyTypes::<T>::remove(subnet_id);
             TargetNodeRegistrationsPerEpoch::<T>::remove(subnet_id);
             NodeBurnRateAlpha::<T>::remove(subnet_id);
             CurrentNodeBurnRate::<T>::remove(subnet_id);
@@ -9519,157 +9476,152 @@ pub mod pallet {
             // MaxMinDelegateStakeMultiplier::<T>::put(1000000000000000000); // 100%
             // SubnetPauseCooldownEpochs::<T>::put(0);
 
-            // use fp_account::AccountId20;
-            // use sp_core::H160;
-            // use sp_core::U256;
+            use fp_account::AccountId20;
+            use sp_core::H160;
+            use sp_core::U256;
 
-            // if self.subnet_name.last().is_none() {
-            //     return;
-            // }
+            if self.subnet_name.last().is_none() {
+                return;
+            }
 
-            // let subnet_id = 1;
-            // let friendly_uid = 1;
+            let subnet_id = 1;
+            let friendly_uid = 1;
 
-            // SubnetIdFriendlyUid::<T>::insert(subnet_id, friendly_uid);
-            // FriendlyUidSubnetId::<T>::insert(friendly_uid, subnet_id);
+            SubnetIdFriendlyUid::<T>::insert(subnet_id, friendly_uid);
+            FriendlyUidSubnetId::<T>::insert(friendly_uid, subnet_id);
 
-            // let subnet_data = SubnetData {
-            //     id: subnet_id,
-            //     friendly_id: subnet_id,
-            //     name: self.subnet_name.clone(),
-            //     repo: Vec::new(),
-            //     description: Vec::new(),
-            //     misc: Vec::new(),
-            //     state: SubnetState::Active,
-            //     start_epoch: 0,
-            // };
+            let subnet_data = SubnetData {
+                id: subnet_id,
+                friendly_id: subnet_id,
+                name: self.subnet_name.clone(),
+                repo: Vec::new(),
+                description: Vec::new(),
+                misc: Vec::new(),
+                state: SubnetState::Active,
+                start_epoch: 0,
+            };
 
-            // SubnetRegistrationEpoch::<T>::insert(subnet_id, 1);
-            // // Store unique name
-            // SubnetName::<T>::insert(self.subnet_name.clone(), subnet_id);
-            // // Store repo
-            // SubnetRepo::<T>::insert(self.subnet_name.clone(), subnet_id);
-            // // Store subnet data
-            // SubnetsData::<T>::insert(subnet_id, subnet_data.clone());
-            // // Increase total subnets count
-            // TotalSubnetUids::<T>::mutate(|n: &mut u32| *n += 1);
+            SubnetRegistrationEpoch::<T>::insert(subnet_id, 1);
+            // Store unique name
+            SubnetName::<T>::insert(self.subnet_name.clone(), subnet_id);
+            // Store repo
+            SubnetRepo::<T>::insert(self.subnet_name.clone(), subnet_id);
+            // Store subnet data
+            SubnetsData::<T>::insert(subnet_id, subnet_data.clone());
+            // Increase total subnets count
+            TotalSubnetUids::<T>::mutate(|n: &mut u32| *n += 1);
 
-            // // Add bootnodes
-            // let raw_bootnode = b"p2p/127.0.0.1/33130".to_vec();
-            // // Try converting to a bounded vec (panics if too long)
-            // let bounded: BoundedVec<u8, DefaultMaxVectorLength> = raw_bootnode
-            //     .try_into()
-            //     .expect("bootnode string fits in bounded vec");
-            // // Put it into a BTreeSet
-            // let bootnodes = BTreeSet::from([bounded.clone()]);
-            // SubnetBootnodes::<T>::insert(subnet_id, bootnodes);
+            // Add bootnodes
+            let raw_bootnode = b"p2p/127.0.0.1/33130".to_vec();
+            // Try converting to a bounded vec (panics if too long)
+            let bounded: BoundedVec<u8, DefaultMaxVectorLength> = raw_bootnode
+                .try_into()
+                .expect("bootnode string fits in bounded vec");
 
-            // let bootnodes_v2 = BTreeMap::from([(&self.subnet_nodes[0].1, bounded)]);
+            let bootnodes_v2 = BTreeMap::from([(&self.subnet_nodes[0].1, bounded)]);
 
-            // SubnetBootnodes::<T>::insert(subnet_id, bootnodes_v2);
+            SubnetBootnodes::<T>::insert(subnet_id, bootnodes_v2);
 
-            // // Increase delegate stake to allow activation of subnet model
-            // let min_stake_balance = MinSubnetMinStake::<T>::get();
-            // // --- Get minimum subnet stake balance
-            // let min_subnet_stake_balance = min_stake_balance;
+            // Increase delegate stake to allow activation of subnet model
+            let min_stake_balance = MinSubnetMinStake::<T>::get();
+            // --- Get minimum subnet stake balance
+            let min_subnet_stake_balance = min_stake_balance;
 
-            // let total_issuance_as_balance = T::Currency::total_issuance();
+            let total_issuance_as_balance = T::Currency::total_issuance();
 
-            // let alith = &self.subnet_nodes.iter().next();
+            let alith = &self.subnet_nodes.iter().next();
 
-            // let alith_balance = T::Currency::free_balance(&alith.unwrap().0);
+            let alith_balance = T::Currency::free_balance(&alith.unwrap().0);
 
-            // let total_issuance: u128 = total_issuance_as_balance.try_into().unwrap_or(0);
+            let total_issuance: u128 = total_issuance_as_balance.try_into().unwrap_or(0);
 
-            // let total_staked: u128 = TotalStake::<T>::get();
+            let total_staked: u128 = TotalStake::<T>::get();
 
-            // let total_delegate_staked: u128 = TotalDelegateStake::<T>::get();
+            let total_delegate_staked: u128 = TotalDelegateStake::<T>::get();
 
-            // let total_node_delegate_staked: u128 = TotalNodeDelegateStake::<T>::get();
+            let total_node_delegate_staked: u128 = TotalNodeDelegateStake::<T>::get();
 
-            // let total_network_issuance = total_issuance
-            //     .saturating_add(total_staked)
-            //     .saturating_add(total_delegate_staked)
-            //     .saturating_add(total_node_delegate_staked);
+            let total_network_issuance = total_issuance
+                .saturating_add(total_staked)
+                .saturating_add(total_delegate_staked)
+                .saturating_add(total_node_delegate_staked);
 
-            // let factor: u128 = MinSubnetDelegateStakeFactor::<T>::get();
+            let factor: u128 = MinSubnetDelegateStakeFactor::<T>::get();
 
-            // let x = U256::from(total_network_issuance);
-            // let y = U256::from(factor);
+            let x = U256::from(total_network_issuance);
+            let y = U256::from(factor);
 
-            // // x * y / 100.0
+            // x * y / 100.0
 
-            // let result = x * y / U256([0xde0b6b3a7640000, 0x0, 0x0, 0x0]);
+            let result = x * y / U256([0xde0b6b3a7640000, 0x0, 0x0, 0x0]);
 
-            // let min_subnet_delegate_stake_balance: u128 = result.try_into().unwrap_or(u128::MAX);
+            let min_subnet_delegate_stake_balance: u128 = result.try_into().unwrap_or(u128::MAX);
 
-            // // --- Mitigate inflation attack
-            // TotalSubnetDelegateStakeShares::<T>::mutate(subnet_id, |mut n| {
-            //     n.saturating_accrue(1000)
-            // });
+            // --- Mitigate inflation attack
+            TotalSubnetDelegateStakeShares::<T>::mutate(subnet_id, |mut n| {
+                n.saturating_accrue(1000)
+            });
 
-            // // =================
-            // // convert_to_shares
-            // // =================
-            // let total_subnet_delegated_stake_balance =
-            //     TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
+            // =================
+            // convert_to_shares
+            // =================
+            let total_subnet_delegated_stake_balance =
+                TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
 
-            // let balance = U256::from(min_subnet_delegate_stake_balance);
-            // let total_shares = U256::from(0) + U256::from(10_u128.pow(1));
-            // let total_balance = U256::from(total_subnet_delegated_stake_balance) + U256::from(1);
+            let balance = U256::from(min_subnet_delegate_stake_balance);
+            let total_shares = U256::from(0) + U256::from(10_u128.pow(1));
+            let total_balance = U256::from(total_subnet_delegated_stake_balance) + U256::from(1);
 
-            // let shares = balance * total_shares / total_balance;
-            // let shares: u128 = shares.try_into().unwrap_or(u128::MAX);
+            let shares = balance * total_shares / total_balance;
+            let shares: u128 = shares.try_into().unwrap_or(u128::MAX);
 
-            // // =====================================
-            // // increase_account_delegate_stake
-            // // =====================================
-            // // -- increase total subnet delegate stake balance
-            // TotalSubnetDelegateStakeBalance::<T>::mutate(subnet_id, |mut n| {
-            //     n.saturating_accrue(min_subnet_delegate_stake_balance)
-            // });
-            // // -- increase total subnet delegate stake shares
-            // TotalSubnetDelegateStakeShares::<T>::mutate(subnet_id, |mut n| {
-            //     n.saturating_accrue(shares)
-            // });
-            // TotalDelegateStake::<T>::set(min_subnet_delegate_stake_balance);
+            // =====================================
+            // increase_account_delegate_stake
+            // =====================================
+            // -- increase total subnet delegate stake balance
+            TotalSubnetDelegateStakeBalance::<T>::mutate(subnet_id, |mut n| {
+                n.saturating_accrue(min_subnet_delegate_stake_balance)
+            });
+            // -- increase total subnet delegate stake shares
+            TotalSubnetDelegateStakeShares::<T>::mutate(subnet_id, |mut n| {
+                n.saturating_accrue(shares)
+            });
+            TotalDelegateStake::<T>::set(min_subnet_delegate_stake_balance);
 
-            // // Store subnet data
-            // SubnetsData::<T>::insert(subnet_id, &subnet_data);
+            // Store subnet data
+            SubnetsData::<T>::insert(subnet_id, &subnet_data);
 
-            // // Store owner
-            // SubnetOwner::<T>::insert(subnet_id, &alith.unwrap().0);
+            // Store owner
+            SubnetOwner::<T>::insert(subnet_id, &alith.unwrap().0);
 
-            // // Store the stake balance range
-            // SubnetMinStakeBalance::<T>::insert(subnet_id, 0);
-            // SubnetMaxStakeBalance::<T>::insert(subnet_id, 0);
+            // Store the stake balance range
+            SubnetMinStakeBalance::<T>::insert(subnet_id, 0);
+            SubnetMaxStakeBalance::<T>::insert(subnet_id, 1000000000000000000000); // 1,000
 
-            // // Add delegate state ratio
-            // SubnetDelegateStakeRewardsPercentage::<T>::insert(subnet_id, 100000000000000000);
-            // LastSubnetDelegateStakeRewardsUpdate::<T>::insert(subnet_id, 0);
+            // Add delegate state ratio
+            SubnetDelegateStakeRewardsPercentage::<T>::insert(subnet_id, 100000000000000000);
+            LastSubnetDelegateStakeRewardsUpdate::<T>::insert(subnet_id, 0);
 
-            // // Add classification epochs
-            // SubnetNodeQueueEpochs::<T>::insert(subnet_id, 0);
-            // IdleClassificationEpochs::<T>::insert(subnet_id, 0);
-            // IncludedClassificationEpochs::<T>::insert(subnet_id, 0);
+            // Add classification epochs
+            SubnetNodeQueueEpochs::<T>::insert(subnet_id, 0);
+            IdleClassificationEpochs::<T>::insert(subnet_id, 0);
+            IncludedClassificationEpochs::<T>::insert(subnet_id, 0);
 
-            // // Add queue variables
-            // ChurnLimit::<T>::insert(subnet_id, 0);
+            // Add queue variables
+            ChurnLimit::<T>::insert(subnet_id, 0);
 
-            // // Store min nodes reputation
-            // MinSubnetNodeReputation::<T>::insert(subnet_id, 100000000000000000);
+            // Store min nodes reputation
+            MinSubnetNodeReputation::<T>::insert(subnet_id, 100000000000000000);
 
-            // // Store whitelisted coldkeys for registration period
-            // // SubnetRegistrationInitialColdkeys::<T>::insert(
-            // // 	subnet_id,
-            // // 	BTreeSet::new()
-            // // );
+            // Store whitelisted coldkeys for registration period
+            // SubnetRegistrationInitialColdkeys::<T>::insert(
+            // 	subnet_id,
+            // 	BTreeSet::new()
+            // );
 
-            // MaxRegisteredNodes::<T>::insert(subnet_id, 256);
-            // let keytypes = BTreeSet::from([KeyType::Rsa]);
-            // SubnetKeyTypes::<T>::insert(subnet_id, keytypes);
-            // LastSubnetRegistrationBlock::<T>::set(0);
-            // SubnetRegistrationEpoch::<T>::insert(subnet_id, 0);
+            MaxRegisteredNodes::<T>::insert(subnet_id, 256);
+            LastSubnetRegistrationBlock::<T>::set(0);
+            SubnetRegistrationEpoch::<T>::insert(subnet_id, 0);
 
             // //
             // //

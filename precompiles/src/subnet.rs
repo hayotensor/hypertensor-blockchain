@@ -7,7 +7,7 @@ use frame_support::{
 use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, ExitError, PrecompileFailure, PrecompileHandle};
 use pallet_network::{
-    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength, DelegateAccount, KeyType,
+    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength, DelegateAccount,
 };
 use precompile_utils::{EvmResult, prelude::*};
 use sp_core::{H160, H256, OpaquePeerId, U256};
@@ -48,7 +48,7 @@ where
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     #[precompile::public(
-        "registerSubnet(uint256,string,string,string,string,uint256,uint256,uint256,(address,uint256)[],uint256[],(string,string)[])"
+        "registerSubnet(uint256,string,string,string,string,uint256,uint256,uint256,(address,uint256)[],(string,string)[])"
     )]
     #[precompile::payable]
     fn register_subnet(
@@ -62,7 +62,6 @@ where
         max_stake: U256,
         delegate_stake_percentage: U256,
         initial_coldkeys: Vec<(Address, U256)>,
-        key_types: Vec<U256>,
         bootnodes: Vec<(BoundedString<ConstU32<64>>, BoundedString<ConstU32<1024>>)>,
     ) -> EvmResult<()> {
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
@@ -79,10 +78,6 @@ where
                     try_u256_to_u32(count)?,
                 ))
             })
-            .collect::<Result<_, _>>()?;
-        let key_types: BTreeSet<KeyType> = key_types
-            .into_iter()
-            .map(|val| key_type_from_u256(val).ok_or_else(|| revert("Invalid KeyType value")))
             .collect::<Result<_, _>>()?;
         let bootnodes: BTreeMap<OpaquePeerId, BoundedVec<u8, DefaultMaxVectorLength>> = bootnodes
             .into_iter()
@@ -104,7 +99,6 @@ where
             max_stake,
             delegate_stake_percentage,
             initial_coldkeys,
-            key_types,
             bootnodes,
         };
 
@@ -972,34 +966,6 @@ where
         Ok(())
     }
 
-    // #[precompile::public("ownerUpdateKeyTypes(uint256,uint256[])")]
-    // fn owner_update_key_types(
-    //     handle: &mut impl PrecompileHandle,
-    //     subnet_id: U256,
-    //     key_types: Vec<U256>,
-    // ) -> EvmResult<()> {
-    //     let subnet_id = try_u256_to_u32(subnet_id)?;
-    //     let key_types: BTreeSet<KeyType> = key_types
-    //         .into_iter()
-    //         .map(|val| key_type_from_u256(val).ok_or_else(|| revert("Invalid KeyType value")))
-    //         .collect::<Result<_, _>>()?;
-
-    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
-    //     let call = pallet_network::Call::<R>::owner_update_key_types {
-    //         subnet_id,
-    //         key_types,
-    //     };
-
-    //     RuntimeHelper::<R>::try_dispatch(
-    //         handle,
-    //         RawOrigin::Signed(origin.clone()).into(),
-    //         call,
-    //         0,
-    //     )?;
-
-    //     Ok(())
-    // }
-
     #[precompile::public("ownerUpdateMinMaxStake(uint256,uint256,uint256)")]
     fn owner_update_min_max_stake(
         handle: &mut impl PrecompileHandle,
@@ -1717,19 +1683,6 @@ where
         Ok(coldkeys)
     }
 
-    #[precompile::public("getKeyTypes(uint256)")]
-    #[precompile::view]
-    fn get_key_types(handle: &mut impl PrecompileHandle, subnet_id: U256) -> EvmResult<Vec<U256>> {
-        let subnet_id = try_u256_to_u32(subnet_id)?;
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-
-        let result = pallet_network::SubnetKeyTypes::<R>::get(subnet_id);
-
-        let key_types: Vec<U256> = result.into_iter().map(|k| U256::from(k as u32)).collect();
-
-        Ok(key_types)
-    }
-
     #[precompile::public("getMinStake(uint256)")]
     #[precompile::view]
     fn get_min_stake(handle: &mut impl PrecompileHandle, subnet_id: U256) -> EvmResult<u128> {
@@ -2174,16 +2127,6 @@ fn try_u32_to_u256(value: u32) -> Result<U256, PrecompileFailure> {
     value.try_into().map_err(|_| PrecompileFailure::Error {
         exit_status: ExitError::Other("u32 out of bounds".into()),
     })
-}
-
-fn key_type_from_u256(val: U256) -> Option<KeyType> {
-    match val.as_u32() {
-        0 => Some(KeyType::Rsa),
-        1 => Some(KeyType::Ed25519),
-        2 => Some(KeyType::Secp256k1),
-        3 => Some(KeyType::Ecdsa),
-        _ => None,
-    }
 }
 
 fn bounded_string_to_option_bounded_vec<const N: u32, T>(

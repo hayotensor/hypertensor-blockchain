@@ -750,7 +750,6 @@ pub fn default_registration_subnet_data<T: Config>(
         max_stake: NetworkMaxStakeBalance::<T>::get(),
         delegate_stake_percentage: 100000000000000000, // 10%
         initial_coldkeys: get_initial_coldkeys::<T>(subnets, max_subnet_nodes, start, end),
-        key_types: BTreeSet::from([KeyType::Rsa]),
         bootnodes: BTreeMap::from([(peer(0), BoundedVec::new())]),
     };
     add_subnet_data
@@ -1972,38 +1971,6 @@ mod benchmarks {
         let coldkeys = SubnetRegistrationInitialColdkeys::<T>::get(subnet_id).unwrap();
         assert_eq!(coldkeys, expected_coldkeys.clone());
     }
-
-    // #[benchmark]
-    // fn owner_update_key_types() {
-    //     let max_subnet_nodes = MaxSubnetNodes::<T>::get();
-    //     build_activated_subnet::<T>(
-    //         DEFAULT_SUBNET_NAME.into(),
-    //         0,
-    //         max_subnet_nodes,
-    //         DEFAULT_DEPOSIT_AMOUNT,
-    //         DEFAULT_SUBNET_NODE_STAKE,
-    //     );
-    //     let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
-
-    //     let min_nodes = MinSubnetNodes::<T>::get();
-    //     let max_subnets = MaxSubnets::<T>::get();
-    //     let max_subnet_nodes = MaxSubnetNodes::<T>::get();
-
-    //     let owner_coldkey =
-    //         funded_initializer::<T>("subnet_owner", subnet_id * max_subnets * max_subnet_nodes);
-
-    //     let new_keytypes = BTreeSet::from([KeyType::Ed25519]);
-
-    //     #[extrinsic_call]
-    //     owner_update_key_types(
-    //         RawOrigin::Signed(owner_coldkey.clone()),
-    //         subnet_id,
-    //         new_keytypes.clone(),
-    //     );
-
-    //     let key_types = SubnetKeyTypes::<T>::get(subnet_id);
-    //     assert_eq!(key_types, new_keytypes.clone());
-    // }
 
     #[benchmark]
     fn owner_update_min_max_stake() {

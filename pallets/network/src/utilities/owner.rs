@@ -624,29 +624,6 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn do_owner_update_key_types(
-        origin: T::RuntimeOrigin,
-        subnet_id: u32,
-        value: BTreeSet<KeyType>,
-    ) -> DispatchResult {
-        let coldkey: T::AccountId = ensure_signed(origin)?;
-
-        ensure!(
-            Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
-            Error::<T>::NotSubnetOwner
-        );
-
-        SubnetKeyTypes::<T>::insert(subnet_id, &value);
-
-        Self::deposit_event(Event::SubnetKeyTypesUpdate {
-            subnet_id: subnet_id,
-            owner: coldkey,
-            value: value,
-        });
-
-        Ok(())
-    }
-
     pub fn do_owner_update_min_max_stake(
         origin: T::RuntimeOrigin,
         subnet_id: u32,

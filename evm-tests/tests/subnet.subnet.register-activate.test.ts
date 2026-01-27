@@ -84,8 +84,6 @@ describe("Test subnet register activate-0xuhnrfvok", () => {
         },
     ];
 
-    const KEY_TYPES = [1, 2]
-
     const BOOTNODES = [
         generateRandomString(6),
         generateRandomString(6)
@@ -148,7 +146,6 @@ describe("Test subnet register activate-0xuhnrfvok", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
         )
@@ -220,7 +217,6 @@ describe("Test subnet register activate-0xuhnrfvok", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
         )

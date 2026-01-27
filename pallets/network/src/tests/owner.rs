@@ -5,7 +5,7 @@ use crate::{
     AbsentDecreaseReputationFactor, BelowMinWeightDecreaseReputationFactor, ChurnLimit,
     DefaultMaxVectorLength, EmergencySubnetNodeElectionData, EmergencySubnetValidatorData, Error,
     HotkeySubnetNodeId, IdleClassificationEpochs, IncludedClassificationEpochs,
-    IncludedIncreaseReputationFactor, KeyType, LastSubnetDelegateStakeRewardsUpdate, MaxChurnLimit,
+    IncludedIncreaseReputationFactor, LastSubnetDelegateStakeRewardsUpdate, MaxChurnLimit,
     MaxDelegateStakePercentage, MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs,
     MaxMaxRegisteredNodes, MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetBootnodeAccess,
     MaxSubnetMinStake, MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes,
@@ -15,7 +15,7 @@ use crate::{
     NodeBurnRateAlpha, NonAttestorDecreaseReputationFactor,
     NonConsensusAttestorDecreaseReputationFactor, PeerInfo, PendingSubnetOwner,
     QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess, SubnetData,
-    SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod, SubnetKeyTypes,
+    SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod,
     SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeMinWeightDecreaseReputationThreshold,
     SubnetNodeQueueEpochs, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
@@ -58,7 +58,6 @@ use sp_std::collections::btree_set::BTreeSet;
 // do_owner_update_included_classification_epochs
 // do_owner_add_or_update_initial_coldkeys -
 // do_owner_remove_initial_coldkeys
-// do_owner_update_key_types
 // do_owner_update_min_max_stake
 // do_owner_update_delegate_stake_percentage
 // do_owner_update_max_registered_nodes
@@ -1925,57 +1924,6 @@ fn test_owner_remove_initial_coldkeys_must_be_registering() {
     });
 }
 
-// #[test]
-// fn test_owner_update_key_types() {
-//     new_test_ext().execute_with(|| {
-//         increase_epochs(1);
-
-//         let subnet_name: Vec<u8> = "subnet-name".into();
-//         let deposit_amount: u128 = 10000000000000000000000;
-//         let amount: u128 = 1000000000000000000000;
-//         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
-
-//         let subnet_id = 1;
-//         let subnet_data = SubnetData {
-//             id: subnet_id,
-//             friendly_id: subnet_id,
-//             name: subnet_name.clone(),
-//             repo: subnet_name.clone(),
-//             description: subnet_name.clone(),
-//             misc: subnet_name.clone(),
-//             state: SubnetState::Registered,
-//             start_epoch: u32::MAX,
-//         };
-
-//         // Store subnet data
-//         SubnetsData::<Test>::insert(subnet_id, &subnet_data);
-
-//         let original_owner = account(1);
-
-//         // Set initial owner
-//         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-
-//         let new_keytypes = BTreeSet::from([KeyType::Ed25519]);
-//         assert_ok!(Network::owner_update_key_types(
-//             RuntimeOrigin::signed(original_owner.clone()),
-//             subnet_id,
-//             new_keytypes.clone()
-//         ));
-
-//         assert_eq!(
-//             *network_events().last().unwrap(),
-//             Event::SubnetKeyTypesUpdate {
-//                 subnet_id: subnet_id,
-//                 owner: original_owner.clone(),
-//                 value: new_keytypes.clone(),
-//             }
-//         );
-
-//         let key_types = SubnetKeyTypes::<Test>::get(subnet_id);
-//         assert_eq!(key_types, new_keytypes.clone());
-//     });
-// }
-
 #[test]
 fn test_owner_remove_subnet_node() {
     new_test_ext().execute_with(|| {
@@ -3005,16 +2953,6 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
             ),
             Error::<Test>::NotSubnetOwner
         );
-
-        // let new_keytypes = BTreeSet::from([KeyType::Ed25519]);
-        // assert_err!(
-        //     Network::owner_update_key_types(
-        //         RuntimeOrigin::signed(fake_owner),
-        //         subnet_id,
-        //         new_keytypes
-        //     ),
-        //     Error::<Test>::NotSubnetOwner
-        // );
 
         assert_err!(
             Network::owner_update_min_max_stake(RuntimeOrigin::signed(fake_owner), subnet_id, 1, 2),

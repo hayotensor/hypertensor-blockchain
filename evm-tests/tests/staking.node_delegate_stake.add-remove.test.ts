@@ -78,7 +78,6 @@ describe("test node delegate staking-0x835yv", () => {
 
     let publicClient: PublicClient;
     // init substrate part
-    const KEY_TYPES = [1, 2]
 
     const BOOTNODES = [
         generateRandomString(6),
@@ -149,7 +148,6 @@ describe("test node delegate staking-0x835yv", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
         )

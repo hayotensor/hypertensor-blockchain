@@ -53,7 +53,6 @@ impl<T: Config> Pallet<T> {
             pending_owner: PendingSubnetOwner::<T>::get(subnet_id),
             registration_epoch: SubnetRegistrationEpoch::<T>::get(subnet_id),
             prev_pause_epoch: PreviousSubnetPauseEpoch::<T>::get(subnet_id),
-            key_types: SubnetKeyTypes::<T>::get(subnet_id),
             slot_index: SubnetSlot::<T>::get(subnet_id),
             slot_assignment: SlotAssignment::<T>::get(subnet_id),
             subnet_node_min_weight_decrease_reputation_threshold:

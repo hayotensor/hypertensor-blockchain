@@ -18,7 +18,6 @@ interface Subnet {
         uint256 maxStake,
         uint256 delegateStakePercentage,
         InitialColdkeys[] calldata initialColdkeys,
-        uint256[] memory keyTypes,
         string[] memory bootnodes
     ) external payable;
 
@@ -165,11 +164,6 @@ interface Subnet {
         address[] memory coldkeys
     ) external;
 
-    function ownerUpdateKeyTypes(
-        uint256 subnetId,
-        uint256[] memory keyTypes
-    ) external;
-
     function ownerUpdateDelegateStakePercentage(
         uint256 subnetId,
         uint256 value
@@ -308,10 +302,6 @@ interface Subnet {
     function getInitialColdkeys(
         uint256 subnetId
     ) external view returns (InitialColdkeys[] memory);
-
-    function getKeyTypes(
-        uint256 subnetId
-    ) external view returns (uint256[] memory);
 
     function getMinStake(uint256 subnetId) external view returns (uint256);
 

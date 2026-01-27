@@ -79,7 +79,6 @@ describe("test identities-0xDANBre34", () => {
 
     let publicClient: PublicClient;
     // init substrate part
-    const KEY_TYPES = [1, 2]
     const BOOTNODES = [
         generateRandomString(6),
         generateRandomString(6)
@@ -143,7 +142,6 @@ describe("test identities-0xDANBre34", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
         )

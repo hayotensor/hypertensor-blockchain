@@ -234,7 +234,6 @@ export async function registerSubnet(
   maxStake: string,
   delegateStakePercentage: string,
   initialColdkeys: any,
-  keyTypes: number[],
   bootnodes: string[],
   fee: bigint,
   provider?: JsonRpcProvider,
@@ -250,7 +249,6 @@ export async function registerSubnet(
     maxStake,
     delegateStakePercentage,
     initialColdkeys,
-    keyTypes,
     bootnodes,
     { value: fee }
   );
@@ -875,19 +873,6 @@ export async function ownerRemoveInitialColdkeys(
   const tx = await contract.ownerRemoveInitialColdkeys(
     subnetId,
     coldkeys
-  );
-
-  await tx.wait();
-}
-
-export async function ownerUpdateKeyTypes(
-  contract: Contract, 
-  subnetId: string,
-  keyTypes: number[],
-) {
-  const tx = await contract.ownerUpdateKeyTypes(
-    subnetId,
-    keyTypes
   );
 
   await tx.wait();

@@ -21,7 +21,6 @@ import {
     ownerUpdateDescription,
     ownerUpdateIdleClassificationEpochs,
     ownerUpdateIncludedClassificationEpochs,
-    ownerUpdateKeyTypes,
     ownerUpdateMaxRegisteredNodes,
     ownerUpdateMisc,
     ownerUpdateName,
@@ -98,8 +97,6 @@ describe("Test subnet owner-0xuhnrfvok", () => {
         },
     ];
 
-    const KEY_TYPES = [1, 2]
-
     const BOOTNODES = [
         generateRandomString(6),
         generateRandomString(6)
@@ -156,7 +153,6 @@ describe("Test subnet owner-0xuhnrfvok", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
         )
@@ -232,11 +228,6 @@ describe("Test subnet owner-0xuhnrfvok", () => {
         const wallet9 = generateRandomEthersWallet();
         const wallet10 = generateRandomEthersWallet();
 
-        const newKeyTypes = [3]
-        // 0 => Some(KeyType::Rsa),
-        // 1 => Some(KeyType::Ed25519),
-        // 2 => Some(KeyType::Secp256k1),
-        // 3 => Some(KeyType::Ecdsa),
         await ownerUpdateName(subnetContract, subnetId, newSubnetName)
         let subnetData = await api.query.network.subnetsData(subnetId)
         expect(subnetData != undefined);
@@ -348,11 +339,6 @@ describe("Test subnet owner-0xuhnrfvok", () => {
             // Check that wallet10 doesn't exist
             expect(coldkeysJson[wallet10.address]).to.equal(undefined);
         }
-
-        await ownerUpdateKeyTypes(subnetContract, subnetId, newKeyTypes)
-        const currentKeyTypes = await api.query.network.subnetKeyTypes(subnetId)
-        expect(currentKeyTypes != undefined);
-        expect(currentKeyTypes.toHuman() == newKeyTypes)
 
 
         await ownerUpdateMinMaxStake(subnetContract, subnetId, newMinStake, newMaxStake)

@@ -81,8 +81,6 @@ describe("test delegate staking-0xDy454g", () => {
         },
     ];
 
-    const KEY_TYPES = [1, 2]
-
     const BOOTNODES = [
         generateRandomString(6),
         generateRandomString(6)
@@ -162,7 +160,6 @@ describe("test delegate staking-0xDy454g", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
         )

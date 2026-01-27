@@ -84,7 +84,6 @@ describe("test overwatch commit reveal-0xfff90000", () => {
 
     let publicClient: PublicClient;
     // init substrate part
-    const KEY_TYPES = [1, 2]
     const BOOTNODES = [
         generateRandomString(6),
         generateRandomString(6)
@@ -160,7 +159,6 @@ describe("test overwatch commit reveal-0xfff90000", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
             ethersProvider,
@@ -186,7 +184,6 @@ describe("test overwatch commit reveal-0xfff90000", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
             ethersProvider,

@@ -76,8 +76,6 @@ describe("test claim unbondings-0x310crc12", () => {
         },
     ];
 
-    const KEY_TYPES = [1, 2]
-
     const BOOTNODES = [
         generateRandomString(6),
         generateRandomString(6)
@@ -142,7 +140,6 @@ describe("test claim unbondings-0x310crc12", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
         )

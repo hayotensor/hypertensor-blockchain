@@ -82,8 +82,6 @@ describe("test subnet node entry functions-0xbull3948t92d398", () => {
         },
     ];
 
-    const KEY_TYPES = [1, 2]
-
     const BOOTNODES = [
       "bootnode1",
       "bootnode2"
@@ -197,7 +195,6 @@ describe("test subnet node entry functions-0xbull3948t92d398", () => {
             maxStake.toString(),
             delegateStakePercentage.toString(),
             initialColdkeys,
-            KEY_TYPES,
             BOOTNODES,
             cost,
         )

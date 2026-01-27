@@ -5,7 +5,7 @@ use crate::{
     AttestEntry, BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ColdkeyHotkeys,
     ColdkeyReputation, ColdkeySubnetNodes, ConsensusData, DefaultMaxVectorLength, DelegateAccount,
     HotkeyOverwatchNodeId, HotkeyOwner, HotkeySubnetId, HotkeySubnetNodeId, InitialColdkeyData,
-    KeyType, MaxMaxRegisteredNodes, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets,
+    MaxMaxRegisteredNodes, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets,
     MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs, MultiaddrSubnetNodeId,
     NetworkMaxStakeBalance, OverwatchCommitCutoffPercent, OverwatchEpochLengthMultiplier,
     OverwatchMinAge, OverwatchMinStakeBalance, OverwatchNode, OverwatchNodeIdHotkey,
@@ -2478,7 +2478,6 @@ pub fn default_registration_subnet_data(
         max_stake: NetworkMaxStakeBalance::<Test>::get(),
         delegate_stake_percentage: 100000000000000000, // 10%
         initial_coldkeys: get_initial_coldkeys(subnets, max_subnet_nodes, start, end),
-        key_types: BTreeSet::from([KeyType::Rsa]),
         bootnodes: BTreeMap::from([(
             peer(0),
             get_multiaddr(None, None, None).expect("valid multiaddr"),
@@ -2515,7 +2514,6 @@ pub fn default_registration_subnet_data_with_onodes(
             end,
             overwatch_count,
         ),
-        key_types: BTreeSet::from([KeyType::Rsa]),
         bootnodes: BTreeMap::from([(
             peer(0),
             get_multiaddr(None, None, None).expect("valid multiaddr"),
