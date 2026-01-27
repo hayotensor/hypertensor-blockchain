@@ -297,7 +297,7 @@ impl<T: Config> Pallet<T> {
 
                 ensure!(
                     multiaddr::Multiaddr::verify(addr).is_ok(),
-                    Error::<T>::InvalidBootnode
+                    Error::<T>::InvalidMultiaddr
                 );
 
                 bootnodes.insert(peer_id.clone(), multiaddr.clone());

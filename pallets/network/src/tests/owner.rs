@@ -13,8 +13,8 @@ use crate::{
     MinIncludedClassificationEpochs, MinMaxRegisteredNodes, MinNodeReputationFactor,
     MinQueueEpochs, MinSubnetMinStake, MinSubnetNodeReputation, NetworkMaxStakeBalance,
     NodeBurnRateAlpha, NonAttestorDecreaseReputationFactor,
-    NonConsensusAttestorDecreaseReputationFactor, PendingSubnetOwner, QueueImmunityEpochs,
-    RegisteredSubnetNodesData, SubnetBootnodeAccess, SubnetData,
+    NonConsensusAttestorDecreaseReputationFactor, PeerInfo, PendingSubnetOwner,
+    QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess, SubnetData,
     SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod, SubnetKeyTypes,
     SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeMinWeightDecreaseReputationThreshold,
@@ -545,10 +545,12 @@ fn test_owner_unpause_subnet() {
             SubnetNode {
                 id: hotkey_subnet_node_id,
                 hotkey: hotkey.clone(),
-                peer_id: peer(0),
-                bootnode_peer_id: peer(0),
-                client_peer_id: peer(0),
-                bootnode: None,
+                peer_info: PeerInfo {
+                    peer_id: peer(0),
+                    multiaddr: None,
+                },
+                bootnode_peer_info: None,
+                client_peer_info: None,
                 delegate_reward_rate: 10,
                 last_delegate_reward_rate_update: 0,
                 classification: SubnetNodeClassification {
@@ -631,10 +633,12 @@ fn test_owner_unpause_subnet_repause_cooldown_error() {
             SubnetNode {
                 id: hotkey_subnet_node_id,
                 hotkey: hotkey.clone(),
-                peer_id: peer(0),
-                bootnode_peer_id: peer(0),
-                client_peer_id: peer(0),
-                bootnode: None,
+                peer_info: PeerInfo {
+                    peer_id: peer(0),
+                    multiaddr: None,
+                },
+                bootnode_peer_info: None,
+                client_peer_info: None,
                 delegate_reward_rate: 10,
                 last_delegate_reward_rate_update: 0,
                 classification: SubnetNodeClassification {
@@ -2763,8 +2767,14 @@ fn test_owner_add_bootnode_access() {
         // --- Case 1: Add bootnodes ---
         // let add_map = BTreeMap::from([(peer(1), bv(1)), (peer(2), bv(2))]);
         let add_map = BTreeMap::from([
-            (peer(1), get_multiaddr(Some(subnet_id), Some(1)).unwrap()),
-            (peer(2), get_multiaddr(Some(subnet_id), Some(2)).unwrap()),
+            (
+                peer(1),
+                get_multiaddr(Some(subnet_id), Some(1), None).unwrap(),
+            ),
+            (
+                peer(2),
+                get_multiaddr(Some(subnet_id), Some(2), None).unwrap(),
+            ),
         ]);
         assert_ok!(Network::update_bootnodes(
             RuntimeOrigin::signed(original_owner.clone()),

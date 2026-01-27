@@ -271,17 +271,28 @@ impl<T: Config> Pallet<T> {
     pub fn do_epoch_preliminaries(weight_meter: &mut WeightMeter, block: u32, epoch: u32) {
         let db_weight = T::DbWeight::get();
 
+        // Min reputation a subnet can have
         let min_reputation = MinSubnetReputation::<T>::get();
+        // Total epochs of the registration phase
         let subnet_registration_epochs = SubnetRegistrationEpochs::<T>::get();
+        // Total epochs of the enactment phase
         let subnet_enactment_epochs = SubnetEnactmentEpochs::<T>::get();
+        // Min nodes a subnet can have, if under reputation is decreased
         let min_subnet_nodes = MinSubnetNodes::<T>::get();
+        // Max subnets allowed in the network
         let max_subnets = MaxSubnets::<T>::get();
+        // Max epochs a subnet can be paused
         let max_pause_epochs = MaxSubnetPauseEpochs::<T>::get();
+        // Epoch interval for delegate stake removal
         let dstake_epoch_interval = DelegateStakeSubnetRemovalInterval::<T>::get();
+        // Epoch of the previous subnet activation which will push back the removal interval
         let prev_activation_epoch = PrevSubnetActivationEpoch::<T>::get();
+        // Whether the current epoch is a removal epoch
         let is_removal_epoch: bool = epoch % MaxSubnetRemovalInterval::<T>::get() == 0;
+        // Whether the current epoch is a removal epoch for excess subnets
         let can_remove: bool =
             epoch >= prev_activation_epoch + MinSubnetRemovalInterval::<T>::get();
+        // Whether the current epoch is a removal epoch for delegate stake
         let dstake_epoch_interval_can_remove: bool = epoch % dstake_epoch_interval == 0;
 
         let subnets: Vec<_> = SubnetsData::<T>::iter().collect();

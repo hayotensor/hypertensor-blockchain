@@ -224,25 +224,25 @@ pub mod pallet {
             subnet_node_id: u32,
             delegate_reward_rate: u128,
         },
-        SubnetNodeUpdatePeerId {
+        SubnetNodeUpdatePeerInfo {
             subnet_id: u32,
             subnet_node_id: u32,
-            peer_id: PeerId,
+            peer_info: PeerInfo,
         },
         SubnetNodeUpdateBootnode {
             subnet_id: u32,
             subnet_node_id: u32,
             bootnode: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
         },
-        SubnetNodeUpdateBootnodePeerId {
+        SubnetNodeUpdateBootnodePeerInfo {
             subnet_id: u32,
             subnet_node_id: u32,
-            bootnode_peer_id: PeerId,
+            bootnode_peer_info: Option<PeerInfo>,
         },
-        SubnetNodeUpdateClientPeerId {
+        SubnetNodeUpdateClientPeerInfo {
             subnet_id: u32,
             subnet_node_id: u32,
-            client_peer_id: PeerId,
+            client_peer_info: Option<PeerInfo>,
         },
         SubnetNodeUpdateUnique {
             subnet_id: u32,
@@ -443,6 +443,7 @@ pub mod pallet {
             node_rewards: Vec<(u32, u128)>,
             delegate_stake_reward: u128,
             node_delegate_stake_rewards: Vec<(u32, u128)>,
+            node_delegate_account_allocations: Vec<(u32, (T::AccountId, u128))>,
         },
         OverwatchRewards {
             node_rewards: Vec<(u32, u128)>,
@@ -709,7 +710,7 @@ pub mod pallet {
         SubnetPauseCooldownActive,
         /// Must be less than maximum registrations per epoch
         InvalidTargetNodeRegistrationsPerEpoch,
-        /// Peer ID already in use in subnet
+        /// Peer ID already in use in subnet, peer, client, and bootnode peer ID must be unique
         PeerIdExist,
         /// Max subnet nodes reached
         MaxSubnetNodes,
@@ -720,7 +721,7 @@ pub mod pallet {
         /// Invalid client peer ID
         InvalidClientPeerId,
         /// Bootnode already in use in subnet
-        BootnodeExist,
+        MultiaddrExist,
         /// Hotkey doesn't have a subnet node
         InvalidHotkeySubnetNodeId,
         /// Subnet name already exists
@@ -743,7 +744,7 @@ pub mod pallet {
         InvalidPeerId,
         /// PeerId format invalid
         InvalidBootnodePeerId,
-        InvalidBootnode,
+        InvalidMultiaddr,
         /// Coldkey not whitelisted to register
         ColdkeyRegistrationWhitelist,
         MaxRegisteredNodes,
@@ -946,6 +947,10 @@ pub mod pallet {
         SwapCallNotFound,
         /// Coldkey is blacklisted from being an Overwatch Node
         ColdkeyBlacklisted,
+        MultiaddrInvalidVarint,
+        MultiaddrInvalidProtocol,
+        MultiaddrInvalidAddress,
+        MultiaddrTruncated,
     }
 
     /// Subnet data
@@ -1218,23 +1223,6 @@ pub mod pallet {
         PartialEq,
         Eq,
         RuntimeDebug,
-        PartialOrd,
-        Ord,
-        scale_info::TypeInfo,
-    )]
-    pub struct PeerInfo {
-        pub peer_id: PeerId,
-        pub multiaddr: BoundedVec<u8, DefaultMaxVectorLength>,
-    }
-
-    #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebug,
         Ord,
         PartialOrd,
         scale_info::TypeInfo,
@@ -1256,61 +1244,9 @@ pub mod pallet {
         Ord,
         scale_info::TypeInfo,
     )]
-    pub struct SubnetNodeV2<AccountId> {
-        pub id: u32,
-        pub hotkey: AccountId,
-        pub peer_info: PeerInfo,
-        pub bootnode_peer_info: Option<PeerInfo>,
-        pub client_peer_info: Option<PeerInfo>,
-        pub classification: SubnetNodeClassification,
-        pub delegate_reward_rate: u128,
-        pub last_delegate_reward_rate_update: u32,
-        pub unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-        pub non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-        pub delegate_account: Option<DelegateAccount<AccountId>>,
-    }
-
-    #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebug,
-        PartialOrd,
-        Ord,
-        scale_info::TypeInfo,
-    )]
-    pub struct PeerInfoV3 {
+    pub struct PeerInfo {
         pub peer_id: PeerId,
         pub multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>>, // Best multiaddr
-    }
-
-    #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebug,
-        PartialOrd,
-        Ord,
-        scale_info::TypeInfo,
-    )]
-    pub struct SubnetNodeV3<AccountId> {
-        pub id: u32,
-        pub hotkey: AccountId,
-        pub peer_info: PeerInfoV3,
-        pub bootnode_peer_info: Option<PeerInfoV3>,
-        pub client_peer_info: Option<PeerInfoV3>,
-        pub classification: SubnetNodeClassification,
-        pub delegate_reward_rate: u128,
-        pub last_delegate_reward_rate_update: u32,
-        pub unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-        pub non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-        pub delegate_account: Option<DelegateAccount<AccountId>>,
     }
 
     /// A subnet node representing a participant in a subnet.
@@ -1367,10 +1303,9 @@ pub mod pallet {
     pub struct SubnetNode<AccountId> {
         pub id: u32,
         pub hotkey: AccountId,
-        pub peer_id: PeerId,
-        pub bootnode_peer_id: PeerId,
-        pub client_peer_id: PeerId,
-        pub bootnode: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        pub peer_info: PeerInfo,
+        pub bootnode_peer_info: Option<PeerInfo>,
+        pub client_peer_info: Option<PeerInfo>,
         pub classification: SubnetNodeClassification,
         pub delegate_reward_rate: u128,
         pub last_delegate_reward_rate_update: u32,
@@ -1387,10 +1322,9 @@ pub mod pallet {
         pub subnet_node_id: u32,
         pub coldkey: AccountId,
         pub hotkey: AccountId,
-        pub peer_id: PeerId,
-        pub bootnode_peer_id: PeerId,
-        pub client_peer_id: PeerId,
-        pub bootnode: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        pub peer_info: PeerInfo,
+        pub bootnode_peer_info: Option<PeerInfo>,
+        pub client_peer_info: Option<PeerInfo>,
         pub delegate_account: Option<DelegateAccount<AccountId>>,
         pub identity: ColdkeyIdentityData,
         pub classification: SubnetNodeClassification,
@@ -2084,46 +2018,7 @@ pub mod pallet {
         return SubnetNode {
             id: 0,
             hotkey: T::AccountId::decode(&mut TrailingZeroInput::zeroes()).unwrap(),
-            peer_id: PeerId(Vec::new()),
-            bootnode_peer_id: PeerId(Vec::new()),
-            client_peer_id: PeerId(Vec::new()),
-            bootnode: None,
-            classification: SubnetNodeClassification {
-                node_class: SubnetNodeClass::Registered,
-                start_epoch: 0,
-            },
-            delegate_reward_rate: 0,
-            last_delegate_reward_rate_update: 0,
-            unique: None,
-            non_unique: None,
-            delegate_account: None,
-        };
-    }
-    #[pallet::type_value]
-    pub fn DefaultSubnetNodeV2<T: Config>() -> SubnetNodeV2<T::AccountId> {
-        return SubnetNodeV2 {
-            id: 0,
-            hotkey: T::AccountId::decode(&mut TrailingZeroInput::zeroes()).unwrap(),
             peer_info: PeerInfo::default(),
-            bootnode_peer_info: None,
-            client_peer_info: None,
-            classification: SubnetNodeClassification {
-                node_class: SubnetNodeClass::Registered,
-                start_epoch: 0,
-            },
-            delegate_reward_rate: 0,
-            last_delegate_reward_rate_update: 0,
-            unique: None,
-            non_unique: None,
-            delegate_account: None,
-        };
-    }
-    #[pallet::type_value]
-    pub fn DefaultSubnetNodeV3<T: Config>() -> SubnetNodeV3<T::AccountId> {
-        return SubnetNodeV3 {
-            id: 0,
-            hotkey: T::AccountId::decode(&mut TrailingZeroInput::zeroes()).unwrap(),
-            peer_info: PeerInfoV3::default(),
             bootnode_peer_info: None,
             client_peer_info: None,
             classification: SubnetNodeClassification {
@@ -3627,30 +3522,6 @@ pub mod pallet {
         DefaultSubnetNode<T>,
     >;
 
-    #[pallet::storage]
-    pub type SubnetNodesDataV2<T: Config> = StorageDoubleMap<
-        _,
-        Identity,
-        u32,
-        Identity,
-        u32,
-        SubnetNodeV2<T::AccountId>,
-        ValueQuery,
-        DefaultSubnetNodeV2<T>,
-    >;
-
-    #[pallet::storage]
-    pub type SubnetNodesDataV3<T: Config> = StorageDoubleMap<
-        _,
-        Identity,
-        u32,
-        Identity,
-        u32,
-        SubnetNodeV3<T::AccountId>,
-        ValueQuery,
-        DefaultSubnetNodeV3<T>,
-    >;
-
     /// Subnet node queue to be activated
     /// This if for registered nodes
     #[pallet::storage]
@@ -3870,6 +3741,17 @@ pub mod pallet {
         u128, // Reputation
         ValueQuery,
         DefaultPercentageFactorU128,
+    >;
+
+    #[pallet::storage]
+    pub type SubnetNodeReputationV2<T> = StorageDoubleMap<
+        _,
+        Identity,
+        u32, // subnet ID
+        Identity,
+        u32,  // subnet node ID
+        u128, // Reputation
+        OptionQuery,
     >;
 
     /// Node reputation factor when a node is absent from consensus for decreasing node reputation
@@ -4878,10 +4760,9 @@ pub mod pallet {
             origin: OriginFor<T>,
             subnet_id: u32,
             hotkey: T::AccountId,
-            peer_id: PeerId,
-            bootnode_peer_id: PeerId,
-            client_peer_id: PeerId,
-            bootnode: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+            peer_info: PeerInfo,
+            bootnode_peer_info: Option<PeerInfo>,
+            client_peer_info: Option<PeerInfo>,
             delegate_reward_rate: u128,
             stake_to_be_added: u128,
             unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
@@ -4894,10 +4775,9 @@ pub mod pallet {
                 origin,
                 subnet_id,
                 hotkey,
-                peer_id,
-                bootnode_peer_id,
-                client_peer_id,
-                bootnode,
+                peer_info,
+                bootnode_peer_info,
+                client_peer_info,
                 delegate_reward_rate,
                 stake_to_be_added,
                 unique,
@@ -4953,7 +4833,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             subnet_id: u32,
             subnet_node_id: u32,
-            new_peer_id: PeerId,
+            new_peer_info: PeerInfo,
         ) -> DispatchResult {
             let coldkey: T::AccountId = ensure_signed(origin.clone())?;
 
@@ -4964,7 +4844,7 @@ pub mod pallet {
                 Error::<T>::NotKeyOwner
             );
 
-            Self::do_update_peer_id(subnet_id, subnet_node_id, new_peer_id)
+            Self::do_update_peer_id(subnet_id, subnet_node_id, new_peer_info)
         }
 
         #[pallet::call_index(41)]
@@ -4984,7 +4864,9 @@ pub mod pallet {
                 Error::<T>::NotKeyOwner
             );
 
-            Self::do_update_bootnode(subnet_id, subnet_node_id, new_bootnode)
+            // Self::do_update_bootnode(subnet_id, subnet_node_id, new_bootnode)
+
+            Ok(())
         }
 
         #[pallet::call_index(42)]
@@ -4993,7 +4875,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             subnet_id: u32,
             subnet_node_id: u32,
-            new_bootnode_peer_id: PeerId,
+            new_peer_info: Option<PeerInfo>,
         ) -> DispatchResult {
             let coldkey: T::AccountId = ensure_signed(origin.clone())?;
 
@@ -5004,7 +4886,7 @@ pub mod pallet {
                 Error::<T>::NotKeyOwner
             );
 
-            Self::do_update_bootnode_peer_id(subnet_id, subnet_node_id, new_bootnode_peer_id)
+            Self::do_update_bootnode_peer_id(subnet_id, subnet_node_id, new_peer_info)
         }
 
         #[pallet::call_index(43)]
@@ -5013,7 +4895,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             subnet_id: u32,
             subnet_node_id: u32,
-            new_client_peer_id: PeerId,
+            new_peer_info: Option<PeerInfo>,
         ) -> DispatchResult {
             let coldkey: T::AccountId = ensure_signed(origin.clone())?;
 
@@ -5024,7 +4906,7 @@ pub mod pallet {
                 Error::<T>::NotKeyOwner
             );
 
-            Self::do_update_client_peer_id(subnet_id, subnet_node_id, new_client_peer_id)
+            Self::do_update_client_peer_id(subnet_id, subnet_node_id, new_peer_info)
         }
 
         /// Update node delegate reward rate
@@ -7109,39 +6991,6 @@ pub mod pallet {
 
             Ok(())
         }
-
-        #[pallet::call_index(165)]
-        #[pallet::weight({0})]
-        pub fn register_subnet_node_v2(
-            origin: OriginFor<T>,
-            subnet_id: u32,
-            hotkey: T::AccountId,
-            peer_info: PeerInfo,
-            bootnode_peer_info: Option<PeerInfo>,
-            client_peer_info: Option<PeerInfo>,
-            delegate_reward_rate: u128,
-            stake_to_be_added: u128,
-            unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-            non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-            delegate_account: Option<DelegateAccount<T::AccountId>>,
-            max_burn_amount: u128,
-        ) -> DispatchResult {
-            Self::is_paused()?;
-            Self::do_register_subnet_node_v2(
-                origin,
-                subnet_id,
-                hotkey,
-                peer_info,
-                bootnode_peer_info,
-                client_peer_info,
-                delegate_reward_rate,
-                stake_to_be_added,
-                unique,
-                non_unique,
-                delegate_account,
-                max_burn_amount,
-            )
-        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -7321,10 +7170,12 @@ pub mod pallet {
             for bootnode in &subnet_registration_data.bootnodes {
                 let multiaddr: &[u8] = &bootnode.1;
 
-                ensure!(
-                    multiaddr::Multiaddr::verify(multiaddr).is_ok(),
-                    Error::<T>::InvalidBootnode
-                );
+                // ensure!(
+                //     multiaddr::Multiaddr::verify(multiaddr).is_ok(),
+                //     Error::<T>::InvalidMultiaddr
+                // );
+
+                Self::do_verify_multiaddr(multiaddr)?;
 
                 let peer_id = &bootnode.0;
                 ensure!(
@@ -8411,7 +8262,7 @@ pub mod pallet {
         ///
         /// ### Bootnode Uniqueness (If Provided)
         /// - **Check**: If `bootnode` is `Some`, must not exist in `MultiaddrSubnetNodeId[subnet_id]`
-        /// - **Error**: `BootnodeExist`
+        /// - **Error**: `MultiaddrExist`
         /// - **Rationale**: Each bootnode multiaddr must be unique within subnet
         ///
         /// ## 4. Registration Whitelist (During Registration Period Only)
@@ -8563,7 +8414,7 @@ pub mod pallet {
         /// - `PeerIdsMustBeUnique` - Peer IDs must be distinct from each other
         /// - `InvalidPeerId` / `InvalidBootnodePeerId` / `InvalidClientPeerId` - Invalid libp2p format
         /// - `PeerIdExist` / `BootnodePeerIdExist` / `ClientPeerIdExist` - Peer ID already used in subnet
-        /// - `BootnodeExist` - Bootnode multiaddr already used in subnet
+        /// - `MultiaddrExist` - Bootnode multiaddr already used in subnet
         ///
         /// ## Capacity and Whitelist
         /// - `ColdkeyRegistrationWhitelist` - Coldkey not whitelisted (registration period only)
@@ -8612,324 +8463,324 @@ pub mod pallet {
         ///   - Economic feasibility (stake requirements × number of nodes)
         ///   - Queue wait times
         ///
+        // pub fn do_register_subnet_node(
+        //     origin: OriginFor<T>,
+        //     subnet_id: u32,
+        //     hotkey: T::AccountId,
+        //     peer_id: PeerId,
+        //     bootnode_peer_id: PeerId,
+        //     client_peer_id: PeerId,
+        //     bootnode: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        //     delegate_reward_rate: u128,
+        //     stake_to_be_added: u128,
+        //     unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        //     non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        //     delegate_account: Option<DelegateAccount<T::AccountId>>,
+        //     max_burn_amount: u128,
+        // ) -> DispatchResult {
+        //     let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+        //     let subnet = match SubnetsData::<T>::try_get(subnet_id) {
+        //         Ok(subnet) => subnet,
+        //         Err(()) => return Err(Error::<T>::InvalidSubnetId.into()),
+        //     };
+
+        //     ensure!(&coldkey != &hotkey, Error::<T>::ColdkeyMatchesHotkey);
+
+        //     // Ensure subnet is not paused
+        //     ensure!(
+        //         subnet.state != SubnetState::Paused,
+        //         Error::<T>::SubnetIsPaused
+        //     );
+
+        //     // Unique network-wide hotkey
+        //     ensure!(
+        //         !Self::hotkey_has_owner(hotkey.clone()),
+        //         Error::<T>::HotkeyHasOwner
+        //     );
+
+        //     // Redundant, this is impossible after hotkey check
+        //     ensure!(
+        //         !HotkeySubnetId::<T>::contains_key(hotkey.clone()),
+        //         Error::<T>::HotkeyHasOwner
+        //     );
+
+        //     // --- Ensure all peer IDs are unique
+        //     ensure!(
+        //         Self::are_all_unique(&vec![
+        //             peer_id.clone(),
+        //             bootnode_peer_id.clone(),
+        //             client_peer_id.clone()
+        //         ]),
+        //         Error::<T>::PeerIdsMustBeUnique
+        //     );
+
+        //     // - Get standard epoch to check if subnet can accept registrations
+        //     let epoch: u32 = Self::get_current_epoch_as_u32();
+
+        //     // If in enactment period, registering is disabled
+        //     // Nodes must enter in the registration period or activation period
+        //     // Once we are in the enactment period, only delegate staking is enabled to reach the qualifications
+        //     ensure!(
+        //         !Self::is_subnet_in_enactment(subnet_id, subnet.state, epoch),
+        //         Error::<T>::SubnetMustBeRegisteringOrActivated
+        //     );
+
+        //     // - Get subnet epoch to check against node start_epochs
+        //     let subnet_epoch: u32 = Self::get_current_subnet_epoch_as_u32(subnet_id);
+
+        //     // --- If in registration period, check if there is a whitelist and coldkey is in the whitelist
+        //     //     and if the coldkey hasn't registered too many nodes
+        //     // There must be SubnetRegistrationInitialColdkeys if not active
+        //     // `SubnetRegistrationInitialColdkeys` is removed on activation
+        //     // Note: `SubnetRegistrationInitialColdkeys` is removed on activation
+        //     if let Some(coldkey_map) = SubnetRegistrationInitialColdkeys::<T>::get(subnet_id) {
+        //         if let Some(&max_registrations) = coldkey_map.get(&coldkey) {
+        //             let current_registrations = InitialColdkeyData::<T>::get(subnet_id)
+        //                 .and_then(|map| map.get(&coldkey).copied())
+        //                 .unwrap_or(0);
+
+        //             ensure!(
+        //                 current_registrations < max_registrations,
+        //                 Error::<T>::MaxRegisteredNodes
+        //             );
+        //         } else {
+        //             // Coldkey doesn't exist in the mapping
+        //             return Err(Error::<T>::ColdkeyRegistrationWhitelist.into());
+        //         }
+        //     }
+
+        //     // Ensure there are registered node slots available
+        //     ensure!(
+        //         SubnetNodeQueue::<T>::get(subnet_id).len() as u32
+        //             <= MaxRegisteredNodes::<T>::get(subnet_id),
+        //         Error::<T>::MaxRegisteredNodes
+        //     );
+
+        //     // Validate peer IDs
+        //     ensure!(Self::validate_peer_id(&peer_id), Error::<T>::InvalidPeerId);
+        //     ensure!(
+        //         Self::validate_peer_id(&client_peer_id),
+        //         Error::<T>::InvalidClientPeerId
+        //     );
+        //     ensure!(
+        //         Self::validate_peer_id(&bootnode_peer_id),
+        //         Error::<T>::InvalidBootnodePeerId
+        //     );
+
+        //     // Ensure peer and boostrap peer ID doesn't already exist within subnet regardless of coldkey
+
+        //     // Unique subnet_id -> PeerId
+        //     ensure!(
+        //         Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &peer_id),
+        //         Error::<T>::PeerIdExist
+        //     );
+
+        //     // Unique subnet_id -> Bootnode PeerId
+        //     ensure!(
+        //         Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &bootnode_peer_id),
+        //         Error::<T>::BootnodePeerIdExist
+        //     );
+
+        //     // Unique subnet_id -> Client PeerId
+        //     ensure!(
+        //         Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &client_peer_id),
+        //         Error::<T>::ClientPeerIdExist
+        //     );
+
+        //     // Ensure bootnode is unique
+        //     if let Some(bootnode) = &bootnode {
+        //         let multiaddr: &[u8] = &bootnode.clone();
+
+        //         ensure!(
+        //             multiaddr::Multiaddr::verify(multiaddr).is_ok(),
+        //             Error::<T>::InvalidMultiaddr
+        //         );
+
+        //         ensure!(
+        //             Self::is_owner_of_multiaddr_or_ownerless(subnet_id, 0, bootnode.clone()),
+        //             Error::<T>::MultiaddrExist
+        //         );
+        //     }
+
+        //     // --- Start the UIDs at 1
+        //     TotalSubnetNodeUids::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
+        //     let subnet_node_id = TotalSubnetNodeUids::<T>::get(subnet_id);
+
+        //     // Unique ``unique``
+        //     // [here]
+        //     if let Some(unique_param) = unique.clone() {
+        //         ensure!(
+        //             !UniqueParamSubnetNodeId::<T>::contains_key(subnet_id, &unique_param),
+        //             Error::<T>::SubnetNodeUniqueParamTaken
+        //         );
+        //         UniqueParamSubnetNodeId::<T>::insert(subnet_id, &unique_param, subnet_node_id);
+        //     }
+
+        //     if let Some(delegate_account) = &delegate_account {
+        //         // Verify delegate account
+        //         Self::validate_delegate_account(&delegate_account, &hotkey, &coldkey)?;
+        //     }
+
+        //     // --- Ensure they have no stake on registration
+        //     // This is redundant since hotkeys can't be used twice,
+        //     // although, see `do_remove_stake` for how hotkeys are fully
+        //     // cleaned up and removed once a removed node fully unstakes
+        //     ensure!(
+        //         AccountSubnetStake::<T>::get(&hotkey, subnet_id) == 0,
+        //         Error::<T>::MustUnstakeToRegister
+        //     );
+
+        //     // Redundant after hotkey_has_owner
+        //     let mut hotkeys = ColdkeyHotkeys::<T>::get(&coldkey);
+        //     ensure!(
+        //         !hotkeys.contains(&hotkey),
+        //         Error::<T>::HotkeyAlreadyRegisteredToColdkey
+        //     );
+
+        //     ensure!(
+        //         delegate_reward_rate <= Self::percentage_factor_as_u128(),
+        //         Error::<T>::InvalidDelegateRewardRate
+        //     );
+
+        //     //
+        //     // Burn fee
+        //     //
+        //     let burn_amount = Self::calculate_burn_amount(subnet_id);
+        //     ensure!(
+        //         burn_amount <= max_burn_amount,
+        //         Error::<T>::MaxBurnAmountExceeded
+        //     );
+
+        //     let burn_amount_as_balance = Self::u128_to_balance(burn_amount);
+        //     if let Some(burn_amount_as_balance) = burn_amount_as_balance {
+        //         ensure!(
+        //             Self::burn(coldkey.clone(), burn_amount_as_balance),
+        //             Error::<T>::BalanceBurnError
+        //         );
+        //     }
+
+        //     // --- Record node registration on this epoch for burn fee calculations
+        //     Self::record_registration(subnet_id);
+
+        //     // ====================
+        //     // Initiate stake logic
+        //     // ====================
+        //     Self::do_add_stake(origin.clone(), subnet_id, hotkey.clone(), stake_to_be_added)
+        //         .map_err(|e| e)?;
+
+        //     let block: u32 = Self::get_current_block_as_u32();
+
+        //     // --- Only use block for last_delegate_reward_rate_update is rate is greater than zero
+        //     let mut last_delegate_reward_rate_update = 0;
+        //     if delegate_reward_rate > 0 {
+        //         last_delegate_reward_rate_update = block;
+        //     }
+
+        //     HotkeySubnetNodeId::<T>::insert(subnet_id, &hotkey, subnet_node_id);
+
+        //     // Insert Subnet Node ID -> hotkey
+        //     SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, &hotkey);
+
+        //     // Insert unique hotkey to subnet ID mapping
+        //     // This is used for updating hotkeys that have subnet_id keys
+        //     HotkeySubnetId::<T>::insert(&hotkey, subnet_id);
+
+        //     // Insert hotkey -> coldkey
+        //     HotkeyOwner::<T>::insert(&hotkey, &coldkey);
+
+        //     // Insert coldkey -> hotkeys
+        //     hotkeys.insert(hotkey.clone());
+        //     ColdkeyHotkeys::<T>::insert(&coldkey, hotkeys);
+
+        //     // Insert ColdkeySubnetNodes
+        //     // Used in overwatch node subnet diversity
+        //     ColdkeySubnetNodes::<T>::mutate(&coldkey, |node_map| {
+        //         node_map
+        //             .entry(subnet_id)
+        //             .or_insert_with(BTreeSet::new)
+        //             .insert(subnet_node_id);
+        //     });
+
+        //     // To ensure the AccountId that owns the PeerId, the subnet should use signature authentication
+        //     // This ensures others cannot claim to own a PeerId they are not the owner of
+
+        //     // Insert subnet peer and bootnode peer to keep peer_ids unique within subnets
+        //     PeerIdSubnetNodeId::<T>::insert(subnet_id, &peer_id, subnet_node_id);
+        //     BootnodePeerIdSubnetNodeId::<T>::insert(subnet_id, &bootnode_peer_id, subnet_node_id);
+        //     ClientPeerIdSubnetNodeId::<T>::insert(subnet_id, &client_peer_id, subnet_node_id);
+        //     if let Some(bootnode) = &bootnode {
+        //         MultiaddrSubnetNodeId::<T>::insert(subnet_id, &bootnode, subnet_node_id);
+        //     }
+
+        //     // Add to registration queue
+        //     // ========================
+        //     // Insert peer into storage
+        //     // ========================
+        //     let classification: SubnetNodeClassification = SubnetNodeClassification {
+        //         node_class: SubnetNodeClass::Registered,
+        //         start_epoch: subnet_epoch + 1,
+        //     };
+
+        //     let subnet_node: SubnetNode<T::AccountId> = SubnetNode {
+        //         id: subnet_node_id,
+        //         hotkey: hotkey.clone(),
+        //         peer_id: peer_id.clone(),
+        //         bootnode_peer_id: bootnode_peer_id.clone(),
+        //         client_peer_id: client_peer_id.clone(),
+        //         bootnode: bootnode,
+        //         classification: classification,
+        //         delegate_reward_rate: delegate_reward_rate,
+        //         last_delegate_reward_rate_update: last_delegate_reward_rate_update,
+        //         unique: unique,
+        //         non_unique: non_unique,
+        //         delegate_account: delegate_account,
+        //     };
+
+        //     // Increase total subnet nodes
+        //     TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
+        //     TotalNodes::<T>::mutate(|n: &mut u32| *n += 1);
+
+        //     Self::clean_coldkey_subnet_nodes(coldkey.clone());
+
+        //     // Push into queue
+        //     if subnet.state == SubnetState::Registered {
+        //         // Activate subnet node automatically
+        //         Self::perform_activate_subnet_node(
+        //             subnet_id,
+        //             subnet.state,
+        //             subnet_node,
+        //             subnet_epoch,
+        //         )
+        //         .map_err(|e| e)?;
+
+        //         InitialColdkeyData::<T>::mutate(subnet_id, |maybe_map| {
+        //             let map = maybe_map.get_or_insert_with(BTreeMap::new);
+        //             map.entry(coldkey.clone())
+        //                 .and_modify(|count| *count += 1)
+        //                 .or_insert(1);
+        //         });
+        //     } else {
+        //         // Insert RegisteredSubnetNodesData
+        //         RegisteredSubnetNodesData::<T>::insert(subnet_id, subnet_node_id, &subnet_node);
+
+        //         SubnetNodeQueue::<T>::mutate(subnet_id, |nodes| {
+        //             nodes.push(subnet_node.clone());
+        //         });
+
+        //         Self::deposit_event(Event::SubnetNodeRegistered {
+        //             subnet_id: subnet_id,
+        //             subnet_node_id: subnet_node_id,
+        //             coldkey: coldkey,
+        //             hotkey: hotkey,
+        //             data: subnet_node,
+        //         });
+        //     }
+
+        //     Ok(())
+        // }
+
         pub fn do_register_subnet_node(
-            origin: OriginFor<T>,
-            subnet_id: u32,
-            hotkey: T::AccountId,
-            peer_id: PeerId,
-            bootnode_peer_id: PeerId,
-            client_peer_id: PeerId,
-            bootnode: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-            delegate_reward_rate: u128,
-            stake_to_be_added: u128,
-            unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-            non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-            delegate_account: Option<DelegateAccount<T::AccountId>>,
-            max_burn_amount: u128,
-        ) -> DispatchResult {
-            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
-
-            let subnet = match SubnetsData::<T>::try_get(subnet_id) {
-                Ok(subnet) => subnet,
-                Err(()) => return Err(Error::<T>::InvalidSubnetId.into()),
-            };
-
-            ensure!(&coldkey != &hotkey, Error::<T>::ColdkeyMatchesHotkey);
-
-            // Ensure subnet is not paused
-            ensure!(
-                subnet.state != SubnetState::Paused,
-                Error::<T>::SubnetIsPaused
-            );
-
-            // Unique network-wide hotkey
-            ensure!(
-                !Self::hotkey_has_owner(hotkey.clone()),
-                Error::<T>::HotkeyHasOwner
-            );
-
-            // Redundant, this is impossible after hotkey check
-            ensure!(
-                !HotkeySubnetId::<T>::contains_key(hotkey.clone()),
-                Error::<T>::HotkeyHasOwner
-            );
-
-            // --- Ensure all peer IDs are unique
-            ensure!(
-                Self::are_all_unique(&vec![
-                    peer_id.clone(),
-                    bootnode_peer_id.clone(),
-                    client_peer_id.clone()
-                ]),
-                Error::<T>::PeerIdsMustBeUnique
-            );
-
-            // - Get standard epoch to check if subnet can accept registrations
-            let epoch: u32 = Self::get_current_epoch_as_u32();
-
-            // If in enactment period, registering is disabled
-            // Nodes must enter in the registration period or activation period
-            // Once we are in the enactment period, only delegate staking is enabled to reach the qualifications
-            ensure!(
-                !Self::is_subnet_in_enactment(subnet_id, subnet.state, epoch),
-                Error::<T>::SubnetMustBeRegisteringOrActivated
-            );
-
-            // - Get subnet epoch to check against node start_epochs
-            let subnet_epoch: u32 = Self::get_current_subnet_epoch_as_u32(subnet_id);
-
-            // --- If in registration period, check if there is a whitelist and coldkey is in the whitelist
-            //     and if the coldkey hasn't registered too many nodes
-            // There must be SubnetRegistrationInitialColdkeys if not active
-            // `SubnetRegistrationInitialColdkeys` is removed on activation
-            // Note: `SubnetRegistrationInitialColdkeys` is removed on activation
-            if let Some(coldkey_map) = SubnetRegistrationInitialColdkeys::<T>::get(subnet_id) {
-                if let Some(&max_registrations) = coldkey_map.get(&coldkey) {
-                    let current_registrations = InitialColdkeyData::<T>::get(subnet_id)
-                        .and_then(|map| map.get(&coldkey).copied())
-                        .unwrap_or(0);
-
-                    ensure!(
-                        current_registrations < max_registrations,
-                        Error::<T>::MaxRegisteredNodes
-                    );
-                } else {
-                    // Coldkey doesn't exist in the mapping
-                    return Err(Error::<T>::ColdkeyRegistrationWhitelist.into());
-                }
-            }
-
-            // Ensure there are registered node slots available
-            ensure!(
-                SubnetNodeQueue::<T>::get(subnet_id).len() as u32
-                    <= MaxRegisteredNodes::<T>::get(subnet_id),
-                Error::<T>::MaxRegisteredNodes
-            );
-
-            // Validate peer IDs
-            ensure!(Self::validate_peer_id(&peer_id), Error::<T>::InvalidPeerId);
-            ensure!(
-                Self::validate_peer_id(&client_peer_id),
-                Error::<T>::InvalidClientPeerId
-            );
-            ensure!(
-                Self::validate_peer_id(&bootnode_peer_id),
-                Error::<T>::InvalidBootnodePeerId
-            );
-
-            // Ensure peer and boostrap peer ID doesn't already exist within subnet regardless of coldkey
-
-            // Unique subnet_id -> PeerId
-            ensure!(
-                Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &peer_id),
-                Error::<T>::PeerIdExist
-            );
-
-            // Unique subnet_id -> Bootnode PeerId
-            ensure!(
-                Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &bootnode_peer_id),
-                Error::<T>::BootnodePeerIdExist
-            );
-
-            // Unique subnet_id -> Client PeerId
-            ensure!(
-                Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &client_peer_id),
-                Error::<T>::ClientPeerIdExist
-            );
-
-            // Ensure bootnode is unique
-            if let Some(bootnode) = &bootnode {
-                let multiaddr: &[u8] = &bootnode.clone();
-
-                ensure!(
-                    multiaddr::Multiaddr::verify(multiaddr).is_ok(),
-                    Error::<T>::InvalidBootnode
-                );
-
-                ensure!(
-                    Self::is_owner_of_multiaddr_or_ownerless(subnet_id, 0, bootnode.clone()),
-                    Error::<T>::BootnodeExist
-                );
-            }
-
-            // --- Start the UIDs at 1
-            TotalSubnetNodeUids::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
-            let subnet_node_id = TotalSubnetNodeUids::<T>::get(subnet_id);
-
-            // Unique ``unique``
-            // [here]
-            if let Some(unique_param) = unique.clone() {
-                ensure!(
-                    !UniqueParamSubnetNodeId::<T>::contains_key(subnet_id, &unique_param),
-                    Error::<T>::SubnetNodeUniqueParamTaken
-                );
-                UniqueParamSubnetNodeId::<T>::insert(subnet_id, &unique_param, subnet_node_id);
-            }
-
-            if let Some(delegate_account) = &delegate_account {
-                // Verify delegate account
-                Self::validate_delegate_account(&delegate_account, &hotkey, &coldkey)?;
-            }
-
-            // --- Ensure they have no stake on registration
-            // This is redundant since hotkeys can't be used twice,
-            // although, see `do_remove_stake` for how hotkeys are fully
-            // cleaned up and removed once a removed node fully unstakes
-            ensure!(
-                AccountSubnetStake::<T>::get(&hotkey, subnet_id) == 0,
-                Error::<T>::MustUnstakeToRegister
-            );
-
-            // Redundant after hotkey_has_owner
-            let mut hotkeys = ColdkeyHotkeys::<T>::get(&coldkey);
-            ensure!(
-                !hotkeys.contains(&hotkey),
-                Error::<T>::HotkeyAlreadyRegisteredToColdkey
-            );
-
-            ensure!(
-                delegate_reward_rate <= Self::percentage_factor_as_u128(),
-                Error::<T>::InvalidDelegateRewardRate
-            );
-
-            //
-            // Burn fee
-            //
-            let burn_amount = Self::calculate_burn_amount(subnet_id);
-            ensure!(
-                burn_amount <= max_burn_amount,
-                Error::<T>::MaxBurnAmountExceeded
-            );
-
-            let burn_amount_as_balance = Self::u128_to_balance(burn_amount);
-            if let Some(burn_amount_as_balance) = burn_amount_as_balance {
-                ensure!(
-                    Self::burn(coldkey.clone(), burn_amount_as_balance),
-                    Error::<T>::BalanceBurnError
-                );
-            }
-
-            // --- Record node registration on this epoch for burn fee calculations
-            Self::record_registration(subnet_id);
-
-            // ====================
-            // Initiate stake logic
-            // ====================
-            Self::do_add_stake(origin.clone(), subnet_id, hotkey.clone(), stake_to_be_added)
-                .map_err(|e| e)?;
-
-            let block: u32 = Self::get_current_block_as_u32();
-
-            // --- Only use block for last_delegate_reward_rate_update is rate is greater than zero
-            let mut last_delegate_reward_rate_update = 0;
-            if delegate_reward_rate > 0 {
-                last_delegate_reward_rate_update = block;
-            }
-
-            HotkeySubnetNodeId::<T>::insert(subnet_id, &hotkey, subnet_node_id);
-
-            // Insert Subnet Node ID -> hotkey
-            SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, &hotkey);
-
-            // Insert unique hotkey to subnet ID mapping
-            // This is used for updating hotkeys that have subnet_id keys
-            HotkeySubnetId::<T>::insert(&hotkey, subnet_id);
-
-            // Insert hotkey -> coldkey
-            HotkeyOwner::<T>::insert(&hotkey, &coldkey);
-
-            // Insert coldkey -> hotkeys
-            hotkeys.insert(hotkey.clone());
-            ColdkeyHotkeys::<T>::insert(&coldkey, hotkeys);
-
-            // Insert ColdkeySubnetNodes
-            // Used in overwatch node subnet diversity
-            ColdkeySubnetNodes::<T>::mutate(&coldkey, |node_map| {
-                node_map
-                    .entry(subnet_id)
-                    .or_insert_with(BTreeSet::new)
-                    .insert(subnet_node_id);
-            });
-
-            // To ensure the AccountId that owns the PeerId, the subnet should use signature authentication
-            // This ensures others cannot claim to own a PeerId they are not the owner of
-
-            // Insert subnet peer and bootnode peer to keep peer_ids unique within subnets
-            PeerIdSubnetNodeId::<T>::insert(subnet_id, &peer_id, subnet_node_id);
-            BootnodePeerIdSubnetNodeId::<T>::insert(subnet_id, &bootnode_peer_id, subnet_node_id);
-            ClientPeerIdSubnetNodeId::<T>::insert(subnet_id, &client_peer_id, subnet_node_id);
-            if let Some(bootnode) = &bootnode {
-                MultiaddrSubnetNodeId::<T>::insert(subnet_id, &bootnode, subnet_node_id);
-            }
-
-            // Add to registration queue
-            // ========================
-            // Insert peer into storage
-            // ========================
-            let classification: SubnetNodeClassification = SubnetNodeClassification {
-                node_class: SubnetNodeClass::Registered,
-                start_epoch: subnet_epoch + 1,
-            };
-
-            let subnet_node: SubnetNode<T::AccountId> = SubnetNode {
-                id: subnet_node_id,
-                hotkey: hotkey.clone(),
-                peer_id: peer_id.clone(),
-                bootnode_peer_id: bootnode_peer_id.clone(),
-                client_peer_id: client_peer_id.clone(),
-                bootnode: bootnode,
-                classification: classification,
-                delegate_reward_rate: delegate_reward_rate,
-                last_delegate_reward_rate_update: last_delegate_reward_rate_update,
-                unique: unique,
-                non_unique: non_unique,
-                delegate_account: delegate_account,
-            };
-
-            // Increase total subnet nodes
-            TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
-            TotalNodes::<T>::mutate(|n: &mut u32| *n += 1);
-
-            Self::clean_coldkey_subnet_nodes(coldkey.clone());
-
-            // Push into queue
-            if subnet.state == SubnetState::Registered {
-                // Activate subnet node automatically
-                Self::perform_activate_subnet_node(
-                    subnet_id,
-                    subnet.state,
-                    subnet_node,
-                    subnet_epoch,
-                )
-                .map_err(|e| e)?;
-
-                InitialColdkeyData::<T>::mutate(subnet_id, |maybe_map| {
-                    let map = maybe_map.get_or_insert_with(BTreeMap::new);
-                    map.entry(coldkey.clone())
-                        .and_modify(|count| *count += 1)
-                        .or_insert(1);
-                });
-            } else {
-                // Insert RegisteredSubnetNodesData
-                RegisteredSubnetNodesData::<T>::insert(subnet_id, subnet_node_id, &subnet_node);
-
-                SubnetNodeQueue::<T>::mutate(subnet_id, |nodes| {
-                    nodes.push(subnet_node.clone());
-                });
-
-                Self::deposit_event(Event::SubnetNodeRegistered {
-                    subnet_id: subnet_id,
-                    subnet_node_id: subnet_node_id,
-                    coldkey: coldkey,
-                    hotkey: hotkey,
-                    data: subnet_node,
-                });
-            }
-
-            Ok(())
-        }
-
-        pub fn do_register_subnet_node_v2(
             origin: OriginFor<T>,
             subnet_id: u32,
             hotkey: T::AccountId,
@@ -8970,16 +8821,6 @@ pub mod pallet {
                 Error::<T>::HotkeyHasOwner
             );
 
-            // --- Ensure all peer IDs are unique
-            // ensure!(
-            //     Self::are_all_unique(&vec![
-            //         peer_id.clone(),
-            //         bootnode_peer_id.clone(),
-            //         client_peer_id.clone()
-            //     ]),
-            //     Error::<T>::PeerIdsMustBeUnique
-            // );
-
             // - Get standard epoch to check if subnet can accept registrations
             let epoch: u32 = Self::get_current_epoch_as_u32();
 
@@ -9022,387 +8863,22 @@ pub mod pallet {
                 Error::<T>::MaxRegisteredNodes
             );
 
-            // Validate peer IDs
-            ensure!(
-                Self::validate_peer_id(&peer_info.peer_id),
-                Error::<T>::InvalidPeerId
-            );
-
-            let multiaddr: &[u8] = &peer_info.multiaddr.clone();
-
-            ensure!(
-                multiaddr::Multiaddr::verify(multiaddr).is_ok(),
-                Error::<T>::InvalidPeerId
-            );
-
-            // Unique subnet_id -> PeerId
-            ensure!(
-                Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &peer_info.peer_id),
-                Error::<T>::PeerIdExist
-            );
-
             // --- Start the UIDs at 1
             TotalSubnetNodeUids::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
             let subnet_node_id = TotalSubnetNodeUids::<T>::get(subnet_id);
+
+            Self::validate_peer_info(subnet_id, 0, 0, &peer_info)?;
 
             PeerIdSubnetNodeId::<T>::insert(subnet_id, &peer_info.peer_id, subnet_node_id);
-            // if let Some(bootnode) = &bootnode {
-            //     MultiaddrSubnetNodeId::<T>::insert(subnet_id, &bootnode, subnet_node_id);
-            // }
-
-            // Ensure bootnode_peer_info is unique
-            if let Some(bootnode_peer_info) = &bootnode_peer_info {
-                let bootnode_multiaddr: &[u8] = &bootnode_peer_info.multiaddr.clone();
-
-                ensure!(
-                    multiaddr::Multiaddr::verify(bootnode_multiaddr).is_ok(),
-                    Error::<T>::InvalidBootnode
-                );
-
-                ensure!(
-                    Self::validate_peer_id(&bootnode_peer_info.peer_id),
-                    Error::<T>::InvalidBootnodePeerId
-                );
-
-                ensure!(
-                    Self::is_owner_of_peer_or_ownerless(
-                        subnet_id,
-                        0,
-                        0,
-                        &bootnode_peer_info.peer_id
-                    ),
-                    Error::<T>::BootnodePeerIdExist
-                );
-
-                ensure!(
-                    Self::is_owner_of_multiaddr_or_ownerless(
-                        subnet_id,
-                        0,
-                        bootnode_peer_info.multiaddr.clone()
-                    ),
-                    Error::<T>::BootnodeExist
-                );
-
-                BootnodePeerIdSubnetNodeId::<T>::insert(
-                    subnet_id,
-                    &bootnode_peer_info.peer_id,
-                    subnet_node_id,
-                );
-            }
-
-            // Ensure client_peer_info is unique
-            if let Some(client_peer_info) = &client_peer_info {
-                let client_multiaddr: &[u8] = &client_peer_info.multiaddr.clone();
-
-                ensure!(
-                    multiaddr::Multiaddr::verify(client_multiaddr).is_ok(),
-                    Error::<T>::InvalidBootnode
-                );
-
-                ensure!(
-                    Self::validate_peer_id(&client_peer_info.peer_id),
-                    Error::<T>::InvalidClientPeerId
-                );
-
-                ensure!(
-                    Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &client_peer_info.peer_id),
-                    Error::<T>::ClientPeerIdExist
-                );
-
-                ClientPeerIdSubnetNodeId::<T>::insert(
-                    subnet_id,
-                    &client_peer_info.peer_id,
-                    subnet_node_id,
-                );
-            }
-
-            // Unique ``unique``
-            // [here]
-            if let Some(unique_param) = unique.clone() {
-                ensure!(
-                    !UniqueParamSubnetNodeId::<T>::contains_key(subnet_id, &unique_param),
-                    Error::<T>::SubnetNodeUniqueParamTaken
-                );
-                UniqueParamSubnetNodeId::<T>::insert(subnet_id, &unique_param, subnet_node_id);
-            }
-
-            if let Some(delegate_account) = &delegate_account {
-                // Verify delegate account
-                Self::validate_delegate_account(&delegate_account, &hotkey, &coldkey)?;
-            }
-
-            // --- Ensure they have no stake on registration
-            // This is redundant since hotkeys can't be used twice,
-            // although, see `do_remove_stake` for how hotkeys are fully
-            // cleaned up and removed once a removed node fully unstakes
-            ensure!(
-                AccountSubnetStake::<T>::get(&hotkey, subnet_id) == 0,
-                Error::<T>::MustUnstakeToRegister
-            );
-
-            // Redundant after hotkey_has_owner
-            let mut hotkeys = ColdkeyHotkeys::<T>::get(&coldkey);
-            ensure!(
-                !hotkeys.contains(&hotkey),
-                Error::<T>::HotkeyAlreadyRegisteredToColdkey
-            );
-
-            ensure!(
-                delegate_reward_rate <= Self::percentage_factor_as_u128(),
-                Error::<T>::InvalidDelegateRewardRate
-            );
-
-            //
-            // Burn fee
-            //
-            let burn_amount = Self::calculate_burn_amount(subnet_id);
-            ensure!(
-                burn_amount <= max_burn_amount,
-                Error::<T>::MaxBurnAmountExceeded
-            );
-
-            let burn_amount_as_balance = Self::u128_to_balance(burn_amount);
-            if let Some(burn_amount_as_balance) = burn_amount_as_balance {
-                ensure!(
-                    Self::burn(coldkey.clone(), burn_amount_as_balance),
-                    Error::<T>::BalanceBurnError
-                );
-            }
-
-            // --- Record node registration on this epoch for burn fee calculations
-            Self::record_registration(subnet_id);
-
-            // ====================
-            // Initiate stake logic
-            // ====================
-            Self::do_add_stake(origin.clone(), subnet_id, hotkey.clone(), stake_to_be_added)
-                .map_err(|e| e)?;
-
-            let block: u32 = Self::get_current_block_as_u32();
-
-            // --- Only use block for last_delegate_reward_rate_update is rate is greater than zero
-            let mut last_delegate_reward_rate_update = 0;
-            if delegate_reward_rate > 0 {
-                last_delegate_reward_rate_update = block;
-            }
-
-            HotkeySubnetNodeId::<T>::insert(subnet_id, &hotkey, subnet_node_id);
-
-            // Insert Subnet Node ID -> hotkey
-            SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, &hotkey);
-
-            // Insert unique hotkey to subnet ID mapping
-            // This is used for updating hotkeys that have subnet_id keys
-            HotkeySubnetId::<T>::insert(&hotkey, subnet_id);
-
-            // Insert hotkey -> coldkey
-            HotkeyOwner::<T>::insert(&hotkey, &coldkey);
-
-            // Insert coldkey -> hotkeys
-            hotkeys.insert(hotkey.clone());
-            ColdkeyHotkeys::<T>::insert(&coldkey, hotkeys);
-
-            // Insert ColdkeySubnetNodes
-            // Used in overwatch node subnet diversity
-            ColdkeySubnetNodes::<T>::mutate(&coldkey, |node_map| {
-                node_map
-                    .entry(subnet_id)
-                    .or_insert_with(BTreeSet::new)
-                    .insert(subnet_node_id);
-            });
-
-            // To ensure the AccountId that owns the PeerId, the subnet should use signature authentication
-            // This ensures others cannot claim to own a PeerId they are not the owner of
-
-            // Insert subnet peer and bootnode peer to keep peer_ids unique within subnets
-
-            // Add to registration queue
-            // ========================
-            // Insert peer into storage
-            // ========================
-            let classification: SubnetNodeClassification = SubnetNodeClassification {
-                node_class: SubnetNodeClass::Registered,
-                start_epoch: subnet_epoch + 1,
-            };
-
-            let subnet_node: SubnetNodeV2<T::AccountId> = SubnetNodeV2 {
-                id: subnet_node_id,
-                hotkey: hotkey.clone(),
-                peer_info: peer_info.clone(),
-                bootnode_peer_info: bootnode_peer_info.clone(),
-                client_peer_info: client_peer_info.clone(),
-                classification: classification,
-                delegate_reward_rate: delegate_reward_rate,
-                last_delegate_reward_rate_update: last_delegate_reward_rate_update,
-                unique: unique,
-                non_unique: non_unique,
-                delegate_account: delegate_account,
-            };
-
-            // Increase total subnet nodes
-            TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
-            TotalNodes::<T>::mutate(|n: &mut u32| *n += 1);
-
-            Self::clean_coldkey_subnet_nodes(coldkey.clone());
-
-            // Push into queue
-            if subnet.state == SubnetState::Registered {
-                // Activate subnet node automatically
-                // Self::perform_activate_subnet_node(
-                //     subnet_id,
-                //     subnet.state,
-                //     subnet_node,
-                //     subnet_epoch,
-                // )
-                // .map_err(|e| e)?;
-
-                // InitialColdkeyData::<T>::mutate(subnet_id, |maybe_map| {
-                //     let map = maybe_map.get_or_insert_with(BTreeMap::new);
-                //     map.entry(coldkey.clone())
-                //         .and_modify(|count| *count += 1)
-                //         .or_insert(1);
-                // });
-            } else {
-                // Insert RegisteredSubnetNodesData
-                SubnetNodesDataV2::<T>::insert(subnet_id, subnet_node_id, &subnet_node);
-
-                // SubnetNodeQueue::<T>::mutate(subnet_id, |nodes| {
-                //     nodes.push(subnet_node.clone());
-                // });
-
-                // Self::deposit_event(Event::SubnetNodeRegistered {
-                //     subnet_id: subnet_id,
-                //     subnet_node_id: subnet_node_id,
-                //     coldkey: coldkey,
-                //     hotkey: hotkey,
-                //     data: subnet_node,
-                // });
-            }
-
-            Ok(())
-        }
-
-        pub fn do_register_subnet_node_v3(
-            origin: OriginFor<T>,
-            subnet_id: u32,
-            hotkey: T::AccountId,
-            peer_info: PeerInfoV3,
-            bootnode_peer_info: Option<PeerInfoV3>,
-            client_peer_info: Option<PeerInfoV3>,
-            delegate_reward_rate: u128,
-            stake_to_be_added: u128,
-            unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-            non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-            delegate_account: Option<DelegateAccount<T::AccountId>>,
-            max_burn_amount: u128,
-        ) -> DispatchResult {
-            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
-
-            let subnet = match SubnetsData::<T>::try_get(subnet_id) {
-                Ok(subnet) => subnet,
-                Err(()) => return Err(Error::<T>::InvalidSubnetId.into()),
-            };
-
-            ensure!(&coldkey != &hotkey, Error::<T>::ColdkeyMatchesHotkey);
-
-            // Ensure subnet is not paused
-            ensure!(
-                subnet.state != SubnetState::Paused,
-                Error::<T>::SubnetIsPaused
-            );
-
-            // Unique network-wide hotkey
-            ensure!(
-                !Self::hotkey_has_owner(hotkey.clone()),
-                Error::<T>::HotkeyHasOwner
-            );
-
-            // Redundant, this is impossible after hotkey check
-            ensure!(
-                !HotkeySubnetId::<T>::contains_key(hotkey.clone()),
-                Error::<T>::HotkeyHasOwner
-            );
-
-            // - Get standard epoch to check if subnet can accept registrations
-            let epoch: u32 = Self::get_current_epoch_as_u32();
-
-            // If in enactment period, registering is disabled
-            // Nodes must enter in the registration period or activation period
-            // Once we are in the enactment period, only delegate staking is enabled to reach the qualifications
-            ensure!(
-                !Self::is_subnet_in_enactment(subnet_id, subnet.state, epoch),
-                Error::<T>::SubnetMustBeRegisteringOrActivated
-            );
-
-            // - Get subnet epoch to check against node start_epochs
-            let subnet_epoch: u32 = Self::get_current_subnet_epoch_as_u32(subnet_id);
-
-            // --- If in registration period, check if there is a whitelist and coldkey is in the whitelist
-            //     and if the coldkey hasn't registered too many nodes
-            // There must be SubnetRegistrationInitialColdkeys if not active
-            // `SubnetRegistrationInitialColdkeys` is removed on activation
-            // Note: `SubnetRegistrationInitialColdkeys` is removed on activation
-            if let Some(coldkey_map) = SubnetRegistrationInitialColdkeys::<T>::get(subnet_id) {
-                if let Some(&max_registrations) = coldkey_map.get(&coldkey) {
-                    let current_registrations = InitialColdkeyData::<T>::get(subnet_id)
-                        .and_then(|map| map.get(&coldkey).copied())
-                        .unwrap_or(0);
-
-                    ensure!(
-                        current_registrations < max_registrations,
-                        Error::<T>::MaxRegisteredNodes
-                    );
-                } else {
-                    // Coldkey doesn't exist in the mapping
-                    return Err(Error::<T>::ColdkeyRegistrationWhitelist.into());
-                }
-            }
-
-            // Ensure there are registered node slots available
-            ensure!(
-                SubnetNodeQueue::<T>::get(subnet_id).len() as u32
-                    <= MaxRegisteredNodes::<T>::get(subnet_id),
-                Error::<T>::MaxRegisteredNodes
-            );
-
-            // Validate peer IDs
-            // ensure!(
-            //     Self::validate_peer_id(&peer_info.peer_id),
-            //     Error::<T>::InvalidPeerId
-            // );
-
-            // --- Start the UIDs at 1
-            TotalSubnetNodeUids::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
-            let subnet_node_id = TotalSubnetNodeUids::<T>::get(subnet_id);
-
-            Self::validate_peer_info(
-                subnet_id,
-                subnet_node_id,
-                0,
-                &peer_info,
-            )?;
 
             if let Some(peer_multiaddr) = &peer_info.multiaddr {
                 // Validated in `validate_peer_info`
                 MultiaddrSubnetNodeId::<T>::insert(subnet_id, &peer_multiaddr, subnet_node_id);
             }
 
-            // Unique subnet_id -> PeerId
-            ensure!(
-                Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &peer_info.peer_id),
-                Error::<T>::PeerIdExist
-            );
-
-            PeerIdSubnetNodeId::<T>::insert(subnet_id, &peer_info.peer_id, subnet_node_id);
-
             // Ensure bootnode_peer_info is unique
             if let Some(bootnode_peer_info) = &bootnode_peer_info {
-                Self::validate_peer_info(
-                    subnet_id,
-                    subnet_node_id,
-                    0,
-                    &bootnode_peer_info,
-                )?;
+                Self::validate_peer_info(subnet_id, 0, 0, &bootnode_peer_info)?;
 
                 BootnodePeerIdSubnetNodeId::<T>::insert(
                     subnet_id,
@@ -9422,12 +8898,7 @@ pub mod pallet {
 
             // Ensure client_peer_info is unique
             if let Some(client_peer_info) = &client_peer_info {
-                Self::validate_peer_info(
-                    subnet_id,
-                    subnet_node_id,
-                    0,
-                    &client_peer_info,
-                )?;
+                Self::validate_peer_info(subnet_id, 0, 0, &client_peer_info)?;
 
                 ClientPeerIdSubnetNodeId::<T>::insert(
                     subnet_id,
@@ -9554,7 +9025,7 @@ pub mod pallet {
                 start_epoch: subnet_epoch + 1,
             };
 
-            let subnet_node: SubnetNodeV3<T::AccountId> = SubnetNodeV3 {
+            let subnet_node: SubnetNode<T::AccountId> = SubnetNode {
                 id: subnet_node_id,
                 hotkey: hotkey.clone(),
                 peer_info: peer_info.clone(),
@@ -9572,40 +9043,43 @@ pub mod pallet {
             TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
             TotalNodes::<T>::mutate(|n: &mut u32| *n += 1);
 
+            // Initialize subnet node reputation
+            SubnetNodeReputationV2::<T>::insert(subnet_id, subnet_node_id, Self::percentage_factor_as_u128());
+
             Self::clean_coldkey_subnet_nodes(coldkey.clone());
 
             // Push into queue
             if subnet.state == SubnetState::Registered {
                 // Activate subnet node automatically
-                // Self::perform_activate_subnet_node(
-                //     subnet_id,
-                //     subnet.state,
-                //     subnet_node,
-                //     subnet_epoch,
-                // )
-                // .map_err(|e| e)?;
+                Self::perform_activate_subnet_node(
+                    subnet_id,
+                    subnet.state,
+                    subnet_node,
+                    subnet_epoch,
+                )
+                .map_err(|e| e)?;
 
-                // InitialColdkeyData::<T>::mutate(subnet_id, |maybe_map| {
-                //     let map = maybe_map.get_or_insert_with(BTreeMap::new);
-                //     map.entry(coldkey.clone())
-                //         .and_modify(|count| *count += 1)
-                //         .or_insert(1);
-                // });
+                InitialColdkeyData::<T>::mutate(subnet_id, |maybe_map| {
+                    let map = maybe_map.get_or_insert_with(BTreeMap::new);
+                    map.entry(coldkey.clone())
+                        .and_modify(|count| *count += 1)
+                        .or_insert(1);
+                });
             } else {
                 // Insert RegisteredSubnetNodesData
-                SubnetNodesDataV3::<T>::insert(subnet_id, subnet_node_id, &subnet_node);
+                RegisteredSubnetNodesData::<T>::insert(subnet_id, subnet_node_id, &subnet_node);
 
-                // SubnetNodeQueue::<T>::mutate(subnet_id, |nodes| {
-                //     nodes.push(subnet_node.clone());
-                // });
+                SubnetNodeQueue::<T>::mutate(subnet_id, |nodes| {
+                    nodes.push(subnet_node.clone());
+                });
 
-                // Self::deposit_event(Event::SubnetNodeRegistered {
-                //     subnet_id: subnet_id,
-                //     subnet_node_id: subnet_node_id,
-                //     coldkey: coldkey,
-                //     hotkey: hotkey,
-                //     data: subnet_node,
-                // });
+                Self::deposit_event(Event::SubnetNodeRegistered {
+                    subnet_id: subnet_id,
+                    subnet_node_id: subnet_node_id,
+                    coldkey: coldkey,
+                    hotkey: hotkey,
+                    data: subnet_node,
+                });
             }
 
             Ok(())

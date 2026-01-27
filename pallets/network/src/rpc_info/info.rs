@@ -120,10 +120,9 @@ impl<T: Config> Pallet<T> {
             subnet_node_id: subnet_node_id,
             coldkey: coldkey.clone(),
             hotkey: subnet_node.hotkey.clone(),
-            peer_id: subnet_node.peer_id,
-            bootnode_peer_id: subnet_node.bootnode_peer_id,
-            client_peer_id: subnet_node.client_peer_id,
-            bootnode: subnet_node.bootnode,
+            peer_info: subnet_node.peer_info,
+            bootnode_peer_info: subnet_node.bootnode_peer_info,
+            client_peer_info: subnet_node.client_peer_info,
             delegate_account: subnet_node.delegate_account,
             identity: ColdkeyIdentity::<T>::get(&coldkey),
             classification: subnet_node.classification,
@@ -318,12 +317,26 @@ impl<T: Config> Pallet<T> {
 
         let node_bootnodes: BTreeMap<PeerId, Option<BoundedVec<u8, DefaultMaxVectorLength>>> =
             SubnetNodesData::<T>::iter_prefix(subnet_id)
-                .map(|(_, node)| (node.bootnode_peer_id, node.bootnode))
+                .filter_map(|(_, node)| {
+                    if let Some(peer_info) = node.bootnode_peer_info {
+                        if let Some(multiaddr) = peer_info.multiaddr {
+                            return Some((peer_info.peer_id, Some(multiaddr)));
+                        }
+                    }
+                    None
+                })
                 .collect();
 
         let registered_bootnodes: BTreeMap<PeerId, Option<BoundedVec<u8, DefaultMaxVectorLength>>> =
             RegisteredSubnetNodesData::<T>::iter_prefix(subnet_id)
-                .map(|(_, node)| (node.bootnode_peer_id, node.bootnode))
+                .filter_map(|(_, node)| {
+                    if let Some(peer_info) = node.bootnode_peer_info {
+                        if let Some(multiaddr) = peer_info.multiaddr {
+                            return Some((peer_info.peer_id, Some(multiaddr)));
+                        }
+                    }
+                    None
+                })
                 .collect();
 
         AllSubnetBootnodes {

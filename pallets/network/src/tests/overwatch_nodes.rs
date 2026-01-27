@@ -384,7 +384,7 @@ fn test_set_overwatch_peer_id_errors() {
             HotkeySubnetNodeId::<Test>::get(subnet_id, snn_hotkey.clone()).unwrap();
         let subnet_node_data =
             SubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id).unwrap();
-        let snn_peer_id = subnet_node_data.peer_id;
+        let snn_peer_id = subnet_node_data.peer_info.peer_id;
 
         assert_err!(
             Network::set_overwatch_node_peer_id(

@@ -638,11 +638,6 @@ impl<T: Config> Pallet<T> {
                     //
                     // Update node rep
                     //
-                    // let reputation = Self::get_decrease_reputation(
-                    //     SubnetNodeReputation::<T>::get(subnet_id, validator_id),
-                    //     ValidatorAbsentDecreaseReputationFactor::<T>::get(subnet_id),
-                    // );
-                    // SubnetNodeReputation::<T>::insert(subnet_id, validator_id, reputation);
                     Self::decrease_and_return_node_reputation(
                         subnet_id,
                         validator_id,
