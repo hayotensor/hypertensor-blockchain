@@ -187,11 +187,23 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn increase_node_reputation(subnet_id: u32, subnet_node_id: u32, factor: u128) {
-        let mut reputation = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id);
-        reputation = Self::get_increase_reputation(reputation, factor);
-        SubnetNodeReputation::<T>::insert(subnet_id, subnet_node_id, reputation);
+        SubnetNodeReputation::<T>::mutate_exists(subnet_id, subnet_node_id, |maybe_reputation| {
+            if let Some(reputation) = maybe_reputation {
+                let prev_reputation = *reputation;
+                *reputation = Self::get_increase_reputation(prev_reputation, factor);
+                Self::deposit_event(Event::NodeReputationUpdate {
+                    subnet_id,
+                    subnet_node_id,
+                    prev_reputation,
+                    new_reputation: *reputation,
+                });
+            }
+        });
     }
 
+    /// Increase node reputation and return new reputation
+    /// This takes in the current reputation and updates the nodes reputation
+    /// based on the input parameter being the source of truth of the reputation
     pub fn increase_and_return_node_reputation(
         subnet_id: u32,
         subnet_node_id: u32,
@@ -199,14 +211,17 @@ impl<T: Config> Pallet<T> {
         factor: u128,
     ) -> u128 {
         let new_reputation = Self::get_increase_reputation(current_reputation, factor);
-        SubnetNodeReputation::<T>::insert(subnet_id, subnet_node_id, new_reputation);
-        Self::deposit_event(Event::NodeReputationUpdate {
-            subnet_id,
-            subnet_node_id,
-            prev_reputation: current_reputation,
-            new_reputation,
+        SubnetNodeReputation::<T>::mutate_exists(subnet_id, subnet_node_id, |maybe_reputation| {
+            if let Some(reputation) = maybe_reputation {
+                *reputation = new_reputation;
+                Self::deposit_event(Event::NodeReputationUpdate {
+                    subnet_id,
+                    subnet_node_id,
+                    prev_reputation: current_reputation,
+                    new_reputation,
+                });
+            }
         });
-
         new_reputation
     }
 
@@ -256,6 +271,27 @@ impl<T: Config> Pallet<T> {
 
         new_reputation
     }
+
+    // pub fn decrease_and_return_node_reputation(
+    //     subnet_id: u32,
+    //     subnet_node_id: u32,
+    //     current_reputation: u128,
+    //     factor: u128,
+    // ) -> u128 {
+    //     let new_reputation = Self::get_decrease_reputation(current_reputation, factor);
+    //     SubnetNodeReputation::<T>::mutate_exists(subnet_id, subnet_node_id, |maybe_reputation| {
+    //         if let Some(reputation) = maybe_reputation {
+    //             *reputation = new_reputation;
+    //             Self::deposit_event(Event::NodeReputationUpdate {
+    //                 subnet_id,
+    //                 subnet_node_id,
+    //                 prev_reputation: current_reputation,
+    //                 new_reputation,
+    //             });
+    //         }
+    //     });
+    //     new_reputation
+    // }
 
     pub fn get_decrease_reputation(prev_reputation: u128, factor: u128) -> u128 {
         let one = Self::percentage_factor_as_u128();

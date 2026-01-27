@@ -6,10 +6,10 @@ use crate::{
     ColdkeyReputation, ColdkeySubnetNodes, ConsensusData, DefaultMaxVectorLength, DelegateAccount,
     HotkeyOverwatchNodeId, HotkeyOwner, HotkeySubnetId, HotkeySubnetNodeId, InitialColdkeyData,
     KeyType, MaxMaxRegisteredNodes, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets,
-    MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs, NetworkMaxStakeBalance,
-    OverwatchCommitCutoffPercent, OverwatchEpochLengthMultiplier, OverwatchMinAge,
-    OverwatchMinStakeBalance, OverwatchNode, OverwatchNodeIdHotkey, OverwatchNodes,
-    OverwatchReveals, PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData,
+    MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs, MultiaddrSubnetNodeId,
+    NetworkMaxStakeBalance, OverwatchCommitCutoffPercent, OverwatchEpochLengthMultiplier,
+    OverwatchMinAge, OverwatchMinStakeBalance, OverwatchNode, OverwatchNodeIdHotkey,
+    OverwatchNodes, OverwatchReveals, PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData,
     RegistrationSubnetData, Reputation, StakeCooldownEpochs, StakeUnbondingLedger,
     SubnetConsensusSubmission, SubnetData, SubnetElectedValidator, SubnetIdFriendlyUid,
     SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
@@ -19,7 +19,7 @@ use crate::{
     SubnetState, SubnetsData, TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets,
     TotalNodes, TotalOverwatchNodeUids, TotalOverwatchNodes, TotalOverwatchStake, TotalStake,
     TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
-    TotalSubnetUids, UniqueParamSubnetNodeId, MultiaddrSubnetNodeId,
+    TotalSubnetUids, UniqueParamSubnetNodeId,
 };
 use fp_account::AccountId20;
 use frame_support::assert_ok;
@@ -196,7 +196,6 @@ pub fn build_activated_subnet(
 
     let subnets = TotalSubnetUids::<Test>::get() + 1;
     let subnet_id_key_offset = get_subnet_id_key_offset(subnets);
-    log::error!("subnet_id_key_offset: {:?}", subnet_id_key_offset);
     let max_subnets = MaxSubnets::<Test>::get();
     let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
 
@@ -339,7 +338,10 @@ pub fn build_activated_subnet(
 
         assert_eq!(subnet_node_data.peer_info.peer_id, peer_id.clone());
 
-        let multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::get(subnet_id, get_multiaddr(Some(subnet_id), Some(hotkey_subnet_node_id), None).unwrap());
+        let multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::get(
+            subnet_id,
+            get_multiaddr(Some(subnet_id), Some(hotkey_subnet_node_id), None).unwrap(),
+        );
         assert_eq!(multiaddr_subnet_node_id, hotkey_subnet_node_id);
         assert_eq!(
             subnet_node_data.peer_info,
@@ -349,7 +351,10 @@ pub fn build_activated_subnet(
             }
         );
 
-        let bootnode_multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::get(subnet_id, get_multiaddr(Some(subnet_id), Some(hotkey_subnet_node_id), Some(1)).unwrap());
+        let bootnode_multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::get(
+            subnet_id,
+            get_multiaddr(Some(subnet_id), Some(hotkey_subnet_node_id), Some(1)).unwrap(),
+        );
         assert_eq!(bootnode_multiaddr_subnet_node_id, hotkey_subnet_node_id);
         assert_eq!(
             subnet_node_data.bootnode_peer_info,
@@ -359,7 +364,10 @@ pub fn build_activated_subnet(
             })
         );
 
-        let client_multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::get(subnet_id, get_multiaddr(Some(subnet_id), Some(hotkey_subnet_node_id), Some(2)).unwrap());
+        let client_multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::get(
+            subnet_id,
+            get_multiaddr(Some(subnet_id), Some(hotkey_subnet_node_id), Some(2)).unwrap(),
+        );
         assert_eq!(client_multiaddr_subnet_node_id, hotkey_subnet_node_id);
         assert_eq!(
             subnet_node_data.client_peer_info,
@@ -1682,8 +1690,7 @@ pub fn build_activated_subnet_with_overwatch_nodes(
         let hotkey_subnet_node_id =
             HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
 
-        let peer_id_subnet_node_id =
-            PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id.clone());
+        let peer_id_subnet_node_id = PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id.clone());
         assert_eq!(peer_id_subnet_node_id, hotkey_subnet_node_id);
 
         let bootnode_peer_id_subnet_node_id =
@@ -2472,7 +2479,10 @@ pub fn default_registration_subnet_data(
         delegate_stake_percentage: 100000000000000000, // 10%
         initial_coldkeys: get_initial_coldkeys(subnets, max_subnet_nodes, start, end),
         key_types: BTreeSet::from([KeyType::Rsa]),
-        bootnodes: BTreeMap::from([(peer(0), get_multiaddr(None, None, None).expect("valid multiaddr"))]),
+        bootnodes: BTreeMap::from([(
+            peer(0),
+            get_multiaddr(None, None, None).expect("valid multiaddr"),
+        )]),
     };
     add_subnet_data
 }
@@ -2506,7 +2516,10 @@ pub fn default_registration_subnet_data_with_onodes(
             overwatch_count,
         ),
         key_types: BTreeSet::from([KeyType::Rsa]),
-        bootnodes: BTreeMap::from([(peer(0), get_multiaddr(None, None, None).expect("valid multiaddr"))]),
+        bootnodes: BTreeMap::from([(
+            peer(0),
+            get_multiaddr(None, None, None).expect("valid multiaddr"),
+        )]),
     };
     add_subnet_data
 }

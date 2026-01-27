@@ -56,93 +56,23 @@ impl<T: Config> Pallet<T> {
         // EmergencySubnetNodeElectionData
         weight_meter.consume(db_weight.reads(1));
 
-        let electable_nodes = SubnetNodeElectionSlots::<T>::get(subnet_id).len() as u32;
+        let electable_nodes_count = SubnetNodeElectionSlots::<T>::get(subnet_id).len() as u32;
         weight_meter.consume(db_weight.reads(1));
 
         // --- If under minimum attestation ratio, penalize validator, skip rewards
         if consensus_submission_data.attestation_ratio < min_attestation_percentage {
-            // --- Slash validator
-            // Slashes stake balance
-            // Decreases reputation
-            let slash_validator_weight = Self::slash_validator(
+            Self::handle_non_consensus(
                 subnet_id,
-                consensus_submission_data.validator_subnet_node_id,
-                consensus_submission_data.attestation_ratio,
+                consensus_submission_data,
                 min_attestation_percentage,
                 coldkey_reputation_decrease_factor,
                 min_validator_reputation,
-                electable_nodes,
+                electable_nodes_count,
                 current_epoch,
-            );
-            weight_meter.consume(slash_validator_weight);
-
-            // Decrease subnet reputation
-            let new_subnet_reputation = Self::get_decrease_reputation(
                 subnet_reputation,
-                NotInConsensusSubnetReputationFactor::<T>::get(),
+                percentage_factor,
+                weight_meter,
             );
-            SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
-            // NotInConsensusSubnetReputationFactor, SubnetReputation
-            weight_meter.consume(db_weight.reads_writes(1, 1));
-            Self::deposit_event(Event::SubnetReputationUpdate {
-                subnet_id,
-                prev_reputation: subnet_reputation,
-                new_reputation: new_subnet_reputation,
-            });
-
-            let non_consensus_attestor_factor = Self::percent_mul(
-                NonConsensusAttestorDecreaseReputationFactor::<T>::get(subnet_id),
-                percentage_factor.saturating_sub(Self::percent_div(
-                    consensus_submission_data.attestation_ratio,
-                    min_attestation_percentage,
-                )),
-            );
-            // NonConsensusAttestorDecreaseReputationFactor
-            weight_meter.consume(db_weight.reads(1));
-
-            // --- Decrease reputation of attestors
-            for (subnet_node_id, attest_data) in consensus_submission_data.attests {
-                let new_reputation = Self::decrease_node_reputation(
-                    subnet_id,
-                    subnet_node_id,
-                    non_consensus_attestor_factor,
-                );
-                // `decrease_node_reputation`: SubnetNodeReputation (r/w)
-                weight_meter.consume(db_weight.reads_writes(1, 1));
-                if new_reputation < min_validator_reputation {
-                    // Remove node if below minimum threshold
-                    weight_meter.consume(db_weight.reads(1));
-                    if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node_id) {
-                        weight_meter.consume(db_weight.reads(1));
-                        if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
-                            weight_meter.consume(db_weight.reads(1));
-                            let coldkey_subnet_nodes = ColdkeySubnetNodes::<T>::get(&coldkey);
-                            // x = number of subnets (outer BTreeMap size)
-                            let x = coldkey_subnet_nodes.len() as u32;
-                            // c = number of nodes in the specific subnet (inner BTreeSet size)
-                            let c = coldkey_subnet_nodes
-                                .get(&subnet_id)
-                                .map(|nodes| nodes.len() as u32)
-                                .unwrap_or(0);
-
-                            if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
-                                x,
-                                electable_nodes,
-                                c,
-                            )) {
-                                Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-                                weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
-                                    x,
-                                    electable_nodes,
-                                    c,
-                                ));
-                            }
-                        }
-                    }
-
-                    continue;
-                }
-            }
             return;
         } else if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(
             subnet_id,
@@ -238,20 +168,6 @@ impl<T: Config> Pallet<T> {
             // Handle remove node - remove from queue entirely
             // These are not yet activated nodes so this does not impact the emissions distribution
             if let Some(remove_queue_node_id) = consensus_submission_data.remove_queue_node_id {
-                // `perform_remove_subnet_node` handles SubnetNodeQueue retain
-                // if weight_meter
-                //     .can_consume(T::WeightInfo::perform_remove_subnet_node(0u32, queue.len() as u32))
-                // {
-                //     Self::perform_remove_subnet_node(subnet_id, remove_queue_node_id);
-                //     weight_meter
-                //         .consume(T::WeightInfo::perform_remove_subnet_node(0u32, queue.len() as u32));
-
-                //     Self::deposit_event(Event::QueuedNodeRemoved {
-                //         subnet_id,
-                //         subnet_node_id: remove_queue_node_id,
-                //     });
-                // }
-
                 weight_meter.consume(db_weight.reads(1));
                 if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, remove_queue_node_id)
                 {
@@ -269,13 +185,13 @@ impl<T: Config> Pallet<T> {
 
                         if weight_meter.can_consume(T::WeightInfo::remove_registered_subnet_node(
                             x,
-                            electable_nodes,
+                            electable_nodes_count,
                             c,
                         )) {
                             Self::remove_registered_subnet_node(subnet_id, remove_queue_node_id);
                             weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(
                                 x,
-                                electable_nodes,
+                                electable_nodes_count,
                                 c,
                             ));
                             Self::deposit_event(Event::QueuedNodeRemoved {
@@ -323,8 +239,12 @@ impl<T: Config> Pallet<T> {
             0,
         ));
 
+        // Node -> reward
         let mut node_rewards: Vec<(u32, u128)> = Vec::new();
+        // Node -> delegate stake reward
         let mut node_delegate_stake_rewards: Vec<(u32, u128)> = Vec::new();
+        // Node -> (account -> amount)
+        let mut node_delegate_account_allocations: Vec<(u32, (T::AccountId, u128))> = Vec::new();
 
         // Iterate each node, emit rewards, graduate, or penalize
         for subnet_node in &consensus_submission_data.subnet_nodes {
@@ -351,13 +271,13 @@ impl<T: Config> Pallet<T> {
 
                         if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
                             x,
-                            electable_nodes,
+                            electable_nodes_count,
                             c,
                         )) {
                             Self::remove_active_subnet_node(subnet_id, subnet_node.id);
                             weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
                                 x,
-                                electable_nodes,
+                                electable_nodes_count,
                                 c,
                             ));
                         }
@@ -576,13 +496,13 @@ impl<T: Config> Pallet<T> {
 
                         if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
                             x,
-                            electable_nodes,
+                            electable_nodes_count,
                             c,
                         )) {
                             Self::remove_active_subnet_node(subnet_id, subnet_node.id);
                             weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
                                 x,
-                                electable_nodes,
+                                electable_nodes_count,
                                 c,
                             ));
                         }
@@ -592,6 +512,7 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
+            // Skip and do *not* penalize if node weight is 0
             if node_weight == 0 {
                 continue;
             }
@@ -634,7 +555,7 @@ impl<T: Config> Pallet<T> {
                 }
             }
 
-            // --- Increase account stake and emit event
+            // --- Increase delegate account balance and emit event
             if let Some(delegate_account) = &subnet_node.delegate_account {
                 let delegate_account_deposit =
                     Self::percent_mul(account_reward, delegate_account.rate);
@@ -643,6 +564,14 @@ impl<T: Config> Pallet<T> {
                     &delegate_account.account_id,
                     delegate_account_deposit,
                 );
+
+                node_delegate_account_allocations.push((
+                    subnet_node.id,
+                    (
+                        delegate_account.account_id.clone(),
+                        delegate_account_deposit,
+                    ),
+                ));
             }
             Self::increase_account_stake(&subnet_node.hotkey, subnet_id, account_reward);
             // AccountSubnetStake | TotalSubnetStake | TotalStake
@@ -668,8 +597,114 @@ impl<T: Config> Pallet<T> {
             node_rewards,
             delegate_stake_reward: rewards_data.delegate_stake_rewards,
             node_delegate_stake_rewards,
+            node_delegate_account_allocations,
         });
     }
 
-    pub fn rewards_fork() {}
+    /// Subnet is not in consensus
+    pub fn handle_non_consensus(
+        subnet_id: u32,
+        consensus_submission_data: ConsensusSubmissionData<T::AccountId>,
+        min_attestation_percentage: u128,
+        coldkey_reputation_decrease_factor: u128,
+        min_validator_reputation: u128,
+        electable_nodes_count: u32,
+        current_epoch: u32,
+        subnet_reputation: u128,
+        percentage_factor: u128,
+        weight_meter: &mut WeightMeter,
+    ) {
+        let db_weight = T::DbWeight::get();
+
+        // --- Slash validator
+        // Slashes stake balance
+        // Decreases reputation
+        let slash_validator_weight = Self::slash_validator(
+            subnet_id,
+            consensus_submission_data.validator_subnet_node_id,
+            consensus_submission_data.attestation_ratio,
+            min_attestation_percentage,
+            coldkey_reputation_decrease_factor,
+            min_validator_reputation,
+            electable_nodes_count,
+            current_epoch,
+        );
+        weight_meter.consume(slash_validator_weight);
+
+        // Decrease subnet reputation
+        let new_subnet_reputation = Self::get_decrease_reputation(
+            subnet_reputation,
+            NotInConsensusSubnetReputationFactor::<T>::get(),
+        );
+        SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
+        // NotInConsensusSubnetReputationFactor, SubnetReputation
+        weight_meter.consume(db_weight.reads_writes(1, 1));
+        Self::deposit_event(Event::SubnetReputationUpdate {
+            subnet_id,
+            prev_reputation: subnet_reputation,
+            new_reputation: new_subnet_reputation,
+        });
+
+        let non_consensus_attestor_factor = Self::percent_mul(
+            NonConsensusAttestorDecreaseReputationFactor::<T>::get(subnet_id),
+            percentage_factor.saturating_sub(Self::percent_div(
+                consensus_submission_data.attestation_ratio,
+                min_attestation_percentage,
+            )),
+        );
+        // NonConsensusAttestorDecreaseReputationFactor
+        weight_meter.consume(db_weight.reads(1));
+
+        // --- Decrease reputation of attestors
+        for (subnet_node_id, attest_data) in consensus_submission_data.attests {
+            // NOTE: If a validator is removed in this step, this will create a new
+            // subnet node reputation insert that was just removed.
+            // TODO: Don't allow this, check node exists.
+            if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node_id) {
+                // Make sure node exists before decreasing reputation
+                // Note: It's possible for the node to had been removed in this step
+                // if the node was the elecated validator and was removed in the ``slash_validator`` step.
+                // By checking, we make sure we aren't insering the reputation after it
+                // was removed.
+                let new_reputation = Self::decrease_and_return_node_reputation(
+                    subnet_id,
+                    subnet_node_id,
+                    SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id),
+                    non_consensus_attestor_factor,
+                );
+
+                // `decrease_node_reputation`: SubnetNodeReputation (r/w)
+                weight_meter.consume(db_weight.reads_writes(1, 1));
+
+                if new_reputation < min_validator_reputation {
+                    weight_meter.consume(db_weight.reads(1));
+                    if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
+                        weight_meter.consume(db_weight.reads(1));
+                        let coldkey_subnet_nodes = ColdkeySubnetNodes::<T>::get(&coldkey);
+                        // x = number of subnets (outer BTreeMap size)
+                        let x = coldkey_subnet_nodes.len() as u32;
+                        // c = number of nodes in the specific subnet (inner BTreeSet size)
+                        let c = coldkey_subnet_nodes
+                            .get(&subnet_id)
+                            .map(|nodes| nodes.len() as u32)
+                            .unwrap_or(0);
+
+                        if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
+                            x,
+                            electable_nodes_count,
+                            c,
+                        )) {
+                            Self::remove_active_subnet_node(subnet_id, subnet_node_id);
+                            weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
+                                x,
+                                electable_nodes_count,
+                                c,
+                            ));
+                        }
+                    }
+                }
+            }
+            continue;
+        }
+    }
 }

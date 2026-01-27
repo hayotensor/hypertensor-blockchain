@@ -181,42 +181,14 @@ impl<T: Config> Pallet<T> {
             MultiaddrSubnetNodeId::<T>::remove(subnet_id, multiaddr);
         }
 
-        PeerIdSubnetNodeId::<T>::insert(
-            subnet_id,
-            &new_peer_info.peer_id,
-            subnet_node_id,
-        );
+        PeerIdSubnetNodeId::<T>::insert(subnet_id, &new_peer_info.peer_id, subnet_node_id);
 
         if let Some(multiaddr) = new_peer_info.multiaddr.clone() {
             // Validated in `validate_peer_info`
-            MultiaddrSubnetNodeId::<T>::insert(
-                subnet_id,
-                &multiaddr,
-                subnet_node_id,
-            );
+            MultiaddrSubnetNodeId::<T>::insert(subnet_id, &multiaddr, subnet_node_id);
         }
 
         params.peer_info = new_peer_info.clone();
-
-
-        // ensure!(
-        //     Self::validate_peer_id(&new_peer_id),
-        //     Error::<T>::InvalidPeerId
-        // );
-
-        // ensure!(
-        //     Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &new_peer_id),
-        //     Error::<T>::PeerIdExist
-        // );
-
-        // let params = maybe_params
-        //     .as_mut()
-        //     .ok_or(Error::<T>::InvalidSubnetNodeId)?;
-
-        // PeerIdSubnetNodeId::<T>::remove(subnet_id, &params.peer_id);
-        // PeerIdSubnetNodeId::<T>::insert(subnet_id, &new_peer_id, subnet_node_id);
-
-        // params.peer_id = new_peer_id.clone();
 
         Self::deposit_event(Event::SubnetNodeUpdatePeerInfo {
             subnet_id,
@@ -364,19 +336,11 @@ impl<T: Config> Pallet<T> {
                 }
             }
 
-            BootnodePeerIdSubnetNodeId::<T>::insert(
-                subnet_id,
-                &peer_info.peer_id,
-                subnet_node_id,
-            );
+            BootnodePeerIdSubnetNodeId::<T>::insert(subnet_id, &peer_info.peer_id, subnet_node_id);
 
             if let Some(multiaddr) = &peer_info.multiaddr {
                 // Validated in `validate_peer_info`
-                MultiaddrSubnetNodeId::<T>::insert(
-                    subnet_id,
-                    multiaddr,
-                    subnet_node_id,
-                );
+                MultiaddrSubnetNodeId::<T>::insert(subnet_id, multiaddr, subnet_node_id);
             }
         } else {
             if let Some(peer_info) = &params.bootnode_peer_info {
@@ -458,19 +422,11 @@ impl<T: Config> Pallet<T> {
                 }
             }
 
-            ClientPeerIdSubnetNodeId::<T>::insert(
-                subnet_id,
-                &peer_info.peer_id,
-                subnet_node_id,
-            );
+            ClientPeerIdSubnetNodeId::<T>::insert(subnet_id, &peer_info.peer_id, subnet_node_id);
 
             if let Some(multiaddr) = peer_info.multiaddr.clone() {
                 // Validated in `validate_peer_info`
-                MultiaddrSubnetNodeId::<T>::insert(
-                    subnet_id,
-                    &multiaddr,
-                    subnet_node_id,
-                );
+                MultiaddrSubnetNodeId::<T>::insert(subnet_id, &multiaddr, subnet_node_id);
             }
         } else {
             if let Some(peer_info) = &params.client_peer_info {
@@ -483,7 +439,6 @@ impl<T: Config> Pallet<T> {
 
         params.client_peer_info = new_peer_info.clone();
 
-        
         // ensure!(
         //     Self::validate_peer_id(&new_client_peer_id),
         //     Error::<T>::InvalidClientPeerId
@@ -929,7 +884,8 @@ impl<T: Config> Pallet<T> {
 
         HotkeySubnetNodeId::<T>::remove(subnet_id, &hotkey);
         SubnetNodeIdHotkey::<T>::remove(subnet_id, subnet_node_id);
-        // SubnetNodeReputation::<T>::remove(subnet_id, subnet_node_id);
+        SubnetNodeReputation::<T>::remove(subnet_id, subnet_node_id);
+        SubnetNodeReputationV2::<T>::remove(subnet_id, subnet_node_id);
         SubnetNodeIdleConsecutiveEpochs::<T>::remove(subnet_id, subnet_node_id);
         SubnetNodeConsecutiveIncludedEpochs::<T>::remove(subnet_id, subnet_node_id);
         // We don't remove `HotkeySubnetId`. This is only removed when a node fully removes stake

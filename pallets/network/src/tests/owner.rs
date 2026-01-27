@@ -13,15 +13,15 @@ use crate::{
     MinIncludedClassificationEpochs, MinMaxRegisteredNodes, MinNodeReputationFactor,
     MinQueueEpochs, MinSubnetMinStake, MinSubnetNodeReputation, NetworkMaxStakeBalance,
     NodeBurnRateAlpha, NonAttestorDecreaseReputationFactor,
-    NonConsensusAttestorDecreaseReputationFactor, PendingSubnetOwner, QueueImmunityEpochs,
-    RegisteredSubnetNodesData, SubnetBootnodeAccess, SubnetData,
+    NonConsensusAttestorDecreaseReputationFactor, PeerInfo, PendingSubnetOwner,
+    QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess, SubnetData,
     SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod, SubnetKeyTypes,
     SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeMinWeightDecreaseReputationThreshold,
     SubnetNodeQueueEpochs, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
     SubnetRegistrationInitialColdkeys, SubnetRemovalReason, SubnetRepo, SubnetState, SubnetsData,
     TargetNodeRegistrationsPerEpoch, ValidatorAbsentDecreaseReputationFactor,
-    ValidatorNonConsensusSubnetNodeReputationFactor, PeerInfo,
+    ValidatorNonConsensusSubnetNodeReputationFactor,
 };
 use codec::Decode;
 use frame_support::{assert_err, assert_ok};
@@ -2767,8 +2767,14 @@ fn test_owner_add_bootnode_access() {
         // --- Case 1: Add bootnodes ---
         // let add_map = BTreeMap::from([(peer(1), bv(1)), (peer(2), bv(2))]);
         let add_map = BTreeMap::from([
-            (peer(1), get_multiaddr(Some(subnet_id), Some(1), None).unwrap()),
-            (peer(2), get_multiaddr(Some(subnet_id), Some(2), None).unwrap()),
+            (
+                peer(1),
+                get_multiaddr(Some(subnet_id), Some(1), None).unwrap(),
+            ),
+            (
+                peer(2),
+                get_multiaddr(Some(subnet_id), Some(2), None).unwrap(),
+            ),
         ]);
         assert_ok!(Network::update_bootnodes(
             RuntimeOrigin::signed(original_owner.clone()),

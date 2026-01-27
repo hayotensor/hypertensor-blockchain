@@ -6,9 +6,9 @@ use crate::{
     ColdkeySubnetNodes, CurrentNodeBurnRate, DefaultMaxVectorLength, Error, HotkeyOwner,
     HotkeySubnetId, HotkeySubnetNodeId, MaxDelegateStakePercentage, MaxRegisteredNodes,
     MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes,
-    MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex, PeerIdSubnetNodeId,
-    PeerInfo, RegisteredSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance,
-    SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
+    MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex, PeerIdSubnetNodeId, PeerInfo,
+    RegisteredSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName,
+    SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
     SubnetNodeIdHotkey, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodesData, SubnetOwner,
     SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, TotalActiveNodes,
     TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake,
@@ -3184,7 +3184,7 @@ fn test_update_peer_id() {
         let current_peer_id = subnet_node.peer_info.peer_id;
         let new_peer_info = PeerInfo {
             peer_id: peer(500),
-            multiaddr: None
+            multiaddr: None,
         };
 
         assert_ok!(Network::update_peer_id(
@@ -3216,8 +3216,10 @@ fn test_update_peer_id() {
             Err(())
         );
 
-        let multiaddr_subnet_node_id =
-            MultiaddrSubnetNodeId::<Test>::try_get(subnet_id, get_multiaddr(Some(subnet_id), Some(subnet_node_id), None).unwrap());
+        let multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::try_get(
+            subnet_id,
+            get_multiaddr(Some(subnet_id), Some(subnet_node_id), None).unwrap(),
+        );
         assert_eq!(multiaddr_subnet_node_id, Err(()));
 
         let prev_peer_subnet_node_id = PeerIdSubnetNodeId::<Test>::get(subnet_id, &current_peer_id);
@@ -3235,7 +3237,7 @@ fn test_update_peer_id() {
 
         let new_peer_info = PeerInfo {
             peer_id: current_peer_id.clone(),
-            multiaddr: None
+            multiaddr: None,
         };
 
         assert_ok!(Network::update_peer_id(
@@ -3287,7 +3289,7 @@ fn test_update_peer_id_exists() {
         let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end - 1);
         let new_peer_info = PeerInfo {
             peer_id: peer_id.clone(),
-            multiaddr: None
+            multiaddr: None,
         };
 
         assert_err!(
@@ -3382,7 +3384,7 @@ fn test_update_peer_id_invalid_peer_id() {
         let bad_peer: PeerId = PeerId(peer_id.clone().into());
         let new_peer_info = PeerInfo {
             peer_id: bad_peer,
-            multiaddr: None
+            multiaddr: None,
         };
 
         assert_err!(
@@ -3572,8 +3574,10 @@ fn test_update_bootnode_peer_id() {
         let current_bootnode_peer_id = subnet_node.bootnode_peer_info.clone().unwrap().peer_id;
         let current_bootnode_multiaddr = subnet_node.bootnode_peer_info.clone().unwrap().multiaddr;
 
-        let curr_bootnode_multiaddr_subnet_node_id =
-            MultiaddrSubnetNodeId::<Test>::get(subnet_id, get_multiaddr(Some(subnet_id), Some(subnet_node_id), Some(1)).unwrap());
+        let curr_bootnode_multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::get(
+            subnet_id,
+            get_multiaddr(Some(subnet_id), Some(subnet_node_id), Some(1)).unwrap(),
+        );
         assert_eq!(curr_bootnode_multiaddr_subnet_node_id, subnet_node_id);
 
         // Updated peer info
@@ -3600,10 +3604,22 @@ fn test_update_bootnode_peer_id() {
 
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
         // Check new peer Id
-        assert_eq!(subnet_node.bootnode_peer_info.clone().unwrap().peer_id, new_peer_info.clone().unwrap().peer_id);
-        assert_eq!(subnet_node.bootnode_peer_info.clone().unwrap().multiaddr, new_peer_info.clone().unwrap().multiaddr);
-        assert_ne!(subnet_node.bootnode_peer_info.clone().unwrap().peer_id, current_bootnode_peer_id);
-        assert_ne!(subnet_node.bootnode_peer_info.clone().unwrap().multiaddr, current_bootnode_multiaddr);
+        assert_eq!(
+            subnet_node.bootnode_peer_info.clone().unwrap().peer_id,
+            new_peer_info.clone().unwrap().peer_id
+        );
+        assert_eq!(
+            subnet_node.bootnode_peer_info.clone().unwrap().multiaddr,
+            new_peer_info.clone().unwrap().multiaddr
+        );
+        assert_ne!(
+            subnet_node.bootnode_peer_info.clone().unwrap().peer_id,
+            current_bootnode_peer_id
+        );
+        assert_ne!(
+            subnet_node.bootnode_peer_info.clone().unwrap().multiaddr,
+            current_bootnode_multiaddr
+        );
 
         let bootnode_peer_subnet_node_id =
             BootnodePeerIdSubnetNodeId::<Test>::get(subnet_id, peer(500));
@@ -3615,11 +3631,16 @@ fn test_update_bootnode_peer_id() {
         );
 
         // Check multiaddr is None
-        assert_eq!(subnet_node.bootnode_peer_info.clone().unwrap().multiaddr, None);
+        assert_eq!(
+            subnet_node.bootnode_peer_info.clone().unwrap().multiaddr,
+            None
+        );
 
         // Ensure old multaddr was removed
-        let bootnode_multiaddr_subnet_node_id =
-            MultiaddrSubnetNodeId::<Test>::try_get(subnet_id, get_multiaddr(Some(subnet_id), Some(subnet_node_id), Some(1)).unwrap());
+        let bootnode_multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::try_get(
+            subnet_id,
+            get_multiaddr(Some(subnet_id), Some(subnet_node_id), Some(1)).unwrap(),
+        );
         assert_eq!(bootnode_multiaddr_subnet_node_id, Err(()));
 
         let prev_bootnode_peer_subnet_node_id =
@@ -3647,14 +3668,19 @@ fn test_update_bootnode_peer_id() {
             current_bootnode_peer_info.clone()
         );
         // assert_eq!(subnet_node.bootnode_peer_info.clone().unwrap().multiaddr, get_multiaddr(Some(subnet_id), Some(subnet_node_id), Some(1)));
-        assert_eq!(subnet_node.bootnode_peer_info.clone().unwrap().multiaddr, current_bootnode_multiaddr);
+        assert_eq!(
+            subnet_node.bootnode_peer_info.clone().unwrap().multiaddr,
+            current_bootnode_multiaddr
+        );
 
         let bootnode_peer_subnet_node_id =
             BootnodePeerIdSubnetNodeId::<Test>::get(subnet_id, current_bootnode_peer_id.clone());
         assert_eq!(bootnode_peer_subnet_node_id, subnet_node_id);
 
-        let bootnode_multiaddr_subnet_node_id =
-            MultiaddrSubnetNodeId::<Test>::get(subnet_id, get_multiaddr(Some(subnet_id), Some(subnet_node_id), Some(1)).unwrap());
+        let bootnode_multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::get(
+            subnet_id,
+            get_multiaddr(Some(subnet_id), Some(subnet_node_id), Some(1)).unwrap(),
+        );
         assert_eq!(bootnode_multiaddr_subnet_node_id, subnet_node_id);
     })
 }
@@ -3693,7 +3719,7 @@ fn test_update_bootnode_peer_id_exists() {
 
         let someone_elses_peer_info = Some(PeerInfo {
             peer_id: someone_elses_bootnode_peer_id,
-            multiaddr: None
+            multiaddr: None,
         });
 
         assert_err!(
@@ -3708,7 +3734,7 @@ fn test_update_bootnode_peer_id_exists() {
 
         let current_peer_info = Some(PeerInfo {
             peer_id: current_bootnode_peer_id,
-            multiaddr: None
+            multiaddr: None,
         });
 
         // --- fail if same peer id
@@ -3753,7 +3779,7 @@ fn test_update_bootnode_peer_id_not_key_owner() {
 
         let new_peer_info = Some(PeerInfo {
             peer_id: peer(1),
-            multiaddr: None
+            multiaddr: None,
         });
 
         assert_err!(
@@ -3796,7 +3822,7 @@ fn test_update_bootnode_peer_id_invalid_peer_id() {
 
         let new_peer_info = Some(PeerInfo {
             peer_id: PeerId(bootnode_peer_id.clone().into()),
-            multiaddr: None
+            multiaddr: None,
         });
 
         assert_err!(
@@ -3845,7 +3871,7 @@ fn test_update_client_peer_id() {
 
         let new_peer_info = Some(PeerInfo {
             peer_id: client_peer_id.clone(),
-            multiaddr: None
+            multiaddr: None,
         });
 
         assert_ok!(Network::update_client_peer_id(
@@ -3865,8 +3891,14 @@ fn test_update_client_peer_id() {
         );
 
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.client_peer_info.clone().unwrap().peer_id, new_peer_info.clone().unwrap().peer_id);
-        assert_ne!(subnet_node.client_peer_info.clone().unwrap().peer_id, current_client_peer_id);
+        assert_eq!(
+            subnet_node.client_peer_info.clone().unwrap().peer_id,
+            new_peer_info.clone().unwrap().peer_id
+        );
+        assert_ne!(
+            subnet_node.client_peer_info.clone().unwrap().peer_id,
+            current_client_peer_id
+        );
 
         let client_peer_subnet_node_id =
             ClientPeerIdSubnetNodeId::<Test>::get(subnet_id, client_peer_id.clone());
@@ -3889,7 +3921,7 @@ fn test_update_client_peer_id() {
 
         let new_peer_info = Some(PeerInfo {
             peer_id: client_peer_id.clone(),
-            multiaddr: None
+            multiaddr: None,
         });
 
         assert_ok!(Network::update_client_peer_id(
@@ -3900,7 +3932,10 @@ fn test_update_client_peer_id() {
         ));
 
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.client_peer_info.unwrap().peer_id, current_client_peer_id.clone());
+        assert_eq!(
+            subnet_node.client_peer_info.unwrap().peer_id,
+            current_client_peer_id.clone()
+        );
 
         let client_peer_subnet_node_id =
             ClientPeerIdSubnetNodeId::<Test>::get(subnet_id, current_client_peer_id.clone());
@@ -3942,7 +3977,7 @@ fn test_update_client_peer_id_exists() {
 
         let new_peer_info = Some(PeerInfo {
             peer_id: get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end - 1),
-            multiaddr: None
+            multiaddr: None,
         });
 
         assert_err!(
@@ -3998,7 +4033,7 @@ fn test_update_client_peer_id_not_key_owner() {
         let current_client_peer_id = subnet_node.client_peer_info.unwrap().peer_id;
         let new_peer_info = Some(PeerInfo {
             peer_id: current_client_peer_id,
-            multiaddr: None
+            multiaddr: None,
         });
 
         assert_err!(
@@ -4040,7 +4075,7 @@ fn test_update_client_peer_id_invalid_peer_id() {
         let bad_client_peer: PeerId = PeerId(client_peer_id.clone().into());
         let new_peer_info = Some(PeerInfo {
             peer_id: bad_client_peer,
-            multiaddr: None
+            multiaddr: None,
         });
 
         assert_err!(

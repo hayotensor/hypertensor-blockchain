@@ -443,6 +443,7 @@ pub mod pallet {
             node_rewards: Vec<(u32, u128)>,
             delegate_stake_reward: u128,
             node_delegate_stake_rewards: Vec<(u32, u128)>,
+            node_delegate_account_allocations: Vec<(u32, (T::AccountId, u128))>,
         },
         OverwatchRewards {
             node_rewards: Vec<(u32, u128)>,
@@ -1248,7 +1249,6 @@ pub mod pallet {
         pub multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>>, // Best multiaddr
     }
 
-    
     /// A subnet node representing a participant in a subnet.
     ///
     /// This struct contains all the identity, network, and operational data for a node
@@ -3741,6 +3741,17 @@ pub mod pallet {
         u128, // Reputation
         ValueQuery,
         DefaultPercentageFactorU128,
+    >;
+
+    #[pallet::storage]
+    pub type SubnetNodeReputationV2<T> = StorageDoubleMap<
+        _,
+        Identity,
+        u32, // subnet ID
+        Identity,
+        u32,  // subnet node ID
+        u128, // Reputation
+        OptionQuery,
     >;
 
     /// Node reputation factor when a node is absent from consensus for decreasing node reputation
@@ -9031,6 +9042,9 @@ pub mod pallet {
             // Increase total subnet nodes
             TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
             TotalNodes::<T>::mutate(|n: &mut u32| *n += 1);
+
+            // Initialize subnet node reputation
+            SubnetNodeReputationV2::<T>::insert(subnet_id, subnet_node_id, Self::percentage_factor_as_u128());
 
             Self::clean_coldkey_subnet_nodes(coldkey.clone());
 

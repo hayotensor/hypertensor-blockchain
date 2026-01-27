@@ -431,12 +431,7 @@ impl<T: Config> Pallet<T> {
             SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id),
             decrease_factor,
         );
-
-        // let mut reputation = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id);
-        // weight = weight.saturating_add(db_weight.reads(2));
-        // reputation = Self::get_decrease_reputation(reputation, decrease_factor);
-        // SubnetNodeReputation::<T>::insert(subnet_id, subnet_node_id, reputation);
-        // weight = weight.saturating_add(db_weight.writes(1));
+        weight = weight.saturating_add(db_weight.reads_writes(2, 1));
 
         weight = weight.saturating_add(db_weight.reads(1));
         if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {

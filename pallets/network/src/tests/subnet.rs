@@ -1794,7 +1794,10 @@ fn test_update_bootnodes() {
         // Try to add one more (should fail)
         // let too_many = BTreeMap::from([(peer(99), bv(99)), (peer(100), bv(100))]);
         let too_many = BTreeMap::from([
-            (peer(99), get_multiaddr(Some(subnet_id), Some(99), None).unwrap()),
+            (
+                peer(99),
+                get_multiaddr(Some(subnet_id), Some(99), None).unwrap(),
+            ),
             (
                 peer(100),
                 get_multiaddr(Some(subnet_id), Some(100), None).unwrap(),
