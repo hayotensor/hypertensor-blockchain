@@ -3,7 +3,7 @@ import { getDevnetApi } from "../src/substrate"
 import { dev } from "@polkadot-api/descriptors"
 import { TypedApi } from "polkadot-api";
 import { ethers } from "ethers"
-import { generateRandomEd25519PeerId, generateRandomEthersWallet, generateRandomString, getPublicClient, STAKING_CONTRACT_ABI, STAKING_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, SUBNET_CONTRACT_ADDRESS } from "../src/utils"
+import { generateRandomEd25519PeerId, generateRandomEthersWallet, generateRandomMultiaddr, generateRandomString, getPublicClient, STAKING_CONTRACT_ABI, STAKING_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, SUBNET_CONTRACT_ADDRESS } from "../src/utils"
 import {
     addToNodeDelegateStake,
     getCurrentRegistrationCost,
@@ -79,11 +79,6 @@ describe("test node delegate staking-0x835yv", () => {
     let publicClient: PublicClient;
     // init substrate part
 
-    const BOOTNODES = [
-        generateRandomString(6),
-        generateRandomString(6)
-    ]
-
     let papiApi: TypedApi<typeof dev>
     let api: ApiPromise
 
@@ -99,7 +94,12 @@ describe("test node delegate staking-0x835yv", () => {
     let peer3: string;
 
     before(async () => {
-        
+        let BOOTNODES: { peerId: string; multiaddr: Uint8Array }[] = [
+            {
+                peerId: (await generateRandomEd25519PeerId()),
+                multiaddr: await generateRandomMultiaddr((await generateRandomEd25519PeerId()))
+            }
+        ]
         publicClient = await getPublicClient(ETH_LOCAL_URL)
         // init variables got from await and async
         papiApi = await getDevnetApi()
@@ -115,7 +115,7 @@ describe("test node delegate staking-0x835yv", () => {
             wallet1.address,
             sudoTransferAmount,
         )
-        
+
         await transferBalanceFromSudo(
             api,
             papiApi,
@@ -123,7 +123,7 @@ describe("test node delegate staking-0x835yv", () => {
             wallet2.address,
             sudoTransferAmount,
         )
-        
+
 
         // ==============
         // Register subnet
@@ -138,7 +138,7 @@ describe("test node delegate staking-0x835yv", () => {
         const delegateStakePercentage = await api.query.network.minDelegateStakePercentage();
 
         await registerSubnet(
-            subnetContract, 
+            subnetContract,
             cost,
             subnetName,
             repo,
@@ -154,32 +154,46 @@ describe("test node delegate staking-0x835yv", () => {
 
         subnetId = await subnetContract.getSubnetId(subnetName);
 
-        peer1 = await generateRandomEd25519PeerId()
-        peer2 = await generateRandomEd25519PeerId()
-        peer3 = await generateRandomEd25519PeerId()
+        let peer1 = await generateRandomEd25519PeerId()
+        let peer_info_1 = {
+            peerId: peer1,
+            multiaddr: await generateRandomMultiaddr(peer1)
+        }
+        let peer_info_2 = {
+            peerId: "",
+            multiaddr: new Uint8Array()
+        }
+        let peer_info_3 = {
+            peerId: "",
+            multiaddr: new Uint8Array()
+        }
+
+        let delegateAccount = {
+            accountId: wallet1.address,
+            rate: BigInt(0)
+        }
         const delegateRewardRate = "0";
 
         // ================
         // Add subnet nodes
         // ================
 
-        const bootnode = generateRandomString(16)
         const unique = generateRandomString(16)
         const nonUnique = generateRandomString(16)
 
         await registerSubnetNode(
-          subnetContract, 
-          subnetId,
-          wallet2.address,
-          peer1,
-          peer2,
-          peer3,
-          generateRandomString(16),
-          delegateRewardRate,
-          BigInt(minStake.toString()),
-          unique,
-          nonUnique,
-          "100"
+            subnetContract,
+            subnetId,
+            wallet2.address,
+            peer_info_1,
+            peer_info_2,
+            peer_info_3,
+            delegateRewardRate,
+            BigInt(minStake.toString()),
+            unique,
+            nonUnique,
+            delegateAccount,
+            "1000000000000000000"
         )
         console.log("registered node id")
 
@@ -214,8 +228,8 @@ describe("test node delegate staking-0x835yv", () => {
         expect(Number(balanceBeforeAdd)).to.be.equal(0);
 
         const beforeFinalizedBalance = await waitForFinalizedBalance(
-            papiApi, 
-            wallet1.address, 
+            papiApi,
+            wallet1.address,
             (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
         );
 
@@ -223,15 +237,15 @@ describe("test node delegate staking-0x835yv", () => {
         // Add delegate stake
         // ==================
         await addToNodeDelegateStake(
-          stakingContract, 
-          subnetId,
-          subnetNodeId,
-          stakeAmount
+            stakingContract,
+            subnetId,
+            subnetNodeId,
+            stakeAmount
         )
 
         const afterFinalizedBalance = await waitForFinalizedBalance(
-            papiApi, 
-            wallet1.address, 
+            papiApi,
+            wallet1.address,
             (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
         );
 
@@ -263,10 +277,10 @@ describe("test node delegate staking-0x835yv", () => {
         // Add node delegate stake
         // ==================
         await addToNodeDelegateStake(
-          stakingContract, 
-          subnetId,
-          subnetNodeId,
-          stakeAmount
+            stakingContract,
+            subnetId,
+            subnetNodeId,
+            stakeAmount
         )
 
         // ==========================
@@ -274,7 +288,7 @@ describe("test node delegate staking-0x835yv", () => {
         // ==========================
 
         const sharesAfterAdd = await stakingContract.accountNodeDelegateStakeShares(
-            wallet2.address, 
+            wallet2.address,
             subnetId,
             subnetNodeId
         );
@@ -285,10 +299,10 @@ describe("test node delegate staking-0x835yv", () => {
         expect(Number(balanceAfterAdd)).to.be.greaterThan(0);
 
         await removeNodeDelegateStake(
-          stakingContract, 
-          subnetId,
-          subnetNodeId,
-          sharesAfterAdd
+            stakingContract,
+            subnetId,
+            subnetNodeId,
+            sharesAfterAdd
         )
 
         const sharesAfter = await stakingContract.accountNodeDelegateStakeShares(wallet2.address, subnetId, subnetNodeId);

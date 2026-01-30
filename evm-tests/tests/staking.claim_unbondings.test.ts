@@ -3,7 +3,7 @@ import { getDevnetApi } from "../src/substrate"
 import { dev } from "@polkadot-api/descriptors"
 import { PolkadotSigner, TypedApi } from "polkadot-api";
 import { ethers } from "ethers"
-import { generateRandomEthersWallet, generateRandomString, getPublicClient, STAKING_CONTRACT_ABI, STAKING_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, SUBNET_CONTRACT_ADDRESS, waitForBlocks } from "../src/utils"
+import { generateRandomEd25519PeerId, generateRandomEthersWallet, generateRandomMultiaddr, generateRandomString, getPublicClient, STAKING_CONTRACT_ABI, STAKING_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, SUBNET_CONTRACT_ADDRESS, waitForBlocks } from "../src/utils"
 import {
     addToDelegateStake,
     claimUnbondings,
@@ -76,12 +76,6 @@ describe("test claim unbondings-0x310crc12", () => {
         },
     ];
 
-    const BOOTNODES = [
-        generateRandomString(6),
-        generateRandomString(6)
-    ]
-
-
     let publicClient: PublicClient;
     let papiApi: TypedApi<typeof dev>
     let api: ApiPromise
@@ -95,6 +89,13 @@ describe("test claim unbondings-0x310crc12", () => {
     // sudo account alice as signer
     let alice: PolkadotSigner;
     before(async () => {
+        let BOOTNODES: { peerId: string; multiaddr: Uint8Array }[] = [
+            {
+                peerId: (await generateRandomEd25519PeerId()),
+                multiaddr: await generateRandomMultiaddr((await generateRandomEd25519PeerId()))
+            }
+        ]
+
         publicClient = await getPublicClient(ETH_LOCAL_URL)
         // init variables got from await and async
         papiApi = await getDevnetApi()
@@ -119,18 +120,12 @@ describe("test claim unbondings-0x310crc12", () => {
         const repo = generateRandomString(30)
         const description = generateRandomString(30)
         const misc = generateRandomString(30)
-        const churnLimit = await api.query.network.maxChurnLimit();
         const minStake = await api.query.network.minSubnetMinStake();
         const maxStake = await api.query.network.networkMaxStakeBalance();
         const delegateStakePercentage = await api.query.network.minDelegateStakePercentage();
-        const subnetNodeQueueEpochs = await api.query.network.minQueueEpochs();
-        const idleClassificationEpochs = await api.query.network.minIdleClassificationEpochs();
-        const includedClassificationEpochs = await api.query.network.minIncludedClassificationEpochs();
-        const maxNodePenalties = await api.query.network.minMaxSubnetNodePenalties();
-        const maxRegisteredNodes = await api.query.network.minMaxRegisteredNodes();
 
         await registerSubnet(
-            subnetContract, 
+            subnetContract,
             cost,
             subnetName,
             repo,
@@ -153,7 +148,7 @@ describe("test claim unbondings-0x310crc12", () => {
         const stakingContract = new ethers.Contract(STAKING_CONTRACT_ADDRESS, STAKING_CONTRACT_ABI, wallet1);
 
         const sharesBeforeDelegateStake = await stakingContract.accountSubnetDelegateStakeShares(
-            wallet1.address, 
+            wallet1.address,
             subnetId
         );
         const balanceBeforeDelegateStake = await stakingContract.accountSubnetDelegateStakeBalance(wallet1.address, subnetId);
@@ -166,10 +161,10 @@ describe("test claim unbondings-0x310crc12", () => {
         // Add delegate stake
         // ==================
         await addToDelegateStake(
-          stakingContract, 
-          subnetId,
-          stakeAmount,
-          BigInt(stakeAmount)
+            stakingContract,
+            subnetId,
+            stakeAmount,
+            BigInt(stakeAmount)
         )
 
         // =====================
@@ -177,7 +172,7 @@ describe("test claim unbondings-0x310crc12", () => {
         // =====================
 
         const sharesAfterDelegateStake = await stakingContract.accountSubnetDelegateStakeShares(
-            wallet1.address, 
+            wallet1.address,
             subnetId
         );
         const balanceAfterDelegateStake = await stakingContract.accountSubnetDelegateStakeBalance(wallet1.address, subnetId);
@@ -187,9 +182,9 @@ describe("test claim unbondings-0x310crc12", () => {
         expect(Number(balanceAfterDelegateStake)).to.not.equal(0);
 
         await removeDelegateStake(
-          stakingContract, 
-          subnetId,
-          sharesAfterDelegateStake
+            stakingContract,
+            subnetId,
+            sharesAfterDelegateStake
         )
 
         const sharesAfterRemove = await stakingContract.accountSubnetDelegateStakeShares(wallet1.address, subnetId);
@@ -202,18 +197,18 @@ describe("test claim unbondings-0x310crc12", () => {
         const unbondings = (await api.query.network.stakeUnbondingLedger(wallet1.address)).toHuman();
 
         const beforeFinalizedBalance = await waitForFinalizedBalance(
-            papiApi, 
-            wallet1.address, 
+            papiApi,
+            wallet1.address,
             (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
         );
 
         await claimUnbondings(
-          stakingContract
+            stakingContract
         )
 
         const afterFinalizedBalance = await waitForFinalizedBalance(
-            papiApi, 
-            wallet1.address, 
+            papiApi,
+            wallet1.address,
             (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
         );
 

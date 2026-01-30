@@ -3971,7 +3971,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn update_peer_id() {
+    fn update_peer_info() {
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let end = 4;
         build_activated_subnet::<T>(
@@ -3995,7 +3995,7 @@ mod benchmarks {
         let new_peer = peer(1);
 
         #[extrinsic_call]
-        update_peer_id(
+        update_peer_info(
             RawOrigin::Signed(coldkey.clone()),
             subnet_id,
             hotkey_subnet_node_id,
@@ -4049,7 +4049,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn update_bootnode_peer_id() {
+    fn update_bootnode_peer_info() {
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let end = 4;
         build_activated_subnet::<T>(
@@ -4073,7 +4073,7 @@ mod benchmarks {
         let new_peer = peer(1);
 
         #[extrinsic_call]
-        update_bootnode_peer_id(
+        update_bootnode_peer_info(
             RawOrigin::Signed(coldkey.clone()),
             subnet_id,
             hotkey_subnet_node_id,
@@ -4087,7 +4087,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn update_client_peer_id() {
+    fn update_client_peer_info() {
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let end = 4;
         build_activated_subnet::<T>(
@@ -4111,7 +4111,7 @@ mod benchmarks {
         let new_peer = peer(1);
 
         #[extrinsic_call]
-        update_client_peer_id(
+        update_client_peer_info(
             RawOrigin::Signed(coldkey.clone()),
             subnet_id,
             hotkey_subnet_node_id,

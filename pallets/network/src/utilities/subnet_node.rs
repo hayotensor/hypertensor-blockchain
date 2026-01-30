@@ -124,7 +124,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn do_update_peer_id(
+    pub fn do_update_peer_info(
         subnet_id: u32,
         subnet_node_id: u32,
         new_peer_info: PeerInfo,
@@ -275,7 +275,7 @@ impl<T: Config> Pallet<T> {
     //     Ok(())
     // }
 
-    pub fn do_update_bootnode_peer_id(
+    pub fn do_update_bootnode_peer_info(
         subnet_id: u32,
         subnet_node_id: u32,
         new_bootnode_peer_info: Option<PeerInfo>,
@@ -362,7 +362,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn do_update_client_peer_id(
+    pub fn do_update_client_peer_info(
         subnet_id: u32,
         subnet_node_id: u32,
         new_peer_info: Option<PeerInfo>,

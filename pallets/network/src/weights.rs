@@ -86,10 +86,10 @@ pub trait WeightInfo {
 	fn update_non_unique() -> Weight;
 	fn update_coldkey() -> Weight;
 	fn update_hotkey() -> Weight;
-	fn update_peer_id() -> Weight;
+	fn update_peer_info() -> Weight;
 	fn update_bootnode() -> Weight;
-	fn update_bootnode_peer_id() -> Weight;
-	fn update_client_peer_id() -> Weight;
+	fn update_bootnode_peer_info() -> Weight;
+	fn update_client_peer_info() -> Weight;
 	fn register_overwatch_node() -> Weight;
 	fn remove_overwatch_node() -> Weight;
 	fn anyone_remove_overwatch_node() -> Weight;
@@ -2020,7 +2020,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn update_peer_id() -> Weight {
+	fn update_peer_info() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2033`
 		//  Estimated: `5498`
@@ -2080,7 +2080,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn update_bootnode_peer_id() -> Weight {
+	fn update_bootnode_peer_info() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2033`
 		//  Estimated: `5498`
@@ -2113,7 +2113,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn update_client_peer_id() -> Weight {
+	fn update_client_peer_info() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2033`
 		//  Estimated: `5498`
@@ -6687,7 +6687,7 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn update_peer_id() -> Weight {
+	fn update_peer_info() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2033`
 		//  Estimated: `5498`
@@ -6747,7 +6747,7 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn update_bootnode_peer_id() -> Weight {
+	fn update_bootnode_peer_info() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2033`
 		//  Estimated: `5498`
@@ -6780,7 +6780,7 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn update_client_peer_id() -> Weight {
+	fn update_client_peer_info() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2033`
 		//  Estimated: `5498`

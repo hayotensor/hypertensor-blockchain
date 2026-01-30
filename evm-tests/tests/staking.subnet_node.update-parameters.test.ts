@@ -3,20 +3,19 @@ import { getDevnetApi } from "../src/substrate"
 import { dev } from "@polkadot-api/descriptors"
 import { PolkadotSigner, TypedApi } from "polkadot-api";
 import { ethers } from "ethers"
-import { generateRandomEd25519PeerId, generateRandomEthersWallet, generateRandomString, getPublicClient, STAKING_CONTRACT_ABI, STAKING_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, SUBNET_CONTRACT_ADDRESS } from "../src/utils"
+import { generateRandomEd25519PeerId, generateRandomEthersWallet, generateRandomMultiaddr, generateRandomString, getPublicClient, STAKING_CONTRACT_ABI, STAKING_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, SUBNET_CONTRACT_ADDRESS } from "../src/utils"
 import {
     batchTransferBalanceFromSudo,
     getCurrentRegistrationCost,
     registerSubnet,
     registerSubnetNode,
-    updateBootnode,
-    updateBootnodePeerId,
-    updateClientPeerId,
+    updateBootnodePeerInfo,
+    updateClientPeerInfo,
     updateColdkey,
     updateDelegateRewardRate,
     updateHotkey,
     updateNonUnique,
-    updatePeerId,
+    updatePeerInfo,
     updateUnique,
 } from "../src/network"
 import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
@@ -39,15 +38,15 @@ describe("test node update parameters-0xdgahRTH", () => {
     const wallet8 = generateRandomEthersWallet();
 
     const ALL_ACCOUNTS = [
-      wallet0.address,
-      wallet1.address,
-      wallet2.address,
-      wallet3.address,
-      wallet4.address,
-      wallet5.address,
-      wallet6.address,
-      wallet7.address,
-      wallet8.address,
+        wallet0.address,
+        wallet1.address,
+        wallet2.address,
+        wallet3.address,
+        wallet4.address,
+        wallet5.address,
+        wallet6.address,
+        wallet7.address,
+        wallet8.address,
     ]
     const initialColdkeys = [
         {
@@ -86,10 +85,6 @@ describe("test node update parameters-0xdgahRTH", () => {
 
     let publicClient: PublicClient;
     // init substrate part
-    const BOOTNODES = [
-        generateRandomString(6),
-        generateRandomString(6)
-    ]
 
     let papiApi: TypedApi<typeof dev>
     let api: ApiPromise
@@ -106,7 +101,12 @@ describe("test node update parameters-0xdgahRTH", () => {
     // sudo account alice as signer
     let alice: PolkadotSigner;
     before(async () => {
-        
+        let BOOTNODES: { peerId: string; multiaddr: Uint8Array }[] = [
+            {
+                peerId: (await generateRandomEd25519PeerId()),
+                multiaddr: await generateRandomMultiaddr((await generateRandomEd25519PeerId()))
+            }
+        ]
         publicClient = await getPublicClient(ETH_LOCAL_URL)
         // init variables got from await and async
         papiApi = await getDevnetApi()
@@ -121,9 +121,9 @@ describe("test node update parameters-0xdgahRTH", () => {
         }));
 
         await batchTransferBalanceFromSudo(
-          api,
-          papiApi,
-          recipients
+            api,
+            papiApi,
+            recipients
         )
 
         // ==============
@@ -134,18 +134,12 @@ describe("test node update parameters-0xdgahRTH", () => {
         const repo = generateRandomString(30)
         const description = generateRandomString(30)
         const misc = generateRandomString(30)
-        const churnLimit = await api.query.network.maxChurnLimit();
         const minStake = await api.query.network.minSubnetMinStake();
         const maxStake = await api.query.network.networkMaxStakeBalance();
         const delegateStakePercentage = await api.query.network.minDelegateStakePercentage();
-        const subnetNodeQueueEpochs = await api.query.network.minQueueEpochs();
-        const idleClassificationEpochs = await api.query.network.minIdleClassificationEpochs();
-        const includedClassificationEpochs = await api.query.network.minIncludedClassificationEpochs();
-        const maxNodePenalties = await api.query.network.minMaxSubnetNodePenalties();
-        const maxRegisteredNodes = await api.query.network.minMaxRegisteredNodes();
 
         await registerSubnet(
-            subnetContract, 
+            subnetContract,
             cost,
             subnetName,
             repo,
@@ -169,27 +163,41 @@ describe("test node update parameters-0xdgahRTH", () => {
         // Subnet node 1
         // ================
         let peer1 = await generateRandomEd25519PeerId()
-        let peer2 = await generateRandomEd25519PeerId()
-        let peer3 = await generateRandomEd25519PeerId()
+        let peer_info_1 = {
+            peerId: peer1,
+            multiaddr: await generateRandomMultiaddr(peer1)
+        }
+        let peer_info_2 = {
+            peerId: "",
+            multiaddr: new Uint8Array()
+        }
+        let peer_info_3 = {
+            peerId: "",
+            multiaddr: new Uint8Array()
+        }
+
+        let delegateAccount = {
+            accountId: wallet1.address,
+            rate: BigInt(0)
+        }
         const delegateRewardRate = "0";
-        
-        const bootnode = generateRandomString(16)
+
         const unique = generateRandomString(16)
         const nonUnique = generateRandomString(16)
 
         await registerSubnetNode(
-          subnetContract1, 
-          subnetId,
-          wallet4.address,
-          peer1,
-          peer2,
-          peer3,
-          bootnode,
-          delegateRewardRate,
-          BigInt(minStake.toString()),
-          unique,
-          nonUnique,
-          "100"
+            subnetContract1,
+            subnetId,
+            wallet4.address,
+            peer_info_1,
+            peer_info_2,
+            peer_info_3,
+            delegateRewardRate,
+            BigInt(minStake.toString()),
+            unique,
+            nonUnique,
+            delegateAccount,
+            "1000000000000000000"
         )
 
         let subnetNodeId1Fetched = await api.query.network.hotkeySubnetNodeId(subnetId, wallet4.address);
@@ -213,7 +221,7 @@ describe("test node update parameters-0xdgahRTH", () => {
     it("testing update node parameters-0xpdgaa663uF", async () => {
         const newDelegateRewardRate = "1"
         await updateDelegateRewardRate(
-            subnetContract1, 
+            subnetContract1,
             subnetId,
             subnetNodeId1,
             newDelegateRewardRate
@@ -229,7 +237,7 @@ describe("test node update parameters-0xdgahRTH", () => {
 
         const newUnique = generateRandomString(16)
         await updateUnique(
-            subnetContract1, 
+            subnetContract1,
             subnetId,
             subnetNodeId1,
             newUnique
@@ -245,7 +253,7 @@ describe("test node update parameters-0xdgahRTH", () => {
 
         const newNonUnique = generateRandomString(16)
         await updateNonUnique(
-            subnetContract1, 
+            subnetContract1,
             subnetId,
             subnetNodeId1,
             newNonUnique
@@ -260,35 +268,27 @@ describe("test node update parameters-0xdgahRTH", () => {
         }
 
         let newPeerId = await generateRandomEd25519PeerId()
-        await updatePeerId(
-            subnetContract1, 
+        const newPeerMultiaddr = await generateRandomMultiaddr(newPeerId)
+        await updatePeerInfo(
+            subnetContract1,
             subnetId,
             subnetNodeId1,
-            newPeerId
+            {
+                peerId: newPeerId,
+                multiaddr: newPeerMultiaddr
+            }
         )
-
-        const newBootnode = generateRandomString(6)
-        await updateBootnode(
-            subnetContract1, 
-            subnetId,
-            subnetNodeId1,
-            newBootnode
-        )
-        nodeData = await api.query.network.subnetNodesData(subnetId, subnetNodeId1);
-        nodeDataOpt = nodeData as Option<any>;
-        expect(nodeDataOpt.isSome);
-        if (nodeDataOpt.isSome) {
-            const nodeData = nodeDataOpt.unwrap();
-            const human = nodeData.toHuman();
-            expect(human.bootnode == newBootnode);
-        }
 
         newPeerId = await generateRandomEd25519PeerId()
-        await updateBootnodePeerId(
-            subnetContract1, 
+        const newBootnodeMultiaddr = await generateRandomMultiaddr(newPeerId)
+        await updateBootnodePeerInfo(
+            subnetContract1,
             subnetId,
             subnetNodeId1,
-            newPeerId
+            {
+                peerId: newPeerId,
+                multiaddr: newBootnodeMultiaddr
+            }
         )
         nodeData = await api.query.network.subnetNodesData(subnetId, subnetNodeId1);
         nodeDataOpt = nodeData as Option<any>;
@@ -300,11 +300,15 @@ describe("test node update parameters-0xdgahRTH", () => {
         }
 
         newPeerId = await generateRandomEd25519PeerId()
-        await updateClientPeerId(
-            subnetContract1, 
+        const newClientMultiaddr = await generateRandomMultiaddr(newPeerId)
+        await updateClientPeerInfo(
+            subnetContract1,
             subnetId,
             subnetNodeId1,
-            newPeerId
+            {
+                peerId: newPeerId,
+                multiaddr: newClientMultiaddr
+            }
         )
         nodeData = await api.query.network.subnetNodesData(subnetId, subnetNodeId1);
         nodeDataOpt = nodeData as Option<any>;
@@ -317,7 +321,7 @@ describe("test node update parameters-0xdgahRTH", () => {
 
         const newHotkey = generateRandomEthersWallet();
         await updateHotkey(
-            subnetContract1, 
+            subnetContract1,
             wallet4.address,
             newHotkey.address,
         )
@@ -326,7 +330,7 @@ describe("test node update parameters-0xdgahRTH", () => {
 
         const newColdkey = generateRandomEthersWallet();
         await updateColdkey(
-            subnetContract1, 
+            subnetContract1,
             newHotkey.address,
             newColdkey.address,
         )

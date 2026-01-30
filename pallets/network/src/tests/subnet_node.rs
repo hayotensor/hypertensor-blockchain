@@ -3187,7 +3187,7 @@ fn test_update_peer_id() {
             multiaddr: None,
         };
 
-        assert_ok!(Network::update_peer_id(
+        assert_ok!(Network::update_peer_info(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -3240,7 +3240,7 @@ fn test_update_peer_id() {
             multiaddr: None,
         };
 
-        assert_ok!(Network::update_peer_id(
+        assert_ok!(Network::update_peer_info(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -3293,7 +3293,7 @@ fn test_update_peer_id_exists() {
         };
 
         assert_err!(
-            Network::update_peer_id(
+            Network::update_peer_info(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
@@ -3304,7 +3304,7 @@ fn test_update_peer_id_exists() {
 
         // --- fail if same peer id
         assert_err!(
-            Network::update_peer_id(
+            Network::update_peer_info(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
@@ -3346,7 +3346,7 @@ fn test_update_peer_id_not_key_owner() {
         let current_peer_info = subnet_node.peer_info.clone();
 
         assert_err!(
-            Network::update_peer_id(
+            Network::update_peer_info(
                 RuntimeOrigin::signed(account(2)),
                 subnet_id,
                 subnet_node_id,
@@ -3388,7 +3388,7 @@ fn test_update_peer_id_invalid_peer_id() {
         };
 
         assert_err!(
-            Network::update_peer_id(
+            Network::update_peer_info(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
@@ -3586,7 +3586,7 @@ fn test_update_bootnode_peer_id() {
             multiaddr: None,
         });
 
-        assert_ok!(Network::update_bootnode_peer_id(
+        assert_ok!(Network::update_bootnode_peer_info(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -3655,7 +3655,7 @@ fn test_update_bootnode_peer_id() {
         // let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
 
         // update back to original with peer info
-        assert_ok!(Network::update_bootnode_peer_id(
+        assert_ok!(Network::update_bootnode_peer_info(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -3723,7 +3723,7 @@ fn test_update_bootnode_peer_id_exists() {
         });
 
         assert_err!(
-            Network::update_bootnode_peer_id(
+            Network::update_bootnode_peer_info(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
@@ -3739,7 +3739,7 @@ fn test_update_bootnode_peer_id_exists() {
 
         // --- fail if same peer id
         assert_err!(
-            Network::update_bootnode_peer_id(
+            Network::update_bootnode_peer_info(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
@@ -3783,7 +3783,7 @@ fn test_update_bootnode_peer_id_not_key_owner() {
         });
 
         assert_err!(
-            Network::update_bootnode_peer_id(
+            Network::update_bootnode_peer_info(
                 RuntimeOrigin::signed(account(2)),
                 subnet_id,
                 subnet_node_id,
@@ -3826,7 +3826,7 @@ fn test_update_bootnode_peer_id_invalid_peer_id() {
         });
 
         assert_err!(
-            Network::update_bootnode_peer_id(
+            Network::update_bootnode_peer_info(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
@@ -3874,7 +3874,7 @@ fn test_update_client_peer_id() {
             multiaddr: None,
         });
 
-        assert_ok!(Network::update_client_peer_id(
+        assert_ok!(Network::update_client_peer_info(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -3924,7 +3924,7 @@ fn test_update_client_peer_id() {
             multiaddr: None,
         });
 
-        assert_ok!(Network::update_client_peer_id(
+        assert_ok!(Network::update_client_peer_info(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -3981,7 +3981,7 @@ fn test_update_client_peer_id_exists() {
         });
 
         assert_err!(
-            Network::update_client_peer_id(
+            Network::update_client_peer_info(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
@@ -3992,7 +3992,7 @@ fn test_update_client_peer_id_exists() {
 
         // --- fail if same peer id
         assert_err!(
-            Network::update_client_peer_id(
+            Network::update_client_peer_info(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
@@ -4037,7 +4037,7 @@ fn test_update_client_peer_id_not_key_owner() {
         });
 
         assert_err!(
-            Network::update_client_peer_id(
+            Network::update_client_peer_info(
                 RuntimeOrigin::signed(account(2)),
                 subnet_id,
                 subnet_node_id,
@@ -4079,7 +4079,7 @@ fn test_update_client_peer_id_invalid_peer_id() {
         });
 
         assert_err!(
-            Network::update_client_peer_id(
+            Network::update_client_peer_info(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,

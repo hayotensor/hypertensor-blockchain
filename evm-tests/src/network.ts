@@ -14,8 +14,8 @@ import { expect } from "chai";
 export async function transferBalanceFromSudo(
   api: ApiPromise,
   papiApi: TypedApi<typeof dev>,
-  url: string, 
-  who: string, 
+  url: string,
+  who: string,
   balance: bigint
 ) {
   console.log("transferBalanceFromSudo", balance)
@@ -121,7 +121,7 @@ export async function batchTransferBalanceFromSudo(
   expect(Number(aliceBalance_)).to.be.greaterThanOrEqual(0);
 
   // Create batch of transfer calls
-  const transferCalls = recipients.map(({ address, balance }) => 
+  const transferCalls = recipients.map(({ address, balance }) =>
     api.tx.balances.transferKeepAlive(address, balance)
   );
 
@@ -224,7 +224,7 @@ export async function batchTransferBalanceFromSudoManual(
 // Subnet interaction
 // ==================
 export async function registerSubnet(
-  contract: Contract, 
+  contract: Contract,
   maxCost: string,
   name: string,
   repo: string,
@@ -234,7 +234,7 @@ export async function registerSubnet(
   maxStake: string,
   delegateStakePercentage: string,
   initialColdkeys: any,
-  bootnodes: string[],
+  bootnodes: Array<{ peerId: string, multiaddr: Uint8Array }>,
   fee: bigint,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
@@ -268,7 +268,7 @@ export async function registerSubnet(
 }
 
 export async function activateSubnet(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
 ) {
   const tx = await contract.activateSubnet(
@@ -279,40 +279,40 @@ export async function activateSubnet(
 }
 
 export async function getCurrentRegistrationCost(
-  contract: Contract, 
+  contract: Contract,
   api: ApiPromise,
 ) {
-    const ethBlockNumber = await api.rpc.eth.blockNumber()
-    const substrateBlockNumber = await api.query.system.number();
+  const ethBlockNumber = await api.rpc.eth.blockNumber()
+  const substrateBlockNumber = await api.query.system.number();
 
-    const cost = await contract.getCurrentRegistrationCost(ethBlockNumber.toString());
+  const cost = await contract.getCurrentRegistrationCost(ethBlockNumber.toString());
 
-    return cost
+  return cost
 }
 
 export async function getMinSubnetDelegateStakeBalance(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string
 ) {
-    const minDelegateStake = await contract.getMinSubnetDelegateStakeBalance(subnetId);
-    return minDelegateStake
+  const minDelegateStake = await contract.getMinSubnetDelegateStakeBalance(subnetId);
+  return minDelegateStake
 }
 
 // ===========
 // Subnet node
 // ===========
 export async function registerSubnetNode(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   hotkey: string,
-  peerId: string,
-  bootnodePeerId: string,
-  clientPeerId: string,
-  bootnode: string,
+  peerInfo: { peerId: string, multiaddr: Uint8Array },
+  bootnodePeerInfo: { peerId: string, multiaddr: Uint8Array },
+  clientPeerInfo: { peerId: string, multiaddr: Uint8Array },
   delegateRewardRate: string,
   stakeToBeAdded: bigint,
   unique: string,
   nonUnique: string,
+  delegateAccount: { accountId: string, rate: bigint },
   maxBurnAmount: string,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
@@ -320,14 +320,14 @@ export async function registerSubnetNode(
   const tx = await contract.registerSubnetNode(
     subnetId,
     hotkey,
-    peerId,
-    bootnodePeerId,
-    clientPeerId,
-    bootnode,
+    peerInfo,
+    bootnodePeerInfo,
+    clientPeerInfo,
     delegateRewardRate,
     stakeToBeAdded,
     unique,
     nonUnique,
+    delegateAccount,
     maxBurnAmount,
     { value: stakeToBeAdded }
   );
@@ -347,7 +347,7 @@ export async function registerSubnetNode(
 }
 
 export async function activateSubnetNode(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
 ) {
@@ -360,7 +360,7 @@ export async function activateSubnetNode(
 }
 
 export async function removeSubnetNode(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
 ) {
@@ -373,7 +373,7 @@ export async function removeSubnetNode(
 }
 
 export async function updateDelegateRewardRate(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
   value: string
@@ -388,7 +388,7 @@ export async function updateDelegateRewardRate(
 }
 
 export async function updateUnique(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
   value: string
@@ -403,7 +403,7 @@ export async function updateUnique(
 }
 
 export async function updateNonUnique(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
   value: string
@@ -418,7 +418,7 @@ export async function updateNonUnique(
 }
 
 export async function updateColdkey(
-  contract: Contract, 
+  contract: Contract,
   hotkey: string,
   newColdkey: string,
 ) {
@@ -431,7 +431,7 @@ export async function updateColdkey(
 }
 
 export async function updateHotkey(
-  contract: Contract, 
+  contract: Contract,
   oldHotkey: string,
   newHotkey: string,
 ) {
@@ -443,23 +443,23 @@ export async function updateHotkey(
   await tx.wait();
 }
 
-export async function updatePeerId(
-  contract: Contract, 
+export async function updatePeerInfo(
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
-  newPeerId: string
+  newPeerInfo: { peerId: string, multiaddr: Uint8Array }
 ) {
-  const tx = await contract.updatePeerId(
+  const tx = await contract.updatePeerInfo(
     subnetId,
     subnetNodeId,
-    newPeerId
+    newPeerInfo
   );
 
   await tx.wait();
 }
 
 export async function updateBootnode(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
   newBootnode: string
@@ -473,31 +473,31 @@ export async function updateBootnode(
   await tx.wait();
 }
 
-export async function updateBootnodePeerId(
-  contract: Contract, 
+export async function updateBootnodePeerInfo(
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
-  newPeerId: string
+  newPeerInfo: { peerId: string, multiaddr: Uint8Array }
 ) {
-  const tx = await contract.updateBootnodePeerId(
+  const tx = await contract.updateBootnodePeerInfo(
     subnetId,
     subnetNodeId,
-    newPeerId
+    newPeerInfo
   );
 
   await tx.wait();
 }
 
-export async function updateClientPeerId(
-  contract: Contract, 
+export async function updateClientPeerInfo(
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
-  newPeerId: string
+  newPeerInfo: { peerId: string, multiaddr: Uint8Array }
 ) {
-  const tx = await contract.updateClientPeerId(
+  const tx = await contract.updateClientPeerInfo(
     subnetId,
     subnetNodeId,
-    newPeerId
+    newPeerInfo
   );
 
   await tx.wait();
@@ -507,7 +507,7 @@ export async function updateClientPeerId(
 // Identities
 // =====
 export async function registerOrUpdateIdentity(
-  contract: Contract, 
+  contract: Contract,
   hotkey: string,
   name: string,
   url: string,
@@ -538,7 +538,7 @@ export async function registerOrUpdateIdentity(
 }
 
 export async function removeIdentity(
-  contract: Contract, 
+  contract: Contract,
 ) {
   const tx = await contract.removeIdentity();
 
@@ -550,17 +550,17 @@ export async function removeIdentity(
 // ==============
 
 export async function addToStake(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
   hotkey: string,
   balance: bigint
 ) {
   const tx = await contract.addToStake(
-    subnetId, 
+    subnetId,
     subnetNodeId,
     hotkey,
-    balance, 
+    balance,
     { value: balance }
   );
 
@@ -568,15 +568,15 @@ export async function addToStake(
 }
 
 export async function removeStake(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   hotkey: string,
   balance: bigint
 ) {
   const tx = await contract.removeStake(
-    subnetId, 
+    subnetId,
     hotkey,
-    balance, 
+    balance,
     { value: balance }
   );
 
@@ -593,7 +593,7 @@ export async function claimUnbondings(contract: Contract) {
 // ==============
 
 export async function addToDelegateStake(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   balance: bigint,
   fee: bigint
@@ -604,7 +604,7 @@ export async function addToDelegateStake(
 }
 
 export async function removeDelegateStake(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   shares: bigint
 ) {
@@ -614,7 +614,7 @@ export async function removeDelegateStake(
 }
 
 export async function swapDelegateStake(
-  contract: Contract, 
+  contract: Contract,
   fromSubnetId: string,
   toSubnetId: string,
   shares: bigint
@@ -625,7 +625,7 @@ export async function swapDelegateStake(
 }
 
 export async function transferDelegateStake(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   toAccount: string,
   shares: bigint
@@ -640,7 +640,7 @@ export async function transferDelegateStake(
 // ===================
 
 export async function addToNodeDelegateStake(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
   stakeAmount: bigint
@@ -651,7 +651,7 @@ export async function addToNodeDelegateStake(
 }
 
 export async function removeNodeDelegateStake(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
   shares: bigint
@@ -662,7 +662,7 @@ export async function removeNodeDelegateStake(
 }
 
 export async function swapNodeDelegateStake(
-  contract: Contract, 
+  contract: Contract,
   fromSubnetId: string,
   fromSubnetNodeId: string,
   toSubnetId: string,
@@ -681,7 +681,7 @@ export async function swapNodeDelegateStake(
 }
 
 export async function transferNodeDelegateStake(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   subnetNodeId: string,
   toAccountId: string,
@@ -699,7 +699,7 @@ export async function transferNodeDelegateStake(
 
 
 export async function updateSwapQueue(
-  contract: Contract, 
+  contract: Contract,
   id: string,
   callType: string,
   toSubnetId: string,
@@ -716,7 +716,7 @@ export async function updateSwapQueue(
 }
 
 export async function ownerPauseSubnet(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
 ) {
   const tx = await contract.ownerPauseSubnet(
@@ -727,7 +727,7 @@ export async function ownerPauseSubnet(
 }
 
 export async function ownerUnpauseSubnet(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
 ) {
   const tx = await contract.ownerUnpauseSubnet(
@@ -738,7 +738,7 @@ export async function ownerUnpauseSubnet(
 }
 
 export async function ownerDeactivateSubnet(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
 ) {
   const tx = await contract.ownerDeactivateSubnet(
@@ -749,7 +749,7 @@ export async function ownerDeactivateSubnet(
 }
 
 export async function ownerUpdateName(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string
 ) {
@@ -762,7 +762,7 @@ export async function ownerUpdateName(
 }
 
 export async function ownerUpdateRepo(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string
 ) {
@@ -775,7 +775,7 @@ export async function ownerUpdateRepo(
 }
 
 export async function ownerUpdateDescription(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string
 ) {
@@ -788,7 +788,7 @@ export async function ownerUpdateDescription(
 }
 
 export async function ownerUpdateMisc(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string
 ) {
@@ -801,7 +801,7 @@ export async function ownerUpdateMisc(
 }
 
 export async function ownerUpdateChurnLimit(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string
 ) {
@@ -814,7 +814,7 @@ export async function ownerUpdateChurnLimit(
 }
 
 export async function ownerUpdateRegistrationQueueEpochs(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string
 ) {
@@ -827,7 +827,7 @@ export async function ownerUpdateRegistrationQueueEpochs(
 }
 
 export async function ownerUpdateIdleClassificationEpochs(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string
 ) {
@@ -840,7 +840,7 @@ export async function ownerUpdateIdleClassificationEpochs(
 }
 
 export async function ownerUpdateIncludedClassificationEpochs(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string
 ) {
@@ -853,7 +853,7 @@ export async function ownerUpdateIncludedClassificationEpochs(
 }
 
 export async function ownerAddOrUpdateInitialColdkeys(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   coldkeys: any
 ) {
@@ -866,7 +866,7 @@ export async function ownerAddOrUpdateInitialColdkeys(
 }
 
 export async function ownerRemoveInitialColdkeys(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   coldkeys: string[]
 ) {
@@ -879,7 +879,7 @@ export async function ownerRemoveInitialColdkeys(
 }
 
 export async function ownerUpdateMinMaxStake(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   min: string,
   max: string
@@ -894,7 +894,7 @@ export async function ownerUpdateMinMaxStake(
 }
 
 export async function ownerUpdateDelegateStakePercentage(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string
 ) {
@@ -907,7 +907,7 @@ export async function ownerUpdateDelegateStakePercentage(
 }
 
 export async function ownerUpdateMaxRegisteredNodes(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string,
 ) {
@@ -920,7 +920,7 @@ export async function ownerUpdateMaxRegisteredNodes(
 }
 
 export async function transferSubnetOwnership(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   address: string,
 ) {
@@ -933,7 +933,7 @@ export async function transferSubnetOwnership(
 }
 
 export async function acceptSubnetOwnership(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
 ) {
   const tx = await contract.acceptSubnetOwnership(
@@ -944,7 +944,7 @@ export async function acceptSubnetOwnership(
 }
 
 export async function ownerAddBootnodeAccess(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   newAccount: string,
 ) {
@@ -957,7 +957,7 @@ export async function ownerAddBootnodeAccess(
 }
 
 export async function ownerUpdateTargetNodeRegistrationsPerEpoch(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string,
 ) {
@@ -970,7 +970,7 @@ export async function ownerUpdateTargetNodeRegistrationsPerEpoch(
 }
 
 export async function ownerUpdateNodeBurnRateAlpha(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string,
 ) {
@@ -983,7 +983,7 @@ export async function ownerUpdateNodeBurnRateAlpha(
 }
 
 export async function ownerUpdateQueueImmunityEpochs(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   value: string,
 ) {
@@ -996,7 +996,7 @@ export async function ownerUpdateQueueImmunityEpochs(
 }
 
 export async function updateBootnodes(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   add: any,
   remove: any
@@ -1014,7 +1014,7 @@ export async function updateBootnodes(
 // Overwatch node
 // =======
 export async function registerOverwatchNode(
-  contract: Contract, 
+  contract: Contract,
   hotkey: string,
   stakeToBeAdded: bigint,
   provider?: JsonRpcProvider,
@@ -1040,7 +1040,7 @@ export async function registerOverwatchNode(
 }
 
 export async function removeOverwatchNode(
-  contract: Contract, 
+  contract: Contract,
   overwatchNodeId: string,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
@@ -1064,7 +1064,7 @@ export async function removeOverwatchNode(
 }
 
 export async function anyoneRemoveOverwatchNode(
-  contract: Contract, 
+  contract: Contract,
   overwatchNodeId: string,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
@@ -1088,7 +1088,7 @@ export async function anyoneRemoveOverwatchNode(
 }
 
 export async function setOverwatchNodePeerId(
-  contract: Contract, 
+  contract: Contract,
   subnetId: string,
   overwatchNodeId: string,
   peerId: string,
@@ -1116,7 +1116,7 @@ export async function setOverwatchNodePeerId(
 }
 
 export async function addToOverwatchStake(
-  contract: Contract, 
+  contract: Contract,
   overwatchNodeId: string,
   hotkey: string,
   stakeToBeAdded: bigint,
@@ -1144,7 +1144,7 @@ export async function addToOverwatchStake(
 }
 
 export async function removeOverwatchStake(
-  contract: Contract, 
+  contract: Contract,
   hotkey: string,
   stakeToBeRemoved: bigint,
   provider?: JsonRpcProvider,
@@ -1170,7 +1170,7 @@ export async function removeOverwatchStake(
 }
 
 export async function commitOverwatchSubnetWeights(
-  contract: Contract, 
+  contract: Contract,
   overwatchNodeId: string,
   commits: any,
   provider?: JsonRpcProvider,
@@ -1193,7 +1193,7 @@ export async function commitOverwatchSubnetWeights(
 }
 
 export async function revealOverwatchSubnetWeights(
-  contract: Contract, 
+  contract: Contract,
   overwatchNodeId: string,
   reveals: any,
   provider?: JsonRpcProvider,
@@ -1315,29 +1315,29 @@ export async function calculateRevealBlock(
   const epochLength = Number(api.consts.network.epochLength.toString());
   const multiplier = Number((await api.query.network.overwatchEpochLengthMultiplier()).toString());
   const cutoffPercentage = Number((await api.query.network.overwatchCommitCutoffPercent()).toString());
-  
+
   console.log('Configuration:');
   console.log('  Epoch Length:', epochLength);
   console.log('  Multiplier:', multiplier);
   console.log('  Cutoff Percentage:', cutoffPercentage);
-  
+
   // Calculate overwatch epoch length
   const overwatchEpochLength = epochLength * multiplier;
-  
+
   // Calculate block increase cutoff
   // percent_mul formula: (value * percentage) / 10_000
   const blockIncreaseCutoff = Math.floor(
     (overwatchEpochLength * cutoffPercentage) / 1e18
   );
-  
+
   // Calculate target block number
   const revealBlock = epoch * multiplier * epochLength + blockIncreaseCutoff;
-  
+
   console.log('Calculations:');
   console.log('  Overwatch Epoch Length:', overwatchEpochLength);
   console.log('  Block Increase Cutoff:', blockIncreaseCutoff);
   console.log('  Target Reveal Block:', revealBlock);
-  
+
   return revealBlock;
 }
 
@@ -1350,27 +1350,27 @@ export async function advanceToRevealBlock(
   // Get current block number
   const currentBlock = Number((await api.query.system.number()).toString());
   console.log('Current block:', currentBlock);
-  
+
   // Calculate target reveal block
   const revealBlock = await calculateRevealBlock(api, epoch);
   console.log('Target reveal block:', revealBlock);
-  
+
   // Calculate how many blocks to advance
   const blocksToAdvance = revealBlock - currentBlock;
-  
+
   if (blocksToAdvance <= 0) {
     console.log('Already at or past reveal block');
     return currentBlock;
   }
-  
+
   console.log(`Advancing ${blocksToAdvance} blocks...`);
-  
+
   // Advance blocks
   await createAndFinalizeBlocks(provider, blocksToAdvance);
-  
+
   // Verify we reached the target
   const newBlock = Number((await api.query.system.number()).toString());
   console.log('New block number:', newBlock);
-  
+
   return newBlock;
 }

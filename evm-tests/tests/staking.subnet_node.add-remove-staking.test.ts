@@ -3,7 +3,7 @@ import { getDevnetApi } from "../src/substrate"
 import { dev } from "@polkadot-api/descriptors"
 import { PolkadotSigner, TypedApi } from "polkadot-api";
 import { ethers } from "ethers"
-import { generateRandomEd25519PeerId, generateRandomEthersWallet, generateRandomString, getPublicClient, STAKING_CONTRACT_ABI, STAKING_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, SUBNET_CONTRACT_ADDRESS } from "../src/utils"
+import { generateRandomEd25519PeerId, generateRandomEthersWallet, generateRandomMultiaddr, generateRandomString, getPublicClient, STAKING_CONTRACT_ABI, STAKING_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, SUBNET_CONTRACT_ADDRESS } from "../src/utils"
 import {
     addToStake,
     batchTransferBalanceFromSudo,
@@ -33,15 +33,15 @@ describe("test node staking-0x65683fx2", () => {
     const wallet8 = generateRandomEthersWallet();
 
     const ALL_ACCOUNTS = [
-      wallet0.address,
-      wallet1.address,
-      wallet2.address,
-      wallet3.address,
-      wallet4.address,
-      wallet5.address,
-      wallet6.address,
-      wallet7.address,
-      wallet8.address,
+        wallet0.address,
+        wallet1.address,
+        wallet2.address,
+        wallet3.address,
+        wallet4.address,
+        wallet5.address,
+        wallet6.address,
+        wallet7.address,
+        wallet8.address,
     ]
     const initialColdkeys = [
         {
@@ -80,10 +80,6 @@ describe("test node staking-0x65683fx2", () => {
 
     let publicClient: PublicClient;
     // init substrate part
-    const BOOTNODES = [
-        generateRandomString(6),
-        generateRandomString(6)
-    ]
 
     let papiApi: TypedApi<typeof dev>
     let api: ApiPromise
@@ -105,7 +101,13 @@ describe("test node staking-0x65683fx2", () => {
     // sudo account alice as signer
     let alice: PolkadotSigner;
     before(async () => {
-        
+        let BOOTNODES: { peerId: string; multiaddr: Uint8Array }[] = [
+            {
+                peerId: (await generateRandomEd25519PeerId()),
+                multiaddr: await generateRandomMultiaddr((await generateRandomEd25519PeerId()))
+            }
+        ]
+
         publicClient = await getPublicClient(ETH_LOCAL_URL)
         // init variables got from await and async
         papiApi = await getDevnetApi()
@@ -120,9 +122,9 @@ describe("test node staking-0x65683fx2", () => {
         }));
 
         await batchTransferBalanceFromSudo(
-          api,
-          papiApi,
-          recipients
+            api,
+            papiApi,
+            recipients
         )
 
         // ==============
@@ -133,18 +135,12 @@ describe("test node staking-0x65683fx2", () => {
         const repo = generateRandomString(30)
         const description = generateRandomString(30)
         const misc = generateRandomString(30)
-        const churnLimit = await api.query.network.maxChurnLimit();
         const minStake = await api.query.network.minSubnetMinStake();
         const maxStake = await api.query.network.networkMaxStakeBalance();
         const delegateStakePercentage = await api.query.network.minDelegateStakePercentage();
-        const subnetNodeQueueEpochs = await api.query.network.minQueueEpochs();
-        const idleClassificationEpochs = await api.query.network.minIdleClassificationEpochs();
-        const includedClassificationEpochs = await api.query.network.minIncludedClassificationEpochs();
-        const maxNodePenalties = await api.query.network.minMaxSubnetNodePenalties();
-        const maxRegisteredNodes = await api.query.network.minMaxRegisteredNodes();
 
         await registerSubnet(
-            subnetContract, 
+            subnetContract,
             cost,
             subnetName,
             repo,
@@ -168,27 +164,42 @@ describe("test node staking-0x65683fx2", () => {
         // Subnet node 1
         // ================
         let peer1 = await generateRandomEd25519PeerId()
-        let peer2 = await generateRandomEd25519PeerId()
-        let peer3 = await generateRandomEd25519PeerId()
+        let peer_info_1 = {
+            peerId: peer1,
+            multiaddr: await generateRandomMultiaddr(peer1)
+        }
+        let peer_info_2 = {
+            peerId: "",
+            multiaddr: new Uint8Array()
+        }
+        let peer_info_3 = {
+            peerId: "",
+            multiaddr: new Uint8Array()
+        }
+
+        let delegateAccount1 = {
+            accountId: wallet1.address,
+            rate: BigInt(0)
+        }
+
         const delegateRewardRate = "0";
-        
-        const bootnode = generateRandomString(16)
+
         const unique = generateRandomString(16)
         const nonUnique = generateRandomString(16)
 
         await registerSubnetNode(
-          subnetContract1, 
-          subnetId,
-          wallet4.address,
-          peer1,
-          peer2,
-          peer3,
-          bootnode,
-          delegateRewardRate,
-          BigInt(minStake.toString()),
-          unique,
-          nonUnique,
-          "100"
+            subnetContract1,
+            subnetId,
+            wallet4.address,
+            peer_info_1,
+            peer_info_2,
+            peer_info_3,
+            delegateRewardRate,
+            BigInt(minStake.toString()),
+            unique,
+            nonUnique,
+            delegateAccount1,
+            "1000000000000000000"
         )
 
         let subnetNodeId1Fetched = await api.query.network.hotkeySubnetNodeId(subnetId, wallet4.address);
@@ -209,24 +220,41 @@ describe("test node staking-0x65683fx2", () => {
         // ================
         // Subnet node 2
         // ================
-        let peer5 = await generateRandomEd25519PeerId()
-        let peer6 = await generateRandomEd25519PeerId()
-        let peer7 = await generateRandomEd25519PeerId()        
+        let peer4 = await generateRandomEd25519PeerId()
+        let peer_info_4 = {
+            peerId: peer4,
+            multiaddr: await generateRandomMultiaddr(peer4)
+        }
+        let peer_info_5 = {
+            peerId: "",
+            multiaddr: new Uint8Array()
+        }
+        let peer_info_6 = {
+            peerId: "",
+            multiaddr: new Uint8Array()
+        }
+
+        let delegateAccount2 = {
+            accountId: wallet1.address,
+            rate: BigInt(0)
+        }
+
+
         const unique2 = generateRandomString(16)
 
         await registerSubnetNode(
-          subnetContract2, 
-          subnetId,
-          wallet5.address,
-          peer5,
-          peer6,
-          peer7,
-          generateRandomString(16),
-          delegateRewardRate,
-          BigInt(minStake.toString()),
-          unique2,
-          nonUnique,
-          "100"
+            subnetContract2,
+            subnetId,
+            wallet5.address,
+            peer_info_4,
+            peer_info_5,
+            peer_info_6,
+            delegateRewardRate,
+            BigInt(minStake.toString()),
+            unique2,
+            nonUnique,
+            delegateAccount2,
+            "1000000000000000000"
         )
 
         let subnetNodeId2Fetched = await api.query.network.hotkeySubnetNodeId(subnetId, wallet5.address);
@@ -253,11 +281,11 @@ describe("test node staking-0x65683fx2", () => {
         const beforeFinalizedBalance = (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
 
         await addToStake(
-          stakingContract1, 
-          subnetId,
-          subnetNodeId1,
-          wallet4.address,
-          stakeAmount
+            stakingContract1,
+            subnetId,
+            subnetNodeId1,
+            wallet4.address,
+            stakeAmount
         )
 
         let accountSubnetStakePost = await api.query.network.accountSubnetStake(wallet4.address, subnetId);
@@ -285,7 +313,7 @@ describe("test node staking-0x65683fx2", () => {
         // Add stake
         // =========
         await addToStake(
-            stakingContract2, 
+            stakingContract2,
             subnetId,
             subnetNodeId2,
             wallet5.address,
@@ -299,7 +327,7 @@ describe("test node staking-0x65683fx2", () => {
         // Remove stake
         // =========
         await removeStake(
-            stakingContract2, 
+            stakingContract2,
             subnetId,
             wallet5.address,
             stakeAmount
