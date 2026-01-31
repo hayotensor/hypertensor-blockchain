@@ -8,7 +8,8 @@ use crate::{
     HotkeySubnetId, HotkeySubnetNodeId, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs,
     MinSubnetMinStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodes, PeerInfo,
     StakeUnbondingLedger, SubnetName, SubnetNodeClass, SubnetNodeIdHotkey, SubnetNodesData,
-    SubnetState, TotalActiveSubnets, TotalSubnetNodes,
+    SubnetState, TotalActiveSubnets, TotalSubnetNodes, StakeCooldownEpochs, AccountDelegateStake,
+    TotalAccountDelegateStake,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
@@ -716,5 +717,104 @@ fn test_transfer_delegate_account_invalid_subnet_node_id_error() {
             ),
             Error::<Test>::InvalidSubnetNodeId
         );
+    })
+}
+
+#[test]
+fn test_remove_delegate_balance() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(System::block_number() + 1);
+
+        let account_id = account(100);
+
+        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
+
+        Network::increase_delegate_account_balance(&account_id, 100);
+
+        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
+
+        let block = System::block_number();
+
+        assert_ok!(
+            Network::remove_delegate_balance(
+                RuntimeOrigin::signed(account_id.clone()),
+                100,
+            )
+        );
+
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::DelegateBalanceRemoved {
+                account_id: account_id.clone(),
+                amount: 100,
+            }
+        );
+
+        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
+
+        let unbondings: BTreeMap<u32, u128> =
+            StakeUnbondingLedger::<Test>::get(&account_id);
+        assert_eq!(unbondings.len(), 1);
+        let (ledger_block, ledger_balance) = unbondings.iter().next().unwrap();
+        assert_eq!(
+            *ledger_block,
+            &block + StakeCooldownEpochs::<Test>::get() * EpochLength::get()
+        );
+        assert_eq!(*ledger_balance, 100);
+    })
+}
+
+#[test]
+fn test_remove_delegate_balance_amount_zero_error() {
+    new_test_ext().execute_with(|| {
+        let account_id = account(100);
+
+        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
+
+        Network::increase_delegate_account_balance(&account_id, 100);
+
+        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
+
+        assert_err!(
+            Network::remove_delegate_balance(
+                RuntimeOrigin::signed(account_id.clone()),
+                0,
+            ),
+            Error::<Test>::AmountZero
+        );
+
+        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
+    })
+}
+
+#[test]
+fn test_remove_delegate_balance_not_enough_stake_error() {
+    new_test_ext().execute_with(|| {
+        let account_id = account(100);
+
+        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
+
+        Network::increase_delegate_account_balance(&account_id, 100);
+
+        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
+
+        assert_err!(
+            Network::remove_delegate_balance(
+                RuntimeOrigin::signed(account_id.clone()),
+                101,
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
+
+        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
     })
 }

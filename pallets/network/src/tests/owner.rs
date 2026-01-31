@@ -2733,7 +2733,7 @@ fn test_owner_add_bootnode_access() {
 
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::BootnodesUpdatedV2 {
+            Event::BootnodesUpdated {
                 subnet_id,
                 added: add_map.clone(),
                 removed: BTreeSet::new(),

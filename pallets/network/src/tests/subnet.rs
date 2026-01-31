@@ -1827,7 +1827,7 @@ fn test_update_bootnodes() {
         // --- Case 5: Check event ---
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::BootnodesUpdatedV2 {
+            Event::BootnodesUpdated {
                 subnet_id,
                 added: add_map.clone(),
                 removed: BTreeSet::new(),

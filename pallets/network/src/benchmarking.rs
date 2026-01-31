@@ -4009,46 +4009,6 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn update_bootnode() {
-        let max_subnet_nodes = MaxSubnetNodes::<T>::get();
-        let end = 4;
-        build_activated_subnet::<T>(
-            DEFAULT_SUBNET_NAME.into(),
-            0,
-            end,
-            DEFAULT_DEPOSIT_AMOUNT,
-            DEFAULT_SUBNET_NODE_STAKE,
-        );
-        let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
-
-        let min_nodes = MinSubnetNodes::<T>::get();
-        let max_subnets = MaxSubnets::<T>::get();
-        let max_subnet_nodes = MaxSubnetNodes::<T>::get();
-
-        let coldkey = get_coldkey::<T>(subnet_id, max_subnet_nodes, end);
-        let hotkey = get_hotkey::<T>(subnet_id, max_subnet_nodes, max_subnets, end);
-        let hotkey_subnet_node_id =
-            HotkeySubnetNodeId::<T>::get(subnet_id, hotkey.clone()).unwrap();
-
-        let bootnode: Vec<u8> = "new-bootnode".into();
-        let bounded_bootnode: BoundedVec<u8, DefaultMaxVectorLength> =
-            bootnode.try_into().expect("String too long");
-
-        #[extrinsic_call]
-        update_bootnode(
-            RawOrigin::Signed(coldkey.clone()),
-            subnet_id,
-            hotkey_subnet_node_id,
-            Some(bounded_bootnode.clone()),
-        );
-
-        assert_eq!(
-            SubnetNodesData::<T>::get(subnet_id, hotkey_subnet_node_id).bootnode,
-            Some(bounded_bootnode.clone())
-        )
-    }
-
-    #[benchmark]
     fn update_bootnode_peer_info() {
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let end = 4;

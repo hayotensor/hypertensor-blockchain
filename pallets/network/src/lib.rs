@@ -512,11 +512,6 @@ pub mod pallet {
         },
         BootnodesUpdated {
             subnet_id: u32,
-            added: BTreeSet<BoundedVec<u8, DefaultMaxVectorLength>>,
-            removed: BTreeSet<BoundedVec<u8, DefaultMaxVectorLength>>,
-        },
-        BootnodesUpdatedV2 {
-            subnet_id: u32,
             added: BTreeMap<PeerId, BoundedVec<u8, DefaultMaxVectorLength>>,
             removed: BTreeSet<PeerId>,
         },
@@ -1211,7 +1206,7 @@ pub mod pallet {
     )]
     pub struct PeerInfo {
         pub peer_id: PeerId,
-        pub multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>>, // Best multiaddr
+        pub multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
     }
 
     /// A subnet node representing a participant in a subnet.
@@ -3704,17 +3699,6 @@ pub mod pallet {
         DefaultPercentageFactorU128,
     >;
 
-    #[pallet::storage]
-    pub type SubnetNodeReputationV2<T> = StorageDoubleMap<
-        _,
-        Identity,
-        u32, // subnet ID
-        Identity,
-        u32,  // subnet node ID
-        u128, // Reputation
-        OptionQuery,
-    >;
-
     /// Node reputation factor when a node is absent from consensus for decreasing node reputation
     #[pallet::storage]
     pub type AbsentDecreaseReputationFactor<T> =
@@ -4810,11 +4794,12 @@ pub mod pallet {
 
         #[pallet::call_index(41)]
         #[pallet::weight({0})]
-        pub fn update_bootnode(
+        pub fn update_delegate_account(
             origin: OriginFor<T>,
             subnet_id: u32,
             subnet_node_id: u32,
-            new_bootnode: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+            delegate_account_id: Option<T::AccountId>,
+            delegate_rate: Option<u128>,
         ) -> DispatchResult {
             let coldkey: T::AccountId = ensure_signed(origin.clone())?;
 
@@ -4825,9 +4810,12 @@ pub mod pallet {
                 Error::<T>::NotKeyOwner
             );
 
-            // Self::do_update_bootnode(subnet_id, subnet_node_id, new_bootnode)
-
-            Ok(())
+            Self::do_update_delegate_account(
+                subnet_id,
+                subnet_node_id,
+                delegate_account_id,
+                delegate_rate,
+            )
         }
 
         #[pallet::call_index(42)]
@@ -5849,6 +5837,7 @@ pub mod pallet {
                     // Swap hotkeys -> node_id
                     HotkeySubnetNodeId::<T>::swap(subnet_id, &old_hotkey, subnet_id, &new_hotkey);
 
+                    // Ensure the new hotkey doesn't match the delegate account
                     if let Some(subnet_node) = Self::get_subnet_node(subnet_id, subnet_node_id) {
                         if let Some(delegate_account) = subnet_node.delegate_account {
                             ensure!(
@@ -6889,32 +6878,6 @@ pub mod pallet {
 
         #[pallet::call_index(163)]
         #[pallet::weight({0})]
-        pub fn update_delegate_account(
-            origin: OriginFor<T>,
-            subnet_id: u32,
-            subnet_node_id: u32,
-            delegate_account_id: Option<T::AccountId>,
-            delegate_rate: Option<u128>,
-        ) -> DispatchResult {
-            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
-
-            Self::is_paused()?;
-
-            ensure!(
-                Self::is_subnet_node_coldkey(subnet_id, subnet_node_id, coldkey),
-                Error::<T>::NotKeyOwner
-            );
-
-            Self::do_update_delegate_account(
-                subnet_id,
-                subnet_node_id,
-                delegate_account_id,
-                delegate_rate,
-            )
-        }
-
-        #[pallet::call_index(164)]
-        #[pallet::weight({0})]
         pub fn transfer_delegate_account(
             origin: OriginFor<T>,
             subnet_id: u32,
@@ -6951,6 +6914,19 @@ pub mod pallet {
             }
 
             Ok(())
+        }
+
+        #[pallet::call_index(164)]
+        #[pallet::weight({0})]
+        pub fn remove_delegate_balance(
+            origin: OriginFor<T>,
+            amount_to_remove: u128,
+        ) -> DispatchResult {
+            let account_id: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            Self::do_remove_delegate_balance(origin, amount_to_remove)
         }
     }
 
@@ -9000,9 +8976,6 @@ pub mod pallet {
             TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
             TotalNodes::<T>::mutate(|n: &mut u32| *n += 1);
 
-            // Initialize subnet node reputation
-            SubnetNodeReputationV2::<T>::insert(subnet_id, subnet_node_id, Self::percentage_factor_as_u128());
-
             Self::clean_coldkey_subnet_nodes(coldkey.clone());
 
             // Push into queue
@@ -9518,9 +9491,9 @@ pub mod pallet {
             //     .try_into()
             //     .expect("bootnode string fits in bounded vec");
 
-            // let bootnodes_v2 = BTreeMap::from([(&self.subnet_nodes[0].1, bounded)]);
+            // let bootnodes = BTreeMap::from([(&self.subnet_nodes[0].1, bounded)]);
 
-            // SubnetBootnodes::<T>::insert(subnet_id, bootnodes_v2);
+            // SubnetBootnodes::<T>::insert(subnet_id, bootnodes);
 
             // // Increase delegate stake to allow activation of subnet model
             // let min_stake_balance = MinSubnetMinStake::<T>::get();

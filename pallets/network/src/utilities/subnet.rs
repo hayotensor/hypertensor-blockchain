@@ -212,57 +212,8 @@ impl<T: Config> Pallet<T> {
     /// * Note: Each subnet node can have a bootnode and Overwatchers will check those as well
     ///
     /// subnet_id: Subnet ID of bootnode set
-    /// add: Bootnodes to add to set
-    /// remove: Bootnodes to remove from set
-    // pub fn do_update_bootnodes(
-    //     origin: T::RuntimeOrigin,
-    //     subnet_id: u32,
-    //     add: BTreeSet<BoundedVec<u8, DefaultMaxVectorLength>>,
-    //     remove: BTreeSet<BoundedVec<u8, DefaultMaxVectorLength>>,
-    // ) -> DispatchResult {
-    //     let account_id: T::AccountId = ensure_signed(origin)?;
-
-    //     ensure!(
-    //         SubnetsData::<T>::contains_key(subnet_id),
-    //         Error::<T>::InvalidSubnetId
-    //     );
-
-    //     // Must be owner or have access
-    //     // The owner has the ability to set access so instead of requiring them to add to the list, we allow them to be the caller
-    //     ensure!(
-    //         Self::is_subnet_owner(&account_id, subnet_id).unwrap_or(false)
-    //             || SubnetBootnodeAccess::<T>::get(subnet_id).contains(&account_id),
-    //         Error::<T>::InvalidAccess
-    //     );
-
-    //     let max_bootnodes = MaxBootnodes::<T>::get();
-
-    //     SubnetBootnodes::<T>::try_mutate(subnet_id, |bootnodes| -> DispatchResult {
-    //         for item in remove.iter() {
-    //             bootnodes.remove(item);
-    //         }
-
-    //         for item in add.iter() {
-    //             bootnodes.insert(item.clone());
-    //         }
-
-    //         ensure!(
-    //             bootnodes.len() <= max_bootnodes as usize,
-    //             Error::<T>::TooManyBootnodes
-    //         );
-
-    //         Ok(())
-    //     })?;
-
-    //     Self::deposit_event(Event::BootnodesUpdated {
-    //         subnet_id,
-    //         added: add,
-    //         removed: remove,
-    //     });
-
-    //     Ok(())
-    // }
-
+    /// add: Bootnodes to add to set {peer_id, multiaddr}
+    /// remove: Bootnodes to remove from set {peer_id}
     pub fn do_update_bootnodes(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
@@ -311,7 +262,7 @@ impl<T: Config> Pallet<T> {
             Ok(())
         })?;
 
-        Self::deposit_event(Event::BootnodesUpdatedV2 {
+        Self::deposit_event(Event::BootnodesUpdated {
             subnet_id,
             added: add,
             removed: remove,

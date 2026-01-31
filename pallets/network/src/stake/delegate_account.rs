@@ -44,6 +44,7 @@ impl<T: Config> Pallet<T> {
 
         let block: u32 = Self::get_current_block_as_u32();
 
+        // Add to ledger and always match the stake cooldown epochs (or greater cooldown)
         Self::add_balance_to_unbonding_ledger(
             &account_id,
             amount_to_remove,

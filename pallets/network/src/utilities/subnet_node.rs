@@ -885,7 +885,6 @@ impl<T: Config> Pallet<T> {
         HotkeySubnetNodeId::<T>::remove(subnet_id, &hotkey);
         SubnetNodeIdHotkey::<T>::remove(subnet_id, subnet_node_id);
         SubnetNodeReputation::<T>::remove(subnet_id, subnet_node_id);
-        SubnetNodeReputationV2::<T>::remove(subnet_id, subnet_node_id);
         SubnetNodeIdleConsecutiveEpochs::<T>::remove(subnet_id, subnet_node_id);
         SubnetNodeConsecutiveIncludedEpochs::<T>::remove(subnet_id, subnet_node_id);
         // We don't remove `HotkeySubnetId`. This is only removed when a node fully removes stake
