@@ -15,7 +15,7 @@
 //
 
 use super::*;
-use libm::{exp, pow};
+use libm::{exp, pow, round};
 use sp_core::U256;
 
 impl<T: Config> Pallet<T> {
@@ -120,11 +120,6 @@ impl<T: Config> Pallet<T> {
             exp / (1.0 + exp)
         };
 
-        // // scale sigmoid from [0, 1] → [min, max]
-        // let scaled = min + (max - min) * sigmoid;
-
-        // scaled
-
         sigmoid.clamp(min, max)
     }
 
@@ -141,6 +136,40 @@ impl<T: Config> Pallet<T> {
         };
 
         sigmoid.clamp(0.0, 1.0)
+    }
+
+    /// Offset and scale the sigmoid curve
+    ///
+    /// # Parameters
+    /// - `x`: The input value to evaluate the sigmoid at. Should be in the range `[0.0, 1.0]`.
+    /// - `mid`: The midpoint of the sigmoid. The curve is symmetric around this value.
+    /// - `k`: Controls the steepness of the sigmoid. Larger values make the transition sharper.
+    /// - `min`: Minimum value of the output range. The sigmoid will not go below this value.
+    /// - `max`: Maximum value of the output range. The sigmoid will not exceed this value.
+    ///
+    /// # Returns
+    /// - A `f64` representing the value of the scaled sigmoid at `x`. Guaranteed to be within `[min, max]`.
+    pub fn sigmoid_decreasing_v3(x: f64, mid: f64, k: f64, min: f64, max: f64) -> f64 {
+        let c = (x - mid).abs();
+        let d = k * c;
+        let exp = exp(d);
+
+        // Symmetric sigmoid around mid (produces value in [0, 1])
+        // When x < mid: sigmoid approaches 1 (high)
+        // When x > mid: sigmoid approaches 0 (low)
+        let sigmoid = if x > mid {
+            1.0 / (1.0 + exp)
+        } else {
+            exp / (1.0 + exp)
+        };
+
+        // Offset and scale the sigmoid curve
+        // Original sigmoid is in [0, 1]
+        // Scale by (max - min) and shift by min
+        // Result: sigmoid curve operates in range [min, max]
+        // Example: min=0, max=2 → curve goes from 0 to 2 (2x scale)
+        // Example: min=0.5, max=1.5 → curve goes from 0.5 to 1.5 (1x scale, 0.5 offset)
+        min + sigmoid * (max - min)
     }
 
     pub fn sigmoid_decreasing_asymmetric(
@@ -167,6 +196,67 @@ impl<T: Config> Pallet<T> {
         let scaled = min + (max - min) * sigmoid;
 
         scaled.clamp(min, max)
+    }
+
+    /// Symmetric sigmoid decreasing function with x-axis offset support.
+    ///
+    /// This is specifically meant for the rewards factor for validator/attestor
+    ///
+    /// This function normalizes the input `x` from the range `[x_start, 1.0]` to `[0.0, 1.0]`
+    /// and applies a symmetric sigmoid curve. This allows the sigmoid to "start" at `x_start`
+    /// instead of 0.0 while maintaining the full sigmoid behavior across the compressed range.
+    ///
+    /// # Parameters
+    /// - `x`: The input value, expected to be in range `[x_start, 1.0]`
+    /// - `mid`: The midpoint of the sigmoid in normalized space `[0.0, 1.0]`
+    /// - `k`: Controls the steepness of the sigmoid. Larger values make the transition sharper
+    /// - `x_start`: The starting point of the sigmoid on the x-axis. Values below this are normalized to 0
+    /// - `round_decimal_places`: The number of decimal places to round the output to
+    ///
+    /// # Returns
+    /// A value in `[0.0, 1.0]` representing the sigmoid output
+    ///
+    /// # Example
+    /// With `x_start = 0.05`:
+    /// - `x = 0.05` → normalized to 0.0 → output ≈ 1.0 (start of curve)
+    /// - `x = 0.06` → normalized to ~0.0105 → output ≈ 0.99999
+    /// - `x = 1.0` → normalized to 1.0 → output ≈ 0.0 (end of curve)
+    pub fn sigmoid_decreasing_start_offset(
+        x: f64,
+        mid: f64,
+        k: f64,
+        x_start: f64,
+        round_decimal_places: f64,
+    ) -> f64 {
+        // Normalize x from [x_start, 1.0] to [0.0, 1.0]
+        let range = 1.0 - x_start;
+        let normalized_x = (x - x_start) / range;
+
+        let c = (normalized_x - mid).abs();
+        let d = k * c;
+        let exp = exp(d);
+
+        // symmetric sigmoid around mid
+        let sigmoid = if normalized_x > mid {
+            1.0 / (1.0 + exp)
+        } else {
+            exp / (1.0 + exp)
+        };
+
+        Self::round_f64(sigmoid.clamp(0.0, 1.0), round_decimal_places)
+    }
+
+    /// Rounds a floating-point number to a specified number of decimal places.
+    ///
+    /// # Parameters
+    /// - `value`: The floating-point number to round.
+    /// - `decimal_places`: The number of decimal places to round to.
+    ///
+    /// # Returns
+    /// The rounded floating-point number.
+    fn round_f64(value: f64, decimal_places: f64) -> f64 {
+        let factor = pow(10.0f64, decimal_places);
+        round(value * factor) / factor
     }
 
     /// Computes a concave-down decreasing curve scaled to a specified output range.

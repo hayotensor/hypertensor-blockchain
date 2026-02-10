@@ -2,14 +2,14 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountOverwatchStake, AccountSubnetStake, ColdkeyHotkeys, ColdkeyIdentity,
-    ColdkeyIdentityNameOwner, ColdkeyReputation, DefaultMaxSocialIdLength, DefaultMaxUrlLength,
-    DefaultMaxVectorLength, DelegateAccount, Error, HotkeyOverwatchNodeId, HotkeyOwner,
-    HotkeySubnetId, HotkeySubnetNodeId, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs,
-    MinSubnetMinStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodes, PeerInfo,
-    StakeUnbondingLedger, SubnetName, SubnetNodeClass, SubnetNodeIdHotkey, SubnetNodesData,
-    SubnetState, TotalActiveSubnets, TotalSubnetNodes, StakeCooldownEpochs, AccountDelegateStake,
-    TotalAccountDelegateStake,
+    AccountDelegateStake, AccountOverwatchStake, AccountSubnetStake, ColdkeyHotkeys,
+    ColdkeyIdentity, ColdkeyIdentityNameOwner, ColdkeyReputation, DefaultMaxSocialIdLength,
+    DefaultMaxUrlLength, DefaultMaxVectorLength, DelegateAccount, Error, HotkeyOverwatchNodeId,
+    HotkeyOwner, HotkeySubnetId, HotkeySubnetNodeId, MaxSubnetNodes, MaxSubnets,
+    MinActiveNodeStakeEpochs, MinSubnetMinStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey,
+    OverwatchNodes, PeerInfo, StakeCooldownEpochs, StakeUnbondingLedger, SubnetName,
+    SubnetNodeClass, SubnetNodeIdHotkey, SubnetNodesData, SubnetState, TotalAccountDelegateStake,
+    TotalActiveSubnets, TotalSubnetNodes,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
@@ -737,12 +737,10 @@ fn test_remove_delegate_balance() {
 
         let block = System::block_number();
 
-        assert_ok!(
-            Network::remove_delegate_balance(
-                RuntimeOrigin::signed(account_id.clone()),
-                100,
-            )
-        );
+        assert_ok!(Network::remove_delegate_balance(
+            RuntimeOrigin::signed(account_id.clone()),
+            100,
+        ));
 
         assert_eq!(
             *network_events().last().unwrap(),
@@ -755,8 +753,7 @@ fn test_remove_delegate_balance() {
         assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
-        let unbondings: BTreeMap<u32, u128> =
-            StakeUnbondingLedger::<Test>::get(&account_id);
+        let unbondings: BTreeMap<u32, u128> = StakeUnbondingLedger::<Test>::get(&account_id);
         assert_eq!(unbondings.len(), 1);
         let (ledger_block, ledger_balance) = unbondings.iter().next().unwrap();
         assert_eq!(
@@ -781,10 +778,7 @@ fn test_remove_delegate_balance_amount_zero_error() {
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
 
         assert_err!(
-            Network::remove_delegate_balance(
-                RuntimeOrigin::signed(account_id.clone()),
-                0,
-            ),
+            Network::remove_delegate_balance(RuntimeOrigin::signed(account_id.clone()), 0,),
             Error::<Test>::AmountZero
         );
 
@@ -807,10 +801,7 @@ fn test_remove_delegate_balance_not_enough_stake_error() {
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
 
         assert_err!(
-            Network::remove_delegate_balance(
-                RuntimeOrigin::signed(account_id.clone()),
-                101,
-            ),
+            Network::remove_delegate_balance(RuntimeOrigin::signed(account_id.clone()), 101,),
             Error::<Test>::NotEnoughStakeToWithdraw
         );
 

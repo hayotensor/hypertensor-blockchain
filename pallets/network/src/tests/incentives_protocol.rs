@@ -2,8 +2,8 @@ use super::mock::*;
 use super::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountSubnetDelegateStakeShares, AccountSubnetStake, BaseValidatorReward,
-    ColdkeyReputationDecreaseFactor, ColdkeyReputationIncreaseFactor,
+    AccountDelegateStake, AccountSubnetDelegateStakeShares, AccountSubnetStake,
+    BaseValidatorReward, ColdkeyReputationDecreaseFactor, ColdkeyReputationIncreaseFactor,
     EmergencySubnetNodeElectionData, Error, FinalSubnetEmissionWeights, HotkeySubnetNodeId,
     IdleClassificationEpochs, IncludedClassificationEpochs, MaxSubnetNodes, MaxSubnets,
     MinAttestationPercentage, MinSubnetMinStake, MinSubnetNodeReputation, MinSubnetReputation,
@@ -16,7 +16,6 @@ use crate::{
     TotalActiveSubnets, TotalNodeDelegateStakeBalance, TotalNodeDelegateStakeShares,
     TotalSubnetDelegateStakeBalance, TotalSubnetNodes, TotalSubnetUids,
     ValidatorAbsentDecreaseReputationFactor, ValidatorAbsentSubnetReputationFactor,
-    AccountDelegateStake,
 };
 use frame_support::pallet_prelude::DispatchResult;
 use frame_support::traits::Currency;
@@ -1588,12 +1587,12 @@ fn test_distribute_rewards_delegate_account_50_percent() {
 
         let total_weight = DEFAULT_SCORE * total_subnet_nodes as u128;
         let node_weight = Network::percent_div(DEFAULT_SCORE, total_weight as u128);
-        let full_node_reward = Network::percent_mul(node_weight, rewards_data.clone().subnet_node_rewards);
-        let expected_node_reward =
-            Network::percent_mul(
-                full_node_reward,
-                1000000000000000000 - delegate_account_rate
-            );
+        let full_node_reward =
+            Network::percent_mul(node_weight, rewards_data.clone().subnet_node_rewards);
+        let expected_node_reward = Network::percent_mul(
+            full_node_reward,
+            1000000000000000000 - delegate_account_rate,
+        );
         let expected_delegate_reward = full_node_reward - expected_node_reward;
 
         let post_validator_stake = AccountSubnetStake::<Test>::get(validator.clone(), subnet_id);

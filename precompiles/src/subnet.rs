@@ -7,7 +7,8 @@ use frame_support::{
 use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, ExitError, PrecompileFailure, PrecompileHandle};
 use pallet_network::{
-    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength, DelegateAccount, PeerInfo,
+    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength, DelegateAccount,
+    PeerInfo,
 };
 use precompile_utils::{EvmResult, prelude::*};
 use sp_core::{H160, H256, OpaquePeerId, U256};
@@ -201,21 +202,29 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let hotkey = R::AddressMapping::into_account_id(hotkey.into());
-        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> = if peer_info.1.as_bytes().is_empty() {
-             None
-        } else {
-             Some(BoundedVec::try_from(peer_info.1.as_bytes().to_vec()).map_err(|_| revert("Peer multiaddr too long"))?)
-        };
+        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+            if peer_info.1.as_bytes().is_empty() {
+                None
+            } else {
+                Some(
+                    BoundedVec::try_from(peer_info.1.as_bytes().to_vec())
+                        .map_err(|_| revert("Peer multiaddr too long"))?,
+                )
+            };
         let peer_info = PeerInfo {
             peer_id: OpaquePeerId(peer_info.0.as_bytes().to_vec()),
             multiaddr: peer_multiaddr,
         };
         let bootnode_peer_info = if !bootnode_peer_info.0.as_bytes().is_empty() {
-            let bootnode_peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> = if bootnode_peer_info.1.as_bytes().is_empty() {
-                None
-            } else {
-                Some(BoundedVec::try_from(bootnode_peer_info.1.as_bytes().to_vec()).map_err(|_| revert("Bootnode multiaddr too long"))?)
-            };
+            let bootnode_peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+                if bootnode_peer_info.1.as_bytes().is_empty() {
+                    None
+                } else {
+                    Some(
+                        BoundedVec::try_from(bootnode_peer_info.1.as_bytes().to_vec())
+                            .map_err(|_| revert("Bootnode multiaddr too long"))?,
+                    )
+                };
             Some(PeerInfo {
                 peer_id: OpaquePeerId(bootnode_peer_info.0.as_bytes().to_vec()),
                 multiaddr: bootnode_peer_multiaddr,
@@ -224,11 +233,15 @@ where
             None
         };
         let client_peer_info = if !client_peer_info.0.as_bytes().is_empty() {
-            let client_peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> = if client_peer_info.1.as_bytes().is_empty() {
-                None
-            } else {
-                Some(BoundedVec::try_from(client_peer_info.1.as_bytes().to_vec()).map_err(|_| revert("Client multiaddr too long"))?)
-            };
+            let client_peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+                if client_peer_info.1.as_bytes().is_empty() {
+                    None
+                } else {
+                    Some(
+                        BoundedVec::try_from(client_peer_info.1.as_bytes().to_vec())
+                            .map_err(|_| revert("Client multiaddr too long"))?,
+                    )
+                };
             Some(PeerInfo {
                 peer_id: OpaquePeerId(client_peer_info.0.as_bytes().to_vec()),
                 multiaddr: client_peer_multiaddr,
@@ -457,11 +470,15 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> = if new_peer_info.1.as_bytes().is_empty() {
-            None
-        } else {
-            Some(BoundedVec::try_from(new_peer_info.1.as_bytes().to_vec()).map_err(|_| revert("Peer multiaddr too long"))?)
-        };
+        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+            if new_peer_info.1.as_bytes().is_empty() {
+                None
+            } else {
+                Some(
+                    BoundedVec::try_from(new_peer_info.1.as_bytes().to_vec())
+                        .map_err(|_| revert("Peer multiaddr too long"))?,
+                )
+            };
         let peer_info = PeerInfo {
             peer_id: OpaquePeerId(new_peer_info.0.as_bytes().to_vec()),
             multiaddr: peer_multiaddr,
@@ -494,11 +511,15 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> = if new_peer_info.1.as_bytes().is_empty() {
-            None
-        } else {
-            Some(BoundedVec::try_from(new_peer_info.1.as_bytes().to_vec()).map_err(|_| revert("Peer multiaddr too long"))?)
-        };
+        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+            if new_peer_info.1.as_bytes().is_empty() {
+                None
+            } else {
+                Some(
+                    BoundedVec::try_from(new_peer_info.1.as_bytes().to_vec())
+                        .map_err(|_| revert("Peer multiaddr too long"))?,
+                )
+            };
         let peer_info = Some(PeerInfo {
             peer_id: OpaquePeerId(new_peer_info.0.as_bytes().to_vec()),
             multiaddr: peer_multiaddr,
@@ -531,11 +552,15 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> = if new_peer_info.1.as_bytes().is_empty() {
-            None
-        } else {
-            Some(BoundedVec::try_from(new_peer_info.1.as_bytes().to_vec()).map_err(|_| revert("Peer multiaddr too long"))?)
-        };
+        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+            if new_peer_info.1.as_bytes().is_empty() {
+                None
+            } else {
+                Some(
+                    BoundedVec::try_from(new_peer_info.1.as_bytes().to_vec())
+                        .map_err(|_| revert("Peer multiaddr too long"))?,
+                )
+            };
         let peer_info = Some(PeerInfo {
             peer_id: OpaquePeerId(new_peer_info.0.as_bytes().to_vec()),
             multiaddr: peer_multiaddr,

@@ -314,16 +314,6 @@ impl<T: Config> Pallet<T> {
         Ok(Pays::No.into())
     }
 
-    pub fn get_attestor_reward_multiplier(progress: u128) -> u128 {
-        Self::get_f64_as_percentage(Self::concave_down_decreasing(
-            Self::get_percent_as_f64(progress),
-            Self::get_percent_as_f64(AttestorMinRewardFactor::<T>::get()),
-            1.0,
-            AttestorRewardExponent::<T>::get() as f64,
-        ))
-        .clamp(0, Self::percentage_factor_as_u128())
-    }
-
     pub fn get_validator_reward_multiplier(progress: u128) -> u128 {
         Self::get_f64_as_percentage(Self::sigmoid_decreasing(
             Self::get_percent_as_f64(progress),
@@ -331,6 +321,25 @@ impl<T: Config> Pallet<T> {
             ValidatorRewardK::<T>::get() as f64,
             0.0,
             1.0,
+        ))
+        .clamp(0, Self::percentage_factor_as_u128())
+
+        // Self::get_f64_as_percentage(Self::sigmoid_decreasing_start_offset(
+        //     Self::get_percent_as_f64(progress),
+        //     Self::get_percent_as_f64(ValidatorRewardMidpoint::<T>::get()),
+        //     ValidatorRewardK::<T>::get() as f64,
+        //     0.05, // x offset (gives leeway for submission so it doesn't need to be on block step 0 to get 100%)
+        //     4.0,
+        // ))
+        // .clamp(0, Self::percentage_factor_as_u128())
+    }
+
+    pub fn get_attestor_reward_multiplier(progress: u128) -> u128 {
+        Self::get_f64_as_percentage(Self::concave_down_decreasing(
+            Self::get_percent_as_f64(progress),
+            Self::get_percent_as_f64(AttestorMinRewardFactor::<T>::get()),
+            1.0,
+            AttestorRewardExponent::<T>::get() as f64,
         ))
         .clamp(0, Self::percentage_factor_as_u128())
     }

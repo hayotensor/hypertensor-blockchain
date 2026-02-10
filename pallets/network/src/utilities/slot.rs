@@ -645,6 +645,9 @@ impl<T: Config> Pallet<T> {
                         ValidatorAbsentDecreaseReputationFactor::<T>::get(subnet_id),
                     );
 
+                    // NOTE: We don't check if below minimum node reputation here to possibly
+                    // remove the node from the subnet, as this is done in the bank
+
                     // Reads:
                     // - SubnetNodeReputation
                     // - ValidatorAbsentDecreaseReputationFactor
@@ -661,9 +664,9 @@ impl<T: Config> Pallet<T> {
         // We take the subnet nodes generated from the validators `propose_attestation` call
         // These are the only nodes that could attest, even if they remove themselves, the attestation
         // counts
-        // If currently in a temporary validator set from an emergency validator set, we only count those as attestors
-        // See `do_attest` to view only these nodes can attest
-
+        //
+        // If currently in a *temporary validator set* from an emergency validator set, we only count those as attestors
+        // See `do_attest` to view only these nodes can attest.
         let max_attestors: u128 = if let Some(emergency_validator_data) =
             EmergencySubnetNodeElectionData::<T>::get(subnet_id)
         {
