@@ -341,11 +341,11 @@ pub fn hoskinson_config_genesis() -> Value {
                 "5D7CuBKcrpkaoY7mB9HssDm4Qt6fhGLTRGvR4hTLF8hMPrQP",
                 "5H9ug49LNth7CKY8wdL8kwF53k4JRX1v5mAw4DGWKQiRKcN3",
             ),
-            // Hypertensor Team 2
-            authority_keys_from_ss58(
-                "5C7y78j5qDW4gUGbgimMVdKckjbXgfSbE5Hqmk1M5p1KDjuP",
-                "5FQFszBdvLMi92SbYZLCrXZiHgRfKQXBFQSxCkyfapegk8Ux",
-            ),
+            // // Hypertensor Team 2
+            // authority_keys_from_ss58(
+            //     "5C7y78j5qDW4gUGbgimMVdKckjbXgfSbE5Hqmk1M5p1KDjuP",
+            //     "5FQFszBdvLMi92SbYZLCrXZiHgRfKQXBFQSxCkyfapegk8Ux",
+            // ),
             // Rizzo
             authority_keys_from_ss58(
                 "5FeRDsozqUivqCufKfUNBQbztoMkCFkHYX6FAwSZvgXmmE4z",
