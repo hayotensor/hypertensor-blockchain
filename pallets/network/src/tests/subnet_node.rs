@@ -4073,6 +4073,8 @@ fn test_clean_coldkey_subnet_nodes() {
             1,   // coldkey
             2,   // hotkey
             2,   // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0,
             None,
@@ -4089,6 +4091,8 @@ fn test_clean_coldkey_subnet_nodes() {
             1,   // coldkey
             3,   // hotkey
             3,   // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0,
             None,

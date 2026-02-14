@@ -31,6 +31,8 @@ fn test_update_delegate_account() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             None,
@@ -78,6 +80,8 @@ fn test_update_delegate_account_not_key_owner_error() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             None,
@@ -118,6 +122,8 @@ fn test_update_delegate_account_invalid_delegate_account_parameters_error() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             None,
@@ -156,6 +162,8 @@ fn test_update_delegate_account_delegate_account_id_none_error() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             None,
@@ -194,6 +202,8 @@ fn test_update_delegate_account_delegate_account_rate_none_error() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             None,
@@ -232,6 +242,8 @@ fn test_update_delegate_account_delegate_account_cannot_be_hotkey_error() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             None,
@@ -326,6 +338,8 @@ fn test_update_delegate_account_delegate_account_cannot_be_coldkey_error() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             None,
@@ -420,6 +434,8 @@ fn test_update_delegate_account_invalid_delegate_account_rate_error() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             None,
@@ -551,6 +567,8 @@ fn test_transfer_delegate_account() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             Some(DelegateAccount {
@@ -605,6 +623,8 @@ fn test_transfer_delegate_account_not_delegate_account_owner_error() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             Some(DelegateAccount {
@@ -652,6 +672,8 @@ fn test_transfer_delegate_account_delegate_account_not_set_error() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             None,
@@ -689,6 +711,8 @@ fn test_transfer_delegate_account_invalid_subnet_node_id_error() {
             coldkey_n,
             hotkey_n,
             2, // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0, // start epoch,
             Some(DelegateAccount {

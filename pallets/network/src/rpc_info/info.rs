@@ -237,7 +237,6 @@ impl<T: Config> Pallet<T> {
     /// # Arguments
     ///
     /// * `subnet_id` - Subnet ID.
-    /// * `subnet_node_id` - Subnet node ID
     /// * `peer_id` - Subnet node peer ID
     /// * `min_class` - Minimum required class
     ///     * A subnet may likely require Registered or Idle to enter subnet
@@ -296,6 +295,117 @@ impl<T: Config> Pallet<T> {
         if check_mapping(PeerIdSubnetNodeId::<T>::try_get)
             || check_mapping(BootnodePeerIdSubnetNodeId::<T>::try_get)
             || check_mapping(ClientPeerIdSubnetNodeId::<T>::try_get)
+        {
+            return true;
+        }
+
+        // Check overwatch node
+        if let Ok(_) = PeerIdOverwatchNodeId::<T>::try_get(subnet_id, &peer_id) {
+            return true;
+        }
+
+        // Check bootnodes
+        SubnetBootnodes::<T>::get(subnet_id).contains_key(&peer_id)
+    }
+
+        /// Proof-of-stake
+    ///
+    /// - Returns if the node has a proof of stake by its `peer_id` (main, bootnode, or client)
+    ///
+    /// # Options
+    ///
+    /// - Can use either a subnet nodes peer ID, subnet nodes bootnode peer ID, overwatch node peer ID, or subnet bootnode peer ID
+    ///
+    /// The most secure way to call this function is by peer ID with signatures
+    ///
+    /// # Requirements
+    ///
+    /// To use `peer_id` effectively, ensure all communications between nodes in the subnets
+    /// are signed and validated.
+    ///
+    /// # Arguments
+    ///
+    /// * `subnet_id` - Subnet ID.
+    /// * `peer_id` - Subnet node peer ID
+    /// * `min_class` - Minimum required class
+    ///     * A subnet may likely require Registered or Idle to enter subnet
+    /// * `peer_type` - Optional peer type
+    ///     Types:
+    ///         * 1. main
+    ///         * 2. bootnode
+    ///         * 3. client
+    ///     * If none are provided, all are accepted
+    /// * `min_stake` - Optional minimum required stake
+    ///     * If not provided, will use the subnet's minimum stake
+    ///     * This is useful because a node can be slashed under the min stake requirement. Subnets can have leeway
+    ///       on its proof of stake requirements in the subnets communications.
+    ///
+    pub fn proof_of_stake_v2(
+        subnet_id: u32,
+        peer_id: Vec<u8>,
+        min_class: u8,
+        peer_type: Option<BTreeSet<u8>>,
+        min_stake: Option<u128>,
+    ) -> bool {
+        if !SubnetsData::<T>::contains_key(subnet_id) {
+            return false;
+        }
+
+        let class = if let Some(subnet_node_class) = SubnetNodeClass::from_repr(min_class.into()) {
+            subnet_node_class
+        } else {
+            return false;
+        };
+
+        let min_stake = min_stake.unwrap_or(SubnetMinStakeBalance::<T>::get(subnet_id));
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        let peer_id = PeerId(peer_id);
+
+        // Helper closure to check a peer_id lookup mapping
+        let check_mapping = |mapping: fn(u32, PeerId) -> Result<u32, ()>| -> bool {
+            mapping(subnet_id, peer_id.clone())
+                .ok()
+                .and_then(|subnet_node_id| {
+                    // First try SubnetNodesData, then fall back to RegisteredSubnetNodesData
+                    // since nodes with SubnetNodeClass::Registered are stored in the latter
+                    SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
+                        .ok()
+                        .or_else(|| {
+                            // Only SubnetNodeClass::Registered nodes are stored in RegisteredSubnetNodesData
+                            if class == SubnetNodeClass::Registered {
+                                RegisteredSubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
+                                    .ok()
+                            } else {
+                                None
+                            }
+                        })
+                })
+                .map(|subnet_node| {
+                    subnet_node.has_classification(&class, current_subnet_epoch)
+                        && AccountSubnetStake::<T>::get(subnet_node.hotkey, subnet_id) >= min_stake
+                })
+                .unwrap_or(false)
+        };
+
+        // Define allowable peer types
+        let (check_main, check_bootnode, check_client) = if let Some(peer_types) = &peer_type {
+            (
+                peer_types.contains(&1),
+                peer_types.contains(&2),
+                peer_types.contains(&3),
+            )
+        } else {
+            (true, true, true)
+        };
+
+        log::info!("check_main:     {:?}", check_main);
+        log::info!("check_bootnode: {:?}", check_bootnode);
+        log::info!("check_client:   {:?}", check_client);
+
+        // Check the three possible peer-id → subnet-node mappings
+        if (check_main && check_mapping(PeerIdSubnetNodeId::<T>::try_get))
+            || (check_bootnode && check_mapping(BootnodePeerIdSubnetNodeId::<T>::try_get))
+            || (check_client && check_mapping(ClientPeerIdSubnetNodeId::<T>::try_get))
         {
             return true;
         }

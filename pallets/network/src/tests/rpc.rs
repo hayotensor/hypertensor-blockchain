@@ -4,12 +4,13 @@ use crate::Event;
 use crate::{
     DefaultMaxVectorLength, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, PeerIdOverwatchNodeId,
     PeerInfo, SubnetBootnodes, SubnetElectedValidator, SubnetName, SubnetNodeClass,
-    TotalActiveSubnets,
+    TotalActiveSubnets, SubnetState,
 };
 use frame_support::assert_ok;
 use frame_support::traits::{Currency, ExistenceRequirement};
 use sp_runtime::BoundedVec;
 use sp_std::collections::btree_map::BTreeMap;
+use sp_std::collections::btree_set::BTreeSet;
 
 //
 // RPC Getter Function Tests
@@ -243,6 +244,129 @@ fn test_proof_of_stake_invalid_peer_id_fails() {
         assert!(
             !Network::proof_of_stake(subnet_id, fake_peer_id, 1, None),
             "Proof of stake should fail with invalid peer_id"
+        );
+    })
+}
+
+#[test]
+fn test_proof_of_stake_v2_invalid_peer_types_succeeds() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+
+        // Main Peer ID
+        manual_insert_subnet_node(
+            subnet_id, // subnet_id
+            1, // node_id
+            1, // coldkey_n
+            1*10, // hotkey_n
+            1, // peer_n
+            Some(1*10), // bootnode_peer_n
+            Some(1*20), // client_peer_n
+            SubnetNodeClass::Validator, // class
+            0, // start_epoch
+            None, // delegate_account
+        );
+        let peer_id = peer(1);
+        assert!(Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, None, Some(0)));
+        assert!(Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([1, 2, 3])), Some(0)));
+
+        // Bootnode Peer ID
+        manual_insert_subnet_node(
+            subnet_id, // subnet_id
+            2, // node_id
+            2, // coldkey_n
+            2*10, // hotkey_n
+            2, // peer_n
+            Some(2*10), // bootnode_peer_n
+            Some(2*20), // client_peer_n
+            SubnetNodeClass::Validator, // class
+            0, // start_epoch
+            None, // delegate_account
+        );
+        let peer_id = peer(2);
+        assert!(Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, None, Some(0)));
+        assert!(Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([1, 2, 3])), Some(0)));
+
+        // Client Peer ID
+        manual_insert_subnet_node(
+            subnet_id, // subnet_id
+            3, // node_id
+            3, // coldkey_n
+            3*10, // hotkey_n
+            3, // peer_n
+            Some(3*10), // bootnode_peer_n
+            Some(3*20), // client_peer_n
+            SubnetNodeClass::Validator, // class
+            0, // start_epoch
+            None, // delegate_account
+        );
+        let peer_id = peer(3);
+        assert!(Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, None, Some(0)));
+        assert!(Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([1, 2, 3])), Some(0)));
+    })
+}
+
+#[test]
+fn test_proof_of_stake_v2_invalid_peer_types_fails() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+
+        // Main Peer ID
+        manual_insert_subnet_node(
+            subnet_id, // subnet_id
+            1, // node_id
+            1, // coldkey_n
+            1*10, // hotkey_n
+            1, // peer_n
+            Some(1*10), // bootnode_peer_n
+            Some(1*20), // client_peer_n
+            SubnetNodeClass::Validator, // class
+            0, // start_epoch
+            None, // delegate_account
+        );
+        // Test with non-main peer_ids
+        let peer_id = peer(1*10);
+        assert!(
+            !Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([1])), Some(0))
+        );
+        let peer_id = peer(1*20);
+        assert!(
+            !Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([1])), Some(0))
+        );
+
+        // Test with non-bootnode peer_ids
+        let peer_id = peer(1);
+        assert!(
+            !Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([2])), Some(0))
+        );
+        let peer_id = peer(2*20);
+        assert!(
+            !Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([2])), Some(0))
+        );
+
+        // Test with non-client peer_ids
+        let peer_id = peer(1);
+        assert!(
+            !Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([3])), Some(0))
+        );
+        let peer_id = peer(1*10);
+        assert!(
+            !Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([3])), Some(0))
+        );
+
+        let peer_id = peer(1*20); // client should not work
+        assert!(
+            !Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([1, 2])), Some(0))
+        );
+        let peer_id = peer(1*10); // bootnode should not work
+        assert!(
+            !Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([1, 3])), Some(0))
+        );
+        let peer_id = peer(1); // main should not work
+        assert!(
+            !Network::proof_of_stake_v2(subnet_id, peer_id.0.to_vec(), 1, Some(BTreeSet::from([2, 3])), Some(0))
         );
     })
 }

@@ -2994,6 +2994,8 @@ pub fn manual_insert_subnet_node(
     coldkey_n: u32,
     hotkey_n: u32,
     peer_n: u32,
+    bootnode_peer_n: Option<u32>,
+    client_peer_n: Option<u32>,
     class: SubnetNodeClass,
     start_epoch: u32,
     delegate_account: Option<DelegateAccount<AccountId>>,
@@ -3008,8 +3010,14 @@ pub fn manual_insert_subnet_node(
                 peer_id: peer(peer_n),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(node_id), None),
             },
-            bootnode_peer_info: None,
-            client_peer_info: None,
+            bootnode_peer_info: bootnode_peer_n.map(|n| PeerInfo {
+                peer_id: peer(n),
+                multiaddr: get_multiaddr(Some(subnet_id), Some(node_id), None),
+            }),
+            client_peer_info: client_peer_n.map(|n| PeerInfo {
+                peer_id: peer(n),
+                multiaddr: get_multiaddr(Some(subnet_id), Some(node_id), None),
+            }),
             delegate_reward_rate: 0,
             last_delegate_reward_rate_update: 0,
             classification: SubnetNodeClassification {
@@ -3025,7 +3033,13 @@ pub fn manual_insert_subnet_node(
     HotkeySubnetNodeId::<Test>::insert(subnet_id, account(hotkey_n), node_id);
     SubnetNodeIdHotkey::<Test>::insert(subnet_id, node_id, account(hotkey_n));
     PeerIdSubnetNodeId::<Test>::insert(subnet_id, peer(peer_n), node_id);
-    BootnodePeerIdSubnetNodeId::<Test>::insert(subnet_id, peer(peer_n), node_id);
+    if let Some(bootnode_peer_n) = bootnode_peer_n {
+        BootnodePeerIdSubnetNodeId::<Test>::insert(subnet_id, peer(bootnode_peer_n), node_id);
+    }
+    if let Some(client_peer_n) = client_peer_n {
+        ClientPeerIdSubnetNodeId::<Test>::insert(subnet_id, peer(client_peer_n), node_id);
+    }
+    AccountSubnetStake::<Test>::insert(account(hotkey_n), subnet_id, SubnetMinStakeBalance::<Test>::get(subnet_id));
 }
 
 // Helper to set registration epoch
@@ -3168,6 +3182,8 @@ pub fn make_overwatch_qualified(coldkey_n: u32) {
             coldkey_n, // coldkey
             hotkey_n,  // hotkey
             hotkey_n,  // peer
+            None, // bootnode peer
+            None, // client peer
             SubnetNodeClass::Validator,
             0,
             None,
