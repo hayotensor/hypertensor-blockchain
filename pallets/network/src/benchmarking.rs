@@ -1112,11 +1112,22 @@ pub fn get_simulated_consensus_data<T: Config>(
             epoch,
         );
 
+    let validator_ids: Vec<u32> = if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
+        {
+            emergency_validator_data
+                .subnet_node_ids
+                .into_iter()
+                .collect()
+        } else {
+            SubnetNodeElectionSlots::<T>::get(subnet_id)
+        };
+
     ConsensusData {
         validator_id: subnet_id * max_subnet_nodes,
         block: block_number,
         validator_epoch_progress: 0,
         validator_reward_factor: Network::<T>::percentage_factor_as_u128(),
+        validator_ids,
         attests,
         data,
         prioritize_queue_node_id: None,
@@ -6487,7 +6498,7 @@ mod benchmarks {
         // Verify weights exist
         let subnet_emission_weights =
             FinalSubnetEmissionWeights::<T>::get(Network::<T>::get_current_epoch_as_u32());
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         #[block]
@@ -6532,7 +6543,7 @@ mod benchmarks {
         let _ = Network::<T>::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<T>::get(epoch);
 
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         // ⸺ Submit consnesus data

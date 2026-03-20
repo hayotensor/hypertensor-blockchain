@@ -110,16 +110,17 @@ impl<T: Config> Pallet<T> {
             // HotkeyOwner
             weight_meter.consume(db_weight.reads(1));
 
+            // Give validator rewards to their stake
             Self::increase_account_stake(&hotkey, subnet_id, validator_reward);
         } else {
-            // Validator left subnet
+            // Validator left subnet before distribution of rewards
 
             // We read SubnetNodeIdHotkey
             weight_meter.consume(db_weight.reads(1));
         }
 
         //
-        // --- We are now in consensus
+        // --- We are now in consensus (>=66% attestation ratio)
         //
 
         let idle_epochs = IdleClassificationEpochs::<T>::get(subnet_id);
@@ -221,6 +222,23 @@ impl<T: Config> Pallet<T> {
             SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
             weight_meter.consume(db_weight.reads_writes(2, 1));
         }
+
+        // --- Check if we should hold off rewards and increase the capacitor vault
+
+        if consensus_submission_data.weight_sum == 0 {
+            // We increase the rewards capacitor
+            RewardsCapacitor::<T>::mutate(subnet_id, |total| *total = total.saturating_add(rewards_data.overall_subnet_reward));
+            weight_meter.consume(db_weight.reads_writes(1, 1));
+
+            // Return before any rewards are distributed
+            // The only node that gets rewards when weight_sum is 0 is the validator
+            // But we already handled the validator reward above
+            return;
+        }
+
+        // If we proceed to distribute rewards, reset the capacitor to 0
+        RewardsCapacitor::<T>::insert(subnet_id, 0);
+        weight_meter.consume(db_weight.writes(1));
 
         // --- Reward owner
         if let Ok(owner) = SubnetOwner::<T>::try_get(subnet_id) {

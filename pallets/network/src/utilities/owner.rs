@@ -18,6 +18,10 @@ use libm::{ceil, log};
 
 impl<T: Config> Pallet<T> {
     /// Owner pause subnet for up to max period
+    ///
+    /// Once paused, this current epoch will stop consensus from processing right away.
+    /// i.e., if a validator has been chosen, data submitted, nodes attested, the epoch will be voided.
+    /// 
     pub fn do_owner_pause_subnet(origin: T::RuntimeOrigin, subnet_id: u32) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
@@ -53,6 +57,11 @@ impl<T: Config> Pallet<T> {
 
             Ok(())
         })?;
+
+        // ---
+        // We don't need to remove SubnetConsensusSubmission here because 
+        // precheck_subnet_consensus_submission already checks if the subnet is active and not paused
+        // --- 
 
         Self::deposit_event(Event::SubnetPaused {
             subnet_id: subnet_id,
@@ -90,6 +99,7 @@ impl<T: Config> Pallet<T> {
             let delta = epoch.saturating_sub(pause_epoch).saturating_add(1); // Add +1 to offset the subnet slots
 
             // Update each registration queued node
+            // Move each nodes start_epoch forward by the amount of epochs the subnet was paused
             for (subnet_id, uid, _) in RegisteredSubnetNodesData::<T>::iter() {
                 RegisteredSubnetNodesData::<T>::mutate(subnet_id, uid, |subnet_node| {
                     let curr_start_epoch = subnet_node.classification.start_epoch;
@@ -100,6 +110,9 @@ impl<T: Config> Pallet<T> {
             // Update state
             params.state = SubnetState::Active;
 
+            // We start them on the next epoch following the current epoch
+            // This protects the network against an owner pausing a subnet and then unpausing it in a single epoch to manipulate
+            // the attestation ratios (see ``precheck_subnet_consensus_submission`` `max_attestors`)
             params.start_epoch = epoch + 1;
 
             Ok(())
@@ -166,7 +179,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidMaxEmergencySubnetNodes
         );
 
-        let target_emergency_epochs = Self::get_max_steps_for_node_removal(subnet_id);
+        let target_emergency_epochs = Self::get_max_steps_for_node_removal(subnet_id) + 1;
 
         EmergencySubnetNodeElectionData::<T>::insert(
             subnet_id,
@@ -177,6 +190,17 @@ impl<T: Config> Pallet<T> {
                 max_emergency_validators_epoch: 0,
             },
         );
+
+        // EmergencySubnetNodeElectionDataV2::<T>::insert(
+        //     subnet_id,
+        //     subnet_epoch,
+        //     EmergencySubnetValidatorData {
+        //         subnet_node_ids: subnet_node_ids.clone(),
+        //         target_emergency_validators_epochs: target_emergency_epochs,
+        //         total_epochs: 0,
+        //         max_emergency_validators_epoch: 0,
+        //     },
+        // );
 
         Self::deposit_event(Event::SubnetForked {
             subnet_id: subnet_id,
@@ -189,6 +213,7 @@ impl<T: Config> Pallet<T> {
 
     /// Get the required epochs to have a node removed based on not being in consensus data
     /// based on the `AbsentDecreaseReputationFactor`
+    /// i.e. if a node is not in consensus data, it will be removed after this many epochs
     fn get_max_steps_for_node_removal(subnet_id: u32) -> u32 {
         let one: f64 = Self::get_percent_as_f64(Self::percentage_factor_as_u128());
 
@@ -226,6 +251,13 @@ impl<T: Config> Pallet<T> {
         ensure!(
             Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
             Error::<T>::NotSubnetOwner
+        );
+
+        // Subnet must be paused to revert emergency validator set
+        // This ensures owner cannot manipulate the attestation ratio
+        ensure!(
+            Self::is_subnet_paused(subnet_id).unwrap_or(false),
+            Error::<T>::SubnetMustBePaused
         );
 
         EmergencySubnetNodeElectionData::<T>::remove(subnet_id);

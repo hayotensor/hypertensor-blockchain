@@ -609,6 +609,8 @@ fn test_owner_unpause_subnet_repause_cooldown_error() {
         let amount: u128 = 1000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
+        SubnetPauseCooldownEpochs::<Test>::put(10);
+
         build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
@@ -3022,6 +3024,21 @@ fn test_owner_revert_emergency_validator_set() {
         // Verify it exists
         assert!(EmergencySubnetNodeElectionData::<Test>::contains_key(
             subnet_id
+        ));
+
+        // Revert emergency validator set while active
+        assert_err!(Network::owner_revert_emergency_validator_set(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id
+        ), Error::<Test>::SubnetMustBePaused);
+
+
+
+        // ---
+
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
         ));
 
         // Revert emergency validator set

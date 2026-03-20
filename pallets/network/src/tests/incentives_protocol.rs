@@ -212,7 +212,7 @@ fn test_validator_absent_propose_attestation_decrease_reputation() {
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
 
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -281,7 +281,7 @@ fn test_validator_absent_propose_attestation_decrease_reputation() {
 //         let _ = Network::handle_subnet_emission_weights(epoch);
 //         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
 
-//         let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+//         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
 //         assert!(subnet_weight.is_some());
 
 //         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -1238,7 +1238,7 @@ fn test_distribute_rewards() {
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
 
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -1292,7 +1292,7 @@ fn test_distribute_rewards() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -1483,7 +1483,7 @@ fn test_distribute_rewards_delegate_account_50_percent() {
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
 
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -1537,7 +1537,7 @@ fn test_distribute_rewards_delegate_account_50_percent() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -1720,7 +1720,7 @@ fn test_distribute_rewards_fork() {
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
 
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -1774,7 +1774,7 @@ fn test_distribute_rewards_fork() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -1951,7 +1951,7 @@ fn test_distribute_rewards_prioritized_queue_node_id() {
         // Verify weights exist
         let subnet_emission_weights =
             FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         // Emissions
@@ -2054,7 +2054,7 @@ fn test_distribute_rewards_prioritized_queue_node_id_v2() {
         // Verify weights exist
         let subnet_emission_weights =
             FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         // Emissions
@@ -2156,7 +2156,7 @@ fn test_distribute_rewards_remove_queue_node_id() {
         // Verify weights exist
         let subnet_emission_weights =
             FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         // Emissions
@@ -2261,7 +2261,7 @@ fn test_distribute_rewards_remove_queue_node_id_v2() {
         // Verify weights exist
         let subnet_emission_weights =
             FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         // Emissions
@@ -2322,7 +2322,7 @@ fn test_distribute_rewards_non_consensus_reputation() {
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
 
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         // ⸺ Submit consnesus data
@@ -2384,7 +2384,7 @@ fn test_distribute_rewards_non_consensus_reputation() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -2556,7 +2556,7 @@ fn test_distribute_rewards_absent_consensus_reputation() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -2572,7 +2572,7 @@ fn test_distribute_rewards_absent_consensus_reputation() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -2690,7 +2690,7 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -2706,7 +2706,7 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -2802,7 +2802,7 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -2818,7 +2818,7 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -2954,7 +2954,7 @@ fn test_distribute_rewards_below_min_weight_reputation() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -2970,7 +2970,7 @@ fn test_distribute_rewards_below_min_weight_reputation() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -3104,7 +3104,7 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -3120,7 +3120,7 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -3273,7 +3273,7 @@ fn test_distribute_rewards_under_min_attest_slash_validator() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -3289,7 +3289,7 @@ fn test_distribute_rewards_under_min_attest_slash_validator() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -3419,7 +3419,7 @@ fn test_distribute_rewards_fork_under_min_attest_slash_validator() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -3435,7 +3435,7 @@ fn test_distribute_rewards_fork_under_min_attest_slash_validator() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -3593,7 +3593,7 @@ fn test_distribute_rewards_fork_remove_node_at_min_reputation() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -3609,7 +3609,7 @@ fn test_distribute_rewards_fork_remove_node_at_min_reputation() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, _) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -3718,7 +3718,7 @@ fn test_distribute_rewards_fork_no_score_submitted_decrease_reputation() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -3734,7 +3734,7 @@ fn test_distribute_rewards_fork_no_score_submitted_decrease_reputation() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, _) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -3877,7 +3877,7 @@ fn test_distribute_rewards_late_validator_and_attestors() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -3897,7 +3897,7 @@ fn test_distribute_rewards_late_validator_and_attestors() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -4076,7 +4076,7 @@ fn test_distribute_rewards_fork_late_validator_and_attestors() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -4096,7 +4096,7 @@ fn test_distribute_rewards_fork_late_validator_and_attestors() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -4336,7 +4336,7 @@ fn test_distribute_rewards_fork_late_validator_and_attestors() {
 //         // ⸺ Generate subnet weights from stake/node count weights
 //         let _ = Network::handle_subnet_emission_weights(epoch);
 //         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-//         let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+//         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
 //         assert!(subnet_weight.is_some());
 
 //         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -4352,7 +4352,7 @@ fn test_distribute_rewards_fork_late_validator_and_attestors() {
 //         // ⸺ Calculate subnet distribution of rewards
 //         let (rewards_data, _) = Network::calculate_rewards(
 //             subnet_id,
-//             subnet_emission_weights.validator_emissions,
+//             subnet_emission_weights.subnets_emissions,
 //             *subnet_weight.unwrap(),
 //         );
 
@@ -4557,7 +4557,7 @@ fn test_distribute_rewards_fork_graduate_idle_to_included() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -4573,7 +4573,7 @@ fn test_distribute_rewards_fork_graduate_idle_to_included() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, _) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -4775,7 +4775,7 @@ fn test_distribute_rewards_graduate_included_to_validator() {
             // Verify weights exist
             let subnet_emission_weights =
                 FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
-            let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+            let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
             assert!(subnet_weight.is_some());
 
             // Propose attestation and attest
@@ -4974,7 +4974,7 @@ fn test_distribute_rewards_graduate_included_to_validator_v2() {
             // Verify weights exist
             let subnet_emission_weights =
                 FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
-            let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+            let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
             assert!(subnet_weight.is_some());
 
             // Propose attestation and attest
@@ -5113,7 +5113,7 @@ fn test_attest_increase_reputation_when_included() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -5129,7 +5129,7 @@ fn test_attest_increase_reputation_when_included() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -5296,7 +5296,7 @@ fn test_distribute_rewards_node_delegate_stake() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -5312,7 +5312,7 @@ fn test_distribute_rewards_node_delegate_stake() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -5477,7 +5477,7 @@ fn test_distribute_rewards_fork_node_delegate_stake() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -5493,7 +5493,7 @@ fn test_distribute_rewards_fork_node_delegate_stake() {
         // ⸺ Calculate subnet distribution of rewards
         let (rewards_data, rewards_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 
@@ -5674,7 +5674,7 @@ fn test_propose_attestation_epoch_progression_0() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         // ⸺ Submit consnesus data
@@ -5758,7 +5758,7 @@ fn test_propose_attestation_epoch_progression_50() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         // ⸺ Submit consnesus data
@@ -5843,7 +5843,7 @@ fn test_propose_attestation_epoch_progression_99() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         // ⸺ Submit consnesus data
@@ -5931,7 +5931,7 @@ fn test_propose_attestation_epoch_progression_100() {
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
         // ⸺ Submit consnesus data
@@ -5989,6 +5989,8 @@ fn test_emergency_validator_subnet_rewards() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
+
+        SubnetPauseCooldownEpochs::<Test>::put(10);
 
         build_activated_subnet(subnet_name.clone(), 0, max, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
@@ -6136,7 +6138,7 @@ fn test_emergency_validator_subnet_rewards() {
 
             let _ = Network::handle_subnet_emission_weights(epoch);
             let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-            let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+            let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
             assert!(subnet_weight.is_some());
 
             let (result, block_weight) = Network::precheck_subnet_consensus_submission(
@@ -6174,7 +6176,8 @@ fn test_emergency_validator_subnet_rewards() {
                 consensus_submission_data.clone().attests.len(),
                 (max - 1) as usize
             );
-            if i >= emergency_validator_data
+
+            if i + 1 >= emergency_validator_data
                 .clone()
                 .unwrap()
                 .target_emergency_validators_epochs

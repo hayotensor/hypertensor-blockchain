@@ -201,7 +201,7 @@ impl<T: Config> Pallet<T> {
         if let Ok(subnet_emission_weights) = FinalSubnetEmissionWeights::<T>::try_get(current_epoch)
         {
             // Get weight of subnet_id from calculated weights
-            if let Some(&subnet_weight) = subnet_emission_weights.weights.get(&subnet_id) {
+            if let Some(&subnet_weight) = subnet_emission_weights.subnet_weights.get(&subnet_id) {
                 weight_meter.consume(db_weight.reads(1));
                 let (consensus_submission_data, consensus_submission_block_weight) =
                     Self::precheck_subnet_consensus_submission(
@@ -216,7 +216,7 @@ impl<T: Config> Pallet<T> {
                     // Calculate rewards
                     let (rewards_data, rewards_block_weight) = Self::calculate_rewards(
                         subnet_id,
-                        subnet_emission_weights.validator_emissions,
+                        subnet_emission_weights.subnets_emissions,
                         subnet_weight,
                     );
                     weight_meter.consume(rewards_block_weight);
@@ -405,7 +405,7 @@ impl<T: Config> Pallet<T> {
 
         // Store weights and handle foundation
         if !subnet_weights.is_empty() {
-            let (validator_emissions, foundation_emissions_as_u128) =
+            let (subnets_emissions, foundation_emissions_as_u128) =
                 Self::get_epoch_emissions_v2();
 
             if let Some(foundation_emissions) = Self::u128_to_balance(foundation_emissions_as_u128)
@@ -415,8 +415,8 @@ impl<T: Config> Pallet<T> {
             }
 
             let data = DistributionData {
-                validator_emissions: validator_emissions,
-                weights: subnet_weights,
+                subnets_emissions,
+                subnet_weights,
             };
             FinalSubnetEmissionWeights::<T>::insert(epoch, data);
             weight = weight.saturating_add(T::DbWeight::get().writes(1));
@@ -595,6 +595,17 @@ impl<T: Config> Pallet<T> {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
+        // Only proceed if subnet exists and is active
+        weight = weight.saturating_add(db_weight.reads(1));
+        let Some(subnet) = SubnetsData::<T>::get(subnet_id) else {
+            return (None, weight);
+        };
+
+        // Skip if subnet not active, paused, or hasn't started
+        if subnet.state != SubnetState::Active || subnet.start_epoch > current_epoch {
+            return (None, weight);
+        }
+
         // SubnetConsensusSubmission
         weight = weight.saturating_add(db_weight.reads(1));
 
@@ -602,20 +613,8 @@ impl<T: Config> Pallet<T> {
         {
             Ok(submission) => submission,
             Err(()) => {
-                // Only proceed if subnet exists and is active
-                weight = weight.saturating_add(db_weight.reads(1));
-                let Some(subnet) = SubnetsData::<T>::get(subnet_id) else {
-                    return (None, weight);
-                };
-
-                // Skip if subnet not active or hasn't started
-                if subnet.state != SubnetState::Active || subnet.start_epoch > current_epoch {
-                    return (None, weight);
-                }
-
                 // Check if a validator was elected
                 weight = weight.saturating_add(db_weight.reads(1));
-                // if SubnetElectedValidator::<T>::contains_key(subnet_id, prev_subnet_epoch) {
                 if let Some(validator_id) =
                     SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch)
                 {
@@ -661,27 +660,7 @@ impl<T: Config> Pallet<T> {
         };
 
         // --- Get all qualified possible attestors
-        // We take the subnet nodes generated from the validators `propose_attestation` call
-        // These are the only nodes that could attest, even if they remove themselves, the attestation
-        // counts
-        //
-        // If currently in a *temporary validator set* from an emergency validator set, we only count those as attestors
-        // See `do_attest` to view only these nodes can attest.
-        let max_attestors: u128 = if let Some(emergency_validator_data) =
-            EmergencySubnetNodeElectionData::<T>::get(subnet_id)
-        {
-            emergency_validator_data.subnet_node_ids.len() as u128
-        } else {
-            submission
-                .subnet_nodes
-                .clone()
-                .into_iter()
-                .filter(|subnet_node| {
-                    subnet_node.has_classification(&SubnetNodeClass::Validator, prev_subnet_epoch)
-                })
-                .collect::<Vec<_>>()
-                .len() as u128
-        };
+        let max_attestors: u128 = submission.validator_ids.len() as u128;
 
         weight = weight.saturating_add(db_weight.reads(1));
 
@@ -708,6 +687,17 @@ impl<T: Config> Pallet<T> {
 
     /// Calculate the subnets rewards and how they are distributed throughout the subnet
     ///
+    /// # Arguments
+    ///
+    /// * `subnet_id` - The id of the subnet to calculate rewards for
+    /// * `overall_rewards` - The total rewards for all subnets this epoch
+    /// * `emission_weight` - The weight of the subnet
+    ///
+    /// # Returns
+    ///
+    /// * `RewardsData` - The rewards data for the subnet
+    /// * `Weight` - The weight of the subnet
+    ///
     pub fn calculate_rewards(
         subnet_id: u32,
         overall_rewards: u128,
@@ -715,6 +705,11 @@ impl<T: Config> Pallet<T> {
     ) -> (RewardsData, Weight) {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
+
+        // Add rewards from capacitor, and reset capacitor to 0
+        // If `calculdate_rewards` is called, then `distribute_rewards` is always called
+        let overall_rewards = overall_rewards.saturating_add(RewardsCapacitor::<T>::get(subnet_id));
+        weight = weight.saturating_add(db_weight.reads(1));
 
         let overall_subnet_reward: u128 = Self::percent_mul(overall_rewards, emission_weight);
 

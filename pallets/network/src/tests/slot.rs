@@ -156,7 +156,7 @@ fn test_handle_subnet_emission_weights() {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
             let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-            let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+            let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
             assert!(subnet_weight.is_some());
             assert!(*subnet_weight.unwrap() > 0);
             assert!(*subnet_weight.unwrap() <= Network::percentage_factor_as_u128());
@@ -335,14 +335,14 @@ fn test_calculate_rewards() {
 
         let subnet_emission_weights =
             FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
-        let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
 
         let delegate_stake_rewards_percentage =
             SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id);
 
         let (rewards_data, rewards_block_weight) = Network::calculate_rewards(
             subnet_id,
-            subnet_emission_weights.validator_emissions,
+            subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
         );
 

@@ -19,7 +19,7 @@ use crate::{
     SubnetState, SubnetsData, TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets,
     TotalNodes, TotalOverwatchNodeUids, TotalOverwatchNodes, TotalOverwatchStake, TotalStake,
     TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
-    TotalSubnetUids, UniqueParamSubnetNodeId,
+    TotalSubnetUids, UniqueParamSubnetNodeId, EmergencySubnetNodeElectionData,
 };
 use fp_account::AccountId20;
 use frame_support::assert_ok;
@@ -2809,11 +2809,22 @@ pub fn get_simulated_consensus_data(
     let included_subnet_nodes: Vec<SubnetNode<<Test as frame_system::Config>::AccountId>> =
         Network::get_active_classified_subnet_nodes(subnet_id, &SubnetNodeClass::Included, epoch);
 
+    let validator_ids: Vec<u32> = if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<Test>::get(subnet_id)
+        {
+            emergency_validator_data
+                .subnet_node_ids
+                .into_iter()
+                .collect()
+        } else {
+            SubnetNodeElectionSlots::<Test>::get(subnet_id)
+        };
+
     ConsensusData {
         validator_id: subnet_id * max_subnet_nodes,
         block: block_number,
         validator_epoch_progress: 0,
         validator_reward_factor: Network::percentage_factor_as_u128(),
+        validator_ids,
         attests,
         data,
         prioritize_queue_node_id: None,

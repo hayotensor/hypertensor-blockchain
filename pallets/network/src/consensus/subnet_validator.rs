@@ -155,6 +155,25 @@ impl<T: Config> Pallet<T> {
         );
         let subnet_nodes_count = subnet_nodes.len();
 
+
+        // --- Get all validators
+        // Note: This is triggered here when the validator submits their data, not at the start block of the epoch
+        // These are the nodes that can attest to the consensus data
+        //
+        // We store `validator_ids` because the emergency validator set can be different from the regular validator set
+        // and we need to know who to count as attestors officially. And we use the call of this function as the official point
+        // of time of which nodes can attest on this epoch.
+        let validator_ids: Vec<u32> = if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
+            {
+                emergency_validator_data
+                    .subnet_node_ids
+                    .into_iter()
+                    .collect()
+            } else {
+                SubnetNodeElectionSlots::<T>::get(subnet_id)
+            };
+
+
         if prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some() {
             let queue = SubnetNodeQueue::<T>::get(subnet_id);
             let immunity_epochs = QueueImmunityEpochs::<T>::get(subnet_id); // Move outside loop
@@ -201,6 +220,7 @@ impl<T: Config> Pallet<T> {
                 subnet_epoch_progression,
             ),
             attests: attests,
+            validator_ids,
             subnet_nodes: subnet_nodes,
             prioritize_queue_node_id: prioritize_queue_node_id,
             remove_queue_node_id: remove_queue_node_id,
@@ -275,6 +295,13 @@ impl<T: Config> Pallet<T> {
                 let subnet_nodes = &mut params.subnet_nodes;
                 ensure!(
                     subnet_nodes.iter().any(|node| node.id == subnet_node_id),
+                    Error::<T>::InvalidSubnetNodeId
+                );
+
+                // Ensure they are in the validator list and are eligible to attest
+                let validator_ids = &mut params.validator_ids;
+                ensure!(
+                    validator_ids.iter().any(|validator_id| *validator_id == subnet_node_id),
                     Error::<T>::InvalidSubnetNodeId
                 );
 

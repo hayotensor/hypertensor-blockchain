@@ -1644,6 +1644,8 @@ pub mod pallet {
     /// * `block` - Block proposed.
     /// * `validator_epoch_progress` - The percent process of the epoch when the validator submitted
     ///   consensus data, represented as 1e18.
+    /// * `validator_reward_factor` - The reward factor of the validator for this epoch, represented as 1e18.
+    /// * `validator_ids` - A vector of all subnet node IDs that are eligible to attest consensus (and be validators)
     /// * `attests` - A map of subnet node IDs to their attestation entries, tracking which
     ///   validators have attested to this consensus submission. Each entry contains the block
     ///   number when the attestation was made and optional attestation data. The proposing
@@ -1671,6 +1673,7 @@ pub mod pallet {
         pub block: u32,
         pub validator_epoch_progress: u128,
         pub validator_reward_factor: u128,
+        pub validator_ids: Vec<u32>, // All validators of the epoch
         pub attests: BTreeMap<u32, AttestEntry>, // Count of attestations of the submitted data (node ID, (block, data))
         pub subnet_nodes: Vec<SubnetNode<AccountId>>,
         pub prioritize_queue_node_id: Option<u32>,
@@ -1885,12 +1888,15 @@ pub mod pallet {
         pub registered_bootnodes: BTreeMap<PeerId, Option<BoundedVec<u8, DefaultMaxVectorLength>>>,
     }
 
+    /// Data for distributing emissions to a subnet
     ///
-    ///
+    /// subnets_emissions: Total emissions for all subnets
+    /// subnet_weights: Map of subnet ids to their weights
+    /// 
     #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
     pub struct DistributionData {
-        pub validator_emissions: u128,
-        pub weights: BTreeMap<u32, u128>,
+        pub subnets_emissions: u128,
+        pub subnet_weights: BTreeMap<u32, u128>,
     }
 
     /// This type value is referenced in:
@@ -2669,7 +2675,9 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultSubnetPausePeriodDelta<T: Config>() -> u32 {
         // 1 month / 30 days
-        T::EpochsPerYear::get() / 12
+        // T::EpochsPerYear::get() / 12
+        // Start off with 0 to be liberal
+        0
     }
     /// This type value is referenced in:
     /// - LastRegistrationCost
@@ -2870,6 +2878,17 @@ pub mod pallet {
     #[pallet::storage]
     pub type EmergencySubnetNodeElectionData<T> =
         StorageMap<_, Identity, u32, EmergencySubnetValidatorData, OptionQuery>;
+
+    #[pallet::storage]
+    pub type EmergencySubnetNodeElectionDataV2<T> = StorageDoubleMap<
+        _,
+        Identity,
+        u32, // subnet_id
+        Identity,
+        u32, // epoch
+        EmergencySubnetValidatorData,
+        OptionQuery,
+    >;
 
     #[pallet::storage]
     pub type MaxEmergencySubnetNodes<T> =
@@ -4199,6 +4218,11 @@ pub mod pallet {
     #[pallet::storage]
     pub type MaximumHooksWeightV2<T> =
         StorageValue<_, Weight, ValueQuery, DefaultMaximumHooksWeightV2<T>>;
+
+
+    #[pallet::storage]
+    pub type RewardsCapacitor<T> =
+        StorageMap<_, Identity, u32, u128, ValueQuery, DefaultZeroU128>;
 
     /// The pallet's dispatchable functions ([`Call`]s).
     ///
@@ -7985,7 +8009,9 @@ pub mod pallet {
             // SubnetSlot | SlotAssignment | AssignedSlots
             weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 3));
 
-            if subnet.state == SubnetState::Active {
+            if subnet.state != SubnetState::Registered {
+                // A subnet is counted in `TotalActiveSubnets` as long as it isn't registered
+                // i.e., it can be paused and still be in `TotalActiveSubnets`
                 // Dec total active subnets, if active
                 // Note: We don't have a TotalSubnets storage elements
                 //       When counting how many subnets there are, we iter() `SubnetsData`

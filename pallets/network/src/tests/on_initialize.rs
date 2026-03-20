@@ -334,7 +334,7 @@ fn test_on_initialize() {
                 for s in 0..max_subnets {
                     let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
                     let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-                    let subnet_weight = subnet_emission_weights.weights.get(&subnet_id);
+                    let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
                     assert!(subnet_weight.is_some());
 
                     let (weight, salt, commit_hash) = get_commit(s);
