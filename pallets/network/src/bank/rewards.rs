@@ -41,20 +41,7 @@ impl<T: Config> Pallet<T> {
         // We run this here because any epoch where a validator submits data, whether in consensus
         // or not, we increment the forks `total_epochs`
         let forked_subnet_node_ids: Option<BTreeSet<u32>> =
-            EmergencySubnetNodeElectionData::<T>::mutate_exists(subnet_id, |maybe_data| {
-                if let Some(data) = maybe_data {
-                    weight_meter.consume(db_weight.writes(1));
-
-                    // Increment `total_epochs`
-                    data.total_epochs = data.total_epochs.saturating_add(1);
-
-                    Some(data.subnet_node_ids.iter().cloned().collect())
-                } else {
-                    None
-                }
-            });
-        // EmergencySubnetNodeElectionData
-        weight_meter.consume(db_weight.reads(1));
+            Self::maybe_get_forked_subnet_node_ids(weight_meter, subnet_id);
 
         let electable_nodes_count = SubnetNodeElectionSlots::<T>::get(subnet_id).len() as u32;
         weight_meter.consume(db_weight.reads(1));
@@ -84,34 +71,15 @@ impl<T: Config> Pallet<T> {
 
             // Increase validators stake
 
-            // SubnetNodeIdHotkey
-            weight_meter.consume(db_weight.reads(1));
-
-            // --- Increase validator reward
-            let validator_reward = Self::get_validator_reward(
-                consensus_submission_data.attestation_ratio,
-                consensus_submission_data.validator_reward_factor,
-            );
-            // Add get_validator_reward (At least 1 read, up to 2)
-            // MinAttestationPercentage | BaseValidatorReward
-            weight_meter.consume(db_weight.reads(2));
-
-            if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
-                Self::increase_coldkey_reputation(
-                    coldkey,
-                    consensus_submission_data.attestation_ratio,
-                    min_attestation_percentage,
-                    coldkey_reputation_increase_factor,
-                    current_epoch,
-                );
-                weight_meter.consume(T::WeightInfo::increase_coldkey_reputation());
-            }
-
-            // HotkeyOwner
-            weight_meter.consume(db_weight.reads(1));
-
-            // Give validator rewards to their stake
-            Self::increase_account_stake(&hotkey, subnet_id, validator_reward);
+            Self::handle_validator_reward(
+                weight_meter,
+                &hotkey,
+                subnet_id,
+                &consensus_submission_data,
+                min_attestation_percentage,
+                coldkey_reputation_increase_factor,
+                current_epoch,
+            )
         } else {
             // Validator left subnet before distribution of rewards
 
@@ -134,76 +102,13 @@ impl<T: Config> Pallet<T> {
 
         // Super majority, update queue to prioritize node ID that subnet form a consensus to cut the line
         // and or update queue to remove a node ID the subnet forms a consensus to be removed (if passed immunity period)
-        if consensus_submission_data.attestation_ratio >= super_majority_threshold {
-            let mut queue = SubnetNodeQueue::<T>::get(subnet_id);
-
-            // Handle prioritize node - move to front
-            if let Some(prioritize_queue_node_id) =
-                consensus_submission_data.prioritize_queue_node_id
-            {
-                weight_meter.consume(db_weight.reads(1));
-
-                if let Some(index) = queue
-                    .iter()
-                    .position(|node| node.id == prioritize_queue_node_id)
-                {
-                    let node = queue.remove(index); // Remove from current position
-                    queue.insert(0, node); // Insert at front (index 0)
-
-                    // Add computational weight for vector operations
-                    weight_meter.consume(Weight::from_parts(
-                        queue.len() as u64 * 100, // Linear cost based on queue size
-                        0,
-                    ));
-
-                    SubnetNodeQueue::<T>::insert(subnet_id, &queue);
-                    weight_meter.consume(db_weight.writes(1));
-
-                    Self::deposit_event(Event::QueuedNodePrioritized {
-                        subnet_id,
-                        subnet_node_id: prioritize_queue_node_id,
-                    });
-                }
-            }
-
-            // Handle remove node - remove from queue entirely
-            // These are not yet activated nodes so this does not impact the emissions distribution
-            if let Some(remove_queue_node_id) = consensus_submission_data.remove_queue_node_id {
-                weight_meter.consume(db_weight.reads(1));
-                if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, remove_queue_node_id)
-                {
-                    weight_meter.consume(db_weight.reads(1));
-                    if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
-                        weight_meter.consume(db_weight.reads(1));
-                        let coldkey_subnet_nodes = ColdkeySubnetNodes::<T>::get(&coldkey);
-                        // x = number of subnets (outer BTreeMap size)
-                        let x = coldkey_subnet_nodes.len() as u32;
-                        // c = number of nodes in the specific subnet (inner BTreeSet size)
-                        let c = coldkey_subnet_nodes
-                            .get(&subnet_id)
-                            .map(|nodes| nodes.len() as u32)
-                            .unwrap_or(0);
-
-                        if weight_meter.can_consume(T::WeightInfo::remove_registered_subnet_node(
-                            x,
-                            electable_nodes_count,
-                            c,
-                        )) {
-                            Self::remove_registered_subnet_node(subnet_id, remove_queue_node_id);
-                            weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(
-                                x,
-                                electable_nodes_count,
-                                c,
-                            ));
-                            Self::deposit_event(Event::QueuedNodeRemoved {
-                                subnet_id,
-                                subnet_node_id: remove_queue_node_id,
-                            });
-                        }
-                    }
-                }
-            }
-        }
+        Self::handle_node_queue_consensus(
+            weight_meter,
+            subnet_id,
+            &consensus_submission_data,
+            super_majority_threshold,
+            electable_nodes_count,
+        );
 
         // Increase reputation because subnet consensus is successful
         // Only increase if subnet has >= min subnet nodes
@@ -224,10 +129,13 @@ impl<T: Config> Pallet<T> {
         }
 
         // --- Check if we should hold off rewards and increase the capacitor vault
-
+        // If weight_sum is 0, and in consensus, this means the subnet agrees to hold off rewards
+        // for now, so we increase the rewards capacitor
         if consensus_submission_data.weight_sum == 0 {
             // We increase the rewards capacitor
-            RewardsCapacitor::<T>::mutate(subnet_id, |total| *total = total.saturating_add(rewards_data.overall_subnet_reward));
+            RewardsCapacitor::<T>::mutate(subnet_id, |total| {
+                *total = total.saturating_add(rewards_data.overall_subnet_reward)
+            });
             weight_meter.consume(db_weight.reads_writes(1, 1));
 
             // Return before any rewards are distributed
@@ -273,34 +181,12 @@ impl<T: Config> Pallet<T> {
 
             if reputation < min_validator_reputation {
                 // Remove node if they haven't already been removed
-                weight_meter.consume(db_weight.reads(1));
-                if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node.id) {
-                    weight_meter.consume(db_weight.reads(1));
-                    if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
-                        weight_meter.consume(db_weight.reads(1));
-                        let coldkey_subnet_nodes = ColdkeySubnetNodes::<T>::get(&coldkey);
-                        // x = number of subnets (outer BTreeMap size)
-                        let x = coldkey_subnet_nodes.len() as u32;
-                        // c = number of nodes in the specific subnet (inner BTreeSet size)
-                        let c = coldkey_subnet_nodes
-                            .get(&subnet_id)
-                            .map(|nodes| nodes.len() as u32)
-                            .unwrap_or(0);
-
-                        if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
-                            x,
-                            electable_nodes_count,
-                            c,
-                        )) {
-                            Self::remove_active_subnet_node(subnet_id, subnet_node.id);
-                            weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
-                                x,
-                                electable_nodes_count,
-                                c,
-                            ));
-                        }
-                    }
-                }
+                Self::handle_consensus_remove_active_node(
+                    weight_meter,
+                    subnet_id,
+                    subnet_node.id,
+                    electable_nodes_count,
+                );
 
                 continue;
             }
@@ -309,23 +195,14 @@ impl<T: Config> Pallet<T> {
             if subnet_node.classification.node_class == SubnetNodeClass::Idle
                 && forked_subnet_node_ids.is_none()
             {
-                SubnetNodeIdleConsecutiveEpochs::<T>::mutate(
+                Self::handle_idle_node(
+                    weight_meter,
                     subnet_id,
                     subnet_node.id,
-                    |n: &mut u32| *n += 1,
+                    idle_epochs,
+                    current_subnet_epoch,
                 );
 
-                let node_idle_epochs =
-                    SubnetNodeIdleConsecutiveEpochs::<T>::get(subnet_id, subnet_node.id);
-                weight_meter.consume(db_weight.reads_writes(1, 1));
-
-                // Idle classified nodes can't be included in consensus data and can't have a used reputation
-                // so we check the class immediately.
-                // --- Upgrade to Included if past the queue epochs
-                if node_idle_epochs >= idle_epochs {
-                    Self::graduate_class(subnet_id, subnet_node.id, current_subnet_epoch);
-                    weight_meter.consume(T::WeightInfo::graduate_class());
-                }
                 continue;
             }
 
@@ -407,34 +284,15 @@ impl<T: Config> Pallet<T> {
             if subnet_node.classification.node_class == SubnetNodeClass::Included
                 && forked_subnet_node_ids.is_none()
             {
-                SubnetNodeConsecutiveIncludedEpochs::<T>::mutate(
+                Self::handle_included_node(
+                    weight_meter,
                     subnet_id,
                     subnet_node.id,
-                    |n: &mut u32| *n += 1,
+                    reputation,
+                    percentage_factor,
+                    included_epochs,
+                    current_subnet_epoch,
                 );
-
-                // SubnetNodeConsecutiveIncludedEpochs
-                weight_meter.consume(db_weight.reads_writes(1, 1));
-
-                let consecutive_included_epochs =
-                    SubnetNodeConsecutiveIncludedEpochs::<T>::get(subnet_id, subnet_node.id);
-
-                // SubnetNodeConsecutiveIncludedEpochs
-                weight_meter.consume(db_weight.reads(1));
-
-                // --- Upgrade to Validator if at percentage_factor reputation and included in weights
-                if reputation >= percentage_factor && consecutive_included_epochs >= included_epochs
-                {
-                    if Self::graduate_class(subnet_id, subnet_node.id, current_subnet_epoch) {
-                        // --- Insert into election slot
-                        Self::insert_node_into_election_slot(subnet_id, subnet_node.id);
-                        weight_meter.consume(T::WeightInfo::insert_node_into_election_slot());
-
-                        // reset
-                        SubnetNodeConsecutiveIncludedEpochs::<T>::remove(subnet_id, subnet_node.id);
-                        weight_meter.consume(db_weight.writes(1));
-                    }
-                }
 
                 // SubnetNodeClass::Included does not get rewards yet, they must pass the gauntlet
                 continue;
@@ -477,7 +335,7 @@ impl<T: Config> Pallet<T> {
                 // Subnet is not forked and node attested
                 data.reward_factor
             } else {
-                // Node not attested, decrease reputation, return 1.0 reward factor
+                // Node not attested but in in-consensus data, decrease reputation, return 1.0 reward factor
                 if consensus_submission_data.attestation_ratio >= super_majority_threshold {
                     reputation = Self::decrease_and_return_node_reputation(
                         subnet_id,
@@ -486,47 +344,27 @@ impl<T: Config> Pallet<T> {
                         non_attestor_factor,
                     );
                     // `decrease_and_return_node_reputation`: SubnetNodeReputation (w)
+
                     weight_meter.consume(db_weight.writes(1));
                 }
 
                 percentage_factor
             };
 
-            if reward_factor == 0 {
+            if reputation < min_validator_reputation {
+                // Remove node if they haven't already due to reputation decreases logic above
+                Self::handle_consensus_remove_active_node(
+                    weight_meter,
+                    subnet_id,
+                    subnet_node.id,
+                    electable_nodes_count,
+                );
+
                 continue;
             }
 
-            if reputation < min_validator_reputation {
-                // Remove node if they haven't already due to reputation decreases logic above
-                weight_meter.consume(db_weight.reads(1));
-                if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node.id) {
-                    weight_meter.consume(db_weight.reads(1));
-                    if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
-                        weight_meter.consume(db_weight.reads(1));
-                        let coldkey_subnet_nodes = ColdkeySubnetNodes::<T>::get(&coldkey);
-                        // x = number of subnets (outer BTreeMap size)
-                        let x = coldkey_subnet_nodes.len() as u32;
-                        // c = number of nodes in the specific subnet (inner BTreeSet size)
-                        let c = coldkey_subnet_nodes
-                            .get(&subnet_id)
-                            .map(|nodes| nodes.len() as u32)
-                            .unwrap_or(0);
-
-                        if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
-                            x,
-                            electable_nodes_count,
-                            c,
-                        )) {
-                            Self::remove_active_subnet_node(subnet_id, subnet_node.id);
-                            weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
-                                x,
-                                electable_nodes_count,
-                                c,
-                            ));
-                        }
-                    }
-                }
-
+            // Reward factor is zero, no need to continue
+            if reward_factor == 0 {
                 continue;
             }
 
@@ -542,7 +380,6 @@ impl<T: Config> Pallet<T> {
             account_reward = Self::percent_mul(account_reward, reward_factor);
 
             // --- Skip if no rewards to give
-            // Unlikely to happen
             if account_reward == 0 {
                 continue;
             }
@@ -637,6 +474,7 @@ impl<T: Config> Pallet<T> {
         // --- Slash validator
         // Slashes stake balance
         // Decreases reputation
+        // Possibly removes node if under min reputation
         let slash_validator_weight = Self::slash_validator(
             subnet_id,
             consensus_submission_data.validator_subnet_node_id,
@@ -663,6 +501,7 @@ impl<T: Config> Pallet<T> {
             new_reputation: new_subnet_reputation,
         });
 
+        // Get the decrease factor based on the attestation ratio
         let non_consensus_attestor_factor = Self::percent_mul(
             NonConsensusAttestorDecreaseReputationFactor::<T>::get(subnet_id),
             percentage_factor.saturating_sub(Self::percent_div(
@@ -675,9 +514,6 @@ impl<T: Config> Pallet<T> {
 
         // --- Decrease reputation of attestors
         for (subnet_node_id, attest_data) in consensus_submission_data.attests {
-            // NOTE: If a validator is removed in this step, this will create a new
-            // subnet node reputation insert that was just removed.
-            // TODO: Don't allow this, check node exists.
             if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node_id) {
                 // Make sure node exists before decreasing reputation
                 // Note: It's possible for the node to had been removed in this step
@@ -724,5 +560,256 @@ impl<T: Config> Pallet<T> {
             }
             continue;
         }
+    }
+
+    pub fn handle_validator_reward(
+        weight_meter: &mut WeightMeter,
+        validator_hotkey: &T::AccountId,
+        subnet_id: u32,
+        consensus_submission_data: &ConsensusSubmissionData<T::AccountId>,
+        min_attestation_percentage: u128,
+        coldkey_reputation_increase_factor: u128,
+        current_epoch: u32,
+    ) {
+        let db_weight = T::DbWeight::get();
+
+        weight_meter.consume(db_weight.reads(1));
+
+        // --- Increase validator reward
+        let validator_reward = Self::get_validator_reward(
+            consensus_submission_data.attestation_ratio,
+            consensus_submission_data.validator_reward_factor,
+        );
+        // Add get_validator_reward (At least 1 read, up to 2)
+        // MinAttestationPercentage | BaseValidatorReward
+        weight_meter.consume(db_weight.reads(2));
+
+        if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&validator_hotkey) {
+            Self::increase_coldkey_reputation(
+                coldkey,
+                consensus_submission_data.attestation_ratio,
+                min_attestation_percentage,
+                coldkey_reputation_increase_factor,
+                current_epoch,
+            );
+            weight_meter.consume(T::WeightInfo::increase_coldkey_reputation());
+        }
+
+        // HotkeyOwner
+        weight_meter.consume(db_weight.reads(1));
+
+        // Give validator rewards to their stake
+        Self::increase_account_stake(&validator_hotkey, subnet_id, validator_reward);
+    }
+
+    pub fn handle_node_queue_consensus(
+        weight_meter: &mut WeightMeter,
+        subnet_id: u32,
+        consensus_submission_data: &ConsensusSubmissionData<T::AccountId>,
+        super_majority_threshold: u128,
+        electable_nodes_count: u32,
+    ) {
+        if consensus_submission_data.attestation_ratio >= super_majority_threshold {
+            let db_weight = T::DbWeight::get();
+
+            let mut queue = SubnetNodeQueue::<T>::get(subnet_id);
+
+            // Handle prioritize node - move to front
+            if let Some(prioritize_queue_node_id) =
+                consensus_submission_data.prioritize_queue_node_id
+            {
+                weight_meter.consume(db_weight.reads(1));
+
+                if let Some(index) = queue
+                    .iter()
+                    .position(|node| node.id == prioritize_queue_node_id)
+                {
+                    let node = queue.remove(index); // Remove from current position
+                    queue.insert(0, node); // Insert at front (index 0)
+
+                    // Add computational weight for vector operations
+                    weight_meter.consume(Weight::from_parts(
+                        queue.len() as u64 * 100, // Linear cost based on queue size
+                        0,
+                    ));
+
+                    SubnetNodeQueue::<T>::insert(subnet_id, &queue);
+                    weight_meter.consume(db_weight.writes(1));
+
+                    Self::deposit_event(Event::QueuedNodePrioritized {
+                        subnet_id,
+                        subnet_node_id: prioritize_queue_node_id,
+                    });
+                }
+            }
+
+            // Handle remove node - remove from queue entirely
+            // These are not yet activated nodes so this does not impact the emissions distribution
+            if let Some(remove_queue_node_id) = consensus_submission_data.remove_queue_node_id {
+                weight_meter.consume(db_weight.reads(1));
+                if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, remove_queue_node_id)
+                {
+                    weight_meter.consume(db_weight.reads(1));
+                    if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
+                        weight_meter.consume(db_weight.reads(1));
+                        let coldkey_subnet_nodes = ColdkeySubnetNodes::<T>::get(&coldkey);
+                        // x = number of subnets (outer BTreeMap size)
+                        let x = coldkey_subnet_nodes.len() as u32;
+                        // c = number of nodes in the specific subnet (inner BTreeSet size)
+                        let c = coldkey_subnet_nodes
+                            .get(&subnet_id)
+                            .map(|nodes| nodes.len() as u32)
+                            .unwrap_or(0);
+
+                        if weight_meter.can_consume(T::WeightInfo::remove_registered_subnet_node(
+                            x,
+                            electable_nodes_count,
+                            c,
+                        )) {
+                            Self::remove_registered_subnet_node(subnet_id, remove_queue_node_id);
+                            weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(
+                                x,
+                                electable_nodes_count,
+                                c,
+                            ));
+                            Self::deposit_event(Event::QueuedNodeRemoved {
+                                subnet_id,
+                                subnet_node_id: remove_queue_node_id,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn handle_consensus_remove_active_node(
+        weight_meter: &mut WeightMeter,
+        subnet_id: u32,
+        subnet_node_id: u32,
+        electable_nodes_count: u32,
+    ) {
+        let db_weight = T::DbWeight::get();
+        // Remove node if they haven't already been removed
+        weight_meter.consume(db_weight.reads(1));
+        if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node_id) {
+            weight_meter.consume(db_weight.reads(1));
+            if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
+                weight_meter.consume(db_weight.reads(1));
+                let coldkey_subnet_nodes = ColdkeySubnetNodes::<T>::get(&coldkey);
+                // x = number of subnets (outer BTreeMap size)
+                let x = coldkey_subnet_nodes.len() as u32;
+                // c = number of nodes in the specific subnet (inner BTreeSet size)
+                let c = coldkey_subnet_nodes
+                    .get(&subnet_id)
+                    .map(|nodes| nodes.len() as u32)
+                    .unwrap_or(0);
+
+                if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
+                    x,
+                    electable_nodes_count,
+                    c,
+                )) {
+                    Self::remove_active_subnet_node(subnet_id, subnet_node_id);
+                    weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
+                        x,
+                        electable_nodes_count,
+                        c,
+                    ));
+                }
+            }
+        }
+    }
+
+    pub fn handle_idle_node(
+        weight_meter: &mut WeightMeter,
+        subnet_id: u32,
+        subnet_node_id: u32,
+        idle_epochs: u32,
+        current_subnet_epoch: u32,
+    ) {
+        let db_weight = T::DbWeight::get();
+        SubnetNodeIdleConsecutiveEpochs::<T>::mutate(
+            subnet_id,
+            subnet_node_id,
+            |n: &mut u32| *n += 1,
+        );
+
+        let node_idle_epochs =
+            SubnetNodeIdleConsecutiveEpochs::<T>::get(subnet_id, subnet_node_id);
+        weight_meter.consume(db_weight.reads_writes(1, 1));
+
+        // Idle classified nodes can't be included in consensus data and can't have a used reputation
+        // so we check the class immediately.
+        // --- Upgrade to Included if past the queue epochs
+        if node_idle_epochs >= idle_epochs {
+            Self::graduate_class(subnet_id, subnet_node_id, current_subnet_epoch);
+            weight_meter.consume(T::WeightInfo::graduate_class());
+        }
+    }
+
+    pub fn handle_included_node(
+        weight_meter: &mut WeightMeter,
+        subnet_id: u32,
+        subnet_node_id: u32,
+        reputation: u128,
+        percentage_factor: u128,
+        included_epochs: u32,
+        current_subnet_epoch: u32,
+    ) {
+        let db_weight = T::DbWeight::get();
+        SubnetNodeConsecutiveIncludedEpochs::<T>::mutate(
+            subnet_id,
+            subnet_node_id,
+            |n: &mut u32| *n += 1,
+        );
+
+        // SubnetNodeConsecutiveIncludedEpochs
+        weight_meter.consume(db_weight.reads_writes(1, 1));
+
+        let consecutive_included_epochs =
+            SubnetNodeConsecutiveIncludedEpochs::<T>::get(subnet_id, subnet_node_id);
+
+        // SubnetNodeConsecutiveIncludedEpochs
+        weight_meter.consume(db_weight.reads(1));
+
+        // --- Upgrade to Validator if at percentage_factor reputation and included in weights
+        if reputation >= percentage_factor && consecutive_included_epochs >= included_epochs
+        {
+            if Self::graduate_class(subnet_id, subnet_node_id, current_subnet_epoch) {
+                // --- Insert into election slot
+                Self::insert_node_into_election_slot(subnet_id, subnet_node_id);
+                weight_meter.consume(T::WeightInfo::insert_node_into_election_slot());
+
+                // reset
+                SubnetNodeConsecutiveIncludedEpochs::<T>::remove(subnet_id, subnet_node_id);
+                weight_meter.consume(db_weight.writes(1));
+            }
+        }
+    }
+
+    pub fn maybe_get_forked_subnet_node_ids(
+        weight_meter: &mut WeightMeter,
+        subnet_id: u32,
+    ) -> Option<BTreeSet<u32>> {
+        let db_weight = T::DbWeight::get();
+
+        // EmergencySubnetNodeElectionData
+        weight_meter.consume(db_weight.reads(1));
+        let forked_subnet_node_ids: Option<BTreeSet<u32>> =
+            EmergencySubnetNodeElectionData::<T>::mutate_exists(subnet_id, |maybe_data| {
+                if let Some(data) = maybe_data {
+                    weight_meter.consume(db_weight.writes(1));
+
+                    // Increment `total_epochs`
+                    data.total_epochs = data.total_epochs.saturating_add(1);
+
+                    Some(data.subnet_node_ids.iter().cloned().collect())
+                } else {
+                    None
+                }
+            });
+
+        forked_subnet_node_ids
     }
 }

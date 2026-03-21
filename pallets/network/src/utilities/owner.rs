@@ -21,7 +21,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// Once paused, this current epoch will stop consensus from processing right away.
     /// i.e., if a validator has been chosen, data submitted, nodes attested, the epoch will be voided.
-    /// 
+    ///
     pub fn do_owner_pause_subnet(origin: T::RuntimeOrigin, subnet_id: u32) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
@@ -59,9 +59,9 @@ impl<T: Config> Pallet<T> {
         })?;
 
         // ---
-        // We don't need to remove SubnetConsensusSubmission here because 
+        // We don't need to remove SubnetConsensusSubmission here because
         // precheck_subnet_consensus_submission already checks if the subnet is active and not paused
-        // --- 
+        // ---
 
         Self::deposit_event(Event::SubnetPaused {
             subnet_id: subnet_id,

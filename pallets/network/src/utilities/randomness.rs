@@ -41,7 +41,7 @@ impl<T: Config> Pallet<T> {
     /// TODO: deal with randomness freshness
     /// https://github.com/paritytech/substrate/issues/8311
     /// This is not a secure random number generator but serves its purpose for choosing random numbers
-    pub fn generate_random_number_old(seed: u32) -> u32 {
+    pub fn generate_random_number_v1(seed: u32) -> u32 {
         let (random_seed, _) = T::Randomness::random(&(T::PalletId::get(), seed).encode());
         let random_number = <u32>::decode(&mut random_seed.as_ref())
             .expect("secure hashes should always be bigger than u32; qed");

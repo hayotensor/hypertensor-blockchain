@@ -679,7 +679,6 @@ pub mod pallet {
         InvalidIncludedClassificationEpochs,
         InvalidSubnetNodeConsecutiveIncludedEpochs,
         InvalidOverwatchEpochLengthMultiplier,
-
         /// Subnet must be registering or activated, this error usually occurs during the enactment period
         SubnetMustBeRegisteringOrActivated,
         /// Subnet must be registering to perform this action
@@ -688,6 +687,8 @@ pub mod pallet {
         MaxSubnets,
         /// Account has subnet peer under subnet already
         InvalidSubnetNodeId,
+        /// Invalid validator id. Must be validator class
+        InvalidValidatorId,
         InvalidSubnetNodeClassification,
         InvalidEmergencySubnetNodeId,
         /// Not subnet owner
@@ -1892,7 +1893,7 @@ pub mod pallet {
     ///
     /// subnets_emissions: Total emissions for all subnets
     /// subnet_weights: Map of subnet ids to their weights
-    /// 
+    ///
     #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
     pub struct DistributionData {
         pub subnets_emissions: u128,
@@ -2247,8 +2248,8 @@ pub mod pallet {
     /// - MaxSubnetPauseEpochs
     #[pallet::type_value]
     pub fn DefaultMaxSubnetPauseEpochs<T: Config>() -> u32 {
-        // 3 days
-        T::EpochsPerYear::get() / 120
+        // 3 months
+        T::EpochsPerYear::get() / 4
     }
     /// This type value is referenced in:
     /// - MinQueueEpochs
@@ -4219,10 +4220,8 @@ pub mod pallet {
     pub type MaximumHooksWeightV2<T> =
         StorageValue<_, Weight, ValueQuery, DefaultMaximumHooksWeightV2<T>>;
 
-
     #[pallet::storage]
-    pub type RewardsCapacitor<T> =
-        StorageMap<_, Identity, u32, u128, ValueQuery, DefaultZeroU128>;
+    pub type RewardsCapacitor<T> = StorageMap<_, Identity, u32, u128, ValueQuery, DefaultZeroU128>;
 
     /// The pallet's dispatchable functions ([`Call`]s).
     ///

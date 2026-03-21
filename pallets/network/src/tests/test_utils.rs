@@ -4,22 +4,23 @@ use crate::{
     multiaddr::*, AccountOverwatchStake, AccountSubnetDelegateStakeShares, AccountSubnetStake,
     AttestEntry, BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ColdkeyHotkeys,
     ColdkeyReputation, ColdkeySubnetNodes, ConsensusData, DefaultMaxVectorLength, DelegateAccount,
-    HotkeyOverwatchNodeId, HotkeyOwner, HotkeySubnetId, HotkeySubnetNodeId, InitialColdkeyData,
-    MaxMaxRegisteredNodes, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
-    MinSubnetNodes, MinSubnetRegistrationEpochs, MultiaddrSubnetNodeId, NetworkMaxStakeBalance,
-    OverwatchCommitCutoffPercent, OverwatchEpochLengthMultiplier, OverwatchMinAge,
-    OverwatchMinStakeBalance, OverwatchNode, OverwatchNodeIdHotkey, OverwatchNodes,
-    OverwatchReveals, PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData,
-    RegistrationSubnetData, Reputation, StakeCooldownEpochs, StakeUnbondingLedger,
-    SubnetConsensusSubmission, SubnetData, SubnetElectedValidator, SubnetIdFriendlyUid,
-    SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
-    SubnetNodeClassification, SubnetNodeConsensusData, SubnetNodeElectionSlots, SubnetNodeIdHotkey,
-    SubnetNodeQueue, SubnetNodeReputation, SubnetNodesData, SubnetOwner, SubnetRegistrationEpoch,
-    SubnetRegistrationEpochs, SubnetRegistrationInitialColdkeys, SubnetReputation, SubnetSlot,
-    SubnetState, SubnetsData, TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets,
-    TotalNodes, TotalOverwatchNodeUids, TotalOverwatchNodes, TotalOverwatchStake, TotalStake,
-    TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
-    TotalSubnetUids, UniqueParamSubnetNodeId, EmergencySubnetNodeElectionData,
+    EmergencySubnetNodeElectionData, HotkeyOverwatchNodeId, HotkeyOwner, HotkeySubnetId,
+    HotkeySubnetNodeId, InitialColdkeyData, MaxMaxRegisteredNodes, MaxOverwatchNodes,
+    MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs,
+    MultiaddrSubnetNodeId, NetworkMaxStakeBalance, OverwatchCommitCutoffPercent,
+    OverwatchEpochLengthMultiplier, OverwatchMinAge, OverwatchMinStakeBalance, OverwatchNode,
+    OverwatchNodeIdHotkey, OverwatchNodes, OverwatchReveals, PeerIdSubnetNodeId, PeerInfo,
+    RegisteredSubnetNodesData, RegistrationSubnetData, Reputation, StakeCooldownEpochs,
+    StakeUnbondingLedger, SubnetConsensusSubmission, SubnetData, SubnetElectedValidator,
+    SubnetIdFriendlyUid, SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode,
+    SubnetNodeClass, SubnetNodeClassification, SubnetNodeConsensusData, SubnetNodeElectionSlots,
+    SubnetNodeIdHotkey, SubnetNodeQueue, SubnetNodeReputation, SubnetNodesData, SubnetOwner,
+    SubnetRegistrationEpoch, SubnetRegistrationEpochs, SubnetRegistrationInitialColdkeys,
+    SubnetReputation, SubnetSlot, SubnetState, SubnetsData, TotalActiveNodes,
+    TotalActiveSubnetNodes, TotalActiveSubnets, TotalNodes, TotalOverwatchNodeUids,
+    TotalOverwatchNodes, TotalOverwatchStake, TotalStake, TotalSubnetDelegateStakeBalance,
+    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids,
+    UniqueParamSubnetNodeId,
 };
 use fp_account::AccountId20;
 use frame_support::assert_ok;
@@ -2809,15 +2810,16 @@ pub fn get_simulated_consensus_data(
     let included_subnet_nodes: Vec<SubnetNode<<Test as frame_system::Config>::AccountId>> =
         Network::get_active_classified_subnet_nodes(subnet_id, &SubnetNodeClass::Included, epoch);
 
-    let validator_ids: Vec<u32> = if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<Test>::get(subnet_id)
-        {
-            emergency_validator_data
-                .subnet_node_ids
-                .into_iter()
-                .collect()
-        } else {
-            SubnetNodeElectionSlots::<Test>::get(subnet_id)
-        };
+    let validator_ids: Vec<u32> = if let Some(emergency_validator_data) =
+        EmergencySubnetNodeElectionData::<Test>::get(subnet_id)
+    {
+        emergency_validator_data
+            .subnet_node_ids
+            .into_iter()
+            .collect()
+    } else {
+        SubnetNodeElectionSlots::<Test>::get(subnet_id)
+    };
 
     ConsensusData {
         validator_id: subnet_id * max_subnet_nodes,

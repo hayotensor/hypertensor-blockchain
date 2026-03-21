@@ -33,16 +33,16 @@ pub fn setup_blocks(blocks: u32) {
 }
 
 #[test]
-fn test_randomness_v2() {
+fn test_randomness_v1() {
     new_test_ext().execute_with(|| {
         setup_blocks(38);
-        let gen_rand_num_old = Network::generate_random_number_old(1);
+        let gen_rand_num_old = Network::generate_random_number_v1(1);
         let gen_rand_num = Network::generate_random_number(1);
         log::error!("gen_rand_num_old {:?}", gen_rand_num_old);
         log::error!("gen_rand_num     {:?}", gen_rand_num);
 
         setup_blocks(1);
-        let gen_rand_num_old = Network::generate_random_number_old(1);
+        let gen_rand_num_old = Network::generate_random_number_v1(1);
         let gen_rand_num = Network::generate_random_number(1);
         log::error!("gen_rand_num_old {:?}", gen_rand_num_old);
         log::error!("gen_rand_num     {:?}", gen_rand_num);

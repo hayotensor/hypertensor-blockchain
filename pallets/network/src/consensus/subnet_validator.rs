@@ -155,7 +155,6 @@ impl<T: Config> Pallet<T> {
         );
         let subnet_nodes_count = subnet_nodes.len();
 
-
         // --- Get all validators
         // Note: This is triggered here when the validator submits their data, not at the start block of the epoch
         // These are the nodes that can attest to the consensus data
@@ -163,16 +162,16 @@ impl<T: Config> Pallet<T> {
         // We store `validator_ids` because the emergency validator set can be different from the regular validator set
         // and we need to know who to count as attestors officially. And we use the call of this function as the official point
         // of time of which nodes can attest on this epoch.
-        let validator_ids: Vec<u32> = if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
-            {
-                emergency_validator_data
-                    .subnet_node_ids
-                    .into_iter()
-                    .collect()
-            } else {
-                SubnetNodeElectionSlots::<T>::get(subnet_id)
-            };
-
+        let validator_ids: Vec<u32> = if let Some(emergency_validator_data) =
+            EmergencySubnetNodeElectionData::<T>::get(subnet_id)
+        {
+            emergency_validator_data
+                .subnet_node_ids
+                .into_iter()
+                .collect()
+        } else {
+            SubnetNodeElectionSlots::<T>::get(subnet_id)
+        };
 
         if prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some() {
             let queue = SubnetNodeQueue::<T>::get(subnet_id);
@@ -264,17 +263,17 @@ impl<T: Config> Pallet<T> {
         };
 
         // If subnet is forked, make sure attestors are the new temporary validator set
-        if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
-        {
-            let emergency_node_ids: BTreeSet<u32> = emergency_validator_data
-                .subnet_node_ids
-                .into_iter()
-                .collect();
-            ensure!(
-                emergency_node_ids.contains(&subnet_node_id),
-                Error::<T>::InvalidEmergencySubnetNodeId
-            );
-        }
+        // if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
+        // {
+        //     let emergency_node_ids: BTreeSet<u32> = emergency_validator_data
+        //         .subnet_node_ids
+        //         .into_iter()
+        //         .collect();
+        //     ensure!(
+        //         emergency_node_ids.contains(&subnet_node_id),
+        //         Error::<T>::InvalidEmergencySubnetNodeId
+        //     );
+        // }
 
         // - Note: we don't check stake balance here
 
@@ -301,8 +300,10 @@ impl<T: Config> Pallet<T> {
                 // Ensure they are in the validator list and are eligible to attest
                 let validator_ids = &mut params.validator_ids;
                 ensure!(
-                    validator_ids.iter().any(|validator_id| *validator_id == subnet_node_id),
-                    Error::<T>::InvalidSubnetNodeId
+                    validator_ids
+                        .iter()
+                        .any(|validator_id| *validator_id == subnet_node_id),
+                    Error::<T>::InvalidValidatorId
                 );
 
                 let proposal_block = params.block;

@@ -1112,15 +1112,16 @@ pub fn get_simulated_consensus_data<T: Config>(
             epoch,
         );
 
-    let validator_ids: Vec<u32> = if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
-        {
-            emergency_validator_data
-                .subnet_node_ids
-                .into_iter()
-                .collect()
-        } else {
-            SubnetNodeElectionSlots::<T>::get(subnet_id)
-        };
+    let validator_ids: Vec<u32> = if let Some(emergency_validator_data) =
+        EmergencySubnetNodeElectionData::<T>::get(subnet_id)
+    {
+        emergency_validator_data
+            .subnet_node_ids
+            .into_iter()
+            .collect()
+    } else {
+        SubnetNodeElectionSlots::<T>::get(subnet_id)
+    };
 
     ConsensusData {
         validator_id: subnet_id * max_subnet_nodes,

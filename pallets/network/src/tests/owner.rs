@@ -3027,12 +3027,13 @@ fn test_owner_revert_emergency_validator_set() {
         ));
 
         // Revert emergency validator set while active
-        assert_err!(Network::owner_revert_emergency_validator_set(
-            RuntimeOrigin::signed(original_owner.clone()),
-            subnet_id
-        ), Error::<Test>::SubnetMustBePaused);
-
-
+        assert_err!(
+            Network::owner_revert_emergency_validator_set(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id
+            ),
+            Error::<Test>::SubnetMustBePaused
+        );
 
         // ---
 

@@ -405,8 +405,7 @@ impl<T: Config> Pallet<T> {
 
         // Store weights and handle foundation
         if !subnet_weights.is_empty() {
-            let (subnets_emissions, foundation_emissions_as_u128) =
-                Self::get_epoch_emissions_v2();
+            let (subnets_emissions, foundation_emissions_as_u128) = Self::get_epoch_emissions_v2();
 
             if let Some(foundation_emissions) = Self::u128_to_balance(foundation_emissions_as_u128)
             {
