@@ -1200,6 +1200,48 @@ impl<T: Config> Pallet<T> {
         .unwrap_or(false)
     }
 
+    /// Graduate subnet node to validator class and insert into election slot
+    /// This function is called when a subnet node has reached the required reputation and included epochs
+    /// to be graduated to validator class
+    ///
+    /// Returns true if the subnet node was graduated *AND* added to the election slots, false otherwise
+    pub fn graduate_to_validator_class(subnet_id: u32, subnet_node_id: u32, start_epoch: u32) -> bool {
+        SubnetNodeElectionSlots::<T>::try_mutate(subnet_id, |slot_list| -> Result<(), ()> {
+            if slot_list.contains(&subnet_node_id) {
+                return Err(());
+            }
+
+            SubnetNodesData::<T>::try_mutate_exists(
+                subnet_id,
+                subnet_node_id,
+                |maybe_node_data| -> Result<(), ()> {
+                    let node_data = maybe_node_data.as_mut().ok_or(())?;
+                    
+                    node_data.classification = SubnetNodeClassification {
+                        node_class: node_data.classification.node_class.next(),
+                        start_epoch,
+                    };
+                    Self::deposit_event(Event::NodeClassGraduation {
+                        subnet_id,
+                        subnet_node_id,
+                        classification: node_data.classification.clone(),
+                    });
+                    
+                    Ok(())
+                },
+            )?;
+
+            let idx = slot_list.len() as u32;
+            slot_list.push(subnet_node_id);
+            NodeSlotIndex::<T>::insert(subnet_id, subnet_node_id, idx);
+            TotalSubnetElectableNodes::<T>::mutate(subnet_id, |mut n| n.saturating_inc());
+            TotalElectableNodes::<T>::mutate(|mut n| n.saturating_inc());
+            
+            Ok(())
+        })
+        .is_ok()
+    }
+
     /// Check if subnet node is owner of a peer ID
     /// Main, bootnode, and client peer IDs must be unique so we check all of them to ensure
     /// that no one else owns them

@@ -393,6 +393,7 @@ pub mod pallet {
         SetMaxEmergencySubnetNodes(u32),
         SetOverwatchStakeWeightFactor(u128),
         SetSubnetWeightFactors(SubnetWeightFactorsData),
+        SetDefaultOverwatchSubnetWeight(u128),
         SetValidatorRewardMidpoint(u128),
         OverwatchNodeBlacklist(T::AccountId, bool),
         SetSigmoidSteepness(u128),
@@ -2756,6 +2757,10 @@ pub mod pallet {
     pub fn DefaultTotalSubnetUids() -> u32 {
         128000
     }
+    #[pallet::type_value]
+    pub fn DefaultOverwatchSubnetWeightValue() -> u128 {
+        500000000000000000
+    }
 
     //
     // Subnet elements
@@ -2853,7 +2858,8 @@ pub mod pallet {
     //
 
     /// Election slots
-    /// List of every subnet node ID that can be elected as validator
+    /// List of every subnet node ID that can be elected as validator (Validator classification only)
+    /// All validator class subnet nodes are in this list, and all in this list are validator class subnet nodes
     #[pallet::storage]
     pub type SubnetNodeElectionSlots<T> = StorageMap<_, Identity, u32, Vec<u32>, ValueQuery>;
 
@@ -4154,6 +4160,10 @@ pub mod pallet {
     #[pallet::storage]
     pub type OverwatchMinStakeBalance<T> =
         StorageValue<_, u128, ValueQuery, DefaultOverwatchMinStakeBalance>;
+
+    #[pallet::storage]
+    pub type DefaultOverwatchSubnetWeight<T> =
+        StorageValue<_, u128, ValueQuery, DefaultOverwatchSubnetWeightValue>;
 
     //
     // Swap queue
@@ -6951,6 +6961,16 @@ pub mod pallet {
 
             Self::do_remove_delegate_balance(origin, amount_to_remove)
         }
+
+        #[pallet::call_index(165)]
+        #[pallet::weight({0})]
+        pub fn set_default_overwatch_subnet_weight(
+            origin: OriginFor<T>,
+            value: u128,
+        ) -> DispatchResult {
+            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_default_overwatch_subnet_weight(value)
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -9113,10 +9133,12 @@ pub mod pallet {
             subnet_epoch: u32,
             queue: bool,
         ) -> bool {
-            let mut weight = Weight::zero();
             let db_weight = T::DbWeight::get();
 
             // These combination should never be called
+            // A node should only be activated if:
+            // - subnet is registered and node is registering
+            // - subnet is active and node is activating from the queue
             if subnet_state == SubnetState::Registered && queue
                 || subnet_state == SubnetState::Active && !queue
                 || subnet_state == SubnetState::Paused
@@ -9124,16 +9146,11 @@ pub mod pallet {
                 return false;
             }
 
-            // writes:
-            // RegisteredSubnetNodesData
-            // SubnetNodesData
-            // TotalActiveSubnetNodes
-            // TotalActiveNodes
-            // ColdkeyReputation
-            //
-            // reads:
-            // HotkeyOwner
-            if !weight_meter.can_consume(db_weight.reads_writes(5, 1)) {
+            // Total reads: 5, Total writes: 5
+            // Reads/Writes: RegisteredSubnetNodesData(take), TotalActiveSubnetNodes(mutate), TotalActiveNodes(mutate), ColdkeyReputation(mutate)
+            // Writes: SubnetNodesData(insert)
+            // Reads: HotkeyOwner(get)
+            if !weight_meter.can_consume(db_weight.reads_writes(5, 5)) {
                 return false;
             }
 
@@ -9143,8 +9160,10 @@ pub mod pallet {
                 return true;
             }
 
+            // Consume the necessary weight
+            weight_meter.consume(db_weight.reads_writes(5, 5));
+
             // Try to take the RegisteredSubnetNodesData
-            weight = weight.saturating_add(db_weight.reads_writes(1, 1));
             RegisteredSubnetNodesData::<T>::take(subnet_id, subnet_node.id);
 
             // Default use if subnet is active and not currently registering
@@ -9153,6 +9172,9 @@ pub mod pallet {
             // --- Increase subnet_epoch by one to ensure node starts on a fresh subnet_epoch unless subnet is still registering
             subnet_node.classification.start_epoch = subnet_epoch;
 
+            // Logic ran if subnet is registering and node is registering
+            // The only time a node is fast-tracked to Validator class is if they are an initial
+            // coldkey validator for a subnet while the subnet is registering
             if subnet_state == SubnetState::Registered && !queue {
                 // If we're activating a subnet node while subnet is registering, set it to validator
                 subnet_node.classification.node_class = SubnetNodeClass::Validator;
@@ -9176,22 +9198,11 @@ pub mod pallet {
             TotalActiveNodes::<T>::mutate(|n: &mut u32| *n += 1);
 
             let coldkey = HotkeyOwner::<T>::get(&subnet_node.hotkey);
-            weight = weight.saturating_add(db_weight.reads(1));
 
             ColdkeyReputation::<T>::mutate(&coldkey, |rep| {
                 rep.lifetime_node_count = rep.lifetime_node_count.saturating_add(1);
                 rep.total_active_nodes = rep.total_active_nodes.saturating_add(1);
             });
-
-            // (r/w)
-            // TotalActiveSubnetNodes
-            // TotalActiveNodes
-            // ColdkeyReputation
-            // (r)
-            // HotkeyOwner
-            // (w)
-            // SubnetNodesData
-            weight_meter.consume(db_weight.reads_writes(4, 4));
 
             Self::deposit_event(Event::SubnetNodeActivated {
                 subnet_id: subnet_id,

@@ -888,4 +888,17 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
+
+    pub fn do_set_default_overwatch_subnet_weight(value: u128) -> DispatchResult {
+        ensure!(
+            value <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+
+        DefaultOverwatchSubnetWeight::<T>::put(&value);
+
+        Self::deposit_event(Event::SetDefaultOverwatchSubnetWeight(value));
+
+        Ok(())
+    }
 }

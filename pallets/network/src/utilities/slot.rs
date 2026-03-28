@@ -344,7 +344,7 @@ impl<T: Config> Pallet<T> {
                 break;
             }
 
-            // Calculate total weight needed for this activation INCLUDING guaranteed cleanup
+            // Calculate total weight needed for this activation INCLUDING guaranteed cleanup and db updates
             let per_node_processing_weight = Weight::from_parts(1_500, 0);
             let per_node_cleanup_weight = Weight::from_parts(500, 0);
             let storage_write_weight = if activated_nodes == 0 {
@@ -355,9 +355,10 @@ impl<T: Config> Pallet<T> {
 
             let total_weight_needed = per_node_processing_weight
                 .saturating_add(per_node_cleanup_weight)
-                .saturating_add(storage_write_weight);
+                .saturating_add(storage_write_weight)
+                .saturating_add(db_weight.reads_writes(5, 5)); // Account for do_activate_subnet_node weight consumption
 
-            // Check if we can consume the complete operation (activation + cleanup)
+            // Check if we can consume the complete operation (activation + cleanup + db updates)
             if !weight_meter.can_consume(total_weight_needed) {
                 break;
             }
@@ -376,7 +377,7 @@ impl<T: Config> Pallet<T> {
             );
 
             if !can_consume {
-                break; // Stop if activation failed due to weight constraints
+                break; // Stop if activation failed due to weight constraints or other reasons
             }
 
             activated_nodes += 1;
@@ -495,7 +496,7 @@ impl<T: Config> Pallet<T> {
                 Ok(weight) => (Self::get_percent_as_f64(weight)
                     * Self::get_percent_as_f64(OverwatchWeightFactor::<T>::get()))
                 .min(1.0),
-                Err(()) => 1.0,
+                Err(()) => Self::get_percent_as_f64(DefaultOverwatchSubnetWeight::<T>::get()),
             };
 
             // OverwatchSubnetWeights
@@ -525,6 +526,9 @@ impl<T: Config> Pallet<T> {
 
         // --- Normalize delegate stake weights from power
         for (subnet_id, subnet_weight) in subnet_weights {
+            if subnet_weight_sum == 0.0 {
+                continue;
+            }
             let weight_normalized: u128 =
                 (subnet_weight / subnet_weight_sum * percentage_factor as f64) as u128;
             subnet_weights_normalized.insert(subnet_id, weight_normalized);

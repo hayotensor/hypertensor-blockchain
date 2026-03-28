@@ -1603,6 +1603,10 @@ fn test_assign_all_slots_and_fail() {
         for i in DesignatedEpochSlots::get()..max_slots {
             let subnet_id = i;
             assert_ok!(Network::assign_subnet_slot(subnet_id));
+            let expected_slot = first_slot + i - DesignatedEpochSlots::get();
+            assert_eq!(SubnetSlot::<Test>::get(subnet_id), Some(expected_slot));
+            assert_eq!(SlotAssignment::<Test>::get(expected_slot), Some(subnet_id));
+            assert!(AssignedSlots::<Test>::get().contains(&expected_slot));
         }
 
         // Now this call should fail with NoAvailableSlots
@@ -1647,8 +1651,8 @@ fn test_free_slot_does_nothing_if_slot_not_found() {
 #[test]
 fn test_assign_and_free_reassigns_correctly() {
     new_test_ext().execute_with(|| {
-        let subnet1 = 1;
-        let subnet2 = 2;
+        let subnet1 = 128001;
+        let subnet2 = 128002;
 
         let first_slot = DesignatedEpochSlots::get();
 
@@ -1660,6 +1664,31 @@ fn test_assign_and_free_reassigns_correctly() {
         // Should now reuse slot `first_slot`
         let slot2 = Network::assign_subnet_slot(subnet2).unwrap();
         assert_eq!(slot2, first_slot);
+    });
+}
+
+#[test]
+fn test_assign_and_free_reassigns_correctly_at_max() {
+    new_test_ext().execute_with(|| {
+        let max_slots = EpochLength::get();
+        let first_slot = DesignatedEpochSlots::get();
+        let subnet1 = 128001;
+
+        // Fill all slots from 1..max_slots
+        for i in DesignatedEpochSlots::get()..max_slots {
+            let subnet_id = i;
+            assert_ok!(Network::assign_subnet_slot(subnet_id));
+        }
+
+        // Now this call should fail with NoAvailableSlots
+        let result = Network::assign_subnet_slot(999);
+        assert_noop!(result, Error::<Test>::NoAvailableSlots);
+
+        // Free last slot
+        Network::free_slot_of_subnet(subnet1);
+
+        let result = Network::assign_subnet_slot(first_slot);
+        assert_noop!(result, Error::<Test>::NoAvailableSlots);
     });
 }
 

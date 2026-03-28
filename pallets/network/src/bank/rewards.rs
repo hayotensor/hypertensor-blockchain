@@ -14,7 +14,7 @@
 // limitations under the License.
 
 use super::*;
-use frame_support::pallet_prelude::Weight;
+use frame_support::pallet_prelude::{DispatchError, Weight};
 
 impl<T: Config> Pallet<T> {
     pub fn distribute_rewards(
@@ -729,22 +729,31 @@ impl<T: Config> Pallet<T> {
         current_subnet_epoch: u32,
     ) {
         let db_weight = T::DbWeight::get();
-        SubnetNodeIdleConsecutiveEpochs::<T>::mutate(
+        let node_idle_epochs = SubnetNodeIdleConsecutiveEpochs::<T>::try_mutate(
             subnet_id,
             subnet_node_id,
-            |n: &mut u32| *n += 1,
+            |n: &mut u32| -> Result<u32, DispatchError> {
+                *n += 1;
+                Ok(*n)
+            },
         );
-
-        let node_idle_epochs =
-            SubnetNodeIdleConsecutiveEpochs::<T>::get(subnet_id, subnet_node_id);
         weight_meter.consume(db_weight.reads_writes(1, 1));
 
         // Idle classified nodes can't be included in consensus data and can't have a used reputation
         // so we check the class immediately.
         // --- Upgrade to Included if past the queue epochs
-        if node_idle_epochs >= idle_epochs {
-            Self::graduate_class(subnet_id, subnet_node_id, current_subnet_epoch);
-            weight_meter.consume(T::WeightInfo::graduate_class());
+        match node_idle_epochs {
+            Ok(node_idle_epochs) => {
+                if node_idle_epochs >= idle_epochs {
+                    if Self::graduate_class(subnet_id, subnet_node_id, current_subnet_epoch) {
+                        SubnetNodeIdleConsecutiveEpochs::<T>::remove(subnet_id, subnet_node_id);
+                        weight_meter.consume(db_weight.writes(1));
+                    }
+                }
+            }
+            Err(_) => {
+                return;
+            }
         }
     }
 
@@ -758,32 +767,30 @@ impl<T: Config> Pallet<T> {
         current_subnet_epoch: u32,
     ) {
         let db_weight = T::DbWeight::get();
-        SubnetNodeConsecutiveIncludedEpochs::<T>::mutate(
+        let node_included_epochs = SubnetNodeConsecutiveIncludedEpochs::<T>::try_mutate(
             subnet_id,
             subnet_node_id,
-            |n: &mut u32| *n += 1,
+            |n: &mut u32| -> Result<u32, DispatchError> {
+                *n += 1;
+                Ok(*n)
+            },
         );
 
         // SubnetNodeConsecutiveIncludedEpochs
         weight_meter.consume(db_weight.reads_writes(1, 1));
 
-        let consecutive_included_epochs =
-            SubnetNodeConsecutiveIncludedEpochs::<T>::get(subnet_id, subnet_node_id);
-
-        // SubnetNodeConsecutiveIncludedEpochs
-        weight_meter.consume(db_weight.reads(1));
-
         // --- Upgrade to Validator if at percentage_factor reputation and included in weights
-        if reputation >= percentage_factor && consecutive_included_epochs >= included_epochs
-        {
-            if Self::graduate_class(subnet_id, subnet_node_id, current_subnet_epoch) {
-                // --- Insert into election slot
-                Self::insert_node_into_election_slot(subnet_id, subnet_node_id);
-                weight_meter.consume(T::WeightInfo::insert_node_into_election_slot());
-
-                // reset
-                SubnetNodeConsecutiveIncludedEpochs::<T>::remove(subnet_id, subnet_node_id);
-                weight_meter.consume(db_weight.writes(1));
+        match node_included_epochs {
+            Ok(node_included_epochs) => {
+                if reputation >= percentage_factor && node_included_epochs >= included_epochs {
+                    if Self::graduate_to_validator_class(subnet_id, subnet_node_id, current_subnet_epoch) {
+                        SubnetNodeConsecutiveIncludedEpochs::<T>::remove(subnet_id, subnet_node_id);
+                        weight_meter.consume(db_weight.writes(1));
+                    }
+                }
+            }
+            Err(_) => {
+                return;
             }
         }
     }
