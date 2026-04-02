@@ -2448,6 +2448,8 @@ fn test_distribute_rewards_non_consensus_reputation() {
         let post_validator_stake = AccountSubnetStake::<Test>::get(validator.clone(), subnet_id);
         assert!(validator_stake > post_validator_stake);
 
+        log::error!("starting_subnet_rep: {:?}", starting_subnet_rep);
+        log::error!("post_subnet_rep:     {:?}", SubnetReputation::<Test>::get(subnet_id));
         assert!(starting_subnet_rep > SubnetReputation::<Test>::get(subnet_id));
 
         for n in 0..max_subnet_nodes {

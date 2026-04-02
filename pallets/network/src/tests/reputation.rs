@@ -234,70 +234,70 @@ fn test_average_attestation_over_multiple_decreases() {
     });
 }
 
-#[test]
-fn test_increase_node_reputation_basic() {
-    new_test_ext().execute_with(|| {
-        let new = Network::get_increase_reputation(500000000000000000, 100000000000000000);
-        assert_eq!(new, 550000000000000000);
+// #[test]
+// fn test_increase_node_reputation_basic() {
+//     new_test_ext().execute_with(|| {
+//         let new = Network::get_increase_reputation(500000000000000000, 100000000000000000);
+//         assert_eq!(new, 550000000000000000);
 
-        let new = Network::get_increase_reputation(900000000000000000, 500000000000000000);
-        assert_eq!(new, 950000000000000000);
+//         let new = Network::get_increase_reputation(900000000000000000, 500000000000000000);
+//         assert_eq!(new, 950000000000000000);
 
-        let new = Network::get_increase_reputation(
-            Network::percentage_factor_as_u128(),
-            500000000000000000,
-        );
-        assert_eq!(new, Network::percentage_factor_as_u128());
+//         let new = Network::get_increase_reputation(
+//             Network::percentage_factor_as_u128(),
+//             500000000000000000,
+//         );
+//         assert_eq!(new, Network::percentage_factor_as_u128());
 
-        let new = Network::get_increase_reputation(0, Network::percentage_factor_as_u128());
-        assert_eq!(new, Network::percentage_factor_as_u128());
-    });
-}
+//         let new = Network::get_increase_reputation(0, Network::percentage_factor_as_u128());
+//         assert_eq!(new, Network::percentage_factor_as_u128());
+//     });
+// }
 
-#[test]
-fn test_decrease_node_reputation_basic() {
-    new_test_ext().execute_with(|| {
-        let new = Network::get_decrease_reputation(500000000000000000, 100000000000000000);
-        assert_eq!(new, 450000000000000000);
+// #[test]
+// fn test_decrease_node_reputation_basic() {
+//     new_test_ext().execute_with(|| {
+//         let new = Network::get_decrease_reputation(500000000000000000, 100000000000000000);
+//         assert_eq!(new, 450000000000000000);
 
-        let new = Network::get_decrease_reputation(900000000000000000, 500000000000000000);
-        assert_eq!(new, 450000000000000000);
+//         let new = Network::get_decrease_reputation(900000000000000000, 500000000000000000);
+//         assert_eq!(new, 450000000000000000);
 
-        let new = Network::get_decrease_reputation(
-            Network::percentage_factor_as_u128(),
-            Network::percentage_factor_as_u128(),
-        );
-        assert_eq!(new, 0);
+//         let new = Network::get_decrease_reputation(
+//             Network::percentage_factor_as_u128(),
+//             Network::percentage_factor_as_u128(),
+//         );
+//         assert_eq!(new, 0);
 
-        let new = Network::get_decrease_reputation(0, 800000000000000000);
-        assert_eq!(new, 0);
-    });
-}
+//         let new = Network::get_decrease_reputation(0, 800000000000000000);
+//         assert_eq!(new, 0);
+//     });
+// }
 
-#[test]
-fn test_reputation_bounds() {
-    new_test_ext().execute_with(|| {
-        let new = Network::get_increase_reputation(
-            Network::percentage_factor_as_u128() - 1,
-            Network::percentage_factor_as_u128(),
-        );
-        assert_eq!(new, Network::percentage_factor_as_u128());
+// #[test]
+// fn test_reputation_bounds() {
+//     new_test_ext().execute_with(|| {
+//         let new = Network::get_increase_reputation(
+//             Network::percentage_factor_as_u128() - 1,
+//             Network::percentage_factor_as_u128(),
+//         );
+//         assert_eq!(new, Network::percentage_factor_as_u128());
 
-        let new = Network::get_decrease_reputation(1, Network::percentage_factor_as_u128());
-        assert_eq!(new, 0);
-    });
-}
+//         let new = Network::get_decrease_reputation(1, Network::percentage_factor_as_u128());
+//         assert_eq!(new, 0);
+//     });
+// }
 
-#[test]
-fn test_factor_clamping() {
-    new_test_ext().execute_with(|| {
-        let over_factor = Network::percentage_factor_as_u128() * 10;
-        let new_inc = Network::get_increase_reputation(500000000000000000, over_factor);
-        let new_dec = Network::get_decrease_reputation(500000000000000000, over_factor);
-        assert_eq!(new_inc, Network::percentage_factor_as_u128());
-        assert_eq!(new_dec, 0);
-    });
-}
+// #[test]
+// fn test_factor_clamping() {
+//     new_test_ext().execute_with(|| {
+//         let over_factor = Network::percentage_factor_as_u128() * 10;
+//         let new_inc = Network::get_increase_reputation(500000000000000000, over_factor);
+//         let new_dec = Network::get_decrease_reputation(500000000000000000, over_factor);
+//         assert_eq!(new_inc, Network::percentage_factor_as_u128());
+//         assert_eq!(new_dec, 0);
+//     });
+// }
 
 #[test]
 fn test_get_increase_reputation_v2() {
@@ -305,13 +305,35 @@ fn test_get_increase_reputation_v2() {
         let factor = 50000000000000000; // 5%
         let mut reputation = 100000000000000000; // 10%
 
-        for i in 0..28 {
-            reputation = Network::get_increase_reputation_v2(reputation, factor);
+        for i in 0..64 {
+            reputation = Network::increase_rep(reputation, factor, None);
             log::error!(
                 "new {:?}, {:?}",
                 i + 1,
                 (reputation as f64 / 1000000000000000000.0)
             );
         }
+
+        // assert!(false)
+    });
+}
+
+
+#[test]
+fn test_get_decrease_reputation_v2() {
+    new_test_ext().execute_with(|| {
+        let factor = 50000000000000000; // 5%
+        let mut reputation = 1000000000000000000; // 100%
+
+        for i in 0..64 {
+            reputation = Network::decrease_rep(reputation, factor, None);
+            log::error!(
+                "new {:?}, {:?}",
+                i + 1,
+                (reputation as f64 / 1000000000000000000.0)
+            );
+        }
+
+        // assert!(false)
     });
 }

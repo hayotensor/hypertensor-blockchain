@@ -364,10 +364,10 @@ impl<T: Config> Pallet<T> {
             // --- Pause logic
             if data.state == SubnetState::Paused {
                 if data.start_epoch + max_pause_epochs < epoch {
-                    let subnet_reputation = SubnetReputation::<T>::get(subnet_id);
-                    let new_subnet_reputation = Self::get_decrease_reputation(
-                        subnet_reputation,
+                    let new_subnet_reputation = Self::decrease_rep(
+                        SubnetReputation::<T>::get(subnet_id),
                         MaxPauseEpochsSubnetReputationFactor::<T>::get(),
+                        None
                     );
                     SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
                     weight_meter.consume(db_weight.reads_writes(2, 1));
@@ -418,10 +418,10 @@ impl<T: Config> Pallet<T> {
             let electable_nodes = TotalSubnetElectableNodes::<T>::get(subnet_id);
 
             if electable_nodes < min_subnet_nodes {
-                let subnet_reputation = SubnetReputation::<T>::get(subnet_id);
-                let new_subnet_reputation = Self::get_decrease_reputation(
-                    subnet_reputation,
+                let new_subnet_reputation = Self::decrease_rep(
+                    SubnetReputation::<T>::get(subnet_id),
                     LessThanMinNodesSubnetReputationFactor::<T>::get(),
+                    None
                 );
                 SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
                 weight_meter.consume(db_weight.reads_writes(2, 1));

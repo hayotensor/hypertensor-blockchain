@@ -118,26 +118,8 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    // pub fn calculate_registration_delay(
-    //   subnet_id: u32,
-    //   base_delay: u32,
-    //   scaling_factor: f64,
-    //   current_nodes: u32
-    // ) -> u32 {
-    //   let delay = base_delay as f64 / (1.0 + scaling_factor * (1.0 + current_nodes as f64).log2());
-    //   delay.round() as u32
-    // }
-
     pub fn are_all_unique<V: Ord + Clone>(values: &[V]) -> bool {
         let set: BTreeSet<_> = values.iter().cloned().collect();
         set.len() == values.len()
     }
-
-    // fn ensure_all_unique<V: Ord + Clone>(values: &[V]) -> bool {
-    //     let mut seen = sp_std::collections::BTreeSet::new();
-    //     for value in values {
-    //         seen.insert(value.clone())
-    //     }
-    //     seen.len() == values.len()
-    // }
 }

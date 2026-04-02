@@ -119,12 +119,11 @@ impl<T: Config> Pallet<T> {
         if subnet_reputation != percentage_factor
             && consensus_submission_data.data_length >= MinSubnetNodes::<T>::get()
         {
-            // TODO: Increase reputation based on attestation ratio
-            let new_subnet_reputation = Self::get_increase_reputation(
-                subnet_reputation,
+            Self::increase_subnet_reputation(
+                subnet_id,
                 InConsensusSubnetReputationFactor::<T>::get(),
+                consensus_submission_data.attestation_ratio
             );
-            SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
             weight_meter.consume(db_weight.reads_writes(2, 1));
         }
 
@@ -488,26 +487,25 @@ impl<T: Config> Pallet<T> {
         weight_meter.consume(slash_validator_weight);
 
         // Decrease subnet reputation
-        let new_subnet_reputation = Self::get_decrease_reputation(
-            subnet_reputation,
-            NotInConsensusSubnetReputationFactor::<T>::get(),
-        );
-        SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
-        // NotInConsensusSubnetReputationFactor, SubnetReputation
-        weight_meter.consume(db_weight.reads_writes(1, 1));
-        Self::deposit_event(Event::SubnetReputationUpdate {
+        let factor_2 = percentage_factor.saturating_sub(Self::percent_div(
+            consensus_submission_data.attestation_ratio,
+            min_attestation_percentage,
+        ));
+
+        Self::decrease_subnet_reputation(
             subnet_id,
-            prev_reputation: subnet_reputation,
-            new_reputation: new_subnet_reputation,
-        });
+            NotInConsensusSubnetReputationFactor::<T>::get(),
+            percentage_factor
+        );
+        // NotInConsensusSubnetReputationFactor | SubnetReputation
+        weight_meter.consume(db_weight.reads_writes(2, 1));
 
         // Get the decrease factor based on the attestation ratio
-        let non_consensus_attestor_factor = Self::percent_mul(
-            NonConsensusAttestorDecreaseReputationFactor::<T>::get(subnet_id),
-            percentage_factor.saturating_sub(Self::percent_div(
-                consensus_submission_data.attestation_ratio,
-                min_attestation_percentage,
-            )),
+        let non_consensus_attestor_factor = Self::get_non_consensus_attestor_factor(
+            subnet_id,
+            consensus_submission_data.attestation_ratio,
+            min_attestation_percentage,
+            percentage_factor,
         );
         // NonConsensusAttestorDecreaseReputationFactor
         weight_meter.consume(db_weight.reads(1));
@@ -527,8 +525,8 @@ impl<T: Config> Pallet<T> {
                     non_consensus_attestor_factor,
                 );
 
-                // `decrease_node_reputation`: SubnetNodeReputation (r/w)
-                weight_meter.consume(db_weight.reads_writes(1, 1));
+                // `decrease_and_return_node_reputation`: SubnetNodeReputation (r/w)
+                weight_meter.consume(db_weight.reads_writes(2, 1));
 
                 if new_reputation < min_validator_reputation {
                     weight_meter.consume(db_weight.reads(1));

@@ -191,17 +191,6 @@ impl<T: Config> Pallet<T> {
             },
         );
 
-        // EmergencySubnetNodeElectionDataV2::<T>::insert(
-        //     subnet_id,
-        //     subnet_epoch,
-        //     EmergencySubnetValidatorData {
-        //         subnet_node_ids: subnet_node_ids.clone(),
-        //         target_emergency_validators_epochs: target_emergency_epochs,
-        //         total_epochs: 0,
-        //         max_emergency_validators_epoch: 0,
-        //     },
-        // );
-
         Self::deposit_event(Event::SubnetForked {
             subnet_id: subnet_id,
             owner: coldkey,

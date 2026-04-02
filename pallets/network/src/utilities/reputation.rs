@@ -15,6 +15,7 @@
 //
 
 use super::*;
+use frame_support::pallet_prelude::DispatchError;
 
 impl<T: Config> Pallet<T> {
     /// Increase coldkey reptuation
@@ -45,40 +46,10 @@ impl<T: Config> Pallet<T> {
         let mut coldkey_reputation = ColdkeyReputation::<T>::get(&coldkey);
         let current_score = coldkey_reputation.score;
 
-        // Stop early if weight is already maxed out
-        if current_score >= percentage_factor {
-            return;
-        }
-
-        // Reward factor decreases as weight increases (to make it harder to max out)
-        // 1999999999999999996 = 1e18 * 1e18 / (.5e18 + 1)
-        let reward_factor: u128 = percentage_factor
-            .saturating_mul(percentage_factor)
-            .saturating_div(current_score.saturating_add(1));
-
-        // Compute nominal increase
-        // Examples
-        // 339999999999999999 = (1e18 - .66e18) * .5e18 * 1999999999999999996 / 1e18 / 1e18
-        // 39999999999999999 = (.7e18 - .66e18) * .5e18 * 1999999999999999996 / 1e18 / 1e18
-        let nominal_increase: u128 = (attestation_percentage - min_attestation_percentage)
-            .saturating_mul(increase_weight_factor)
-            .saturating_mul(reward_factor)
-            .saturating_div(percentage_factor)
-            .saturating_div(percentage_factor);
-
-        if nominal_increase == 0 {
-            return;
-        }
-
-        let new_weight = current_score
-            .saturating_add(nominal_increase)
-            .min(percentage_factor);
-        if new_weight == current_score {
-            return;
-        }
+        let new_score = Self::increase_rep(current_score, increase_weight_factor, None);
 
         // Update fields
-        coldkey_reputation.score = new_weight;
+        coldkey_reputation.score = new_score;
         coldkey_reputation.total_increases += 1;
         coldkey_reputation.last_validator_epoch = epoch;
 
@@ -134,33 +105,10 @@ impl<T: Config> Pallet<T> {
         let mut coldkey_reputation = ColdkeyReputation::<T>::get(&coldkey);
         let current_score = coldkey_reputation.score;
 
-        // Remove node / Avoid division by zero
-        if current_score == 0 {
-            return;
-        }
-
         // Penalty increases as score increases (same pattern as reward logic)
-        let penalty_factor: u128 = percentage_factor
-            .saturating_mul(percentage_factor)
-            .saturating_div(current_score.saturating_add(1));
+        let new_score = Self::decrease_rep(current_score, decrease_weight_factor, None);
 
-        // Calculate nominal decrease: how much worse than threshold * score * penalty
-        let nominal_decrease: u128 = (min_attestation_percentage - attestation_percentage)
-            .saturating_mul(decrease_weight_factor)
-            .saturating_mul(penalty_factor)
-            .saturating_div(percentage_factor)
-            .saturating_div(percentage_factor);
-
-        if nominal_decrease == 0 {
-            return;
-        }
-
-        let new_weight = current_score.saturating_sub(nominal_decrease);
-        if new_weight == current_score {
-            return;
-        }
-
-        coldkey_reputation.score = new_weight;
+        coldkey_reputation.score = new_score;
         coldkey_reputation.total_decreases += 1;
         coldkey_reputation.last_validator_epoch = epoch;
 
@@ -186,11 +134,43 @@ impl<T: Config> Pallet<T> {
         ColdkeyReputation::<T>::insert(&coldkey, coldkey_reputation);
     }
 
+    pub fn increase_subnet_reputation(subnet_id: u32, factor_1: u128, factor_2: u128) {
+        SubnetReputation::<T>::try_mutate(
+            subnet_id,
+            |n: &mut u128| -> Result<u128, DispatchError> {
+                let prev_reputation = *n;
+                *n = Self::increase_rep(*n, factor_1, Some(factor_2));
+                Self::deposit_event(Event::SubnetReputationUpdate {
+                    subnet_id,
+                    prev_reputation,
+                    new_reputation: *n,
+                });
+                Ok(*n)
+            },
+        );
+    }
+
+    pub fn decrease_subnet_reputation(subnet_id: u32, factor_1: u128, factor_2: u128) {
+        SubnetReputation::<T>::try_mutate(
+            subnet_id,
+            |n: &mut u128| -> Result<u128, DispatchError> {
+                let prev_reputation = *n;
+                *n = Self::decrease_rep(*n, factor_1, Some(factor_2));
+                Self::deposit_event(Event::SubnetReputationUpdate {
+                    subnet_id,
+                    prev_reputation,
+                    new_reputation: *n,
+                });
+                Ok(*n)
+            },
+        );
+    }
+
     pub fn increase_node_reputation(subnet_id: u32, subnet_node_id: u32, factor: u128) {
         SubnetNodeReputation::<T>::mutate_exists(subnet_id, subnet_node_id, |maybe_reputation| {
             if let Some(reputation) = maybe_reputation {
                 let prev_reputation = *reputation;
-                *reputation = Self::get_increase_reputation(prev_reputation, factor);
+                *reputation = Self::increase_rep(prev_reputation, factor, None);
                 Self::deposit_event(Event::NodeReputationUpdate {
                     subnet_id,
                     subnet_node_id,
@@ -203,53 +183,36 @@ impl<T: Config> Pallet<T> {
 
     /// Increase node reputation and return new reputation
     /// This takes in the current reputation and updates the nodes reputation
-    /// based on the input parameter being the source of truth of the reputation
+    /// *based on the input parameter* being the source of truth of the reputation
     pub fn increase_and_return_node_reputation(
         subnet_id: u32,
         subnet_node_id: u32,
         current_reputation: u128,
         factor: u128,
     ) -> u128 {
-        let new_reputation = Self::get_increase_reputation(current_reputation, factor);
-        SubnetNodeReputation::<T>::mutate_exists(subnet_id, subnet_node_id, |maybe_reputation| {
-            if let Some(reputation) = maybe_reputation {
-                *reputation = new_reputation;
+        let new_reputation = SubnetNodeReputation::<T>::try_mutate(
+            subnet_id,
+            subnet_node_id,
+            |n: &mut u128| -> Result<u128, DispatchError> {
+                *n = Self::increase_rep(current_reputation, factor, None);
                 Self::deposit_event(Event::NodeReputationUpdate {
                     subnet_id,
                     subnet_node_id,
                     prev_reputation: current_reputation,
-                    new_reputation,
+                    new_reputation: *n,
                 });
+                Ok(*n)
+            },
+        );
+
+        match new_reputation {
+            Ok(new_reputation) => {
+                return new_reputation
             }
-        });
-        new_reputation
-    }
-
-    pub fn get_increase_reputation(prev_reputation: u128, factor: u128) -> u128 {
-        let one = Self::percentage_factor_as_u128();
-        let factor = factor.min(one);
-        let delta = Self::percent_mul(one.saturating_sub(prev_reputation), factor);
-        prev_reputation.saturating_add(delta).min(one)
-    }
-
-    pub fn get_increase_reputation_v2(prev_reputation: u128, factor: u128) -> u128 {
-        let one_f64 = Self::get_percent_as_f64(Self::percentage_factor_as_u128());
-        let factor_f64 = Self::get_percent_as_f64(factor);
-        let prev_reputation_f64 = Self::get_percent_as_f64(prev_reputation);
-
-        let x = Self::pow(prev_reputation_f64, one_f64 + factor_f64);
-        let increase = x * factor_f64;
-        (((prev_reputation_f64 + increase) * Self::percentage_factor_as_f64()) as u128)
-            .min(Self::percentage_factor_as_u128())
-    }
-
-    pub fn decrease_node_reputation(subnet_id: u32, subnet_node_id: u32, factor: u128) -> u128 {
-        Self::decrease_and_return_node_reputation(
-            subnet_id,
-            subnet_node_id,
-            SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id),
-            factor,
-        )
+            Err(_) => {
+                return current_reputation
+            }
+        }
     }
 
     /// Decrease from submitted node reputation and return new reputation
@@ -260,43 +223,105 @@ impl<T: Config> Pallet<T> {
         current_reputation: u128,
         factor: u128,
     ) -> u128 {
-        let new_reputation = Self::get_decrease_reputation(current_reputation, factor);
-        SubnetNodeReputation::<T>::insert(subnet_id, subnet_node_id, new_reputation);
-        Self::deposit_event(Event::NodeReputationUpdate {
+        let new_reputation = SubnetNodeReputation::<T>::try_mutate(
             subnet_id,
             subnet_node_id,
-            prev_reputation: current_reputation,
-            new_reputation,
-        });
+            |n: &mut u128| -> Result<u128, DispatchError> {
+                *n = Self::decrease_rep(current_reputation, factor, None);
+                Self::deposit_event(Event::NodeReputationUpdate {
+                    subnet_id,
+                    subnet_node_id,
+                    prev_reputation: current_reputation,
+                    new_reputation: *n,
+                });
+                Ok(*n)
+            },
+        );
 
-        new_reputation
+        match new_reputation {
+            Ok(new_reputation) => {
+                return new_reputation
+            }
+            Err(_) => {
+                return current_reputation
+            }
+        }
     }
 
-    // pub fn decrease_and_return_node_reputation(
-    //     subnet_id: u32,
-    //     subnet_node_id: u32,
-    //     current_reputation: u128,
-    //     factor: u128,
-    // ) -> u128 {
-    //     let new_reputation = Self::get_decrease_reputation(current_reputation, factor);
-    //     SubnetNodeReputation::<T>::mutate_exists(subnet_id, subnet_node_id, |maybe_reputation| {
-    //         if let Some(reputation) = maybe_reputation {
-    //             *reputation = new_reputation;
-    //             Self::deposit_event(Event::NodeReputationUpdate {
-    //                 subnet_id,
-    //                 subnet_node_id,
-    //                 prev_reputation: current_reputation,
-    //                 new_reputation,
-    //             });
-    //         }
-    //     });
-    //     new_reputation
-    // }
-
-    pub fn get_decrease_reputation(prev_reputation: u128, factor: u128) -> u128 {
+    /// Increase reputation function designed to get a reputation back to 1.0
+    ///
+    /// # Formula
+    ///
+    /// Uses a pow function to calculate the new reputation
+    ///
+    /// # Arguments
+    /// * `prev_reputation` - The previous reputation
+    /// * `factor_1` - The first factor to apply
+    /// * `factor_2` - The second factor to apply
+    /// 
+    /// # Returns
+    /// The new reputation
+    pub fn increase_rep(prev_reputation: u128, factor_1: u128, factor_2: Option<u128>) -> u128 {
         let one = Self::percentage_factor_as_u128();
-        let factor = factor.min(one);
+        if prev_reputation == one {
+            return prev_reputation;
+        }
+        let factor = Self::percent_mul(factor_1, factor_2.unwrap_or(one));
+        let one_f64 = Self::get_percent_as_f64(one);
+        let factor_f64 = Self::get_percent_as_f64(factor);
+        let prev_reputation_f64 = Self::get_percent_as_f64(prev_reputation);
+
+        let x = Self::pow(prev_reputation_f64, one_f64 + factor_f64);
+        let increase = x * factor_f64;
+        (((prev_reputation_f64 + increase) * Self::percentage_factor_as_f64()) as u128)
+            .min(Self::percentage_factor_as_u128())
+    }
+
+    /// Decrease reputation function designed to get a reputation back to 0.0
+    ///
+    /// # Formula
+    ///
+    /// Uses a simple multiplication to calculate the new reputation
+    ///
+    /// # Arguments
+    /// * `prev_reputation` - The previous reputation
+    /// * `factor_1` - The first factor to apply
+    /// * `factor_2` - The second factor to apply
+    /// 
+    /// # Returns
+    /// The new reputation
+    pub fn decrease_rep(prev_reputation: u128, factor_1: u128, factor_2: Option<u128>) -> u128 {
+        if prev_reputation == 0 {
+            return prev_reputation;
+        }
+        let one = Self::percentage_factor_as_u128();
+        let factor = Self::percent_mul(factor_1, factor_2.unwrap_or(one));
         let delta = Self::percent_mul(prev_reputation, factor);
-        prev_reputation.saturating_sub(delta)
+        prev_reputation.saturating_sub(delta).min(one)
+    }
+
+    /// Get the non consensus attestor factor
+    ///
+    /// # Arguments
+    /// * `subnet_id` - The subnet id
+    /// * `attestation_ratio` - The attestation ratio
+    /// * `min_attestation_percentage` - The minimum attestation percentage
+    /// * `percentage_factor` - The percentage factor (1e18)
+    /// 
+    /// # Returns
+    /// The non consensus attestor factor
+    pub fn get_non_consensus_attestor_factor(
+        subnet_id: u32,
+        attestation_ratio: u128,
+        min_attestation_percentage: u128,
+        percentage_factor: u128,
+    ) -> u128 {
+        Self::percent_mul(
+            NonConsensusAttestorDecreaseReputationFactor::<T>::get(subnet_id),
+            percentage_factor.saturating_sub(Self::percent_div(
+                attestation_ratio,
+                min_attestation_percentage,
+            )),
+        )
     }
 }

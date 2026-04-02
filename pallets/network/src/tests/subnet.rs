@@ -1659,11 +1659,23 @@ fn test_assign_and_free_reassigns_correctly() {
         let slot1 = Network::assign_subnet_slot(subnet1).unwrap();
         assert_eq!(slot1, first_slot);
 
+        assert_eq!(SubnetSlot::<Test>::get(subnet1), Some(first_slot));
+        assert_eq!(SlotAssignment::<Test>::get(first_slot), Some(subnet1));
+        assert!(AssignedSlots::<Test>::get().contains(&first_slot));
+
         Network::free_slot_of_subnet(subnet1);
+
+        assert_eq!(SubnetSlot::<Test>::get(subnet1), None);
+        assert_eq!(SlotAssignment::<Test>::get(first_slot), None);
+        assert!(!AssignedSlots::<Test>::get().contains(&first_slot));
 
         // Should now reuse slot `first_slot`
         let slot2 = Network::assign_subnet_slot(subnet2).unwrap();
         assert_eq!(slot2, first_slot);
+
+        assert_eq!(SubnetSlot::<Test>::get(subnet2), Some(first_slot));
+        assert_eq!(SlotAssignment::<Test>::get(first_slot), Some(subnet2));
+        assert!(AssignedSlots::<Test>::get().contains(&first_slot));
     });
 }
 
@@ -1672,7 +1684,8 @@ fn test_assign_and_free_reassigns_correctly_at_max() {
     new_test_ext().execute_with(|| {
         let max_slots = EpochLength::get();
         let first_slot = DesignatedEpochSlots::get();
-        let subnet1 = 128001;
+        let subnet_to_remove = DesignatedEpochSlots::get();
+        let subnet_to_add = 10101010;
 
         // Fill all slots from 1..max_slots
         for i in DesignatedEpochSlots::get()..max_slots {
@@ -1681,14 +1694,23 @@ fn test_assign_and_free_reassigns_correctly_at_max() {
         }
 
         // Now this call should fail with NoAvailableSlots
-        let result = Network::assign_subnet_slot(999);
+        let result = Network::assign_subnet_slot(999999);
         assert_noop!(result, Error::<Test>::NoAvailableSlots);
 
-        // Free last slot
-        Network::free_slot_of_subnet(subnet1);
+        let slot_to_remove = SubnetSlot::<Test>::get(subnet_to_remove).unwrap();
 
-        let result = Network::assign_subnet_slot(first_slot);
-        assert_noop!(result, Error::<Test>::NoAvailableSlots);
+        // Free last slot by removing first subnet
+        Network::free_slot_of_subnet(subnet_to_remove);
+        assert_eq!(SubnetSlot::<Test>::get(subnet_to_remove), None);
+        assert_eq!(SlotAssignment::<Test>::get(slot_to_remove), None);
+        assert!(!AssignedSlots::<Test>::get().contains(&slot_to_remove));
+
+        let result = Network::assign_subnet_slot(subnet_to_add);
+        assert_ok!(result);
+
+        assert_eq!(SubnetSlot::<Test>::get(subnet_to_add), Some(slot_to_remove));
+        assert_eq!(SlotAssignment::<Test>::get(slot_to_remove), Some(subnet_to_add));
+        assert!(AssignedSlots::<Test>::get().contains(&slot_to_remove));
     });
 }
 
@@ -1804,9 +1826,6 @@ fn test_update_bootnodes() {
         // --- Case 3: Too many bootnodes ---
         // Fill to max
         let mut add_map = BTreeMap::new();
-        // for i in 3..=max_bootnodes as u8 {
-        //     add_map.insert(peer(i as u32), bv(i));
-        // }
         for i in 3..=max_bootnodes as u8 {
             add_map.insert(
                 peer(i as u32),

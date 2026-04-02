@@ -2887,17 +2887,6 @@ pub mod pallet {
         StorageMap<_, Identity, u32, EmergencySubnetValidatorData, OptionQuery>;
 
     #[pallet::storage]
-    pub type EmergencySubnetNodeElectionDataV2<T> = StorageDoubleMap<
-        _,
-        Identity,
-        u32, // subnet_id
-        Identity,
-        u32, // epoch
-        EmergencySubnetValidatorData,
-        OptionQuery,
-    >;
-
-    #[pallet::storage]
     pub type MaxEmergencySubnetNodes<T> =
         StorageValue<_, u32, ValueQuery, DefaultMaxEmergencySubnetNodes>;
 

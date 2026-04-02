@@ -250,7 +250,7 @@ impl<T: Config> Pallet<T> {
                 //
                 // Subnet has weights and is currently active
                 //
-                // Note: A subnet will only have weights if it's active, see `handle_subnet_emission_weights`
+                // Note: A subnet will only have weights if it's active, see ``handle_subnet_emission_weights``
 
                 // --- Elect new validator for the current epoch
                 // The current epoch is the start of the subnets epoch
@@ -293,7 +293,7 @@ impl<T: Config> Pallet<T> {
         weight_meter.consume(db_weight.reads(1));
 
         // Only process the queue based on the churn_limit_multiplier
-        // If multiplier is 4, only run every 4 epochs. If 1, run every epoch.
+        // E.g. If multiplier is 4, only run every 4 epochs. If 1, run every epoch.
         if current_subnet_epoch % churn_limit_multiplier != 0 {
             return;
         }
@@ -624,10 +624,11 @@ impl<T: Config> Pallet<T> {
                     //
                     // Update subnet rep
                     //
-                    let subnet_reputation = SubnetReputation::<T>::get(subnet_id);
-                    let factor = ValidatorAbsentSubnetReputationFactor::<T>::get();
-
-                    let new_reputation = Self::get_decrease_reputation(subnet_reputation, factor);
+                    let new_reputation = Self::decrease_rep(
+                        SubnetReputation::<T>::get(subnet_id),
+                        ValidatorAbsentSubnetReputationFactor::<T>::get(),
+                        None
+                    );
                     SubnetReputation::<T>::insert(subnet_id, new_reputation);
 
                     // Reads:
