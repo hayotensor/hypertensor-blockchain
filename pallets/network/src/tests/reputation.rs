@@ -318,7 +318,6 @@ fn test_get_increase_reputation_v2() {
     });
 }
 
-
 #[test]
 fn test_get_decrease_reputation_v2() {
     new_test_ext().execute_with(|| {

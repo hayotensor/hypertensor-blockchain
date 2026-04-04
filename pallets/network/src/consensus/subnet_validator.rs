@@ -157,11 +157,12 @@ impl<T: Config> Pallet<T> {
 
         // --- Get all validators
         // Note: This is triggered here when the validator submits their data, not at the start block of the epoch
+        //
         // These are the nodes that can attest to the consensus data
         //
-        // We store `validator_ids` because the emergency validator set can be different from the regular validator set
-        // and we need to know who to count as attestors officially. And we use the call of this function as the official point
-        // of time of which nodes can attest on this epoch.
+        // We store `validator_ids` in `ConsensusData` because the emergency validator set can be different from
+        // the regular validator set and we need to know who to count as attestors officially. And we use the
+        // call of this function as the official point of time of which nodes can attest on this epoch.
         let validator_ids: Vec<u32> = if let Some(emergency_validator_data) =
             EmergencySubnetNodeElectionData::<T>::get(subnet_id)
         {
@@ -173,6 +174,7 @@ impl<T: Config> Pallet<T> {
             SubnetNodeElectionSlots::<T>::get(subnet_id)
         };
 
+        // Check if validator sent through queue priority or removal IDs
         if prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some() {
             let queue = SubnetNodeQueue::<T>::get(subnet_id);
             let immunity_epochs = QueueImmunityEpochs::<T>::get(subnet_id); // Move outside loop
@@ -180,7 +182,7 @@ impl<T: Config> Pallet<T> {
             let mut prioritize_exists = prioritize_queue_node_id.is_none();
             let mut remove_allowed = remove_queue_node_id.is_none(); // Rename for clarity
 
-            // Single pass through the queue to check both nodes
+            // Single pass through the queue to check both nodes exist in the queue
             for node in &queue {
                 if let Some(node_id) = prioritize_queue_node_id {
                     if node.id == node_id {
@@ -261,19 +263,6 @@ impl<T: Config> Pallet<T> {
             }
             Err(()) => return Err(Error::<T>::InvalidSubnetNodeId.into()),
         };
-
-        // If subnet is forked, make sure attestors are the new temporary validator set
-        // if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
-        // {
-        //     let emergency_node_ids: BTreeSet<u32> = emergency_validator_data
-        //         .subnet_node_ids
-        //         .into_iter()
-        //         .collect();
-        //     ensure!(
-        //         emergency_node_ids.contains(&subnet_node_id),
-        //         Error::<T>::InvalidEmergencySubnetNodeId
-        //     );
-        // }
 
         // - Note: we don't check stake balance here
 
@@ -421,33 +410,40 @@ impl<T: Config> Pallet<T> {
 
         weight = weight.saturating_add(db_weight.reads(1));
 
-        // --- Get stake balance. This is safe, uses Default value
-        // This could be greater than the target stake balance
-        let account_subnet_stake: u128 = AccountSubnetStake::<T>::get(&hotkey, subnet_id);
-
-        // --- Get slash amount up to max slash
-        // --- Base slash amount
-        // stake balance * BaseSlashPercentage
-        let base_slash: u128 =
-            Self::percent_mul(account_subnet_stake, BaseSlashPercentage::<T>::get());
-
         // --- Get percent difference between attestation ratio and min attestation ratio
         // 1.0 - attestation ratio / min attestation ratio
         let attestation_delta = Self::percentage_factor_as_u128().saturating_sub(
             Self::percent_div(attestation_percentage, min_attestation_percentage),
         );
 
-        // --- Update slash amount based on delta
-        // base_slash * attestation_delta
-        let mut slash_amount = Self::percent_mul(base_slash, attestation_delta);
+        let account_subnet_stake: u128 = AccountSubnetStake::<T>::get(&hotkey, subnet_id);
+        let slash_amount = Self::get_slash_amount(
+            account_subnet_stake,
+            attestation_percentage,
+            min_attestation_percentage,
+            attestation_delta,
+        );
+        // // --- Get stake balance. This is safe, uses Default value
+        // // This could be greater than the target stake balance
+        // let account_subnet_stake: u128 = AccountSubnetStake::<T>::get(&hotkey, subnet_id);
 
-        // --- Update slash amount up to max slash
-        let max_slash: u128 = MaxSlashAmount::<T>::get();
-        weight = weight.saturating_add(db_weight.reads(4));
+        // // --- Get slash amount up to max slash
+        // // --- Base slash amount
+        // // stake balance * BaseSlashPercentage
+        // let base_slash: u128 =
+        //     Self::percent_mul(account_subnet_stake, BaseSlashPercentage::<T>::get());
 
-        if slash_amount > max_slash {
-            slash_amount = max_slash
-        }
+        // // --- Update slash amount based on delta
+        // // base_slash * attestation_delta
+        // let mut slash_amount = Self::percent_mul(base_slash, attestation_delta);
+
+        // // --- Update slash amount up to max slash
+        // let max_slash: u128 = MaxSlashAmount::<T>::get();
+        // weight = weight.saturating_add(db_weight.reads(4));
+
+        // if slash_amount > max_slash {
+        //     slash_amount = max_slash
+        // }
 
         if slash_amount > 0 {
             // --- Decrease account stake
@@ -461,12 +457,13 @@ impl<T: Config> Pallet<T> {
         // --- Decrease validator reputation
         let reputation_decrease_factor =
             ValidatorNonConsensusSubnetNodeReputationFactor::<T>::get(subnet_id);
-        let decrease_factor = Self::percent_mul(reputation_decrease_factor, attestation_delta);
+        // let decrease_factor = Self::percent_mul(reputation_decrease_factor, attestation_delta);
         let reputation = Self::decrease_and_return_node_reputation(
             subnet_id,
             subnet_node_id,
             SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id),
-            decrease_factor,
+            reputation_decrease_factor,
+            Some(attestation_delta),
         );
         weight = weight.saturating_add(db_weight.reads_writes(2, 1));
 
@@ -509,5 +506,31 @@ impl<T: Config> Pallet<T> {
         });
 
         weight
+    }
+
+    pub fn get_slash_amount(
+        account_subnet_stake: u128,
+        attestation_percentage: u128,
+        min_attestation_percentage: u128,
+        attestation_delta: u128,
+    ) -> u128 {
+        // --- Get slash amount up to max slash
+        // --- Base slash amount
+        // stake balance * BaseSlashPercentage
+        let base_slash: u128 =
+            Self::percent_mul(account_subnet_stake, BaseSlashPercentage::<T>::get());
+
+        // --- Update slash amount based on delta
+        // base_slash * attestation_delta
+        let mut slash_amount = Self::percent_mul(base_slash, attestation_delta);
+
+        // --- Update slash amount up to max slash
+        let max_slash: u128 = MaxSlashAmount::<T>::get();
+
+        if slash_amount > max_slash {
+            slash_amount = max_slash
+        }
+
+        slash_amount
     }
 }

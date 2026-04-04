@@ -367,7 +367,7 @@ impl<T: Config> Pallet<T> {
                     let new_subnet_reputation = Self::decrease_rep(
                         SubnetReputation::<T>::get(subnet_id),
                         MaxPauseEpochsSubnetReputationFactor::<T>::get(),
-                        None
+                        None,
                     );
                     SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
                     weight_meter.consume(db_weight.reads_writes(2, 1));
@@ -421,7 +421,7 @@ impl<T: Config> Pallet<T> {
                 let new_subnet_reputation = Self::decrease_rep(
                     SubnetReputation::<T>::get(subnet_id),
                     LessThanMinNodesSubnetReputationFactor::<T>::get(),
-                    None
+                    None,
                 );
                 SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
                 weight_meter.consume(db_weight.reads_writes(2, 1));

@@ -8978,6 +8978,12 @@ pub mod pallet {
                     .insert(subnet_node_id);
             });
 
+            SubnetNodeReputation::<T>::insert(
+                subnet_id,
+                subnet_node_id,
+                Self::percentage_factor_as_u128(),
+            );
+
             // To ensure the AccountId that owns the PeerId, the subnet should use signature authentication
             // This ensures others cannot claim to own a PeerId they are not the owner of
 

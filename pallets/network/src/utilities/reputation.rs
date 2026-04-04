@@ -188,13 +188,14 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         subnet_node_id: u32,
         current_reputation: u128,
-        factor: u128,
+        factor_1: u128,
+        factor_2: Option<u128>,
     ) -> u128 {
         let new_reputation = SubnetNodeReputation::<T>::try_mutate(
             subnet_id,
             subnet_node_id,
             |n: &mut u128| -> Result<u128, DispatchError> {
-                *n = Self::increase_rep(current_reputation, factor, None);
+                *n = Self::increase_rep(current_reputation, factor_1, factor_2);
                 Self::deposit_event(Event::NodeReputationUpdate {
                     subnet_id,
                     subnet_node_id,
@@ -205,14 +206,7 @@ impl<T: Config> Pallet<T> {
             },
         );
 
-        match new_reputation {
-            Ok(new_reputation) => {
-                return new_reputation
-            }
-            Err(_) => {
-                return current_reputation
-            }
-        }
+        new_reputation.unwrap_or(current_reputation)
     }
 
     /// Decrease from submitted node reputation and return new reputation
@@ -221,13 +215,14 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         subnet_node_id: u32,
         current_reputation: u128,
-        factor: u128,
+        factor_1: u128,
+        factor_2: Option<u128>,
     ) -> u128 {
         let new_reputation = SubnetNodeReputation::<T>::try_mutate(
             subnet_id,
             subnet_node_id,
             |n: &mut u128| -> Result<u128, DispatchError> {
-                *n = Self::decrease_rep(current_reputation, factor, None);
+                *n = Self::decrease_rep(current_reputation, factor_1, factor_2);
                 Self::deposit_event(Event::NodeReputationUpdate {
                     subnet_id,
                     subnet_node_id,
@@ -238,14 +233,7 @@ impl<T: Config> Pallet<T> {
             },
         );
 
-        match new_reputation {
-            Ok(new_reputation) => {
-                return new_reputation
-            }
-            Err(_) => {
-                return current_reputation
-            }
-        }
+        new_reputation.unwrap_or(current_reputation)
     }
 
     /// Increase reputation function designed to get a reputation back to 1.0
@@ -258,7 +246,7 @@ impl<T: Config> Pallet<T> {
     /// * `prev_reputation` - The previous reputation
     /// * `factor_1` - The first factor to apply
     /// * `factor_2` - The second factor to apply
-    /// 
+    ///
     /// # Returns
     /// The new reputation
     pub fn increase_rep(prev_reputation: u128, factor_1: u128, factor_2: Option<u128>) -> u128 {
@@ -287,7 +275,7 @@ impl<T: Config> Pallet<T> {
     /// * `prev_reputation` - The previous reputation
     /// * `factor_1` - The first factor to apply
     /// * `factor_2` - The second factor to apply
-    /// 
+    ///
     /// # Returns
     /// The new reputation
     pub fn decrease_rep(prev_reputation: u128, factor_1: u128, factor_2: Option<u128>) -> u128 {
@@ -307,7 +295,7 @@ impl<T: Config> Pallet<T> {
     /// * `attestation_ratio` - The attestation ratio
     /// * `min_attestation_percentage` - The minimum attestation percentage
     /// * `percentage_factor` - The percentage factor (1e18)
-    /// 
+    ///
     /// # Returns
     /// The non consensus attestor factor
     pub fn get_non_consensus_attestor_factor(

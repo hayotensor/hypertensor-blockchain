@@ -627,7 +627,7 @@ impl<T: Config> Pallet<T> {
                     let new_reputation = Self::decrease_rep(
                         SubnetReputation::<T>::get(subnet_id),
                         ValidatorAbsentSubnetReputationFactor::<T>::get(),
-                        None
+                        None,
                     );
                     SubnetReputation::<T>::insert(subnet_id, new_reputation);
 
@@ -638,6 +638,8 @@ impl<T: Config> Pallet<T> {
                     // - SubnetReputation
                     weight = weight.saturating_add(db_weight.reads_writes(2, 1));
 
+                    // The elected validator cannot remove self if elected so we don't check if they exist
+
                     //
                     // Update node rep
                     //
@@ -646,10 +648,11 @@ impl<T: Config> Pallet<T> {
                         validator_id,
                         SubnetNodeReputation::<T>::get(subnet_id, validator_id),
                         ValidatorAbsentDecreaseReputationFactor::<T>::get(subnet_id),
+                        None,
                     );
 
                     // NOTE: We don't check if below minimum node reputation here to possibly
-                    // remove the node from the subnet, as this is done in the bank
+                    // remove the node from the subnet, as this is done in the bank/rewards.rs ``distribute_rewards``
 
                     // Reads:
                     // - SubnetNodeReputation

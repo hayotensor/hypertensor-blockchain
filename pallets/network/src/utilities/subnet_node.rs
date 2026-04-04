@@ -888,6 +888,7 @@ impl<T: Config> Pallet<T> {
         SubnetNodeIdleConsecutiveEpochs::<T>::remove(subnet_id, subnet_node_id);
         SubnetNodeConsecutiveIncludedEpochs::<T>::remove(subnet_id, subnet_node_id);
         // We don't remove `HotkeySubnetId`. This is only removed when a node fully removes stake
+        // to allow them to always unstake under their hotkey
 
         let coldkey = HotkeyOwner::<T>::get(&hotkey);
 
@@ -1205,7 +1206,11 @@ impl<T: Config> Pallet<T> {
     /// to be graduated to validator class
     ///
     /// Returns true if the subnet node was graduated *AND* added to the election slots, false otherwise
-    pub fn graduate_to_validator_class(subnet_id: u32, subnet_node_id: u32, start_epoch: u32) -> bool {
+    pub fn graduate_to_validator_class(
+        subnet_id: u32,
+        subnet_node_id: u32,
+        start_epoch: u32,
+    ) -> bool {
         SubnetNodeElectionSlots::<T>::try_mutate(subnet_id, |slot_list| -> Result<(), ()> {
             if slot_list.contains(&subnet_node_id) {
                 return Err(());
@@ -1216,7 +1221,7 @@ impl<T: Config> Pallet<T> {
                 subnet_node_id,
                 |maybe_node_data| -> Result<(), ()> {
                     let node_data = maybe_node_data.as_mut().ok_or(())?;
-                    
+
                     node_data.classification = SubnetNodeClassification {
                         node_class: node_data.classification.node_class.next(),
                         start_epoch,
@@ -1226,7 +1231,7 @@ impl<T: Config> Pallet<T> {
                         subnet_node_id,
                         classification: node_data.classification.clone(),
                     });
-                    
+
                     Ok(())
                 },
             )?;
@@ -1236,7 +1241,7 @@ impl<T: Config> Pallet<T> {
             NodeSlotIndex::<T>::insert(subnet_id, subnet_node_id, idx);
             TotalSubnetElectableNodes::<T>::mutate(subnet_id, |mut n| n.saturating_inc());
             TotalElectableNodes::<T>::mutate(|mut n| n.saturating_inc());
-            
+
             Ok(())
         })
         .is_ok()

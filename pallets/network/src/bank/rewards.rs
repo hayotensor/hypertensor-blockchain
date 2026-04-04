@@ -61,7 +61,7 @@ impl<T: Config> Pallet<T> {
                 weight_meter,
             );
             return;
-        } else if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(
+        } else if let Some(validator_hotkey) = SubnetNodeIdHotkey::<T>::get(
             subnet_id,
             consensus_submission_data.validator_subnet_node_id,
         ) {
@@ -70,10 +70,12 @@ impl<T: Config> Pallet<T> {
             //
 
             // Increase validators stake
+            // In case the hotkey was updated since the consensus data was submitted we
+            // get the current hotkey for the subnet node id above.
 
             Self::handle_validator_reward(
                 weight_meter,
-                &hotkey,
+                &validator_hotkey,
                 subnet_id,
                 &consensus_submission_data,
                 min_attestation_percentage,
@@ -122,7 +124,7 @@ impl<T: Config> Pallet<T> {
             Self::increase_subnet_reputation(
                 subnet_id,
                 InConsensusSubnetReputationFactor::<T>::get(),
-                consensus_submission_data.attestation_ratio
+                consensus_submission_data.attestation_ratio,
             );
             weight_meter.consume(db_weight.reads_writes(2, 1));
         }
@@ -173,12 +175,20 @@ impl<T: Config> Pallet<T> {
 
         // Iterate each node, emit rewards, graduate, or penalize
         for subnet_node in &consensus_submission_data.subnet_nodes {
-            let mut reputation = SubnetNodeReputation::<T>::get(subnet_id, subnet_node.id);
+            // We need to get the `SubnetNodeReputation` anyway which will only exist if the node is live and active,
+            // so we check it exists and return the reputation
+            //
+            // We check this to enable the node to get rewards but skip all removal and reputation logic
+            let (mut reputation, node_exists): (u128, bool) =
+                match SubnetNodeReputation::<T>::try_get(subnet_id, subnet_node.id) {
+                    Ok(r) => (r, true),
+                    Err(_) => (0, false),
+                };
 
             // SubnetNodeReputation
             weight_meter.consume(db_weight.reads(1));
 
-            if reputation < min_validator_reputation {
+            if node_exists && reputation < min_validator_reputation {
                 // Remove node if they haven't already been removed
                 Self::handle_consensus_remove_active_node(
                     weight_meter,
@@ -190,8 +200,10 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            // If node is Idle class and subnet is not temporarily forked, upgrade to Included class
-            if subnet_node.classification.node_class == SubnetNodeClass::Idle
+            // If node is Idle class and subnet is not temporarily forked via temp validator set,
+            // upgrade to Included class
+            if node_exists
+                && subnet_node.classification.node_class == SubnetNodeClass::Idle
                 && forked_subnet_node_ids.is_none()
             {
                 Self::handle_idle_node(
@@ -225,6 +237,7 @@ impl<T: Config> Pallet<T> {
                         subnet_node.id,
                         reputation,
                         included_factor,
+                        None,
                     );
 
                     // `increase_and_return_node_reputation`: SubnetNodeReputation (w)
@@ -232,24 +245,55 @@ impl<T: Config> Pallet<T> {
                 }
                 data
             } else {
-                // Not included in consensus, decrease reputation
-                reputation = Self::decrease_and_return_node_reputation(
+                if node_exists {
+                    // Not included in consensus, decrease reputation
+                    reputation = Self::decrease_and_return_node_reputation(
+                        subnet_id,
+                        subnet_node.id,
+                        reputation,
+                        absent_factor,
+                        None,
+                    );
+                    // `decrease_and_return_node_reputation`: SubnetNodeReputation (w)
+                    weight_meter.consume(db_weight.writes(1));
+
+                    // Break count of consecutive epochs of being included in in-consensus data
+                    if subnet_node.classification.node_class == SubnetNodeClass::Included {
+                        SubnetNodeConsecutiveIncludedEpochs::<T>::insert(
+                            subnet_id,
+                            subnet_node.id,
+                            0,
+                        );
+                        // SubnetNodeConsecutiveIncludedEpochs
+                        weight_meter.consume(db_weight.writes(1));
+                    }
+                }
+
+                // Not in consensus data, skip to next node
+                continue;
+            };
+
+            // If node is Included class and subnet is not temporarily forked, upgrade to Validator class
+            //
+            // This is ran after we check if the node is included in the consensus data to ensure the node
+            // gets its reputation decreased if it was not included in the consensus data
+            if node_exists
+                && subnet_node.classification.node_class == SubnetNodeClass::Included
+                && forked_subnet_node_ids.is_none()
+            {
+                Self::handle_included_node(
+                    weight_meter,
                     subnet_id,
                     subnet_node.id,
                     reputation,
-                    absent_factor,
+                    percentage_factor,
+                    included_epochs,
+                    current_subnet_epoch,
                 );
-                // `decrease_and_return_node_reputation`: SubnetNodeReputation (w)
-                weight_meter.consume(db_weight.writes(1));
 
-                // Break count of consecutive epochs of being included in in-consensus data
-                if subnet_node.classification.node_class == SubnetNodeClass::Included {
-                    SubnetNodeConsecutiveIncludedEpochs::<T>::insert(subnet_id, subnet_node.id, 0);
-                    // SubnetNodeConsecutiveIncludedEpochs
-                    weight_meter.consume(db_weight.writes(1));
-                }
+                // SubnetNodeClass::Included does not get rewards yet, they must pass the gauntlet
                 continue;
-            };
+            }
 
             //
             // --- Consensus formed on node
@@ -268,33 +312,16 @@ impl<T: Config> Pallet<T> {
             // Decrease reputation if under subnets weight threshold
             // We don't automatically decrease reputation if a node is at ZERO
             // This is an optional feature for subnets
-            if node_weight < weight_threshold {
+            if node_exists && node_weight < weight_threshold {
                 reputation = Self::decrease_and_return_node_reputation(
                     subnet_id,
                     subnet_node.id,
                     reputation,
                     min_weight_factor,
+                    None,
                 );
                 // `decrease_and_return_node_reputation`: SubnetNodeReputation (w)
                 weight_meter.consume(db_weight.writes(1));
-            }
-
-            // If node is Included class and subnet is not temporarily forked, upgrade to Validator class
-            if subnet_node.classification.node_class == SubnetNodeClass::Included
-                && forked_subnet_node_ids.is_none()
-            {
-                Self::handle_included_node(
-                    weight_meter,
-                    subnet_id,
-                    subnet_node.id,
-                    reputation,
-                    percentage_factor,
-                    included_epochs,
-                    current_subnet_epoch,
-                );
-
-                // SubnetNodeClass::Included does not get rewards yet, they must pass the gauntlet
-                continue;
             }
 
             //
@@ -312,14 +339,16 @@ impl<T: Config> Pallet<T> {
                             // We can likely assume the validator is offline in the current epoch and
                             // failed to attest. The `non_attestor_factor` is suggested to the be lowest
                             // decreasing factor of all node reputation factors.
-                            if consensus_submission_data.attestation_ratio
-                                >= super_majority_threshold
+                            if node_exists
+                                && consensus_submission_data.attestation_ratio
+                                    >= super_majority_threshold
                             {
                                 reputation = Self::decrease_and_return_node_reputation(
                                     subnet_id,
                                     subnet_node.id,
                                     reputation,
                                     non_attestor_factor,
+                                    None,
                                 );
                                 // `decrease_and_return_node_reputation`: SubnetNodeReputation (w)
                                 weight_meter.consume(db_weight.writes(1));
@@ -335,12 +364,15 @@ impl<T: Config> Pallet<T> {
                 data.reward_factor
             } else {
                 // Node not attested but in in-consensus data, decrease reputation, return 1.0 reward factor
-                if consensus_submission_data.attestation_ratio >= super_majority_threshold {
+                if node_exists
+                    && consensus_submission_data.attestation_ratio >= super_majority_threshold
+                {
                     reputation = Self::decrease_and_return_node_reputation(
                         subnet_id,
                         subnet_node.id,
                         reputation,
                         non_attestor_factor,
+                        None,
                     );
                     // `decrease_and_return_node_reputation`: SubnetNodeReputation (w)
 
@@ -350,7 +382,7 @@ impl<T: Config> Pallet<T> {
                 percentage_factor
             };
 
-            if reputation < min_validator_reputation {
+            if node_exists && reputation < min_validator_reputation {
                 // Remove node if they haven't already due to reputation decreases logic above
                 Self::handle_consensus_remove_active_node(
                     weight_meter,
@@ -383,6 +415,7 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
+            // We allow the node to not exist here and still increase the delegate reward pool
             if subnet_node.delegate_reward_rate != 0 {
                 // --- Ensure users are staked to subnet node
                 let total_node_delegated_stake_shares =
@@ -427,7 +460,16 @@ impl<T: Config> Pallet<T> {
                     ),
                 ));
             }
-            Self::increase_account_stake(&subnet_node.hotkey, subnet_id, account_reward);
+
+            // In case the hotkey was updated since the consensus data was submitted we
+            // get the current hotkey for the subnet node id.
+            //
+            // We know the node exists in this block because we check the reputation exists at the
+            // start of the loop. We still safely get the hotkey.
+            let subnet_node_hotkey = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node.id)
+                .unwrap_or(subnet_node.hotkey.clone());
+
+            Self::increase_account_stake(&subnet_node_hotkey, subnet_id, account_reward);
             // AccountSubnetStake | TotalSubnetStake | TotalStake
             weight_meter.consume(db_weight.reads_writes(3, 3));
 
@@ -495,7 +537,7 @@ impl<T: Config> Pallet<T> {
         Self::decrease_subnet_reputation(
             subnet_id,
             NotInConsensusSubnetReputationFactor::<T>::get(),
-            percentage_factor
+            percentage_factor,
         );
         // NotInConsensusSubnetReputationFactor | SubnetReputation
         weight_meter.consume(db_weight.reads_writes(2, 1));
@@ -523,6 +565,7 @@ impl<T: Config> Pallet<T> {
                     subnet_node_id,
                     SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id),
                     non_consensus_attestor_factor,
+                    None,
                 );
 
                 // `decrease_and_return_node_reputation`: SubnetNodeReputation (r/w)
@@ -582,9 +625,9 @@ impl<T: Config> Pallet<T> {
         // MinAttestationPercentage | BaseValidatorReward
         weight_meter.consume(db_weight.reads(2));
 
-        if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&validator_hotkey) {
+        if let Ok(validator_coldkey) = HotkeyOwner::<T>::try_get(&validator_hotkey) {
             Self::increase_coldkey_reputation(
-                coldkey,
+                validator_coldkey,
                 consensus_submission_data.attestation_ratio,
                 min_attestation_percentage,
                 coldkey_reputation_increase_factor,
@@ -781,7 +824,11 @@ impl<T: Config> Pallet<T> {
         match node_included_epochs {
             Ok(node_included_epochs) => {
                 if reputation >= percentage_factor && node_included_epochs >= included_epochs {
-                    if Self::graduate_to_validator_class(subnet_id, subnet_node_id, current_subnet_epoch) {
+                    if Self::graduate_to_validator_class(
+                        subnet_id,
+                        subnet_node_id,
+                        current_subnet_epoch,
+                    ) {
                         SubnetNodeConsecutiveIncludedEpochs::<T>::remove(subnet_id, subnet_node_id);
                         weight_meter.consume(db_weight.writes(1));
                     }

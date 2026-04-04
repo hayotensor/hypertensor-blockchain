@@ -1709,7 +1709,10 @@ fn test_assign_and_free_reassigns_correctly_at_max() {
         assert_ok!(result);
 
         assert_eq!(SubnetSlot::<Test>::get(subnet_to_add), Some(slot_to_remove));
-        assert_eq!(SlotAssignment::<Test>::get(slot_to_remove), Some(subnet_to_add));
+        assert_eq!(
+            SlotAssignment::<Test>::get(slot_to_remove),
+            Some(subnet_to_add)
+        );
         assert!(AssignedSlots::<Test>::get().contains(&slot_to_remove));
     });
 }
