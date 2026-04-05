@@ -16,7 +16,7 @@ use crate::{
     SuperMajorityAttestationRatio, TotalActiveSubnets, TotalNodeDelegateStakeBalance,
     TotalNodeDelegateStakeShares, TotalSubnetDelegateStakeBalance, TotalSubnetNodes,
     TotalSubnetUids, ValidatorAbsentDecreaseReputationFactor,
-    ValidatorAbsentSubnetReputationFactor,
+    ValidatorAbsentSubnetReputationFactor, SubnetNodeConsensusData, RewardsCapacitor,
 };
 use frame_support::pallet_prelude::DispatchResult;
 use frame_support::traits::Currency;
@@ -5614,6 +5614,7 @@ fn test_distribute_rewards_reset_included_consecutive_epochs() {
 
         // NEW EPOCH
         let included_epochs = IncludedClassificationEpochs::<Test>::get(subnet_id);
+        log::error!("included_epochs: {}", included_epochs);
 
         // Force node to have 1 less than the required included epochs
         SubnetNodeConsecutiveIncludedEpochs::<Test>::insert(
@@ -6998,3 +6999,242 @@ fn test_emergency_validator_subnet_rewards() {
         );
     });
 }
+
+// #[test]
+// fn test_distribute_rewards_rewards_capacitor() {
+//     new_test_ext().execute_with(|| {
+//         let subnet_name: Vec<u8> = "subnet-name".into();
+//         let deposit_amount: u128 = 10000000000000000000000;
+//         let amount: u128 = 1000000000000000000000;
+
+//         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+//         let subnets = TotalActiveSubnets::<Test>::get() + 1;
+//         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+//         let max_subnets = MaxSubnets::<Test>::get();
+
+//         build_activated_subnet(
+//             subnet_name.clone(),
+//             0,
+//             max_subnet_nodes,
+//             deposit_amount,
+//             stake_amount,
+//         );
+
+//         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+//         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
+
+//         let epoch_length = EpochLength::get();
+//         let block_number = System::block_number();
+//         let epoch = block_number / epoch_length;
+
+//         // ⸺ Submit consnesus data
+//         set_block_to_subnet_slot_epoch(epoch, subnet_id);
+//         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+
+//         Network::elect_validator(subnet_id, subnet_epoch, block_number);
+
+//         let validator_id = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch);
+//         assert!(validator_id != None, "Validator is None");
+//         assert!(validator_id != Some(0), "Validator is 0");
+
+//         let mut validator =
+//             SubnetNodeIdHotkey::<Test>::get(subnet_id, validator_id.unwrap()).unwrap();
+
+//         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+//         let epoch = Network::get_current_epoch_as_u32();
+
+//         let mut subnet_node_data_vec: Vec<SubnetNodeConsensusData> = Vec::new();
+//         for n in 0..total_subnet_nodes {
+//             let peer_subnet_node_data: SubnetNodeConsensusData = SubnetNodeConsensusData {
+//                 subnet_node_id: n + 1,
+//                 score: 0,
+//             };
+
+//             subnet_node_data_vec.push(peer_subnet_node_data);
+//         }
+
+//         assert_ok!(Network::propose_attestation(
+//             RuntimeOrigin::signed(validator.clone()),
+//             subnet_id,
+//             subnet_node_data_vec.clone(),
+//             None,
+//             None,
+//             None,
+//             None,
+//         ));
+
+//         for n in 0..total_subnet_nodes {
+//             let _n = n + 1;
+//             let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, _n);
+//             if hotkey.clone() == validator.clone() {
+//                 continue;
+//             }
+//             assert_ok!(Network::attest(
+//                 RuntimeOrigin::signed(hotkey.clone()),
+//                 subnet_id,
+//                 None,
+//             ));
+//         }
+
+//         increase_epochs(1);
+//         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+//         let epoch = Network::get_current_epoch_as_u32();
+
+//         // ⸺ Generate subnet weights from stake/node count weights
+//         let _ = Network::handle_subnet_emission_weights(epoch);
+//         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
+
+//         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
+//         assert!(subnet_weight.is_some());
+
+//         let (result, block_weight) = Network::precheck_subnet_consensus_submission(
+//             subnet_id,
+//             subnet_epoch - 1,
+//             Network::get_current_epoch_as_u32(),
+//         );
+
+//         assert!(result.is_some(), "Precheck consensus failed");
+
+//         let consensus_submission_data = result.unwrap();
+//         assert_eq!(
+//             consensus_submission_data.clone().validator_subnet_node_id,
+//             validator_id.unwrap()
+//         );
+//         assert_eq!(
+//             consensus_submission_data.clone().validator_epoch_progress,
+//             0
+//         );
+//         assert!(consensus_submission_data.clone().validator_reward_factor > 990000000000000000);
+//         assert_eq!(
+//             consensus_submission_data.clone().attestation_ratio,
+//             1000000000000000000
+//         );
+//         assert_eq!(
+//             consensus_submission_data.clone().weight_sum,
+//             500000000000000000 * max_subnet_nodes as u128
+//         );
+//         assert_eq!(
+//             consensus_submission_data.clone().data_length,
+//             max_subnet_nodes
+//         );
+//         assert_eq!(
+//             consensus_submission_data.clone().data,
+//             subnet_node_data_vec.clone()
+//         );
+//         assert_eq!(
+//             consensus_submission_data.clone().attests.len(),
+//             max_subnet_nodes as usize
+//         );
+//         assert_eq!(
+//             consensus_submission_data.clone().subnet_nodes.len(),
+//             max_subnet_nodes as usize
+//         );
+//         assert_eq!(
+//             consensus_submission_data.clone().prioritize_queue_node_id,
+//             None
+//         );
+//         assert_eq!(consensus_submission_data.clone().remove_queue_node_id, None);
+
+//         // ⸺ Calculate subnet distribution of rewards
+//         let (rewards_data, rewards_weight) = Network::calculate_rewards(
+//             subnet_id,
+//             subnet_emission_weights.subnets_emissions,
+//             *subnet_weight.unwrap(),
+//         );
+
+//         let subnet_rewards = rewards_data.subnet_rewards;
+
+//         let mut stake_snapshot: BTreeMap<<Test as frame_system::Config>::AccountId, u128> =
+//             BTreeMap::new();
+//         for n in 0..max_subnet_nodes {
+//             let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, n + 1);
+
+//             let stake = AccountSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
+
+//             assert_ne!(stake, 0);
+//             stake_snapshot.insert(hotkey.clone(), stake);
+//         }
+
+//         let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+//         let coldkey_reputation_increase_factor = ColdkeyReputationIncreaseFactor::<Test>::get();
+//         let coldkey_reputation_decrease_factor = ColdkeyReputationDecreaseFactor::<Test>::get();
+//         let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+
+//         let epoch = Network::get_current_epoch_as_u32();
+//         set_block_to_subnet_slot_epoch(epoch, subnet_id);
+
+//         let block_number = System::block_number();
+//         let dstake_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+//         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+
+//         let set_rep = 500000000000000000;
+//         SubnetReputation::<Test>::insert(subnet_id, set_rep);
+
+//         let validator_stake = AccountSubnetStake::<Test>::get(validator.clone(), subnet_id);
+
+//         Network::distribute_rewards(
+//             &mut WeightMeter::new(),
+//             subnet_id,
+//             block_number,
+//             epoch,
+//             subnet_epoch,
+//             consensus_submission_data.clone(),
+//             rewards_data.clone(),
+//             min_attestation_percentage,
+//             coldkey_reputation_increase_factor,
+//             coldkey_reputation_decrease_factor,
+//             super_majority_threshold,
+//         );
+
+//         let total_weight = DEFAULT_SCORE * total_subnet_nodes as u128;
+//         let node_weight = Network::percent_div(DEFAULT_SCORE, total_weight as u128);
+//         let expected_node_reward =
+//             Network::percent_mul(node_weight, rewards_data.clone().subnet_node_rewards);
+
+//         let post_validator_stake = AccountSubnetStake::<Test>::get(validator.clone(), subnet_id);
+//         let expected_validator_reward = Network::percent_mul(
+//             BaseValidatorReward::<Test>::get(),
+//             consensus_submission_data.clone().validator_reward_factor,
+//         );
+
+//         let reputation = SubnetNodeReputation::<Test>::get(subnet_id, validator_id.unwrap());
+
+//         assert_eq!(
+//             validator_stake + expected_validator_reward + expected_node_reward,
+//             post_validator_stake
+//         );
+
+//         for n in 0..max_subnet_nodes {
+//             let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, n + 1);
+//             if hotkey.clone() == validator.clone() {
+//                 continue;
+//             }
+
+//             let subnet_node_id =
+//                 HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+
+//             let reward_factor = match consensus_submission_data.attests.get(&subnet_node_id) {
+//                 Some(data) => data.reward_factor,
+//                 None => return assert!(false),
+//             };
+
+//             assert_eq!(reward_factor, Network::percentage_factor_as_u128());
+
+//             let stake = AccountSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
+
+//             if let Some(old_stake) = stake_snapshot.get(&hotkey) {
+//                 assert!(stake > *old_stake);
+//                 assert_eq!(stake, *old_stake + expected_node_reward);
+//             } else {
+//                 assert!(false); // auto-fail
+//             }
+//         }
+
+//         let post_dstake_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+//         assert!(post_dstake_balance > dstake_balance);
+
+//         assert!(SubnetReputation::<Test>::get(subnet_id) > set_rep);
+
+//         assert!(RewardsCapacitor::<Test>::get(subnet_id) > 0);
+//     });
+// }

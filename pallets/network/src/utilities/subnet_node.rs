@@ -932,9 +932,12 @@ impl<T: Config> Pallet<T> {
             return;
         };
 
+        // The node can either be active or registered only
         if is_active {
             Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-        } else if is_registered {
+        }
+
+        if is_registered {
             Self::remove_registered_subnet_node(subnet_id, subnet_node_id);
         }
     }

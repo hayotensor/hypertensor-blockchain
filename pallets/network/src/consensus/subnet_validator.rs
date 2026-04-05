@@ -83,6 +83,11 @@ impl<T: Config> Pallet<T> {
         // Each subnet epoch overlaps with the blockchains epochs, and can submit consensus data for epoch
         // 2 on epoch 1 (if after slot) or 2 (if before slot).
         // If a subnet is on slot 3 of 5 slots, we make sure it can submit on the current blockchains epoch.
+        ensure!(
+            Self::is_subnet_active(subnet_id).unwrap_or(false),
+            Error::<T>::SubnetMustBeActive
+        );
+
         let subnet_epoch_data = Self::get_current_subnet_epoch_data(subnet_id)
             .ok_or(Error::<T>::SubnetEpochDataIsNone)?;
 

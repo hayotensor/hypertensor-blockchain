@@ -150,12 +150,12 @@ impl<T: Config> Pallet<T> {
         );
     }
 
-    pub fn decrease_subnet_reputation(subnet_id: u32, factor_1: u128, factor_2: u128) {
+    pub fn decrease_subnet_reputation(subnet_id: u32, factor_1: u128, factor_2: Option<u128>) {
         SubnetReputation::<T>::try_mutate(
             subnet_id,
             |n: &mut u128| -> Result<u128, DispatchError> {
                 let prev_reputation = *n;
-                *n = Self::decrease_rep(*n, factor_1, Some(factor_2));
+                *n = Self::decrease_rep(*n, factor_1, factor_2);
                 Self::deposit_event(Event::SubnetReputationUpdate {
                     subnet_id,
                     prev_reputation,

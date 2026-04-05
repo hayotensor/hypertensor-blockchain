@@ -504,8 +504,4 @@ impl<T: Config> Pallet<T> {
             SubnetElectedValidator::<T>::insert(subnet_id, subnet_epoch, node_id);
         }
     }
-
-    fn get_last_overwatch_epoch(current_epoch: u32, submit_interval: u32) -> u32 {
-        current_epoch - (current_epoch % submit_interval)
-    }
 }
