@@ -956,7 +956,7 @@ pub mod pallet {
     /// * `description` - Description of what the subnet does and use cases.
     /// * `misc` - Misc data.
     /// * `state` - Registered, Active, or Paused.
-    /// * `start_epoch` - Epoch subnet registered.
+    /// * `start_epoch` - Start epoch based on subnet state.
     #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
     pub struct SubnetData {
         pub id: u32,
@@ -2863,6 +2863,14 @@ pub mod pallet {
     #[pallet::storage]
     pub type SubnetNodeElectionSlots<T> = StorageMap<_, Identity, u32, Vec<u32>, ValueQuery>;
 
+    /// Data for emergency subnet validator election
+    /// 
+    /// This is used to track the emergency validator election data for a subnet
+    /// 
+    /// subnet_node_ids: List of subnet node ids that are eligible for emergency validator election
+    /// target_emergency_validators_epochs: The number of epochs to elect emergency validators for
+    /// max_emergency_validators_epoch: The epoch at which the emergency validator election will end
+    /// total_epochs: (mutable) The total number of epochs to elect emergency validators for
     #[derive(
         Default,
         Encode,
@@ -7562,7 +7570,7 @@ pub mod pallet {
                 let params = maybe_params.as_mut().ok_or(Error::<T>::InvalidSubnetId)?;
                 params.state = SubnetState::Active;
                 // Start consensus after 1 fresh epoch.
-                // Consensus starts once epoch > start_epoch
+                // Consensus starts once epoch >= start_epoch
                 params.start_epoch = epoch + 1;
                 Ok(())
             })?;
@@ -9018,7 +9026,8 @@ pub mod pallet {
 
             Self::clean_coldkey_subnet_nodes(coldkey.clone());
 
-            // Push into queue
+            // If subnet is in the registered state, activate the node into the validator class
+            // If subnet is active, push node into queue
             if subnet.state == SubnetState::Registered {
                 // Activate subnet node automatically
                 Self::perform_activate_subnet_node(
@@ -9029,6 +9038,8 @@ pub mod pallet {
                 )
                 .map_err(|e| e)?;
 
+                // Track the initial coldkey data (number of nodes a coldkey can register while the subnet
+                // is in the registered state)
                 InitialColdkeyData::<T>::mutate(subnet_id, |maybe_map| {
                     let map = maybe_map.get_or_insert_with(BTreeMap::new);
                     map.entry(coldkey.clone())
@@ -9039,6 +9050,7 @@ pub mod pallet {
                 // Insert RegisteredSubnetNodesData
                 RegisteredSubnetNodesData::<T>::insert(subnet_id, subnet_node_id, &subnet_node);
 
+                // Update the queue to include the node
                 SubnetNodeQueue::<T>::mutate(subnet_id, |nodes| {
                     nodes.push(subnet_node.clone());
                 });
@@ -9058,6 +9070,9 @@ pub mod pallet {
         /// Activate subnet node if subnet is in registration
         /// This should only be called if the subnet is in registration
         /// when a node is registering to the subnet
+        ///
+        /// Note: This function is only called from `do_register_subnet_node` while the subnet
+        /// is in the registered state.
         pub fn perform_activate_subnet_node(
             subnet_id: u32,
             subnet_state: SubnetState,
@@ -9114,8 +9129,8 @@ pub mod pallet {
         /// * `subnet_node` - The node data to activate.
         /// * `subnet_epoch` - The current subnet epoch.
         /// * `queue` - Whether this activation is being processed from the queue.
-        ///             If `true`, the node is coming from the queue.
-        ///             If `false`, it's a direct activation (e.g. during subnet registration phase).
+        ///             If `true`, the node is coming from the queue function (i.e. `handle_registration_queue`).
+        ///             If `false`, it's a direct activation (i.e. `do_register_subnet_node`).
         ///
         /// # Returns
         ///

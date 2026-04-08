@@ -13,6 +13,11 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
+// Handles all reputation based logic for coldkeys, subnets, and subnet nodes
+// Note: All calls to update reputation must first check if the entity exists
+// before calling these functions.
+//
+// E.g. if !SubnetNodeIdHotkey::<T>::contains_key(subnet_id, subnet_node_id) { return; }
 
 use super::*;
 use frame_support::pallet_prelude::DispatchError;
@@ -42,7 +47,7 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        let percentage_factor = Self::percentage_factor_as_u128();
+        // Safe get, has Default value
         let mut coldkey_reputation = ColdkeyReputation::<T>::get(&coldkey);
         let current_score = coldkey_reputation.score;
 
@@ -100,7 +105,6 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        let percentage_factor = Self::percentage_factor_as_u128();
         // Safe get, has Default value
         let mut coldkey_reputation = ColdkeyReputation::<T>::get(&coldkey);
         let current_score = coldkey_reputation.score;

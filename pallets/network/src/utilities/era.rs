@@ -206,6 +206,9 @@ impl<T: Config> Pallet<T> {
         })
     }
 
+    /// Returns the current subnet epoch and the subnet epoch progression.
+    ///
+    /// This function is used to determine the current subnet epoch and the subnet epoch progression.
     pub fn get_current_subnet_epoch_data(subnet_id: u32) -> Option<SubnetEpochData> {
         let epoch_length = T::EpochLength::get();
         let subnet_slot = match SubnetSlot::<T>::try_get(subnet_id) {

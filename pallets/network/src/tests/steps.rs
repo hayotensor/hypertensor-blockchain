@@ -412,7 +412,7 @@ fn test_do_epoch_preliminaries_remove_registered_min_nodes() {
         let end = MinSubnetNodes::<Test>::get();
 
         let subnet_name: Vec<u8> = format!("subnet-name-remove").into();
-        build_registered_subnet_new(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             end,
@@ -470,7 +470,7 @@ fn test_do_epoch_preliminaries_remove_past_enactment_phase() {
         let end = MinSubnetNodes::<Test>::get();
 
         let subnet_name: Vec<u8> = format!("subnet-name-remove").into();
-        build_registered_subnet_new(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             end,

@@ -487,7 +487,7 @@ fn test_owner_pause_subnet_must_be_active_error() {
         let amount: u128 = 1000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_registered_subnet_new(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             4,
@@ -712,7 +712,7 @@ fn test_owner_unpause_subnet_must_be_paused_error() {
     let amount: u128 = 1000000000000000000000;
     let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-    build_registered_subnet_new(
+    build_registered_subnet(
       subnet_name.clone(),
       0,
       4,

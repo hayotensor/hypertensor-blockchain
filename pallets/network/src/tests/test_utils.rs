@@ -709,7 +709,7 @@ pub fn build_activated_subnet_new_excess_subnets(
     assert_eq!(subnet.state, SubnetState::Active);
 }
 
-pub fn build_registered_subnet_new(
+pub fn build_registered_subnet(
     subnet_name: Vec<u8>,
     start: u32,
     mut end: u32,

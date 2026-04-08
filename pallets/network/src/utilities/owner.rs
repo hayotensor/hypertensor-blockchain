@@ -12,6 +12,9 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
+// Handles all owner related subnet operations
+// See all storage elements for docs in `lib.rs`
 
 use super::*;
 use libm::{ceil, log};
@@ -19,9 +22,13 @@ use libm::{ceil, log};
 impl<T: Config> Pallet<T> {
     /// Owner pause subnet for up to max period
     ///
-    /// Once paused, this current epoch will stop consensus from processing right away.
-    /// i.e., if a validator has been chosen, data submitted, nodes attested, the epoch will be voided.
+    /// This will pause the following logic on the next subnet epoch start block step:
+    /// - Elect validator
+    /// - Activate nodes from the queue
+    /// - Update the node burn rate
     ///
+    /// If a validator is currently elected, it will not stop consensus from proceeding
+    /// in the current epoch.
     pub fn do_owner_pause_subnet(origin: T::RuntimeOrigin, subnet_id: u32) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
@@ -158,10 +165,12 @@ impl<T: Config> Pallet<T> {
             Error::<T>::SubnetMustBePaused
         );
 
+        // Remove duplicate subnet node ids
         subnet_node_ids.dedup_by(|a, b| a == b);
 
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
+        // Filter out subnet node ids that are not validators
         subnet_node_ids.retain(|id| match SubnetNodesData::<T>::try_get(subnet_id, id) {
             Ok(subnet_node) => {
                 subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
@@ -169,18 +178,22 @@ impl<T: Config> Pallet<T> {
             Err(()) => false,
         });
 
+        // Ensure the number of subnet node ids is at least >= min subnet nodes requirement
         ensure!(
             subnet_node_ids.len() as u32 >= MinSubnetNodes::<T>::get(),
             Error::<T>::InvalidMinEmergencySubnetNodes
         );
 
+        // Ensure the number of subnet node ids is at most <= max subnet nodes requirement
         ensure!(
             subnet_node_ids.len() as u32 <= MaxEmergencySubnetNodes::<T>::get(),
             Error::<T>::InvalidMaxEmergencySubnetNodes
         );
 
+        // Calculate the target emergency epochs
         let target_emergency_epochs = Self::get_max_steps_for_node_removal(subnet_id) + 1;
 
+        // Insert emergency subnet validator data
         EmergencySubnetNodeElectionData::<T>::insert(
             subnet_id,
             EmergencySubnetValidatorData {
@@ -231,6 +244,14 @@ impl<T: Config> Pallet<T> {
         n2
     }
 
+    /// Owner can remove the emergency validator set at any time
+    /// 
+    /// # Arguments
+    /// * `origin` - The origin of the transaction
+    /// * `subnet_id` - The id of the subnet
+    ///
+    /// # Returns
+    /// * `DispatchResult` - The result of the transaction
     pub fn do_owner_revert_emergency_validator_set(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
@@ -259,6 +280,14 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Owner can fully remove the subnet
+    /// 
+    /// # Arguments
+    /// * `origin` - The origin of the transaction
+    /// * `subnet_id` - The id of the subnet
+    ///
+    /// # Returns
+    /// * `DispatchResult` - The result of the transaction
     pub fn do_owner_deactivate_subnet(origin: T::RuntimeOrigin, subnet_id: u32) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 

@@ -81,31 +81,29 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResultWithPostInfo {
         // The validator is elected for the next blockchain epoch where rewards will be distributed.
         // Each subnet epoch overlaps with the blockchains epochs, and can submit consensus data for epoch
-        // 2 on epoch 1 (if after slot) or 2 (if before slot).
+        // 2 on subnet epoch 1 (if after slot) or 2 (if before slot).
         // If a subnet is on slot 3 of 5 slots, we make sure it can submit on the current blockchains epoch.
-        ensure!(
-            Self::is_subnet_active(subnet_id).unwrap_or(false),
-            Error::<T>::SubnetMustBeActive
-        );
 
+        // Get the current subnet epoch and subnet epoch progression for this specific subnet
         let subnet_epoch_data = Self::get_current_subnet_epoch_data(subnet_id)
             .ok_or(Error::<T>::SubnetEpochDataIsNone)?;
 
         let subnet_epoch = subnet_epoch_data.subnet_epoch;
         let subnet_epoch_progression = subnet_epoch_data.subnet_epoch_progression;
 
-        // --- Ensure current subnet validator by its hotkey
+        // --- Ensure validator was elected
         let validator_id = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
             .ok_or(Error::<T>::NoElectedValidator)?;
 
-        // --- If hotkey is hotkey, ensure it matches validator, otherwise if coldkey -> get hotkey
-        // If the epoch is 0, this will break
+        // --- Ensure caller hotkey matches validator
         ensure!(
             SubnetNodeIdHotkey::<T>::get(subnet_id, validator_id) == Some(hotkey.clone()),
             Error::<T>::InvalidValidator
         );
 
-        // - Note: we don't check stake balance here
+        // - Note: we don't check stake balance here. It's up to subnets to come to a consensus
+        // to remove nodes that are not meeting the subnet's requirements. Stake balance only matters
+        // on the node registration.
 
         // --- Ensure not submitted already
         ensure!(
@@ -117,11 +115,11 @@ impl<T: Config> Pallet<T> {
         // --- Qualify the data
         //
 
-        // Remove duplicates based on peer_id
+        // Remove duplicates based on node ID
         data.dedup_by(|a, b| a.subnet_node_id == b.subnet_node_id);
 
-        // Remove queue classified entries
-        // Each peer must have an inclusion classification at minimum
+        // Remove queue classified entries (nodes that are registered nodes (not active) and or in the queue).
+        // Each peer must have an inclusion classification at minimum to get a score.
         data.retain(
             |x| match SubnetNodesData::<T>::try_get(subnet_id, x.subnet_node_id) {
                 Ok(subnet_node) => {
@@ -153,12 +151,16 @@ impl<T: Config> Pallet<T> {
 
         // --- Get all (activated) Idle + consensus-eligible nodes
         // We get this here instead of in the rewards distribution to handle block weight more efficiently
+        // during block steps (on_initialize). As well, we get this here to define the point of which
+        // nodes are eligible for rewards. If a node were to remove itself after attesting, and is here
+        // when the validator submit their data, this will enable the node to still get rewarded for contributing
+        // to the subnet's consensus even if they leave -- versus calling this in the rewards distribution
+        // where the node would have already been removed even if they contributed to the subnet's consensus.
         let subnet_nodes: Vec<SubnetNode<T::AccountId>> = Self::get_active_classified_subnet_nodes(
             subnet_id,
             &SubnetNodeClass::Idle,
             subnet_epoch,
         );
-        let subnet_nodes_count = subnet_nodes.len();
 
         // --- Get all validators
         // Note: This is triggered here when the validator submits their data, not at the start block of the epoch
@@ -168,6 +170,8 @@ impl<T: Config> Pallet<T> {
         // We store `validator_ids` in `ConsensusData` because the emergency validator set can be different from
         // the regular validator set and we need to know who to count as attestors officially. And we use the
         // call of this function as the official point of time of which nodes can attest on this epoch.
+        //
+        // This is in case the owner "suedo-forks" or pauses the subnet after the validator has submitted their data.
         let validator_ids: Vec<u32> = if let Some(emergency_validator_data) =
             EmergencySubnetNodeElectionData::<T>::get(subnet_id)
         {
@@ -179,7 +183,7 @@ impl<T: Config> Pallet<T> {
             SubnetNodeElectionSlots::<T>::get(subnet_id)
         };
 
-        // Check if validator sent through queue priority or removal IDs
+        // Check if validator sent through queue priority or removal node IDs
         if prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some() {
             let queue = SubnetNodeQueue::<T>::get(subnet_id);
             let immunity_epochs = QueueImmunityEpochs::<T>::get(subnet_id); // Move outside loop
@@ -218,6 +222,7 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        // Organize all of the data into a ConsensusData struct to be used later for emissions business logic.
         let consensus_data: ConsensusData<T::AccountId> = ConsensusData {
             validator_id: validator_id,
             block,
@@ -234,6 +239,7 @@ impl<T: Config> Pallet<T> {
             args: args,
         };
 
+        // --- Store the data
         SubnetConsensusSubmission::<T>::insert(subnet_id, subnet_epoch, consensus_data);
 
         Self::deposit_event(Event::ValidatorSubmission {
@@ -242,6 +248,7 @@ impl<T: Config> Pallet<T> {
             epoch: subnet_epoch,
         });
 
+        // If we make it this far, the extrinsic call is free.
         Ok(Pays::No.into())
     }
 
@@ -259,6 +266,7 @@ impl<T: Config> Pallet<T> {
         };
 
         // --- Ensure node classified to attest
+        // This is redundant because we check this later.
         match SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id) {
             Ok(subnet_node) => {
                 ensure!(
@@ -273,6 +281,7 @@ impl<T: Config> Pallet<T> {
 
         let block: u32 = Self::get_current_block_as_u32();
 
+        // We make sure the submission exists in order to attest to it
         SubnetConsensusSubmission::<T>::try_mutate_exists(
             subnet_id,
             subnet_epoch,
@@ -281,17 +290,11 @@ impl<T: Config> Pallet<T> {
                     .as_mut()
                     .ok_or(Error::<T>::InvalidSubnetConsensusSubmission)?;
 
-                // Reduntantly check they are in the list
-                // See `do_propose_attestation`
-                // We check they are SubnetNodeClass::Validator above so we only
-                // check they are in the list here
-                let subnet_nodes = &mut params.subnet_nodes;
-                ensure!(
-                    subnet_nodes.iter().any(|node| node.id == subnet_node_id),
-                    Error::<T>::InvalidSubnetNodeId
-                );
-
                 // Ensure they are in the validator list and are eligible to attest
+                // Only validator classified nodes can attest
+                //
+                // See `do_propose_attestation` for the logic of how the validator set is determined as the
+                // official point of truth.
                 let validator_ids = &mut params.validator_ids;
                 ensure!(
                     validator_ids
@@ -300,15 +303,19 @@ impl<T: Config> Pallet<T> {
                     Error::<T>::InvalidValidatorId
                 );
 
+                // Get the epoch progression used to determine the reward factor.
                 let proposal_block = params.block;
                 let subnet_epoch_data = Self::attestor_subnet_epoch_data(subnet_id, proposal_block)
                     .ok_or(Error::<T>::SubnetEpochDataIsNone)?;
                 let subnet_epoch_progression = subnet_epoch_data.subnet_epoch_progression;
 
+                // Get the reward factor.
+                // The longer a node takes to attest, the lower its emissions will be.
                 let reward_factor = Self::get_attestor_reward_multiplier(subnet_epoch_progression);
 
                 let mut attests = &mut params.attests;
 
+                // Ensure they haven't attested already
                 ensure!(
                     attests.insert(
                         subnet_node_id,
@@ -333,6 +340,7 @@ impl<T: Config> Pallet<T> {
             epoch: subnet_epoch,
         });
 
+        // If we make it this far, the extrinsic call is free.
         Ok(Pays::No.into())
     }
 
@@ -403,10 +411,8 @@ impl<T: Config> Pallet<T> {
             return weight;
         }
 
-        // We never ensure balance is above 0 because any hotkey chosen must have the target stake
-        // balance at a minimum
-        //
-        // Redundantly use try_get (elected validators can't exit)
+        // Redundantly use try_get (elected validators can't exit, see `remove_subnet_node`, 
+        // therefore it should always exist)
         let hotkey = match SubnetNodeIdHotkey::<T>::try_get(subnet_id, subnet_node_id) {
             Ok(hotkey) => hotkey,
             // If they exited, ignore slash and return
@@ -428,27 +434,6 @@ impl<T: Config> Pallet<T> {
             min_attestation_percentage,
             attestation_delta,
         );
-        // // --- Get stake balance. This is safe, uses Default value
-        // // This could be greater than the target stake balance
-        // let account_subnet_stake: u128 = AccountSubnetStake::<T>::get(&hotkey, subnet_id);
-
-        // // --- Get slash amount up to max slash
-        // // --- Base slash amount
-        // // stake balance * BaseSlashPercentage
-        // let base_slash: u128 =
-        //     Self::percent_mul(account_subnet_stake, BaseSlashPercentage::<T>::get());
-
-        // // --- Update slash amount based on delta
-        // // base_slash * attestation_delta
-        // let mut slash_amount = Self::percent_mul(base_slash, attestation_delta);
-
-        // // --- Update slash amount up to max slash
-        // let max_slash: u128 = MaxSlashAmount::<T>::get();
-        // weight = weight.saturating_add(db_weight.reads(4));
-
-        // if slash_amount > max_slash {
-        //     slash_amount = max_slash
-        // }
 
         if slash_amount > 0 {
             // --- Decrease account stake

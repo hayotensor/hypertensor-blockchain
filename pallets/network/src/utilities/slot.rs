@@ -193,7 +193,7 @@ impl<T: Config> Pallet<T> {
         let db_weight = T::DbWeight::get();
 
         // We know the subnet exists because to call this function `SlotAssignment` must exist
-        // for the given subnet_id
+        // for the given subnet_id called in `on_initialize` on this block step.
 
         // Get all active subnet weights calculated at the start of the blockchains epoch
         // (Only subnets that were active)
@@ -260,8 +260,10 @@ impl<T: Config> Pallet<T> {
                 }
 
                 // We recheck the subnet is currently active in case it was paused or removed in the
-                // previous epoch steps.
-                if Self::is_subnet_active(subnet_id).unwrap_or(false) {
+                // previous block steps before this subnet block slot.
+                //
+                // As long as the subnet is active and live, the following logic is called.
+                if Self::is_subnet_active_and_live(subnet_id, current_epoch).unwrap_or(false) {
                     //
                     // Subnet has weights at the start of the epoch during `handle_subnet_emission_weights`
                     // and is currently active.
@@ -335,6 +337,7 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
+        // Get all of the nodes in the queue (Registered classified nodes)
         let mut queue = SubnetNodeQueue::<T>::get(subnet_id);
         weight_meter.consume(db_weight.reads(1));
 
@@ -357,7 +360,8 @@ impl<T: Config> Pallet<T> {
             if subnet_node.classification.start_epoch + subnet_node_queue_epochs
                 >= current_subnet_epoch
             {
-                // Nodes are ordered by epoch, so we can break early
+                // Nodes are ordered by epoch, so we can break early if the first node
+                // is not ready yet to be activated from the queue
                 break;
             }
 
@@ -387,7 +391,7 @@ impl<T: Config> Pallet<T> {
             let can_consume = Self::do_activate_subnet_node(
                 weight_meter,
                 subnet_id,
-                SubnetState::Active,
+                SubnetState::Active, // We know the subnet is active if `handle_registration_queue` is called
                 subnet_node.clone(),
                 current_subnet_epoch,
                 true,
@@ -416,8 +420,8 @@ impl<T: Config> Pallet<T> {
     /// Calculate and store emissions distribution
     ///
     pub fn handle_subnet_emission_weights(epoch: u32) -> Weight {
-        // Get weights
-        // - Takes in general epoch
+        // Get subnet weights
+        // - Takes in general epoch (not subnet epochs)
         let (subnet_weights, mut weight): (BTreeMap<u32, u128>, Weight) =
             Self::calculate_subnet_weights(epoch);
 
@@ -488,8 +492,10 @@ impl<T: Config> Pallet<T> {
 
         for (subnet_id, data) in subnets {
             total_subnet_reads += 1;
-            // - Must be active to calculate rewards distribution
-            if data.start_epoch > epoch && data.state != SubnetState::Active {
+            // --- Must be active to calculate rewards distribution
+            // 1. Must be currently active (SubnetState::Active)
+            // 2. Must have start epoch <= current epoch
+            if !Self::_is_subnet_active_and_live(&data, epoch) {
                 continue;
             }
 
@@ -635,7 +641,7 @@ impl<T: Config> Pallet<T> {
                     Self::decrease_subnet_reputation(
                         subnet_id,
                         ValidatorAbsentSubnetReputationFactor::<T>::get(),
-                        None
+                        None,
                     );
                     // Reads:
                     // - SubnetReputation

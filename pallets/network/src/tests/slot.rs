@@ -146,6 +146,7 @@ fn test_handle_subnet_emission_weights() {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
             build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
         }
+        increase_epochs(1);
 
         let _ = Network::handle_subnet_emission_weights(Network::get_current_epoch_as_u32());
 
@@ -180,6 +181,7 @@ fn test_calculate_subnet_weights() {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
             build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
         }
+        increase_epochs(1);
 
         let (subnet_weights, mut weight) =
             Network::calculate_subnet_weights(Network::get_current_epoch_as_u32());
@@ -192,6 +194,59 @@ fn test_calculate_subnet_weights() {
             assert!(subnet_weight.is_some());
             assert!(*subnet_weight.unwrap() > 0);
             assert!(*subnet_weight.unwrap() <= Network::percentage_factor_as_u128());
+        }
+    });
+}
+
+// Only subnets that are active and live get weights (no registering or paused subnets)
+#[test]
+fn test_calculate_subnet_weights_active_live_only() {
+    new_test_ext().execute_with(|| {
+        NewRegistrationCostMultiplier::<Test>::set(1000000000000000000);
+
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnets = MaxSubnets::<Test>::get();
+        let end = 12;
+
+        for s in 0..max_subnets - 1 {
+            let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
+            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+        }
+
+        // add a registering subnet
+        let registering_n = max_subnets - 1;
+        let registering_subnet_name: Vec<u8> = format!("subnet-name-{registering_n}").into();
+        build_registered_subnet(
+            registering_subnet_name.clone(),
+            0,
+            4,
+            deposit_amount,
+            amount,
+            true,
+            None,
+        );
+        let registering_subnet_id = SubnetName::<Test>::get(registering_subnet_name.clone()).unwrap();
+
+        increase_epochs(1);
+
+        let (subnet_weights, mut weight) =
+            Network::calculate_subnet_weights(Network::get_current_epoch_as_u32());
+
+        for s in 0..max_subnets {
+            let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
+            let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+            let subnet_weight = subnet_weights.get(&subnet_id);
+
+            if subnet_id == registering_subnet_id {
+                assert!(subnet_weight.is_none());
+            } else {
+                assert!(subnet_weight.is_some());
+                assert!(*subnet_weight.unwrap() > 0);
+                assert!(*subnet_weight.unwrap() <= Network::percentage_factor_as_u128());
+            }
         }
     });
 }
@@ -329,6 +384,7 @@ fn test_calculate_rewards() {
         let end = 4;
 
         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        increase_epochs(1);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let _ = Network::handle_subnet_emission_weights(Network::get_current_epoch_as_u32());

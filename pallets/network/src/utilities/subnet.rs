@@ -132,6 +132,17 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    pub fn is_subnet_active_and_live(subnet_id: u32, epoch: u32) -> Option<bool> {
+        match SubnetsData::<T>::try_get(subnet_id) {
+            Ok(subnet) => Some(Self::_is_subnet_active_and_live(&subnet, epoch)),
+            Err(()) => None,
+        }
+    }
+
+    pub fn _is_subnet_active_and_live(subnet: &SubnetData, epoch: u32) -> bool {
+        subnet.state == SubnetState::Active && subnet.start_epoch <= epoch
+    }
+
     pub fn is_subnet_paused(subnet_id: u32) -> Option<bool> {
         match SubnetsData::<T>::try_get(subnet_id) {
             Ok(subnet) => Some(subnet.state == SubnetState::Paused),

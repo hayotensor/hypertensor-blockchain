@@ -280,7 +280,7 @@ fn test_register_subnet_subnet_must_be_registering_or_active() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_registered_subnet_new(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             4,
@@ -341,7 +341,7 @@ fn test_register_subnet_coldkey_registration_whitelist_error() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_registered_subnet_new(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             4,
@@ -5017,7 +5017,7 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
             end + 1,
         );
 
-        build_registered_subnet_new(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             4,

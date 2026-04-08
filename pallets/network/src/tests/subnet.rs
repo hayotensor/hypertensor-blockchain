@@ -2299,7 +2299,7 @@ fn test_do_epoch_preliminaries_remove_subnet_not_activated() {
         let amount: u128 = 1000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_registered_subnet_new(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             4,
@@ -2368,7 +2368,7 @@ fn test_do_epoch_preliminaries_remove_subnet_min_stake_balance() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
 
-        build_registered_subnet_new(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             min_subnet_nodes - 1,
@@ -2464,7 +2464,7 @@ fn test_do_epoch_preliminaries_remove_subnet_min_stake_balance() {
 //         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
 //         let end = 4;
 
-//         build_registered_subnet_new(
+//         build_registered_subnet(
 //             subnet_name.clone(),
 //             0,
 //             end,
@@ -2496,7 +2496,7 @@ fn test_do_epoch_preliminaries_remove_subnet_min_stake_balance() {
 //         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
 //         let end = 4;
 
-//         build_registered_subnet_new(
+//         build_registered_subnet(
 //             subnet_name.clone(),
 //             0,
 //             end,

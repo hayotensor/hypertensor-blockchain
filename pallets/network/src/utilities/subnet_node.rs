@@ -1358,6 +1358,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Update burn rate based on registrations in previous epoch
+    /// Note: This is only called if the subnet is active
+    ///       The burn rate will stay constant if not active.
     pub fn update_burn_rate_for_epoch(weight_meter: &mut WeightMeter, subnet_id: u32) {
         let db_weight = T::DbWeight::get();
 

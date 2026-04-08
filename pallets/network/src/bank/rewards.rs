@@ -82,7 +82,9 @@ impl<T: Config> Pallet<T> {
                 current_epoch,
             );
         } else {
-            // Validator left subnet before distribution of rewards
+            // Validator left subnet before distribution of rewards (not possible but 
+            // this logic stays here in case of future updates to allowing validators to exit
+            // on the epoch they're elected for)
 
             // We read `SubnetNodeIdHotkey` (else if) if we got to this point
             weight_meter.consume(db_weight.reads(1));
@@ -110,7 +112,6 @@ impl<T: Config> Pallet<T> {
             super_majority_threshold,
             electable_nodes_count,
         );
-
 
         // MinSubnetNodes
         weight_meter.consume(db_weight.reads(1));
@@ -156,6 +157,8 @@ impl<T: Config> Pallet<T> {
             1_000 * consensus_submission_data.subnet_nodes.len() as u64,
             0,
         ));
+
+        // --- Events variables
 
         // Node -> reward
         let mut node_rewards: Vec<(u32, u128)> = Vec::new();
@@ -222,7 +225,7 @@ impl<T: Config> Pallet<T> {
             // Handle case where node is found in consensus data
             let subnet_node_data = if let Some(data) = subnet_node_data_find {
                 // --- Is in consensus data, increase reputation if not at max
-                if reputation != percentage_factor {
+                if node_exists && reputation != percentage_factor {
                     // If the validator submits themselves in the data and passes consensus, this also
                     // increases the validators reputation
                     reputation = Self::increase_and_return_node_reputation(
@@ -436,7 +439,7 @@ impl<T: Config> Pallet<T> {
                         account_reward,
                         &delegate_account.account_id,
                         delegate_account.rate,
-                );
+                    );
                 account_reward = updated_account_reward;
 
                 node_delegate_account_allocations.push((
@@ -633,7 +636,11 @@ impl<T: Config> Pallet<T> {
         Self::increase_account_stake(&validator_hotkey, subnet_id, validator_reward);
     }
 
-    pub fn handle_subnet_owner_reward(weight_meter: &mut WeightMeter, subnet_id: u32, amount: u128) {
+    pub fn handle_subnet_owner_reward(
+        weight_meter: &mut WeightMeter,
+        subnet_id: u32,
+        amount: u128,
+    ) {
         // SubnetOwner
         weight_meter.consume(T::DbWeight::get().reads(1));
         if let Ok(owner) = SubnetOwner::<T>::try_get(subnet_id) {
@@ -644,6 +651,34 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Handles node queue operations based on consensus data.
+    ///
+    /// This function allows the validator to prioritize or remove nodes from the registration queue.
+    ///
+    /// # Parameters
+    ///
+    /// * `weight_meter` - Weight meter for tracking weight consumption
+    /// * `subnet_id` - The ID of the subnet
+    /// * `consensus_submission_data` - Consensus submission data containing queue operations
+    /// * `super_majority_threshold` - The super majority threshold for consensus
+    /// * `electable_nodes_count` - The number of electable nodes in the subnet
+    ///
+    /// # Behavior
+    ///
+    /// The function performs the following steps:
+    /// 1. Checks if the consensus submission has super majority
+    /// 2. Retrieves the node queue for the subnet
+    /// 3. Handles prioritize node operation if specified
+    /// 4. Handles remove node operation if specified
+    ///
+    /// # Errors
+    ///
+    /// * `SubnetNodeNotFoundInQueue` - Node not found in queue
+    /// * `SubnetNodeNotImmune` - Node not immune from removal
+    ///
+    /// # Returns
+    ///
+    /// Returns `Ok(())` on success
     pub fn handle_node_queue_consensus(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
@@ -886,14 +921,9 @@ impl<T: Config> Pallet<T> {
         // TotalNodeDelegateStakeShares
         weight_meter.consume(db_weight.reads(1));
         if total_node_delegated_stake_shares != 0 {
-            let node_delegate_reward =
-                Self::percent_mul(account_reward, delegate_reward_rate);
+            let node_delegate_reward = Self::percent_mul(account_reward, delegate_reward_rate);
             let updated_account_reward = account_reward.saturating_sub(node_delegate_reward);
-            Self::do_increase_node_delegate_stake(
-                subnet_id,
-                subnet_node_id,
-                node_delegate_reward,
-            );
+            Self::do_increase_node_delegate_stake(subnet_id, subnet_node_id, node_delegate_reward);
             // reads:
             // TotalNodeDelegateStakeBalance | TotalNodeDelegateStakeShares
             //
@@ -901,7 +931,10 @@ impl<T: Config> Pallet<T> {
             // TotalNodeDelegateStakeShares | TotalNodeDelegateStakeBalance | TotalNodeDelegateStake
             weight_meter.consume(db_weight.reads_writes(5, 3));
 
-            return Some((updated_account_reward, (subnet_node_id, node_delegate_reward)));
+            return Some((
+                updated_account_reward,
+                (subnet_node_id, node_delegate_reward),
+            ));
         }
         None
     }
@@ -910,15 +943,11 @@ impl<T: Config> Pallet<T> {
         weight_meter: &mut WeightMeter,
         account_reward: u128,
         delegate_account_id: &T::AccountId,
-        rate: u128
+        rate: u128,
     ) -> (u128, u128) {
-        let delegate_account_deposit =
-            Self::percent_mul(account_reward, rate);
+        let delegate_account_deposit = Self::percent_mul(account_reward, rate);
         let updated_account_reward = account_reward.saturating_sub(delegate_account_deposit);
-        Self::increase_delegate_account_balance(
-            delegate_account_id,
-            delegate_account_deposit,
-        );
+        Self::increase_delegate_account_balance(delegate_account_id, delegate_account_deposit);
 
         (updated_account_reward, delegate_account_deposit)
     }
