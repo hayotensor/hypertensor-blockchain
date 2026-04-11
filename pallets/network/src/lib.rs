@@ -3473,6 +3473,14 @@ pub mod pallet {
     pub type SubnetNodeIdHotkey<T: Config> =
         StorageDoubleMap<_, Identity, u32, Identity, u32, T::AccountId, OptionQuery>;
 
+    #[pallet::storage]
+    pub type ValidatorData<T: Config> =
+        StorageMap<_, Blake2_128Concat, u32, T::AccountId, ValueQuery>;
+
+    #[pallet::storage]
+    pub type ValidatorOwner<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
+
     /// Mapping of subnet nodes
     /// subnet_id --> uid --> data
     #[pallet::storage]
