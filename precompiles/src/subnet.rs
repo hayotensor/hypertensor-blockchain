@@ -408,57 +408,57 @@ where
         Ok(())
     }
 
-    #[precompile::public("updateColdkey(address,address)")]
-    #[precompile::payable]
-    fn update_coldkey(
-        handle: &mut impl PrecompileHandle,
-        hotkey: Address,
-        new_coldkey: Address,
-    ) -> EvmResult<()> {
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
-        let new_coldkey = R::AddressMapping::into_account_id(new_coldkey.into());
+    // #[precompile::public("updateColdkey(address,address)")]
+    // #[precompile::payable]
+    // fn update_coldkey(
+    //     handle: &mut impl PrecompileHandle,
+    //     hotkey: Address,
+    //     new_coldkey: Address,
+    // ) -> EvmResult<()> {
+    //     let hotkey = R::AddressMapping::into_account_id(hotkey.into());
+    //     let new_coldkey = R::AddressMapping::into_account_id(new_coldkey.into());
 
-        let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::update_coldkey {
-            hotkey,
-            new_coldkey,
-        };
+    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
+    //     let call = pallet_network::Call::<R>::update_coldkey {
+    //         hotkey,
+    //         new_coldkey,
+    //     };
 
-        RuntimeHelper::<R>::try_dispatch(
-            handle,
-            RawOrigin::Signed(origin.clone()).into(),
-            call,
-            0,
-        )?;
+    //     RuntimeHelper::<R>::try_dispatch(
+    //         handle,
+    //         RawOrigin::Signed(origin.clone()).into(),
+    //         call,
+    //         0,
+    //     )?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
-    #[precompile::public("updateHotkey(address,address)")]
-    #[precompile::payable]
-    fn update_hotkey(
-        handle: &mut impl PrecompileHandle,
-        old_hotkey: Address,
-        new_hotkey: Address,
-    ) -> EvmResult<()> {
-        let old_hotkey = R::AddressMapping::into_account_id(old_hotkey.into());
-        let new_hotkey = R::AddressMapping::into_account_id(new_hotkey.into());
+    // #[precompile::public("updateHotkey(address,address)")]
+    // #[precompile::payable]
+    // fn update_hotkey(
+    //     handle: &mut impl PrecompileHandle,
+    //     old_hotkey: Address,
+    //     new_hotkey: Address,
+    // ) -> EvmResult<()> {
+    //     let old_hotkey = R::AddressMapping::into_account_id(old_hotkey.into());
+    //     let new_hotkey = R::AddressMapping::into_account_id(new_hotkey.into());
 
-        let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::update_hotkey {
-            old_hotkey,
-            new_hotkey,
-        };
+    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
+    //     let call = pallet_network::Call::<R>::update_hotkey {
+    //         old_hotkey,
+    //         new_hotkey,
+    //     };
 
-        RuntimeHelper::<R>::try_dispatch(
-            handle,
-            RawOrigin::Signed(origin.clone()).into(),
-            call,
-            0,
-        )?;
+    //     RuntimeHelper::<R>::try_dispatch(
+    //         handle,
+    //         RawOrigin::Signed(origin.clone()).into(),
+    //         call,
+    //         0,
+    //     )?;
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     #[precompile::public("updatePeerInfo(uint256,uint256,(string,bytes))")]
     #[precompile::payable]

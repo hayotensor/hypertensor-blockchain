@@ -224,6 +224,10 @@ pub mod pallet {
             subnet_node_id: u32,
             delegate_reward_rate: u128,
         },
+        ValidatorUpdateDelegateRewardRate {
+            validator_id: u32,
+            delegate_reward_rate: u128,
+        },
         SubnetNodeUpdatePeerInfo {
             subnet_id: u32,
             subnet_node_id: u32,
@@ -690,6 +694,7 @@ pub mod pallet {
         InvalidSubnetNodeId,
         /// Invalid validator id. Must be validator class
         InvalidValidatorId,
+        InvalidElectedSubnetNode,
         InvalidSubnetNodeClassification,
         InvalidEmergencySubnetNodeId,
         /// Not subnet owner
@@ -739,7 +744,11 @@ pub mod pallet {
         InvalidMultiaddr,
         /// Coldkey not whitelisted to register
         ColdkeyRegistrationWhitelist,
+        ValidatorIdNotInWhitelist,
+        /// Validator ID not whitelisted to register
+        NotInitialValidatorRegistrationWhitelist,
         MaxRegisteredNodes,
+        MaxQueuedNodes,
         /// Wallet doesn't have enough balance to register subnet
         NotEnoughBalanceToRegisterSubnet,
         UniqueParameterTaken,
@@ -1064,6 +1073,19 @@ pub mod pallet {
         pub bootnodes: BTreeMap<PeerId, BoundedVec<u8, DefaultMaxVectorLength>>,
     }
 
+    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+    pub struct RegistrationSubnetDataV2 {
+        pub name: Vec<u8>,
+        pub repo: Vec<u8>,
+        pub description: Vec<u8>,
+        pub misc: Vec<u8>,
+        pub min_stake: u128,
+        pub max_stake: u128,
+        pub delegate_stake_percentage: u128,
+        pub initial_validators: BTreeMap<u32, u32>,
+        pub bootnodes: BTreeMap<PeerId, BoundedVec<u8, DefaultMaxVectorLength>>,
+    }
+
     /// Complete subnet information aggregated for RPC queries.
     ///
     /// This struct provides a comprehensive view of a subnet's configuration, state, and
@@ -1276,6 +1298,29 @@ pub mod pallet {
         pub delegate_account: Option<DelegateAccount<AccountId>>,
     }
 
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        Clone,
+        PartialEq,
+        Eq,
+        RuntimeDebug,
+        PartialOrd,
+        Ord,
+        scale_info::TypeInfo,
+    )]
+    pub struct SubnetNodeV2 {
+        pub id: u32,
+        pub validator_id: u32,
+        pub peer_info: PeerInfo,
+        pub bootnode_peer_info: Option<PeerInfo>,
+        pub client_peer_info: Option<PeerInfo>,
+        pub classification: SubnetNodeClassification,
+        pub unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        pub non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+    }
+
     /// Subnet Node Info
     /// RPC helper
     #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
@@ -1298,7 +1343,7 @@ pub mod pallet {
         pub total_node_delegate_stake_shares: u128,
         pub node_delegate_stake_balance: u128,
         pub coldkey_reputation: Reputation,
-        pub subnet_node_reputation: u128,
+        pub subnet_node_reputation: Option<u128>,
         pub node_slot_index: Option<u32>,
         pub consecutive_idle_epochs: u32,
         pub consecutive_included_epochs: u32,
@@ -1459,6 +1504,13 @@ pub mod pallet {
         }
     }
 
+    impl SubnetNodeV2 {
+        pub fn has_classification(&self, required: &SubnetNodeClass, subnet_epoch: u32) -> bool {
+            self.classification.node_class >= *required
+                && self.classification.start_epoch <= subnet_epoch
+        }
+    }
+
     /// Incentives protocol format
     ///
     /// Scoring is calculated off-chain between subnet nodes hosting AI subnets together
@@ -1521,6 +1573,31 @@ pub mod pallet {
         pub hugging_face: BoundedVec<u8, DefaultMaxUrlLength>,
         pub description: BoundedVec<u8, DefaultMaxVectorLength>,
         pub misc: BoundedVec<u8, DefaultMaxVectorLength>,
+    }
+
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        Clone,
+        PartialEq,
+        Eq,
+        RuntimeDebug,
+        PartialOrd,
+        Ord,
+        scale_info::TypeInfo,
+    )]
+    pub struct IdentityData {
+        pub name: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        pub url: Option<BoundedVec<u8, DefaultMaxUrlLength>>,
+        pub image: Option<BoundedVec<u8, DefaultMaxUrlLength>>,
+        pub discord: Option<BoundedVec<u8, DefaultMaxSocialIdLength>>,
+        pub x: Option<BoundedVec<u8, DefaultMaxSocialIdLength>>,
+        pub telegram: Option<BoundedVec<u8, DefaultMaxSocialIdLength>>,
+        pub github: Option<BoundedVec<u8, DefaultMaxUrlLength>>,
+        pub hugging_face: Option<BoundedVec<u8, DefaultMaxUrlLength>>,
+        pub description: BoundedVec<u8, DefaultMaxVectorLength>,
+        pub misc: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
     }
 
     /// Attestation entry for validator consensus submissions.
@@ -1592,6 +1669,21 @@ pub mod pallet {
         pub data: Vec<SubnetNodeConsensusData>,
         pub attests: BTreeMap<u32, AttestEntry>, // subnet_node_id: AttestEntry
         pub subnet_nodes: Vec<SubnetNode<AccountId>>,
+        pub prioritize_queue_node_id: Option<u32>,
+        pub remove_queue_node_id: Option<u32>,
+    }
+
+    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+    pub struct ConsensusSubmissionDataV2 {
+        pub validator_subnet_node_id: u32,
+        pub validator_epoch_progress: u128,
+        pub validator_reward_factor: u128,
+        pub attestation_ratio: u128,
+        pub weight_sum: u128,
+        pub data_length: u32,
+        pub data: Vec<SubnetNodeConsensusData>,
+        pub attests: BTreeMap<u32, AttestEntry>, // subnet_node_id: AttestEntry
+        pub subnet_nodes: Vec<SubnetNodeV2>,
         pub prioritize_queue_node_id: Option<u32>,
         pub remove_queue_node_id: Option<u32>,
     }
@@ -1678,6 +1770,21 @@ pub mod pallet {
         pub validator_ids: Vec<u32>, // All validators of the epoch
         pub attests: BTreeMap<u32, AttestEntry>, // Count of attestations of the submitted data (node ID, (block, data))
         pub subnet_nodes: Vec<SubnetNode<AccountId>>,
+        pub prioritize_queue_node_id: Option<u32>,
+        pub remove_queue_node_id: Option<u32>,
+        pub data: Vec<SubnetNodeConsensusData>, // Data submitted by chosen validator
+        pub args: Option<BoundedVec<u8, DefaultValidatorArgsLimit>>, // Optional arguements to pass for subnet to validate
+    }
+
+    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+    pub struct ConsensusDataV2 {
+        pub validator_id: u32, // Chosen validator of the epoch
+        pub block: u32,
+        pub validator_epoch_progress: u128,
+        pub validator_reward_factor: u128,
+        pub validator_ids: Vec<u32>, // All validators of the epoch
+        pub attests: BTreeMap<u32, AttestEntry>, // Count of attestations of the submitted data (node ID, (block, data))
+        pub subnet_nodes: Vec<SubnetNodeV2>,
         pub prioritize_queue_node_id: Option<u32>,
         pub remove_queue_node_id: Option<u32>,
         pub data: Vec<SubnetNodeConsensusData>, // Data submitted by chosen validator
@@ -2000,6 +2107,23 @@ pub mod pallet {
             delegate_account: None,
         };
     }
+    #[pallet::type_value]
+    pub fn DefaultSubnetNodeV2<T: Config>() -> SubnetNodeV2 {
+        return SubnetNodeV2 {
+            id: 0,
+            validator_id: 0,
+            peer_info: PeerInfo::default(),
+            bootnode_peer_info: None,
+            client_peer_info: None,
+            classification: SubnetNodeClassification {
+                node_class: SubnetNodeClass::Registered,
+                start_epoch: 0,
+            },
+            unique: None,
+            non_unique: None,
+        };
+    }
+
     /// This type value is referenced in:
     /// - MaxSubnetNodes
     #[pallet::type_value]
@@ -2864,9 +2988,9 @@ pub mod pallet {
     pub type SubnetNodeElectionSlots<T> = StorageMap<_, Identity, u32, Vec<u32>, ValueQuery>;
 
     /// Data for emergency subnet validator election
-    /// 
+    ///
     /// This is used to track the emergency validator election data for a subnet
-    /// 
+    ///
     /// subnet_node_ids: List of subnet node ids that are eligible for emergency validator election
     /// target_emergency_validators_epochs: The number of epochs to elect emergency validators for
     /// max_emergency_validators_epoch: The epoch at which the emergency validator election will end
@@ -3473,14 +3597,6 @@ pub mod pallet {
     pub type SubnetNodeIdHotkey<T: Config> =
         StorageDoubleMap<_, Identity, u32, Identity, u32, T::AccountId, OptionQuery>;
 
-    #[pallet::storage]
-    pub type ValidatorData<T: Config> =
-        StorageMap<_, Blake2_128Concat, u32, T::AccountId, ValueQuery>;
-
-    #[pallet::storage]
-    pub type ValidatorOwner<T: Config> =
-        StorageMap<_, Blake2_128Concat, T::AccountId, u32, ValueQuery>;
-
     /// Mapping of subnet nodes
     /// subnet_id --> uid --> data
     #[pallet::storage]
@@ -3493,6 +3609,20 @@ pub mod pallet {
         SubnetNode<T::AccountId>,
         ValueQuery,
         DefaultSubnetNode<T>,
+    >;
+
+    /// Mapping of subnet nodes
+    /// subnet_id --> uid --> data
+    #[pallet::storage]
+    pub type SubnetNodesDataV2<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        u32,
+        Identity,
+        u32,
+        SubnetNodeV2,
+        ValueQuery,
+        DefaultSubnetNodeV2<T>,
     >;
 
     /// Subnets that are registered, not yet activated, are stored here before activation
@@ -3509,11 +3639,27 @@ pub mod pallet {
         DefaultSubnetNode<T>,
     >;
 
+    #[pallet::storage]
+    pub type RegisteredSubnetNodesDataV2<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        u32,
+        Identity,
+        u32,
+        SubnetNodeV2,
+        ValueQuery,
+        DefaultSubnetNodeV2<T>,
+    >;
+
     /// Subnet node queue to be activated
     /// This if for registered nodes
     #[pallet::storage]
     pub type SubnetNodeQueue<T: Config> =
         StorageMap<_, Identity, u32, Vec<SubnetNode<T::AccountId>>, ValueQuery>;
+
+    #[pallet::storage]
+    pub type SubnetNodeQueueV2<T: Config> =
+        StorageMap<_, Identity, u32, Vec<SubnetNodeV2>, ValueQuery>;
 
     /// Each subnet nodes peer_id, conditions uniqueness
     /// subnet_id --> peer_id --> subnet_node_id
@@ -3528,18 +3674,6 @@ pub mod pallet {
         ValueQuery,
         DefaultZeroU32,
     >;
-
-    // #[pallet::storage]
-    // pub type PeerMultiaddrSubnetNodeId<T> = StorageDoubleMap<
-    //     _,
-    //     Identity,
-    //     u32,
-    //     Blake2_128Concat,
-    //     Multiaddr,
-    //     u32,
-    //     ValueQuery,
-    //     DefaultZeroU32,
-    // >;
 
     /// Each subnet nodes bootnode peer_id, conditions uniqueness
     /// subnet_id --> bootnode_peer_id --> subnet_node_id
@@ -3594,6 +3728,195 @@ pub mod pallet {
         u32,
         ValueQuery,
         DefaultZeroU32,
+    >;
+
+    //
+    // Validator
+    //
+
+    /// A whitelist of all validator IDs that can start one overwatch node
+    #[pallet::storage]
+    pub type OverwatchValidatorWhitelist<T: Config> =
+        StorageMap<_, Blake2_128Concat, u32, bool, ValueQuery, DefaultBoolFalse>;
+
+    ///
+    #[pallet::storage]
+    pub type ValidatorSubnetNodes<T: Config> =
+        StorageMap<_, Blake2_128Concat, u32, BTreeMap<u32, BTreeSet<u32>>, ValueQuery>;
+
+    /// Whitelist of coldkeys that nodes can register to a subnet during its registration period
+    /// Afterwards on subnet activation, this list is deleted and the subnet is now public
+    /// Because all subnets are expected to be P2P, each subnet starts as a blockchain would with
+    /// trusting nodes to ensure no malicious nodes can enter at the start.
+    /// u32 is the number of nodes the coldkey can register while subnet is in registration
+    /// Verified via InitialColdkeyData
+    /// subnet_id => { AccountId, max registrations}
+    #[pallet::storage]
+    pub type NodeRegistrationInitialValidatorIds<T: Config> =
+        StorageMap<_, Identity, u32, BTreeMap<u32, u32>>;
+
+    /// The initial whitelisted validators that can register to a subnet during its registration period
+    /// Afterwards on subnet activation, this list is deleted and the subnet is now public
+    /// Because all subnets are expected to be P2P, each subnet starts as a blockchain would with trusting nodes to ensure no malicious nodes can enter at the start.
+    /// u32 is the number of nodes the validator can register while subnet is in registration
+    /// Verified via InitialValidatorDataEntry
+    /// subnet_id => { Validator ID, total registrations}
+    #[pallet::storage]
+    pub type InitialValidatorData<T: Config> = StorageMap<_, Identity, u32, BTreeMap<u32, u32>>;
+
+    #[pallet::storage]
+    pub type TotalValidatorIds<T> = StorageValue<_, u32, ValueQuery, DefaultZeroU32>;
+
+    /// Mapping of each validator ID's hotkey
+    /// Subnet ID => Validator ID => Hotkey
+    #[pallet::storage]
+    pub type ValidatorIdHotkey<T: Config> =
+        StorageMap<_, Blake2_128Concat, u32, T::AccountId, OptionQuery>;
+
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        Clone,
+        PartialEq,
+        Eq,
+        RuntimeDebug,
+        PartialOrd,
+        Ord,
+        scale_info::TypeInfo,
+    )]
+    pub struct ValidatorData<AccountId> {
+        pub id: u32,
+        pub hotkey: AccountId,
+        pub delegate_reward_rate: u128,
+        pub last_delegate_reward_rate_update: u32,
+        pub delegate_account: Option<DelegateAccount<AccountId>>,
+        pub identity: Option<IdentityData>,
+    }
+
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        Clone,
+        PartialEq,
+        Eq,
+        RuntimeDebug,
+        PartialOrd,
+        Ord,
+        scale_info::TypeInfo,
+    )]
+    pub struct ValidatorInfo<AccountId> {
+        pub id: u32,
+        pub hotkey: AccountId,
+        pub delegate_reward_rate: u128,
+        pub last_delegate_reward_rate_update: u32,
+        pub delegate_account: Option<DelegateAccount<AccountId>>,
+        pub identity: Option<IdentityData>,
+        pub coldkey: AccountId,
+    }
+
+    #[pallet::type_value]
+    pub fn DefaultValidatorData<T: Config>() -> ValidatorData<T::AccountId> {
+        return ValidatorData {
+            id: 0,
+            hotkey: T::AccountId::decode(&mut TrailingZeroInput::zeroes()).unwrap(),
+            delegate_reward_rate: 0,
+            last_delegate_reward_rate_update: 0,
+            delegate_account: None,
+            identity: None,
+        };
+    }
+
+    #[pallet::storage]
+    pub type ValidatorsData<T: Config> = StorageMap<
+        _,
+        Identity,
+        u32,
+        ValidatorData<T::AccountId>,
+        ValueQuery,
+        DefaultValidatorData<T>,
+    >;
+
+    #[pallet::storage]
+    pub type ColdkeyValidatorId<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u32, OptionQuery>;
+
+    /// The validators coldkey
+    /// This never gets deleted to always allow for removing stake
+    #[pallet::storage]
+    pub type ValidatorColdkey<T: Config> =
+        StorageMap<_, Blake2_128Concat, u32, T::AccountId, OptionQuery>;
+
+    #[pallet::storage]
+    pub type ValidatorColdkeyHotkey<T: Config> = StorageMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        T::AccountId,
+        ValueQuery,
+        DefaultAccountId<T>,
+    >;
+
+    /// Mapping of each hotkeys subnet node ID in each subnet
+    /// Subnet ID => Hotkey => Subnet Node ID
+    #[pallet::storage]
+    pub type HotkeyValidatorId<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u32, OptionQuery>;
+
+    /// The subnet nodes validator ID
+    /// This never gets deleted to always allow for removing stake
+    #[pallet::storage] // subnet_id --> param --> node ID
+    pub type SubnetNodeValidatorId<T> = StorageDoubleMap<
+        _,
+        Identity,
+        u32, // subnet id
+        Identity,
+        u32, // subnet node id
+        u32, // validator id
+        OptionQuery,
+    >;
+
+    #[pallet::storage]
+    pub type ValidatorReputation<T: Config> =
+        StorageMap<_, Blake2_128Concat, u32, Reputation, ValueQuery, DefaultColdkeyReputation>;
+
+    //
+    // Validator staking
+    //
+
+    /// An accounts stake per subnet
+    #[pallet::storage] // account--> subnet_id --> u128
+    pub type NodeSubnetStake<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        u32, // validator_id
+        Identity,
+        u32, // subnet_id
+        u128,
+        ValueQuery,
+        DefaultZeroU128,
+    >;
+
+    /// Total stake sum of all nodes in specified validator
+    #[pallet::storage] // validator_id --> u128
+    pub type TotalValidatorDelegateStakeShares<T> = StorageMap<_, Identity, u32, u128, ValueQuery>;
+
+    /// Total stake sum of all nodes in specified validator
+    #[pallet::storage] // validator_id --> u128
+    pub type TotalValidatorDelegateStakeBalance<T> = StorageMap<_, Identity, u32, u128, ValueQuery>;
+
+    /// An accounts delegate stake sharesper validator
+    #[pallet::storage] // account --> validator_id --> u128
+    pub type AccountValidatorDelegateStakeShares<T: Config> = StorageDoubleMap<
+        _,
+        Blake2_128Concat,
+        T::AccountId,
+        Identity,
+        u32,
+        u128,
+        ValueQuery,
+        DefaultZeroU128,
     >;
 
     //
@@ -3671,6 +3994,10 @@ pub mod pallet {
     pub type SubnetConsensusSubmission<T: Config> =
         StorageDoubleMap<_, Identity, u32, Identity, u32, ConsensusData<T::AccountId>>;
 
+    #[pallet::storage] // subnet ID => epoch  => data
+    pub type SubnetConsensusSubmissionV2<T: Config> =
+        StorageDoubleMap<_, Identity, u32, Identity, u32, ConsensusDataV2>;
+
     /// Minimum attestation ratio to form consensus
     #[pallet::storage]
     pub type MinAttestationPercentage<T> =
@@ -3718,6 +4045,18 @@ pub mod pallet {
     pub type MinSubnetNodeReputation<T> =
         StorageMap<_, Identity, u32, u128, ValueQuery, DefaultMinSubnetNodeReputation>;
 
+    // #[pallet::storage]
+    // pub type SubnetNodeReputation<T> = StorageDoubleMap<
+    //     _,
+    //     Identity,
+    //     u32, // subnet ID
+    //     Identity,
+    //     u32,  // subnet node ID
+    //     u128, // Reputation
+    //     ValueQuery,
+    //     DefaultPercentageFactorU128,
+    // >;
+
     #[pallet::storage]
     pub type SubnetNodeReputation<T> = StorageDoubleMap<
         _,
@@ -3726,8 +4065,7 @@ pub mod pallet {
         Identity,
         u32,  // subnet node ID
         u128, // Reputation
-        ValueQuery,
-        DefaultPercentageFactorU128,
+        OptionQuery,
     >;
 
     /// Node reputation factor when a node is absent from consensus for decreasing node reputation
@@ -3882,7 +4220,7 @@ pub mod pallet {
     /// This the the account a nodes rewards can optionally be sent to
     #[pallet::storage] // account--> subnet_id --> u128
     #[pallet::getter(fn account_delegate_stake)]
-    pub type AccountDelegateStake<T: Config> =
+    pub type DelegateAccountStake<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, u128, ValueQuery, DefaultZeroU128>;
 
     /// account => { block: balance }
@@ -4002,6 +4340,11 @@ pub mod pallet {
     #[pallet::storage]
     pub type OverwatchNodeBlacklist<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, bool, ValueQuery, DefaultBoolFalse>;
+
+    /// Validator id -> true|false
+    #[pallet::storage]
+    pub type OverwatchNodeWhitelist<T: Config> =
+        StorageMap<_, Blake2_128Concat, u32, bool, ValueQuery, DefaultBoolFalse>;
 
     #[pallet::storage]
     pub type MaxOverwatchNodes<T> = StorageValue<_, u32, ValueQuery, DefaultMaxOverwatchNodes>;
@@ -4150,6 +4493,20 @@ pub mod pallet {
     #[pallet::storage]
     pub type OverwatchMinAge<T> = StorageValue<_, u32, ValueQuery, DefaultOverwatchMinAge<T>>;
 
+    /// This never gets deleted to always allow for removing stake
+    #[pallet::storage]
+    pub type OverwatchNodeValidatorId<T> = StorageMap<
+        _,
+        Identity,
+        u32, // overwatch_node_id
+        u32, // validator_id
+        OptionQuery,
+    >;
+
+    #[pallet::storage] // overwatch_node_id --> stake
+    pub type OverwatchStake<T: Config> =
+        StorageMap<_, Blake2_128Concat, u32, u128, ValueQuery, DefaultZeroU128>;
+
     //
     // Overwatch staking
     //
@@ -4158,7 +4515,7 @@ pub mod pallet {
     pub type TotalOverwatchStake<T> = StorageValue<_, u128, ValueQuery>;
 
     /// Overwatch hotkey stake balance
-    #[pallet::storage] // subnet_uid --> peer_data
+    #[pallet::storage] // subnet_uid --> stake
     pub type AccountOverwatchStake<T: Config> =
         StorageMap<_, Blake2_128Concat, T::AccountId, u128, ValueQuery, DefaultZeroU128>;
 
@@ -5734,48 +6091,50 @@ pub mod pallet {
         ) -> DispatchResult {
             let curr_coldkey: T::AccountId = ensure_signed(origin)?;
 
-            Self::is_paused()?;
+            // Self::is_paused()?;
 
-            ensure!(&hotkey != &new_coldkey, Error::<T>::ColdkeyMatchesHotkey);
+            // ensure!(&hotkey != &new_coldkey, Error::<T>::ColdkeyMatchesHotkey);
 
-            HotkeyOwner::<T>::try_mutate_exists(hotkey, |maybe_coldkey| -> DispatchResult {
-                match maybe_coldkey {
-                    Some(coldkey) if *coldkey == curr_coldkey => {
-                        // Condition met, update or remove
-                        *maybe_coldkey = Some(new_coldkey.clone());
-                        // Update StakeUnbondingLedger
-                        // StakeUnbondingLedger::<T>::swap(&curr_coldkey, &new_coldkey);
+            // HotkeyOwner::<T>::try_mutate_exists(hotkey, |maybe_coldkey| -> DispatchResult {
+            //     match maybe_coldkey {
+            //         Some(coldkey) if *coldkey == curr_coldkey => {
+            //             // Condition met, update or remove
+            //             *maybe_coldkey = Some(new_coldkey.clone());
+            //             // Update StakeUnbondingLedger
+            //             // StakeUnbondingLedger::<T>::swap(&curr_coldkey, &new_coldkey);
 
-                        StakeUnbondingLedger::<T>::swap(&curr_coldkey, &new_coldkey);
+            //             StakeUnbondingLedger::<T>::swap(&curr_coldkey, &new_coldkey);
 
-                        // Update coldkeys list of hotkeys
-                        ColdkeyHotkeys::<T>::swap(&curr_coldkey, &new_coldkey);
+            //             // Update coldkeys list of hotkeys
+            //             ColdkeyHotkeys::<T>::swap(&curr_coldkey, &new_coldkey);
 
-                        // Identity is not required so we ensure it exists first
-                        if let Ok(coldkey_identity) = ColdkeyIdentity::<T>::try_get(&curr_coldkey) {
-                            ColdkeyIdentity::<T>::swap(&curr_coldkey, &new_coldkey);
-                            ColdkeyIdentityNameOwner::<T>::insert(
-                                coldkey_identity.name.clone(),
-                                &new_coldkey,
-                            );
-                        };
+            //             // Identity is not required so we ensure it exists first
+            //             if let Ok(coldkey_identity) = ColdkeyIdentity::<T>::try_get(&curr_coldkey) {
+            //                 ColdkeyIdentity::<T>::swap(&curr_coldkey, &new_coldkey);
+            //                 ColdkeyIdentityNameOwner::<T>::insert(
+            //                     coldkey_identity.name.clone(),
+            //                     &new_coldkey,
+            //                 );
+            //             };
 
-                        ColdkeyReputation::<T>::swap(&curr_coldkey, &new_coldkey);
+            //             ColdkeyReputation::<T>::swap(&curr_coldkey, &new_coldkey);
 
-                        ColdkeySubnetNodes::<T>::swap(&curr_coldkey, &new_coldkey);
+            //             ColdkeySubnetNodes::<T>::swap(&curr_coldkey, &new_coldkey);
 
-                        Self::deposit_event(Event::UpdateColdkey {
-                            coldkey: curr_coldkey,
-                            new_coldkey: new_coldkey,
-                        });
+            //             Self::deposit_event(Event::UpdateColdkey {
+            //                 coldkey: curr_coldkey,
+            //                 new_coldkey: new_coldkey,
+            //             });
 
-                        Ok(())
-                    }
-                    // --- Revert from here if not exist
-                    Some(_) => Err(Error::<T>::NotKeyOwner.into()),
-                    None => Err(Error::<T>::NotKeyOwner.into()),
-                }
-            })
+            //             Ok(())
+            //         }
+            //         // --- Revert from here if not exist
+            //         Some(_) => Err(Error::<T>::NotKeyOwner.into()),
+            //         None => Err(Error::<T>::NotKeyOwner.into()),
+            //     }
+            // })
+
+            Ok(())
         }
 
         /// Update hotkey (subnet node, overwatch node)
@@ -5804,115 +6163,115 @@ pub mod pallet {
         ) -> DispatchResult {
             let coldkey: T::AccountId = ensure_signed(origin.clone())?;
 
-            Self::is_paused()?;
+            // Self::is_paused()?;
 
-            ensure!(&coldkey != &new_hotkey, Error::<T>::ColdkeyMatchesHotkey);
+            // ensure!(&coldkey != &new_hotkey, Error::<T>::ColdkeyMatchesHotkey);
 
-            // Ensure `old_hotkey` is owned by caller
-            ensure!(
-                Self::is_hotkey_owner(&old_hotkey, &coldkey),
-                Error::<T>::NotKeyOwner
-            );
+            // // Ensure `old_hotkey` is owned by caller
+            // ensure!(
+            //     Self::is_hotkey_owner(&old_hotkey, &coldkey),
+            //     Error::<T>::NotKeyOwner
+            // );
 
-            // --- Ensure new_hotkey not taken
-            // Hotkeys must be unique across network
-            ensure!(
-                !Self::hotkey_has_owner(new_hotkey.clone()),
-                Error::<T>::HotkeyHasOwner
-            );
+            // // --- Ensure new_hotkey not taken
+            // // Hotkeys must be unique across network
+            // ensure!(
+            //     !Self::hotkey_has_owner(new_hotkey.clone()),
+            //     Error::<T>::HotkeyHasOwner
+            // );
 
-            let mut hotkeys = ColdkeyHotkeys::<T>::get(&coldkey);
-            // Redundant
-            ensure!(
-                !hotkeys.contains(&new_hotkey),
-                Error::<T>::HotkeyAlreadyRegisteredToColdkey
-            );
-            // Redundant
-            ensure!(
-                hotkeys.contains(&old_hotkey),
-                Error::<T>::OldHotkeyNotRegistered
-            );
-            // Replace
-            hotkeys.remove(&old_hotkey);
-            hotkeys.insert(new_hotkey.clone());
-            ColdkeyHotkeys::<T>::insert(&coldkey, hotkeys);
+            // let mut hotkeys = ColdkeyHotkeys::<T>::get(&coldkey);
+            // // Redundant
+            // ensure!(
+            //     !hotkeys.contains(&new_hotkey),
+            //     Error::<T>::HotkeyAlreadyRegisteredToColdkey
+            // );
+            // // Redundant
+            // ensure!(
+            //     hotkeys.contains(&old_hotkey),
+            //     Error::<T>::OldHotkeyNotRegistered
+            // );
+            // // Replace
+            // hotkeys.remove(&old_hotkey);
+            // hotkeys.insert(new_hotkey.clone());
+            // ColdkeyHotkeys::<T>::insert(&coldkey, hotkeys);
 
-            // Update hotkey owner
-            HotkeyOwner::<T>::swap(&old_hotkey, &new_hotkey);
+            // // Update hotkey owner
+            // HotkeyOwner::<T>::swap(&old_hotkey, &new_hotkey);
 
-            // --- Update overwatch node hotkey
-            if let Some(overwatch_node_id) = HotkeyOverwatchNodeId::<T>::take(&old_hotkey) {
-                OverwatchNodeIdHotkey::<T>::insert(overwatch_node_id, &new_hotkey);
-                HotkeyOverwatchNodeId::<T>::insert(&new_hotkey, overwatch_node_id);
-                OverwatchNodes::<T>::try_mutate_exists(
-                    overwatch_node_id,
-                    |maybe_params| -> DispatchResult {
-                        let params = maybe_params
-                            .as_mut()
-                            .ok_or(Error::<T>::InvalidOverwatchNodeId)?;
-                        params.hotkey = new_hotkey.clone();
-                        Ok(())
-                    },
-                );
-            };
+            // // --- Update overwatch node hotkey
+            // if let Some(overwatch_node_id) = HotkeyOverwatchNodeId::<T>::take(&old_hotkey) {
+            //     OverwatchNodeIdHotkey::<T>::insert(overwatch_node_id, &new_hotkey);
+            //     HotkeyOverwatchNodeId::<T>::insert(&new_hotkey, overwatch_node_id);
+            //     OverwatchNodes::<T>::try_mutate_exists(
+            //         overwatch_node_id,
+            //         |maybe_params| -> DispatchResult {
+            //             let params = maybe_params
+            //                 .as_mut()
+            //                 .ok_or(Error::<T>::InvalidOverwatchNodeId)?;
+            //             params.hotkey = new_hotkey.clone();
+            //             Ok(())
+            //         },
+            //     );
+            // };
 
-            // --- Update overwatch node stake (outside of above `if` incase removed but has balance)
-            let account_overwatch_stake: u128 = AccountOverwatchStake::<T>::get(&old_hotkey);
-            if account_overwatch_stake != 0 {
-                Self::do_swap_overwatch_hotkey_balance(&old_hotkey, &new_hotkey);
-            }
+            // // --- Update overwatch node stake (outside of above `if` incase removed but has balance)
+            // let account_overwatch_stake: u128 = AccountOverwatchStake::<T>::get(&old_hotkey);
+            // if account_overwatch_stake != 0 {
+            //     Self::do_swap_overwatch_hotkey_balance(&old_hotkey, &new_hotkey);
+            // }
 
-            // Check if hotkey has a subnet ID and update node and stake balance
-            // *Note: Each hotkey is unique to each subnet
-            if let Some(subnet_id) = HotkeySubnetId::<T>::take(&old_hotkey) {
-                // HotkeySubnetNodeId is removed when node and subnet is removed
-                if let Some(subnet_node_id) = HotkeySubnetNodeId::<T>::get(&subnet_id, &old_hotkey)
-                {
-                    // --- Update nodes hotkey by inserting and overriding
-                    SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, &new_hotkey);
-                    // --- Update Subnet Nodes Data's hotkey (Active, Registered)
-                    Self::update_subnet_node_hotkey(subnet_id, subnet_node_id, new_hotkey.clone());
-                    // Swap hotkeys -> node_id
-                    HotkeySubnetNodeId::<T>::swap(subnet_id, &old_hotkey, subnet_id, &new_hotkey);
+            // // Check if hotkey has a subnet ID and update node and stake balance
+            // // *Note: Each hotkey is unique to each subnet
+            // if let Some(subnet_id) = HotkeySubnetId::<T>::take(&old_hotkey) {
+            //     // HotkeySubnetNodeId is removed when node and subnet is removed
+            //     if let Some(subnet_node_id) = HotkeySubnetNodeId::<T>::get(&subnet_id, &old_hotkey)
+            //     {
+            //         // --- Update nodes hotkey by inserting and overriding
+            //         SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, &new_hotkey);
+            //         // --- Update Subnet Nodes Data's hotkey (Active, Registered)
+            //         Self::update_subnet_node_hotkey(subnet_id, subnet_node_id, new_hotkey.clone());
+            //         // Swap hotkeys -> node_id
+            //         HotkeySubnetNodeId::<T>::swap(subnet_id, &old_hotkey, subnet_id, &new_hotkey);
 
-                    // Ensure the new hotkey doesn't match the delegate account
-                    if let Some(subnet_node) = Self::get_subnet_node(subnet_id, subnet_node_id) {
-                        if let Some(delegate_account) = subnet_node.delegate_account {
-                            ensure!(
-                                &delegate_account.account_id != &old_hotkey,
-                                Error::<T>::DelegateAccountCannotBeHotkey
-                            );
-                            ensure!(
-                                delegate_account.account_id != HotkeyOwner::<T>::get(&old_hotkey),
-                                Error::<T>::DelegateAccountCannotBeColdkey
-                            );
-                        }
-                    }
-                }
+            //         // Ensure the new hotkey doesn't match the delegate account
+            //         if let Some(subnet_node) = Self::get_subnet_node(subnet_id, subnet_node_id) {
+            //             if let Some(delegate_account) = subnet_node.delegate_account {
+            //                 ensure!(
+            //                     &delegate_account.account_id != &old_hotkey,
+            //                     Error::<T>::DelegateAccountCannotBeHotkey
+            //                 );
+            //                 ensure!(
+            //                     delegate_account.account_id != HotkeyOwner::<T>::get(&old_hotkey),
+            //                     Error::<T>::DelegateAccountCannotBeColdkey
+            //                 );
+            //             }
+            //         }
+            //     }
 
-                // Note: This is never removed to allow the RPC to get a coldkeys stake data
-                // --- Insert new hotkey (we `take` it earlier)
-                HotkeySubnetId::<T>::insert(&new_hotkey, subnet_id);
-            }
+            //     // Note: This is never removed to allow the RPC to get a coldkeys stake data
+            //     // --- Insert new hotkey (we `take` it earlier)
+            //     HotkeySubnetId::<T>::insert(&new_hotkey, subnet_id);
+            // }
 
-            // --- Swap stake balance
-            // Note: Iterating is redundant here since hotkeys are unique but we do anyway
-            // Iterate each hotkey stake
-            // If a Subnet Node or subnet is no longer active, the stake can still be available for unstaking
-            for (subnet_id, balance) in AccountSubnetStake::<T>::iter_prefix(&old_hotkey) {
-                if balance != 0 {
-                    Self::do_swap_hotkey_stake_balance(
-                        subnet_id,
-                        &old_hotkey, // from
-                        &new_hotkey, // to
-                    );
-                }
-            }
+            // // --- Swap stake balance
+            // // Note: Iterating is redundant here since hotkeys are unique but we do anyway
+            // // Iterate each hotkey stake
+            // // If a Subnet Node or subnet is no longer active, the stake can still be available for unstaking
+            // for (subnet_id, balance) in AccountSubnetStake::<T>::iter_prefix(&old_hotkey) {
+            //     if balance != 0 {
+            //         Self::do_swap_hotkey_stake_balance(
+            //             subnet_id,
+            //             &old_hotkey, // from
+            //             &new_hotkey, // to
+            //         );
+            //     }
+            // }
 
-            Self::deposit_event(Event::UpdateHotkey {
-                hotkey: old_hotkey,
-                new_hotkey: new_hotkey,
-            });
+            // Self::deposit_event(Event::UpdateHotkey {
+            //     hotkey: old_hotkey,
+            //     new_hotkey: new_hotkey,
+            // });
 
             Ok(())
         }
@@ -5921,11 +6280,10 @@ pub mod pallet {
         #[pallet::weight({0})]
         pub fn register_overwatch_node(
             origin: OriginFor<T>,
-            hotkey: T::AccountId,
             stake_to_be_added: u128,
         ) -> DispatchResult {
             Self::is_paused()?;
-            Self::do_register_overwatch_node(origin, hotkey, stake_to_be_added)
+            Self::do_register_overwatch_node_v2(origin, stake_to_be_added)
         }
 
         #[pallet::call_index(70)]
@@ -5934,11 +6292,11 @@ pub mod pallet {
             origin: OriginFor<T>,
             overwatch_node_id: u32,
         ) -> DispatchResult {
-            let key: T::AccountId = ensure_signed(origin.clone())?;
+            ensure_signed(origin.clone())?;
 
             Self::is_paused()?;
 
-            Self::do_remove_overwatch_node(key, overwatch_node_id)
+            Self::do_remove_overwatch_node_v2(origin.clone(), overwatch_node_id)
         }
 
         #[pallet::call_index(71)]
@@ -6976,6 +7334,554 @@ pub mod pallet {
             T::MajorityCollectiveOrigin::ensure_origin(origin)?;
             Self::do_set_default_overwatch_subnet_weight(value)
         }
+
+        #[pallet::call_index(166)]
+        #[pallet::weight({0})]
+        pub fn add_validator_delegate_stake(
+            origin: OriginFor<T>,
+            validator_id: u32,
+            node_delegate_stake_to_be_added: u128,
+        ) -> DispatchResult {
+            Self::is_paused()?;
+
+            ensure!(
+                ValidatorsData::<T>::contains_key(validator_id),
+                Error::<T>::InvalidValidatorId
+            );
+
+            Self::do_add_validator_delegate_stake(
+                origin,
+                validator_id,
+                node_delegate_stake_to_be_added,
+            )
+        }
+
+        #[pallet::call_index(167)]
+        #[pallet::weight({0})]
+        pub fn transfer_validator_delegate_stake(
+            origin: OriginFor<T>,
+            validator_id: u32,
+            to_account_id: T::AccountId,
+            validator_delegate_stake_shares_to_transfer: u128,
+        ) -> DispatchResult {
+            Self::is_paused()?;
+
+            Self::do_transfer_validator_delegate_stake(
+                origin,
+                validator_id,
+                to_account_id,
+                validator_delegate_stake_shares_to_transfer,
+            )
+        }
+
+        #[pallet::call_index(168)]
+        #[pallet::weight({0})]
+        pub fn remove_validator_delegate_stake(
+            origin: OriginFor<T>,
+            validator_id: u32,
+            to_account_id: T::AccountId,
+            validator_delegate_stake_shares_to_be_removed: u128,
+        ) -> DispatchResult {
+            Self::is_paused()?;
+
+            Self::do_remove_validator_delegate_stake(
+                origin,
+                validator_id,
+                validator_delegate_stake_shares_to_be_removed,
+            )
+        }
+
+        #[pallet::call_index(169)]
+        #[pallet::weight({0})]
+        pub fn update_validator_coldkey(
+            origin: OriginFor<T>,
+            validator_id: u32,
+            new_coldkey: T::AccountId,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            // Ensure caller is a validator
+            ensure!(
+                ColdkeyValidatorId::<T>::get(&coldkey) == Some(validator_id),
+                Error::<T>::NotKeyOwner
+            );
+
+            ColdkeyValidatorId::<T>::insert(new_coldkey.clone(), validator_id);
+            ValidatorColdkey::<T>::insert(validator_id, new_coldkey.clone());
+            ValidatorColdkeyHotkey::<T>::swap(coldkey.clone(), new_coldkey.clone());
+
+            Ok(())
+        }
+
+        #[pallet::call_index(170)]
+        #[pallet::weight({0})]
+        pub fn update_validator_hotkey(
+            origin: OriginFor<T>,
+            validator_id: u32,
+            new_hotkey: T::AccountId,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            // Ensure caller is a validator
+            ensure!(
+                ColdkeyValidatorId::<T>::get(&coldkey) == Some(validator_id),
+                Error::<T>::NotKeyOwner
+            );
+
+            if let Some(current_hotkey) = ValidatorIdHotkey::<T>::get(validator_id) {
+                HotkeyValidatorId::<T>::swap(current_hotkey.clone(), new_hotkey.clone());
+            }
+            ValidatorIdHotkey::<T>::insert(validator_id, new_hotkey.clone());
+            ValidatorColdkeyHotkey::<T>::insert(coldkey.clone(), new_hotkey.clone());
+            ValidatorsData::<T>::try_mutate_exists(
+                validator_id,
+                |maybe_params| -> DispatchResult {
+                    let params = maybe_params
+                        .as_mut()
+                        .ok_or(Error::<T>::InvalidValidatorId)?;
+                    params.hotkey = new_hotkey.clone();
+                    Ok(())
+                },
+            );
+
+            Ok(())
+        }
+
+        /// Make an update to a validator subnet node's hotkey
+        /// By updating this hotkey, this will supersede all hotkey based logic
+        /// - Proposing attestation
+        /// - Attesting
+        /// When a subnet node has a hotkey, the validator hotkey cannot be used
+        /// as the hotkey for the subnet node.
+        ///
+        /// This is an extra security feature to allow for unique hotkeys for each subnet
+        #[pallet::call_index(171)]
+        #[pallet::weight({0})]
+        pub fn update_node_hotkey(
+            origin: OriginFor<T>,
+            validator_id: u32,
+            subnet_id: u32,
+            subnet_node_id: u32,
+            new_hotkey: Option<T::AccountId>,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            // Only the validator coldkey can make this update
+            // ensure!(
+            //     ColdkeyValidatorId::<T>::get(&coldkey) == Some(validator_id),
+            //     Error::<T>::NotKeyOwner
+            // );
+
+            // // Make sure they aren't updating the node hotkey to the same one the validator has.
+            // // It's possible for the ValidatorIdHotkey and the SubnetNodeIdHotkey if the validator
+            // // update its hotkey to one of the nodes they have. But we try to stop that here since
+            // // they they use the validator hotkey as long as the node hotkey isn't set.
+            // // let validator_hotkey =
+            // //     ValidatorIdHotkey::<T>::get(validator_id).ok_or(Error::<T>::InvalidValidator)?;
+
+            // // Only the validator that owns the subnet node ID can make this update
+            // // let subnet_node = SubnetNodesDataV2::<T>::try_get(subnet_id, subnet_node_id)
+            // //     .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
+
+            // // Ensure validator owns this subnet node
+            // let subnet_node_validator_id = SubnetNodeValidatorId::<T>::try_get(subnet_id, subnet_node_id)
+            //     .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
+
+            // ensure!(
+            //     subnet_node.validator_id == validator_id,
+            //     Error::<T>::InvalidValidator
+            // );
+
+            let node_coldkey = Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+
+            ensure!(coldkey == node_coldkey, Error::<T>::InvalidValidator);
+
+            if let Some(new_hotkey) = new_hotkey {
+                SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, new_hotkey);
+            } else {
+                SubnetNodeIdHotkey::<T>::remove(subnet_id, subnet_node_id);
+            }
+
+            Ok(())
+        }
+
+        #[pallet::call_index(172)]
+        #[pallet::weight({0})]
+        pub fn register_subnet_node_v2(
+            origin: OriginFor<T>,
+            validator_id: u32,
+            subnet_id: u32,
+            hotkey: Option<T::AccountId>,
+            peer_info: PeerInfo,
+            bootnode_peer_info: Option<PeerInfo>,
+            client_peer_info: Option<PeerInfo>,
+            stake_to_be_added: u128,
+            unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+            non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+            max_burn_amount: u128,
+        ) -> DispatchResult {
+            Self::is_paused()?;
+            Self::do_register_subnet_node_v2(
+                origin,
+                validator_id,
+                subnet_id,
+                hotkey,
+                peer_info,
+                bootnode_peer_info,
+                client_peer_info,
+                stake_to_be_added,
+                unique,
+                non_unique,
+                max_burn_amount,
+            )
+        }
+
+        #[pallet::call_index(173)]
+        #[pallet::weight({0})]
+        pub fn register_subnet_v2(
+            origin: OriginFor<T>,
+            max_cost: u128,
+            subnet_data: RegistrationSubnetDataV2,
+        ) -> DispatchResult {
+            let owner: T::AccountId = ensure_signed(origin)?;
+
+            Self::is_paused()?;
+
+            Self::do_register_subnet_v2(owner, max_cost, subnet_data)
+        }
+
+        #[pallet::call_index(174)]
+        #[pallet::weight({0})]
+        pub fn register_validator(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            delegate_reward_rate: u128,
+            delegate_account: Option<DelegateAccount<T::AccountId>>,
+            identity: Option<IdentityData>,
+        ) -> DispatchResult {
+            Self::is_paused()?;
+
+            Self::do_register_validator(
+                origin,
+                hotkey,
+                delegate_reward_rate,
+                delegate_account,
+                identity,
+            )
+        }
+
+        #[pallet::call_index(175)]
+        #[pallet::weight({0})]
+        pub fn activate_subnet_v2(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+        ) -> DispatchResultWithPostInfo {
+            let coldkey: T::AccountId = ensure_signed(origin)?;
+
+            Self::is_paused()?;
+
+            ensure!(
+                Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
+                Error::<T>::NotSubnetOwner
+            );
+
+            Self::do_activate_subnet_v2(subnet_id)
+        }
+
+        /// Self-remove a subnet node
+        /// Only the owner of the subnet node can call this function via its validator coldkey
+        #[pallet::call_index(176)]
+        #[pallet::weight({0})]
+        pub fn remove_subnet_node_v2(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_node_id: u32,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            let validator_id =
+                ColdkeyValidatorId::<T>::get(&coldkey).ok_or(Error::<T>::NotKeyOwner)?;
+
+            // Ensure caller is a validator
+            ensure!(
+                SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) == Some(validator_id),
+                Error::<T>::NotKeyOwner
+            );
+
+            // Check if validator
+            let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+            let is_chosen_validator: bool =
+                Self::is_chosen_validator(subnet_id, subnet_node_id, subnet_epoch);
+            ensure!(
+                !is_chosen_validator,
+                Error::<T>::ElectedValidatorCannotRemove
+            );
+
+            Self::do_remove_subnet_node_v2(subnet_id, subnet_node_id)
+        }
+
+        #[pallet::call_index(177)]
+        #[pallet::weight({0})]
+        pub fn update_validator_delegate_reward_rate(
+            origin: OriginFor<T>,
+            validator_id: u32,
+            new_delegate_reward_rate: u128,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            // Ensure caller is a validator
+            ensure!(
+                ColdkeyValidatorId::<T>::get(&coldkey) == Some(validator_id),
+                Error::<T>::NotKeyOwner
+            );
+
+            Self::do_update_validator_delegate_reward_rate(validator_id, new_delegate_reward_rate)
+        }
+
+        #[pallet::call_index(178)]
+        #[pallet::weight({0})]
+        pub fn update_node_peer_info(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_node_id: u32,
+            new_peer_info: PeerInfo,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            let validator_coldkey =
+                Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+
+            log::error!("coldkey           {:?}", coldkey);
+            log::error!("validator_coldkey {:?}", validator_coldkey);
+
+            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+
+            Self::do_update_node_peer_info(subnet_id, subnet_node_id, new_peer_info)
+        }
+
+        #[pallet::call_index(179)]
+        #[pallet::weight({0})]
+        pub fn update_node_bootnode_peer_info(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_node_id: u32,
+            new_peer_info: Option<PeerInfo>,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            let validator_coldkey =
+                Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+
+            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+
+            Self::do_update_node_bootnode_peer_info(subnet_id, subnet_node_id, new_peer_info)
+        }
+
+        #[pallet::call_index(180)]
+        #[pallet::weight({0})]
+        pub fn update_node_client_peer_info(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_node_id: u32,
+            new_peer_info: Option<PeerInfo>,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            let validator_coldkey =
+                Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+
+            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+
+            Self::do_update_node_client_peer_info(subnet_id, subnet_node_id, new_peer_info)
+        }
+
+        #[pallet::call_index(181)]
+        #[pallet::weight({0})]
+        pub fn update_node_unique(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_node_id: u32,
+            unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            let validator_coldkey =
+                Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+
+            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+
+            Self::do_update_node_unique(subnet_id, subnet_node_id, unique)
+        }
+
+        #[pallet::call_index(182)]
+        #[pallet::weight({0})]
+        pub fn update_node_non_unique(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_node_id: u32,
+            non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            let validator_coldkey =
+                Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+
+            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+
+            Self::do_update_node_non_unique(subnet_id, subnet_node_id, non_unique)
+        }
+
+        #[pallet::call_index(183)]
+        #[pallet::weight({0})]
+        pub fn update_overwatch_hotkey(
+            origin: OriginFor<T>,
+            overwatch_node_id: u32,
+            new_hotkey: Option<T::AccountId>,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            Self::do_update_overwatch_hotkey(origin, overwatch_node_id, new_hotkey)
+        }
+
+        #[pallet::call_index(184)]
+        #[pallet::weight({0})]
+        pub fn add_overwatch_node_stake(
+            origin: T::RuntimeOrigin,
+            overwatch_node_id: u32,
+            stake_to_be_added: u128,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            Self::do_add_overwatch_node_stake(origin, overwatch_node_id, stake_to_be_added)
+        }
+
+        #[pallet::call_index(185)]
+        #[pallet::weight({0})]
+        pub fn remove_overwatch_node_stake(
+            origin: T::RuntimeOrigin,
+            overwatch_node_id: u32,
+            stake_to_be_added: u128,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            let is_overwatch_node: bool = match OverwatchNodes::<T>::try_get(overwatch_node_id) {
+                Ok(_) => true,
+                Err(()) => false,
+            };
+
+            Self::do_remove_overwatch_node_stake(
+                origin,
+                overwatch_node_id,
+                is_overwatch_node,
+                stake_to_be_added,
+            )
+        }
+
+        #[pallet::call_index(186)]
+        #[pallet::weight({0})]
+        pub fn set_overwatch_node_peer_id_v2(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            overwatch_node_id: u32,
+            peer_id: PeerId,
+        ) -> DispatchResultWithPostInfo {
+            Self::is_paused()?;
+            Self::do_set_overwatch_node_peer_id_v2(origin, subnet_id, overwatch_node_id, peer_id)
+        }
+
+        #[pallet::call_index(187)]
+        #[pallet::weight({0})]
+        pub fn update_validator_delegate_account(
+            origin: OriginFor<T>,
+            validator_id: u32,
+            delegate_account_id: Option<T::AccountId>,
+            delegate_rate: Option<u128>,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
+                .map_err(|_| Error::<T>::InvalidValidatorId)?;
+
+            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+
+            Self::do_update_validator_delegate_account(
+                validator_id,
+                validator_coldkey,
+                delegate_account_id,
+                delegate_rate,
+            )
+        }
+
+        #[pallet::call_index(188)]
+        #[pallet::weight({0})]
+        pub fn propose_attestation_v2(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_node_id: u32,
+            data: Vec<SubnetNodeConsensusData>,
+            prioritize_queue_node_id: Option<u32>,
+            remove_queue_node_id: Option<u32>,
+            args: Option<BoundedVec<u8, DefaultValidatorArgsLimit>>,
+            attest_data: Option<BoundedVec<u8, DefaultValidatorArgsLimit>>,
+        ) -> DispatchResultWithPostInfo {
+            let hotkey: T::AccountId = ensure_signed(origin)?;
+
+            Self::is_paused()?;
+
+            Self::do_propose_attestation_v2(
+                hotkey,
+                subnet_id,
+                subnet_node_id,
+                data,
+                prioritize_queue_node_id,
+                remove_queue_node_id,
+                args,
+                attest_data,
+            )
+        }
+
+        #[pallet::call_index(189)]
+        #[pallet::weight({0})]
+        pub fn attest_v2(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_node_id: u32,
+            data: Option<BoundedVec<u8, DefaultValidatorArgsLimit>>,
+        ) -> DispatchResultWithPostInfo {
+            let hotkey: T::AccountId = ensure_signed(origin)?;
+
+            Self::is_paused()?;
+
+            Self::do_attest_v2(hotkey, subnet_id, subnet_node_id, data)
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -7305,6 +8211,192 @@ pub mod pallet {
             Ok(())
         }
 
+        pub fn do_register_subnet_v2(
+            owner: T::AccountId,
+            max_cost: u128,
+            subnet_registration_data: RegistrationSubnetDataV2,
+        ) -> DispatchResult {
+            // Ensure name is unique
+            ensure!(
+                !SubnetName::<T>::contains_key(&subnet_registration_data.name),
+                Error::<T>::SubnetNameExist
+            );
+
+            // Ensure there aren't max+1 subnets already registered
+            // Network allows n+1 subnets
+            // See `do_epoch_preliminaries` to learn how subnets are removed if
+            // maximum subnets is exceeded
+            ensure!(
+                Self::get_total_subnets() < MaxSubnets::<T>::get().saturating_add(1),
+                Error::<T>::MaxSubnets
+            );
+
+            // Ensure name is unique
+            ensure!(
+                !SubnetRepo::<T>::contains_key(&subnet_registration_data.repo),
+                Error::<T>::SubnetRepoExist
+            );
+
+            // Ensure bootnodes is not empty
+            ensure!(
+                !subnet_registration_data.bootnodes.is_empty(),
+                Error::<T>::BootnodesEmpty
+            );
+
+            ensure!(
+                subnet_registration_data.bootnodes.len() as u32 <= MaxBootnodes::<T>::get(),
+                Error::<T>::TooManyBootnodes
+            );
+
+            for bootnode in &subnet_registration_data.bootnodes {
+                let multiaddr: &[u8] = &bootnode.1;
+
+                Self::do_verify_multiaddr(multiaddr)?;
+
+                let peer_id = &bootnode.0;
+                ensure!(
+                    Self::validate_peer_id(&peer_id),
+                    Error::<T>::InvalidBootnodePeerId
+                );
+            }
+
+            // Min stake must be between min-max min stake allowable
+            ensure!(
+                subnet_registration_data.min_stake >= MinSubnetMinStake::<T>::get()
+                    && subnet_registration_data.min_stake <= MaxSubnetMinStake::<T>::get(),
+                Error::<T>::InvalidSubnetMinStake
+            );
+
+            // Max stake must be below the network max
+            ensure!(
+                subnet_registration_data.max_stake <= NetworkMaxStakeBalance::<T>::get(),
+                Error::<T>::InvalidSubnetMaxStake
+            );
+
+            // Min stake must be less than or equal to max stake
+            ensure!(
+                subnet_registration_data.min_stake <= subnet_registration_data.max_stake,
+                Error::<T>::InvalidSubnetStakeParameters
+            );
+
+            ensure!(
+                subnet_registration_data.delegate_stake_percentage
+                    >= MinDelegateStakePercentage::<T>::get()
+                    && subnet_registration_data.delegate_stake_percentage
+                        <= MaxDelegateStakePercentage::<T>::get()
+                    && subnet_registration_data.delegate_stake_percentage
+                        <= Self::percentage_factor_as_u128(),
+                Error::<T>::InvalidMinDelegateStakePercentage
+            );
+
+            // --- Must have at least min subnet nodes as initial coldkeys
+            // Each coldkey must have at least 1 available registration slot
+            ensure!(
+                subnet_registration_data
+                    .initial_validators
+                    .values()
+                    .all(|&value| value >= 1)
+                    && subnet_registration_data.initial_validators.len() as u32
+                        >= MinSubnetNodes::<T>::get(),
+                Error::<T>::InvalidSubnetRegistrationInitialColdkeys
+            );
+
+            // TODO: Remove initial_coldkey duplicates
+
+            let block: u32 = Self::get_current_block_as_u32();
+            let cost = Self::get_current_registration_cost(block);
+
+            ensure!(max_cost >= cost, Error::<T>::CostGreaterThanMaxCost);
+
+            Self::update_last_registration_cost(cost, block);
+
+            if cost > 0 {
+                let cost_as_balance = match Self::u128_to_balance(cost) {
+                    Some(balance) => balance,
+                    None => return Err(Error::<T>::CouldNotConvertToBalance.into()),
+                };
+
+                // Ensure user has the funds, give accurate information on errors
+                ensure!(
+                    Self::can_remove_balance_from_coldkey_account(&owner, cost_as_balance),
+                    Error::<T>::NotEnoughBalanceToRegisterSubnet
+                );
+
+                // Send funds to Treasury and revert if failed
+                Self::send_to_treasury(&owner, cost_as_balance)?;
+            }
+
+            // Get total subnets ever
+            let subnet_uids: u32 = TotalSubnetUids::<T>::get();
+
+            // Start the subnet_ids at 1
+            let subnet_id = subnet_uids.saturating_add(1);
+            // Increase total subnets. This is used for unique Subnet IDs
+            TotalSubnetUids::<T>::put(subnet_id);
+
+            let slot = Self::assign_subnet_slot(subnet_id)?;
+            let friendly_uid = slot.saturating_sub(T::DesignatedEpochSlots::get()) + 1;
+
+            SubnetIdFriendlyUid::<T>::insert(subnet_id, friendly_uid);
+            FriendlyUidSubnetId::<T>::insert(friendly_uid, subnet_id);
+
+            let subnet_data = SubnetData {
+                id: subnet_id,
+                friendly_id: friendly_uid,
+                name: subnet_registration_data.name,
+                repo: subnet_registration_data.repo,
+                description: subnet_registration_data.description,
+                misc: subnet_registration_data.misc,
+                state: SubnetState::Registered,
+                start_epoch: u32::MAX, // updates on activation
+            };
+
+            // Store subnet data
+            SubnetsData::<T>::insert(subnet_id, &subnet_data);
+
+            // Store owner
+            SubnetOwner::<T>::insert(subnet_id, &owner);
+
+            // Store the stake balance range
+            SubnetMinStakeBalance::<T>::insert(subnet_id, subnet_registration_data.min_stake);
+            SubnetMaxStakeBalance::<T>::insert(subnet_id, subnet_registration_data.max_stake);
+
+            // Add delegate state ratio
+            SubnetDelegateStakeRewardsPercentage::<T>::insert(
+                subnet_id,
+                subnet_registration_data.delegate_stake_percentage,
+            );
+
+            // Store whitelisted coldkeys for registration period
+            NodeRegistrationInitialValidatorIds::<T>::insert(
+                subnet_id,
+                subnet_registration_data.initial_validators,
+            );
+
+            // Add bootnodes
+            SubnetBootnodes::<T>::insert(subnet_id, subnet_registration_data.bootnodes);
+
+            // Store unique name
+            SubnetName::<T>::insert(&subnet_data.name, subnet_id);
+            SubnetRepo::<T>::insert(&subnet_data.repo, subnet_id);
+            // Update latest registration epoch for all subnets
+            // This is used for one subnet per registration phase
+
+            // Store registration epoch temporarily
+            // This is removed on activation
+            SubnetRegistrationEpoch::<T>::insert(subnet_id, Self::get_current_epoch_as_u32());
+
+            TotalSubnets::<T>::mutate(|total| *total = total.saturating_add(1));
+
+            Self::deposit_event(Event::SubnetRegistered {
+                owner: owner,
+                name: subnet_data.name,
+                subnet_id: subnet_id,
+            });
+
+            Ok(())
+        }
+
         /// Activate a registered subnet or remove it if activation requirements are not met
         ///
         /// This function transitions a subnet from `Registered` state to `Active` state, enabling
@@ -7595,6 +8687,137 @@ pub mod pallet {
             // --- Remove registration whitelist
             SubnetRegistrationInitialColdkeys::<T>::remove(subnet_id);
             InitialColdkeyData::<T>::remove(subnet_id);
+
+            // --- Set most recent block
+            LastSubnetDelegateStakeRewardsUpdate::<T>::insert(
+                subnet_id,
+                Self::get_current_block_as_u32(),
+            );
+
+            // --- Set pause epoch now to abide by pause logic
+            PreviousSubnetPauseEpoch::<T>::insert(subnet_id, epoch);
+
+            // --- Set most recent activation epoch
+            PrevSubnetActivationEpoch::<T>::set(epoch);
+
+            // SubnetsData | TotalActiveSubnets | SubnetRegistrationEpoch |
+            // SubnetRegistrationInitialColdkeys | LastSubnetDelegateStakeRewardsUpdate
+            // PreviousSubnetPauseEpoch | PrevSubnetActivationEpoch
+            weight = weight.saturating_add(db_weight.writes(7));
+            // SubnetsData | TotalActiveSubnets
+            weight = weight.saturating_add(db_weight.reads(2));
+
+            Self::deposit_event(Event::SubnetActivated {
+                subnet_id: subnet_id,
+            });
+
+            Ok(Some(weight).into())
+        }
+
+        pub fn do_activate_subnet_v2(subnet_id: u32) -> DispatchResultWithPostInfo {
+            let mut weight = Weight::zero();
+            let db_weight = T::DbWeight::get();
+
+            let subnet = match SubnetsData::<T>::try_get(subnet_id) {
+                Ok(subnet) => subnet,
+                Err(()) => return Err(Error::<T>::InvalidSubnetId.into()),
+            };
+            weight = weight.saturating_add(db_weight.reads(1));
+
+            ensure!(
+                subnet.state == SubnetState::Registered,
+                Error::<T>::SubnetActivatedAlready
+            );
+
+            let epoch: u32 = Self::get_current_epoch_as_u32();
+
+            // SubnetRegistrationEpoch
+            weight = weight.saturating_add(db_weight.reads(1));
+
+            let past_min_registration_epochs =
+                if let Ok(registered_epoch) = SubnetRegistrationEpoch::<T>::try_get(subnet_id) {
+                    let min_epochs = MinSubnetRegistrationEpochs::<T>::get();
+                    // MinSubnetRegistrationEpochs
+                    weight = weight.saturating_add(db_weight.reads(1));
+                    let min_registration_epoch = registered_epoch.saturating_add(min_epochs);
+                    min_registration_epoch <= epoch
+                } else {
+                    false
+                };
+
+            // --- Minimum registration epochs not met yet
+            // This is the period within the registration period where the subnet CANNOT attempt to activate yet
+            // Note: There can be a minimum registration epochs that must be met before the subnet can attempt to activate
+            //       This is always less than the registration phase period (see `is_subnet_registering`)
+            ensure!(
+                past_min_registration_epochs,
+                Error::<T>::MinSubnetRegistrationEpochsNotMet
+            );
+
+            // If in the registration period
+            let in_registration_period =
+                Self::is_subnet_registering(subnet_id, subnet.state, epoch);
+
+            // Can subnet activate:
+            // - Min delegate stake
+            // - Min node count
+            let (can_subnet_be_active, reason) = Self::can_subnet_be_active(subnet_id);
+
+            // If in the enactment period
+            let in_enactment_period = Self::is_subnet_in_enactment(subnet_id, subnet.state, epoch);
+
+            // Case 1: Outside all valid periods (passed enactment period)
+            if !in_registration_period && !in_enactment_period {
+                weight = weight.saturating_add(Self::do_remove_subnet(
+                    subnet_id,
+                    SubnetRemovalReason::EnactmentPeriod,
+                ));
+                return Ok(Some(weight).into());
+            }
+
+            // Case 2: Can't activate while in registration period
+            // We allow them to attempt to activate without removing the subnet
+            if !can_subnet_be_active && in_registration_period {
+                return Err(Error::<T>::SubnetActivationConditionsNotMetYet.into());
+            }
+
+            // Case 3: Remove subnet if in enactment period and can't activate
+            if let (true, Some(removal_reason)) =
+                (!can_subnet_be_active && in_enactment_period, reason.clone())
+            {
+                weight = weight.saturating_add(Self::do_remove_subnet(subnet_id, removal_reason));
+                return Ok(Some(weight).into());
+            }
+
+            // Case 4: Can activate (implicit: can_subnet_be_active = true, in valid period)
+
+            // ===============
+            // Gauntlet passed
+            // ===============
+
+            // --- Activate subnet
+            // Subnet start_epoch uses general blockchain epoch (not subnet epoch)
+            SubnetsData::<T>::try_mutate(subnet_id, |maybe_params| -> DispatchResult {
+                let params = maybe_params.as_mut().ok_or(Error::<T>::InvalidSubnetId)?;
+                params.state = SubnetState::Active;
+                // Start consensus after 1 fresh epoch.
+                // Consensus starts once epoch >= start_epoch
+                params.start_epoch = epoch + 1;
+                Ok(())
+            })?;
+
+            TotalActiveSubnets::<T>::mutate(|n: &mut u32| *n += 1);
+
+            // --- Remove SubnetRegistrationEpoch as it is no longer required
+            // Used in:
+            //  - do_epoch_preliminaries
+            //  - is_subnet_registering
+            //  - is_subnet_in_enactment
+            SubnetRegistrationEpoch::<T>::remove(subnet_id);
+
+            // --- Remove registration whitelist
+            NodeRegistrationInitialValidatorIds::<T>::remove(subnet_id);
+            InitialValidatorData::<T>::remove(subnet_id);
 
             // --- Set most recent block
             LastSubnetDelegateStakeRewardsUpdate::<T>::insert(
@@ -8167,601 +9390,312 @@ pub mod pallet {
             Ok(())
         }
 
-        /// Register a new subnet node (validator/miner) to a subnet
-        ///
-        /// This function registers a new node to a subnet, enabling it to participate in consensus,
-        /// validation, or compute work. The node must meet numerous requirements and pay a dynamic
-        /// burn fee. The registration process differs depending on whether the subnet is in the
-        /// registration period (auto-activation) or active state (queued entry).
+        pub fn do_remove_subnet_node_v2(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
+            Self::perform_remove_subnet_node_v2(subnet_id, subnet_node_id);
+            Ok(())
+        }
+
+        pub fn do_register_validator(
+            origin: OriginFor<T>,
+            hotkey: T::AccountId,
+            delegate_reward_rate: u128,
+            delegate_account: Option<DelegateAccount<T::AccountId>>,
+            identity: Option<IdentityData>,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            ensure!(&coldkey != &hotkey, Error::<T>::ColdkeyMatchesHotkey);
+
+            // Ensure coldkey isn't already registered
+            ensure!(
+                !ValidatorColdkeyHotkey::<T>::contains_key(coldkey.clone()),
+                Error::<T>::NotKeyOwner
+            );
+
+            // Ensure hotkey isn't already registered
+            ensure!(
+                !HotkeyValidatorId::<T>::contains_key(&hotkey),
+                Error::<T>::NotKeyOwner
+            );
+
+            TotalValidatorIds::<T>::mutate(|n: &mut u32| *n += 1);
+            let validator_id = TotalValidatorIds::<T>::get();
+
+            if let Some(delegate_account) = &delegate_account {
+                // Verify delegate account
+                Self::validate_validator_delegate_account(&delegate_account, &hotkey, &coldkey)?;
+            }
+
+            let validator_data: ValidatorData<T::AccountId> = ValidatorData {
+                id: validator_id,
+                hotkey: hotkey.clone(),
+                delegate_reward_rate: delegate_reward_rate,
+                last_delegate_reward_rate_update: 0,
+                delegate_account: delegate_account,
+                identity: identity,
+            };
+
+            ValidatorIdHotkey::<T>::insert(validator_id, hotkey.clone());
+            ValidatorsData::<T>::insert(validator_id, validator_data);
+            ColdkeyValidatorId::<T>::insert(coldkey.clone(), validator_id);
+            ValidatorColdkey::<T>::insert(validator_id, coldkey.clone());
+            ValidatorColdkeyHotkey::<T>::insert(coldkey.clone(), hotkey.clone());
+            HotkeyValidatorId::<T>::insert(hotkey.clone(), validator_id);
+
+            Ok(())
+        }
+
+        /// Register a subnet node with the network
         ///
         /// # Arguments
-        ///
-        /// * `origin` - The coldkey account registering the node
-        /// * `subnet_id` - The subnet to register the node to
-        /// * `hotkey` - Unique hotkey account for this node (must be network-wide unique)
-        /// * `peer_id` - Libp2p peer ID for P2P communication
-        /// * `bootnode_peer_id` - Libp2p peer ID for bootnode connections
-        /// * `client_peer_id` - Libp2p peer ID for client connections
-        /// * `bootnode` - Optional bootnode multiaddr for network discovery
-        /// * `delegate_reward_rate` - Percentage of rewards shared with delegators (0-100%)
-        /// * `stake_to_be_added` - Initial stake amount (must meet minimum requirements)
-        /// * `unique` - Optional unique parameter for node identification (subnet-wide unique)
-        /// * `non_unique` - Optional non-unique parameter for node metadata
-        /// * `max_burn_amount` - Maximum registration burn fee willing to pay (fee change protection)
-        ///
-        /// # Registration Requirements
-        ///
-        /// ## 1. Subnet State Validation
-        ///
-        /// - **Valid Subnet**: Subnet ID must exist in `SubnetsData`
-        /// - **Not Paused**: Subnet must not be in `Paused` state
-        /// - **Valid Registration Window**: Must NOT be in enactment period
-        ///   - ✅ **Allowed**: Registration period (`SubnetState::Registered`, before enactment)
-        ///   - ✅ **Allowed**: Active state (`SubnetState::Active`)
-        ///   - ❌ **Blocked**: Enactment period (checked via `is_subnet_in_enactment`)
-        ///   - **Rationale**: Enactment is grace period for delegate staking only, no new nodes
-        ///
-        /// ## 2. Coldkey and Hotkey Validation
-        ///
-        /// ### Distinct Keys
-        /// - **Check**: `coldkey != hotkey`
-        /// - **Error**: `ColdkeyMatchesHotkey`
-        /// - **Rationale**: Security - keys must have separate purposes. Keep all subnets isolated
-        ///
-        /// ### Unique Hotkey (Network-Wide)
-        /// - **Check**: Hotkey must not exist in `HotkeyOwner` (network-wide uniqueness)
-        /// - **Error**: `HotkeyHasOwner`
-        /// - **Rationale**: One hotkey can only operate one node across entire network
-        ///
-        /// ### Not Already Registered to Coldkey
-        /// - **Check**: Hotkey not in `ColdkeyHotkeys[coldkey]`
-        /// - **Error**: `HotkeyAlreadyRegisteredToColdkey`
-        /// - **Note**: Redundant after network-wide check, but defensive
-        ///
-        /// ### No Existing Stake
-        /// - **Check**: `AccountSubnetStake[hotkey, subnet_id] == 0`
-        /// - **Error**: `MustUnstakeToRegister`
-        /// - **Note**: Redundant after hotkey uniqueness check
-        ///
-        /// ## 3. Peer ID Validation
-        ///
-        /// ### All Peer IDs Must Be Unique
-        /// - **Check**: `peer_id != bootnode_peer_id != client_peer_id`
-        /// - **Error**: `PeerIdsMustBeUnique`
-        /// - **Rationale**: Each peer ID serves different network functions
-        ///
-        /// ### Loosely validate Libp2p Peer ID Format
-        /// - **Checks**: All three peer IDs validated via `validate_peer_id()`
-        /// - **Errors**: `InvalidPeerId`, `InvalidBootnodePeerId`, `InvalidClientPeerId`
-        /// - **Format**: Must be valid base58-encoded libp2p peer IDs
-        ///
-        /// ### Subnet-Wide Peer ID Uniqueness
-        /// - **Checks**: Each peer ID must not exist in subnet via:
-        ///   - `PeerIdSubnetNodeId[subnet_id, peer_id]` - Standard peer ID
-        ///   - `BootnodePeerIdSubnetNodeId[subnet_id, bootnode_peer_id]` - Bootnode peer ID
-        ///   - `ClientPeerIdSubnetNodeId[subnet_id, client_peer_id]` - Client peer ID
-        /// - **Errors**: `PeerIdExist`, `BootnodePeerIdExist`, `ClientPeerIdExist`
-        /// - **Rationale**: Prevents impersonation and network conflicts within subnet
-        ///
-        /// ### Bootnode Uniqueness (If Provided)
-        /// - **Check**: If `bootnode` is `Some`, must not exist in `MultiaddrSubnetNodeId[subnet_id]`
-        /// - **Error**: `MultiaddrExist`
-        /// - **Rationale**: Each bootnode multiaddr must be unique within subnet
-        ///
-        /// ## 4. Registration Whitelist (During Registration Period Only)
-        ///
-        /// - **When**: Only checked if `SubnetRegistrationInitialColdkeys` exists (subnet in registration)
-        /// - **Condition 1**: Coldkey must be in the whitelist
-        ///   - **Error**: `ColdkeyRegistrationWhitelist` if not whitelisted
-        /// - **Condition 2**: Coldkey must not have exhausted registration slots
-        ///   - **Check**: `InitialColdkeyData[subnet_id][coldkey] < whitelist_max_registrations`
-        ///   - **Error**: `MaxRegisteredNodes` if quota exceeded
-        /// - **Post-Activation**: Whitelist removed, check skipped (anyone can register)
-        ///
-        /// ## 5. Subnet Capacity
-        ///
-        /// - **Check**: `SubnetNodeQueue.len() <= MaxRegisteredNodes`
-        /// - **Error**: `MaxRegisteredNodes`
-        /// - **Rationale**: Subnet has maximum node capacity to maintain performance
-        ///
-        /// ## 6. Unique Parameter Validation (If Provided)
-        ///
-        /// - **Check**: If `unique` is `Some`, must not exist in `UniqueParamSubnetNodeId[subnet_id]`
-        /// - **Error**: `SubnetNodeUniqueParamTaken`
-        /// - **Rationale**: Allows subnets to enforce custom uniqueness constraints (e.g., unique IP addresses)
-        ///
-        /// # Registration Cost (Burn Fee)
-        ///
-        /// ## Dynamic Pricing Mechanism
-        ///
-        /// - **Calculation**: `calculate_burn_amount(subnet_id)`
-        ///   - Uses exponential decay based on registration rate
-        ///   - Formula: `current_rate * alpha^(-registrations_this_epoch / target_rate)`
-        ///   - `NodeBurnRateAlpha` - Decay parameter (0-100%, typically ~50%)
-        ///   - `TargetNodeRegistrationsPerEpoch` - Target registration rate
-        ///   - `NodeRegistrationsThisEpoch` - Counter for this epoch
-        ///
-        /// - **Slippage Protection**: `burn_amount <= max_burn_amount`
-        ///   - **Error**: `MaxBurnAmountExceeded` if cost exceeds tolerance
-        ///   - Protects against front-running and rapid cost changes
-        ///
-        /// - **Payment**: Tokens permanently burned (sent to zero address)
-        ///   - **Error**: `BalanceBurnError` if coldkey lacks funds
-        ///
-        /// - **Recording**: Registration counted via `record_registration()` for next epoch's pricing
-        ///
-        /// # Stake Requirements
-        ///
-        /// - **Minimum Stake**: `stake_to_be_added >= SubnetMinStakeBalance[subnet_id]`
-        /// - **Maximum Stake**: `stake_to_be_added <= SubnetMaxStakeBalance[subnet_id]`
-        /// - **Process**: Calls `do_add_stake()` which:
-        ///   - Transfers tokens from coldkey to node stake account
-        ///   - Validates stake amount against subnet limits
-        ///   - Updates `AccountSubnetStake`, `TotalSubnetStake`, and related counters
-        /// - **Error**: Propagated from `do_add_stake` (e.g., insufficient balance, stake out of range)
-        ///
-        /// # Delegate Reward Rate
-        ///
-        /// - **Range**: 0-100% (`0` to `percentage_factor_as_u128()`)
-        /// - **Purpose**: Percentage of node rewards shared with delegators
-        /// - **Timestamp**: `last_delegate_reward_rate_update` set to current block if rate > 0
-        ///   - Cooldown period may apply for rate changes (enforced in update function)
-        ///
-        /// # Registration Process
-        ///
-        /// ## Storage Updates (All Registrations)
-        ///
-        /// The following storage is initialized for every node:
-        ///
-        /// ### Node Identity
-        /// - `TotalSubnetNodeUids[subnet_id]` - Incremented to generate unique node ID
-        /// - `HotkeySubnetNodeId[subnet_id, hotkey]` - Hotkey → node ID mapping
-        /// - `SubnetNodeIdHotkey[subnet_id, node_id]` - Reverse mapping (node ID → hotkey)
-        /// - `HotkeySubnetId[hotkey]` - Hotkey → subnet ID (for cross-subnet operations)
-        /// - `HotkeyOwner[hotkey]` - Hotkey → coldkey ownership
-        /// - `ColdkeyHotkeys[coldkey]` - Set of all hotkeys owned by coldkey (updated)
-        /// - `ColdkeySubnetNodes[coldkey][subnet_id]` - Set of node IDs owned by coldkey in subnet
-        ///
-        /// ### Peer ID Mappings
-        /// - `PeerIdSubnetNodeId[subnet_id, peer_id]` - Peer ID → node ID
-        /// - `BootnodePeerIdSubnetNodeId[subnet_id, bootnode_peer_id]` - Bootnode peer ID → node ID
-        /// - `ClientPeerIdSubnetNodeId[subnet_id, client_peer_id]` - Client peer ID → node ID
-        /// - `MultiaddrSubnetNodeId[subnet_id, bootnode]` - Bootnode multiaddr → node ID (if provided)
-        ///
-        /// ### Custom Parameters
-        /// - `UniqueParamSubnetNodeId[subnet_id, unique]` - Unique param → node ID (if provided)
-        ///
-        /// ### Counters
-        /// - `TotalSubnetNodes[subnet_id]` - Incremented
-        /// - `TotalNodes` - Global counter incremented
-        ///
-        /// ## Registration Period Behavior (Auto-Activation)
-        ///
-        /// **When**: `subnet.state == SubnetState::Registered`
-        ///
-        /// - **Node State**: Immediately activated (no queue)
-        /// - **Process**: Calls `perform_activate_subnet_node()` which:
-        ///   - Sets node classification to `Active`
-        ///   - Inserts into `SubnetNodesData` (active nodes)
-        ///   - Adds to `SubnetNodeElectionSlots` (validator election pool)
-        ///   - Updates `TotalActiveSubnetNodes`, `TotalSubnetElectableNodes`
-        ///   - Emits `SubnetNodeActivated` event
-        /// - **Whitelist Counter**: `InitialColdkeyData[subnet_id][coldkey]` incremented
-        /// - **Rationale**: Registration period = bootstrapping phase, nodes needed ASAP
-        ///
-        /// ## Active State Behavior (Queued Entry)
-        ///
-        /// **When**: `subnet.state == SubnetState::Active`
-        ///
-        /// - **Node State**: Enters queue as `Registered` (not active yet)
-        /// - **Classification**: `SubnetNodeClass::Registered`
-        /// - **Start Epoch**: `subnet_epoch + 1` (waits at least 1 epoch)
-        /// - **Queue**: Added to `SubnetNodeQueue[subnet_id]`
-        /// - **Storage**: Inserted into `RegisteredSubnetNodesData[subnet_id, node_id]`
-        /// - **Emits**: `SubnetNodeRegistered` event (NOT activated yet)
-        /// - **Activation**: Must wait for:
-        ///   1. Queue immunity period (`QueueImmunityEpochs`)
-        ///   2. Available election slots
-        ///   3. Meets activation criteria (via churn logic in epoch processing)
-        /// - **Rationale**: Active subnets enforce orderly entry to prevent disruption
-        ///
-        /// # Storage Cleanup
-        ///
-        /// - **`clean_coldkey_subnet_nodes(coldkey)`**: Removes stale node references for coldkey
-        ///   - Cleans up `ColdkeySubnetNodes` for nodes that no longer exist
-        ///   - Ensures data consistency
-        ///
-        /// # Events
-        ///
-        /// ## Registration Period
-        /// - `SubnetNodeActivated { subnet_id, subnet_node_id, coldkey, hotkey, data }`
-        ///   - Emitted via `perform_activate_subnet_node`
-        ///
-        /// ## Active State
-        /// - `SubnetNodeRegistered { subnet_id, subnet_node_id, coldkey, hotkey, data }`
-        ///   - Node queued, not yet active
-        ///
-        /// # Errors
-        ///
-        /// ## Subnet Validation
-        /// - `InvalidSubnetId` - Subnet does not exist
-        /// - `SubnetIsPaused` - Subnet is paused (cannot accept new nodes)
-        /// - `SubnetMustBeRegisteringOrActivated` - In enactment period (registration blocked)
-        ///
-        /// ## Key Validation
-        /// - `ColdkeyMatchesHotkey` - Coldkey and hotkey must be different
-        /// - `HotkeyHasOwner` - Hotkey already in use (network-wide)
-        /// - `HotkeyAlreadyRegisteredToColdkey` - Hotkey already owned by this coldkey
-        ///
-        /// ## Peer ID Validation
-        /// - `PeerIdsMustBeUnique` - Peer IDs must be distinct from each other
-        /// - `InvalidPeerId` / `InvalidBootnodePeerId` / `InvalidClientPeerId` - Invalid libp2p format
-        /// - `PeerIdExist` / `BootnodePeerIdExist` / `ClientPeerIdExist` - Peer ID already used in subnet
-        /// - `MultiaddrExist` - Bootnode multiaddr already used in subnet
-        ///
-        /// ## Capacity and Whitelist
-        /// - `ColdkeyRegistrationWhitelist` - Coldkey not whitelisted (registration period only)
-        /// - `MaxRegisteredNodes` - Subnet at capacity OR coldkey exhausted whitelist quota
-        ///
-        /// ## Unique Parameters
-        /// - `SubnetNodeUniqueParamTaken` - Unique parameter already in use
-        ///
-        /// ## Financial
-        /// - `MaxBurnAmountExceeded` - Burn cost exceeds slippage tolerance
-        /// - `BalanceBurnError` - Insufficient balance to pay burn fee
-        /// - `MustUnstakeToRegister` - Hotkey has existing stake (should be impossible)
-        ///
-        /// ## Staking (from do_add_stake)
-        /// - `StakeAmountBelowMinimum` - Stake below `SubnetMinStakeBalance`
-        /// - `StakeAmountExceedsMaximum` - Stake exceeds `SubnetMaxStakeBalance`
-        /// - `InsufficientBalance` - Coldkey lacks funds for stake
-        ///
-        /// # Important Notes
-        ///
-        /// ## Registration vs Activation
-        /// - **Registration Period**: Nodes immediately active (bootstrap phase)
-        /// - **Active State**: Nodes enter queue, activated later (orderly entry)
-        ///
-        /// ## Queue Activation (Active Subnets)
-        /// Queued nodes are activated during epoch processing based on:
-        /// - **Churn Limit**: Maximum nodes entering per epoch (`ChurnLimit`)
-        /// - **Queue Immunity**: Protection period (`QueueImmunityEpochs`)
-        /// - **Election Slots**: Available validator slots
-        /// - **Queue Order**: FIFO with immunity considerations
-        ///
-        /// ## Burn Fee Dynamics
-        /// - Cost increases as more nodes register in current epoch
-        /// - Cost decays exponentially each epoch based on actual vs target registrations
-        /// - Prevents spam while allowing legitimate growth
-        ///
-        /// ## Peer ID Security
-        /// - Subnet-wide uniqueness prevents impersonation
-        /// - Different peer IDs for different network functions (standard, bootnode, client)
-        /// - Signature verification should be used for additional security
-        ///
-        /// ## Coldkey Node Limits
-        /// - During registration: Limited by whitelist quota
-        /// - Post-activation: No explicit limit, but constrained by:
-        ///   - Subnet capacity (`MaxRegisteredNodes`)
-        ///   - Economic feasibility (stake requirements × number of nodes)
-        ///   - Queue wait times
-        ///
-        // pub fn do_register_subnet_node(
-        //     origin: OriginFor<T>,
-        //     subnet_id: u32,
-        //     hotkey: T::AccountId,
-        //     peer_id: PeerId,
-        //     bootnode_peer_id: PeerId,
-        //     client_peer_id: PeerId,
-        //     bootnode: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-        //     delegate_reward_rate: u128,
-        //     stake_to_be_added: u128,
-        //     unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-        //     non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-        //     delegate_account: Option<DelegateAccount<T::AccountId>>,
-        //     max_burn_amount: u128,
-        // ) -> DispatchResult {
-        //     let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+        /// * `origin` - The origin of the transaction
+        /// * `validator_id` - The ID of the validator registering the subnet node
+        /// * `subnet_id` - The ID of the subnet to register the subnet node to
+        /// * `peer_info` - The peer info of the subnet node
+        /// * `bootnode_peer_info` - The bootnode peer info of the subnet node (optional)
+        /// * `client_peer_info` - The client peer info of the subnet node (optional)
+        /// * `stake_to_be_added` - The amount of stake to be added to the subnet node
+        /// * `unique` - The unique identifier of the subnet node (optional)
+        /// * `non_unique` - The non-unique identifier of the subnet node (optional)
+        /// * `max_burn_amount` - The maximum burn amount of the subnet node
+        pub fn do_register_subnet_node_v2(
+            origin: OriginFor<T>,
+            validator_id: u32,
+            subnet_id: u32,
+            hotkey: Option<T::AccountId>,
+            peer_info: PeerInfo,
+            bootnode_peer_info: Option<PeerInfo>,
+            client_peer_info: Option<PeerInfo>,
+            stake_to_be_added: u128,
+            unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+            non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+            max_burn_amount: u128,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
 
-        //     let subnet = match SubnetsData::<T>::try_get(subnet_id) {
-        //         Ok(subnet) => subnet,
-        //         Err(()) => return Err(Error::<T>::InvalidSubnetId.into()),
-        //     };
+            // Ensure caller is a validator
+            ensure!(
+                ColdkeyValidatorId::<T>::get(&coldkey) == Some(validator_id),
+                Error::<T>::NotKeyOwner
+            );
 
-        //     ensure!(&coldkey != &hotkey, Error::<T>::ColdkeyMatchesHotkey);
+            // Subnet verifications
+            let subnet = match SubnetsData::<T>::try_get(subnet_id) {
+                Ok(subnet) => subnet,
+                Err(()) => return Err(Error::<T>::InvalidSubnetId.into()),
+            };
 
-        //     // Ensure subnet is not paused
-        //     ensure!(
-        //         subnet.state != SubnetState::Paused,
-        //         Error::<T>::SubnetIsPaused
-        //     );
+            // Ensure subnet is not paused
+            ensure!(
+                subnet.state != SubnetState::Paused,
+                Error::<T>::SubnetIsPaused
+            );
 
-        //     // Unique network-wide hotkey
-        //     ensure!(
-        //         !Self::hotkey_has_owner(hotkey.clone()),
-        //         Error::<T>::HotkeyHasOwner
-        //     );
+            // - Get standard epoch to check if subnet can accept registrations
+            let epoch: u32 = Self::get_current_epoch_as_u32();
 
-        //     // Redundant, this is impossible after hotkey check
-        //     ensure!(
-        //         !HotkeySubnetId::<T>::contains_key(hotkey.clone()),
-        //         Error::<T>::HotkeyHasOwner
-        //     );
+            // If in enactment period, registering is disabled
+            // Nodes must enter in the registration period or activation period
+            // Once we are in the enactment period, only delegate staking is enabled to reach the qualifications
+            ensure!(
+                !Self::is_subnet_in_enactment(subnet_id, subnet.state, epoch),
+                Error::<T>::SubnetMustBeRegisteringOrActivated
+            );
 
-        //     // --- Ensure all peer IDs are unique
-        //     ensure!(
-        //         Self::are_all_unique(&vec![
-        //             peer_id.clone(),
-        //             bootnode_peer_id.clone(),
-        //             client_peer_id.clone()
-        //         ]),
-        //         Error::<T>::PeerIdsMustBeUnique
-        //     );
+            // - Get subnet epoch to check against node start_epochs
+            let subnet_epoch: u32 = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
-        //     // - Get standard epoch to check if subnet can accept registrations
-        //     let epoch: u32 = Self::get_current_epoch_as_u32();
+            // --- If in registration period, check if there is a whitelist and validator_id is in the whitelist
+            //     and if the validator_id hasn't registered too many nodes
+            // There must be InitialValidatorData if not active
+            // `InitialValidatorData` is removed on activation
+            // Note: `InitialValidatorData` is removed on activation
+            if let Some(initial_validator_data_map) =
+                NodeRegistrationInitialValidatorIds::<T>::get(subnet_id)
+            {
+                if let Some(&max_registrations) = initial_validator_data_map.get(&validator_id) {
+                    let current_registrations = InitialValidatorData::<T>::get(subnet_id)
+                        .and_then(|map| map.get(&validator_id).copied())
+                        .unwrap_or(0);
 
-        //     // If in enactment period, registering is disabled
-        //     // Nodes must enter in the registration period or activation period
-        //     // Once we are in the enactment period, only delegate staking is enabled to reach the qualifications
-        //     ensure!(
-        //         !Self::is_subnet_in_enactment(subnet_id, subnet.state, epoch),
-        //         Error::<T>::SubnetMustBeRegisteringOrActivated
-        //     );
+                    ensure!(
+                        current_registrations < max_registrations,
+                        Error::<T>::MaxRegisteredNodes
+                    );
+                } else {
+                    // Validator ID doesn't exist in the mapping
+                    return Err(Error::<T>::ValidatorIdNotInWhitelist.into());
+                }
+            }
 
-        //     // - Get subnet epoch to check against node start_epochs
-        //     let subnet_epoch: u32 = Self::get_current_subnet_epoch_as_u32(subnet_id);
+            // Ensure there are registered node slots available
+            ensure!(
+                SubnetNodeQueueV2::<T>::get(subnet_id).len() as u32
+                    <= MaxRegisteredNodes::<T>::get(subnet_id),
+                Error::<T>::MaxQueuedNodes
+            );
 
-        //     // --- If in registration period, check if there is a whitelist and coldkey is in the whitelist
-        //     //     and if the coldkey hasn't registered too many nodes
-        //     // There must be SubnetRegistrationInitialColdkeys if not active
-        //     // `SubnetRegistrationInitialColdkeys` is removed on activation
-        //     // Note: `SubnetRegistrationInitialColdkeys` is removed on activation
-        //     if let Some(coldkey_map) = SubnetRegistrationInitialColdkeys::<T>::get(subnet_id) {
-        //         if let Some(&max_registrations) = coldkey_map.get(&coldkey) {
-        //             let current_registrations = InitialColdkeyData::<T>::get(subnet_id)
-        //                 .and_then(|map| map.get(&coldkey).copied())
-        //                 .unwrap_or(0);
+            // --- Get node ID
+            TotalSubnetNodeUids::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
+            let subnet_node_id = TotalSubnetNodeUids::<T>::get(subnet_id);
 
-        //             ensure!(
-        //                 current_registrations < max_registrations,
-        //                 Error::<T>::MaxRegisteredNodes
-        //             );
-        //         } else {
-        //             // Coldkey doesn't exist in the mapping
-        //             return Err(Error::<T>::ColdkeyRegistrationWhitelist.into());
-        //         }
-        //     }
+            // --- Begin to validate peer info
+            Self::validate_peer_info(subnet_id, 0, 0, &peer_info)?;
 
-        //     // Ensure there are registered node slots available
-        //     ensure!(
-        //         SubnetNodeQueue::<T>::get(subnet_id).len() as u32
-        //             <= MaxRegisteredNodes::<T>::get(subnet_id),
-        //         Error::<T>::MaxRegisteredNodes
-        //     );
+            // --- Insert peer info
+            PeerIdSubnetNodeId::<T>::insert(subnet_id, &peer_info.peer_id, subnet_node_id);
 
-        //     // Validate peer IDs
-        //     ensure!(Self::validate_peer_id(&peer_id), Error::<T>::InvalidPeerId);
-        //     ensure!(
-        //         Self::validate_peer_id(&client_peer_id),
-        //         Error::<T>::InvalidClientPeerId
-        //     );
-        //     ensure!(
-        //         Self::validate_peer_id(&bootnode_peer_id),
-        //         Error::<T>::InvalidBootnodePeerId
-        //     );
+            if let Some(peer_multiaddr) = &peer_info.multiaddr {
+                // Validated in `validate_peer_info`
+                MultiaddrSubnetNodeId::<T>::insert(subnet_id, &peer_multiaddr, subnet_node_id);
+            }
 
-        //     // Ensure peer and boostrap peer ID doesn't already exist within subnet regardless of coldkey
+            // Ensure bootnode_peer_info is unique
+            if let Some(bootnode_peer_info) = &bootnode_peer_info {
+                Self::validate_peer_info(subnet_id, 0, 0, &bootnode_peer_info)?;
 
-        //     // Unique subnet_id -> PeerId
-        //     ensure!(
-        //         Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &peer_id),
-        //         Error::<T>::PeerIdExist
-        //     );
+                BootnodePeerIdSubnetNodeId::<T>::insert(
+                    subnet_id,
+                    &bootnode_peer_info.peer_id,
+                    subnet_node_id,
+                );
 
-        //     // Unique subnet_id -> Bootnode PeerId
-        //     ensure!(
-        //         Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &bootnode_peer_id),
-        //         Error::<T>::BootnodePeerIdExist
-        //     );
+                if let Some(bootnode_multiaddr) = bootnode_peer_info.multiaddr.clone() {
+                    // Validated in `validate_peer_info`
+                    MultiaddrSubnetNodeId::<T>::insert(
+                        subnet_id,
+                        &bootnode_multiaddr,
+                        subnet_node_id,
+                    );
+                }
+            }
 
-        //     // Unique subnet_id -> Client PeerId
-        //     ensure!(
-        //         Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &client_peer_id),
-        //         Error::<T>::ClientPeerIdExist
-        //     );
+            // Ensure client_peer_info is unique
+            if let Some(client_peer_info) = &client_peer_info {
+                Self::validate_peer_info(subnet_id, 0, 0, &client_peer_info)?;
 
-        //     // Ensure bootnode is unique
-        //     if let Some(bootnode) = &bootnode {
-        //         let multiaddr: &[u8] = &bootnode.clone();
+                ClientPeerIdSubnetNodeId::<T>::insert(
+                    subnet_id,
+                    &client_peer_info.peer_id,
+                    subnet_node_id,
+                );
 
-        //         ensure!(
-        //             multiaddr::Multiaddr::verify(multiaddr).is_ok(),
-        //             Error::<T>::InvalidMultiaddr
-        //         );
+                if let Some(client_multiaddr) = client_peer_info.multiaddr.clone() {
+                    // Validated in `validate_peer_info`
+                    MultiaddrSubnetNodeId::<T>::insert(
+                        subnet_id,
+                        &client_multiaddr,
+                        subnet_node_id,
+                    );
+                }
+            }
 
-        //         ensure!(
-        //             Self::is_owner_of_multiaddr_or_ownerless(subnet_id, 0, bootnode.clone()),
-        //             Error::<T>::MultiaddrExist
-        //         );
-        //     }
+            // Unique ``unique``
+            // [here]
+            if let Some(unique_param) = unique.clone() {
+                ensure!(
+                    !UniqueParamSubnetNodeId::<T>::contains_key(subnet_id, &unique_param),
+                    Error::<T>::SubnetNodeUniqueParamTaken
+                );
+                UniqueParamSubnetNodeId::<T>::insert(subnet_id, &unique_param, subnet_node_id);
+            }
 
-        //     // --- Start the UIDs at 1
-        //     TotalSubnetNodeUids::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
-        //     let subnet_node_id = TotalSubnetNodeUids::<T>::get(subnet_id);
+            //
+            // Burn fee
+            //
+            let burn_amount = Self::calculate_burn_amount(subnet_id);
+            ensure!(
+                burn_amount <= max_burn_amount,
+                Error::<T>::MaxBurnAmountExceeded
+            );
 
-        //     // Unique ``unique``
-        //     // [here]
-        //     if let Some(unique_param) = unique.clone() {
-        //         ensure!(
-        //             !UniqueParamSubnetNodeId::<T>::contains_key(subnet_id, &unique_param),
-        //             Error::<T>::SubnetNodeUniqueParamTaken
-        //         );
-        //         UniqueParamSubnetNodeId::<T>::insert(subnet_id, &unique_param, subnet_node_id);
-        //     }
+            let burn_amount_as_balance = Self::u128_to_balance(burn_amount);
+            if let Some(burn_amount_as_balance) = burn_amount_as_balance {
+                ensure!(
+                    Self::burn(coldkey.clone(), burn_amount_as_balance),
+                    Error::<T>::BalanceBurnError
+                );
+            }
 
-        //     if let Some(delegate_account) = &delegate_account {
-        //         // Verify delegate account
-        //         Self::validate_delegate_account(&delegate_account, &hotkey, &coldkey)?;
-        //     }
+            // --- Record node registration on this epoch for burn fee calculations
+            Self::record_registration(subnet_id);
 
-        //     // --- Ensure they have no stake on registration
-        //     // This is redundant since hotkeys can't be used twice,
-        //     // although, see `do_remove_stake` for how hotkeys are fully
-        //     // cleaned up and removed once a removed node fully unstakes
-        //     ensure!(
-        //         AccountSubnetStake::<T>::get(&hotkey, subnet_id) == 0,
-        //         Error::<T>::MustUnstakeToRegister
-        //     );
+            SubnetNodeReputation::<T>::insert(
+                subnet_id,
+                subnet_node_id,
+                Self::percentage_factor_as_u128(),
+            );
 
-        //     // Redundant after hotkey_has_owner
-        //     let mut hotkeys = ColdkeyHotkeys::<T>::get(&coldkey);
-        //     ensure!(
-        //         !hotkeys.contains(&hotkey),
-        //         Error::<T>::HotkeyAlreadyRegisteredToColdkey
-        //     );
+            // --- Register subnet node
+            let classification: SubnetNodeClassification = SubnetNodeClassification {
+                node_class: SubnetNodeClass::Registered,
+                start_epoch: subnet_epoch + 1,
+            };
 
-        //     ensure!(
-        //         delegate_reward_rate <= Self::percentage_factor_as_u128(),
-        //         Error::<T>::InvalidDelegateRewardRate
-        //     );
+            let subnet_node: SubnetNodeV2 = SubnetNodeV2 {
+                id: subnet_node_id,
+                validator_id: validator_id,
+                peer_info: peer_info.clone(),
+                bootnode_peer_info: bootnode_peer_info.clone(),
+                client_peer_info: client_peer_info.clone(),
+                classification: classification,
+                unique: unique,
+                non_unique: non_unique,
+            };
 
-        //     //
-        //     // Burn fee
-        //     //
-        //     let burn_amount = Self::calculate_burn_amount(subnet_id);
-        //     ensure!(
-        //         burn_amount <= max_burn_amount,
-        //         Error::<T>::MaxBurnAmountExceeded
-        //     );
+            // Increase total subnet nodes
+            TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
+            TotalNodes::<T>::mutate(|n: &mut u32| *n += 1);
 
-        //     let burn_amount_as_balance = Self::u128_to_balance(burn_amount);
-        //     if let Some(burn_amount_as_balance) = burn_amount_as_balance {
-        //         ensure!(
-        //             Self::burn(coldkey.clone(), burn_amount_as_balance),
-        //             Error::<T>::BalanceBurnError
-        //         );
-        //     }
+            SubnetNodeValidatorId::<T>::insert(subnet_id, subnet_node_id, validator_id);
 
-        //     // --- Record node registration on this epoch for burn fee calculations
-        //     Self::record_registration(subnet_id);
+            // ====================
+            // Initiate stake logic (after SubnetNodeValidatorId is stored)
+            // ====================
+            Self::do_add_node_stake(origin.clone(), subnet_id, subnet_node_id, stake_to_be_added)
+                .map_err(|e| e)?;
 
-        //     // ====================
-        //     // Initiate stake logic
-        //     // ====================
-        //     Self::do_add_stake(origin.clone(), subnet_id, hotkey.clone(), stake_to_be_added)
-        //         .map_err(|e| e)?;
+            if subnet.state == SubnetState::Registered {
+                // Track the initial validator ID data (number of nodes a validator can register while the subnet
+                // is in the registered state)
+                InitialValidatorData::<T>::mutate(subnet_id, |maybe_map| {
+                    let map = maybe_map.get_or_insert_with(BTreeMap::new);
+                    map.entry(validator_id)
+                        .and_modify(|count| *count += 1)
+                        .or_insert(1);
+                });
 
-        //     let block: u32 = Self::get_current_block_as_u32();
+                Self::perform_activate_subnet_node_v2(
+                    validator_id,
+                    subnet_id,
+                    subnet.state,
+                    subnet_node,
+                    subnet_epoch,
+                )
+                .map_err(|e| e)?;
+            } else {
+                // Insert RegisteredSubnetNodesData
+                RegisteredSubnetNodesDataV2::<T>::insert(subnet_id, subnet_node_id, &subnet_node);
 
-        //     // --- Only use block for last_delegate_reward_rate_update is rate is greater than zero
-        //     let mut last_delegate_reward_rate_update = 0;
-        //     if delegate_reward_rate > 0 {
-        //         last_delegate_reward_rate_update = block;
-        //     }
+                // Update the queue to include the node
+                SubnetNodeQueueV2::<T>::mutate(subnet_id, |nodes| {
+                    nodes.push(subnet_node.clone());
+                });
+            }
 
-        //     HotkeySubnetNodeId::<T>::insert(subnet_id, &hotkey, subnet_node_id);
+            ValidatorSubnetNodes::<T>::mutate(validator_id, |node_map| {
+                node_map
+                    .entry(subnet_id)
+                    .or_insert_with(BTreeSet::new)
+                    .insert(subnet_node_id);
+            });
 
-        //     // Insert Subnet Node ID -> hotkey
-        //     SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, &hotkey);
+            if let Some(node_hotkey) = &hotkey {
+                SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, node_hotkey);
+            }
 
-        //     // Insert unique hotkey to subnet ID mapping
-        //     // This is used for updating hotkeys that have subnet_id keys
-        //     HotkeySubnetId::<T>::insert(&hotkey, subnet_id);
-
-        //     // Insert hotkey -> coldkey
-        //     HotkeyOwner::<T>::insert(&hotkey, &coldkey);
-
-        //     // Insert coldkey -> hotkeys
-        //     hotkeys.insert(hotkey.clone());
-        //     ColdkeyHotkeys::<T>::insert(&coldkey, hotkeys);
-
-        //     // Insert ColdkeySubnetNodes
-        //     // Used in overwatch node subnet diversity
-        //     ColdkeySubnetNodes::<T>::mutate(&coldkey, |node_map| {
-        //         node_map
-        //             .entry(subnet_id)
-        //             .or_insert_with(BTreeSet::new)
-        //             .insert(subnet_node_id);
-        //     });
-
-        //     // To ensure the AccountId that owns the PeerId, the subnet should use signature authentication
-        //     // This ensures others cannot claim to own a PeerId they are not the owner of
-
-        //     // Insert subnet peer and bootnode peer to keep peer_ids unique within subnets
-        //     PeerIdSubnetNodeId::<T>::insert(subnet_id, &peer_id, subnet_node_id);
-        //     BootnodePeerIdSubnetNodeId::<T>::insert(subnet_id, &bootnode_peer_id, subnet_node_id);
-        //     ClientPeerIdSubnetNodeId::<T>::insert(subnet_id, &client_peer_id, subnet_node_id);
-        //     if let Some(bootnode) = &bootnode {
-        //         MultiaddrSubnetNodeId::<T>::insert(subnet_id, &bootnode, subnet_node_id);
-        //     }
-
-        //     // Add to registration queue
-        //     // ========================
-        //     // Insert peer into storage
-        //     // ========================
-        //     let classification: SubnetNodeClassification = SubnetNodeClassification {
-        //         node_class: SubnetNodeClass::Registered,
-        //         start_epoch: subnet_epoch + 1,
-        //     };
-
-        //     let subnet_node: SubnetNode<T::AccountId> = SubnetNode {
-        //         id: subnet_node_id,
-        //         hotkey: hotkey.clone(),
-        //         peer_id: peer_id.clone(),
-        //         bootnode_peer_id: bootnode_peer_id.clone(),
-        //         client_peer_id: client_peer_id.clone(),
-        //         bootnode: bootnode,
-        //         classification: classification,
-        //         delegate_reward_rate: delegate_reward_rate,
-        //         last_delegate_reward_rate_update: last_delegate_reward_rate_update,
-        //         unique: unique,
-        //         non_unique: non_unique,
-        //         delegate_account: delegate_account,
-        //     };
-
-        //     // Increase total subnet nodes
-        //     TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
-        //     TotalNodes::<T>::mutate(|n: &mut u32| *n += 1);
-
-        //     Self::clean_coldkey_subnet_nodes(coldkey.clone());
-
-        //     // Push into queue
-        //     if subnet.state == SubnetState::Registered {
-        //         // Activate subnet node automatically
-        //         Self::perform_activate_subnet_node(
-        //             subnet_id,
-        //             subnet.state,
-        //             subnet_node,
-        //             subnet_epoch,
-        //         )
-        //         .map_err(|e| e)?;
-
-        //         InitialColdkeyData::<T>::mutate(subnet_id, |maybe_map| {
-        //             let map = maybe_map.get_or_insert_with(BTreeMap::new);
-        //             map.entry(coldkey.clone())
-        //                 .and_modify(|count| *count += 1)
-        //                 .or_insert(1);
-        //         });
-        //     } else {
-        //         // Insert RegisteredSubnetNodesData
-        //         RegisteredSubnetNodesData::<T>::insert(subnet_id, subnet_node_id, &subnet_node);
-
-        //         SubnetNodeQueue::<T>::mutate(subnet_id, |nodes| {
-        //             nodes.push(subnet_node.clone());
-        //         });
-
-        //         Self::deposit_event(Event::SubnetNodeRegistered {
-        //             subnet_id: subnet_id,
-        //             subnet_node_id: subnet_node_id,
-        //             coldkey: coldkey,
-        //             hotkey: hotkey,
-        //             data: subnet_node,
-        //         });
-        //     }
-
-        //     Ok(())
-        // }
+            Ok(())
+        }
 
         pub fn do_register_subnet_node(
             origin: OriginFor<T>,
@@ -9110,6 +10044,37 @@ pub mod pallet {
             Ok(())
         }
 
+        pub fn perform_activate_subnet_node_v2(
+            validator_id: u32,
+            subnet_id: u32,
+            subnet_state: SubnetState,
+            mut subnet_node: SubnetNodeV2,
+            subnet_epoch: u32,
+        ) -> DispatchResult {
+            // We're about to call `insert_node_into_election_slot`. We must always check
+            // max subnet nodes is not breached when calling this.
+            ensure!(
+                TotalActiveSubnetNodes::<T>::get(subnet_id) < MaxSubnetNodes::<T>::get(),
+                Error::<T>::MaxRegisteredNodes
+            );
+
+            // This can only return false if election slot insertion fails
+            ensure!(
+                Self::do_activate_subnet_node_v2(
+                    &mut WeightMeter::new(),
+                    validator_id,
+                    subnet_id,
+                    subnet_state,
+                    subnet_node,
+                    subnet_epoch,
+                    false
+                ),
+                Error::<T>::ElectionSlotInsertFail
+            );
+
+            Ok(())
+        }
+
         /// Activates a subnet node, transitioning it from a registered state to an active state.
         ///
         /// This function handles the logic for moving a node from the `RegisteredSubnetNodesData`
@@ -9229,6 +10194,95 @@ pub mod pallet {
 
             true
         }
+
+        pub fn do_activate_subnet_node_v2(
+            weight_meter: &mut WeightMeter,
+            validator_id: u32,
+            subnet_id: u32,
+            subnet_state: SubnetState,
+            mut subnet_node: SubnetNodeV2,
+            subnet_epoch: u32,
+            queue: bool,
+        ) -> bool {
+            let db_weight = T::DbWeight::get();
+
+            // These combination should never be called
+            // A node should only be activated if:
+            // - subnet is registered and node is registering
+            // - subnet is active and node is activating from the queue
+            if subnet_state == SubnetState::Registered && queue
+                || subnet_state == SubnetState::Active && !queue
+                || subnet_state == SubnetState::Paused
+            {
+                log::error!("do_activate_subnet_node_v2 1");
+                return false;
+            }
+
+            // Total reads: 5, Total writes: 5
+            // Reads/Writes: RegisteredSubnetNodesData(take), TotalActiveSubnetNodes(mutate), TotalActiveNodes(mutate), ColdkeyReputation(mutate)
+            // Writes: SubnetNodesData(insert)
+            // Reads: HotkeyOwner(get)
+            if !weight_meter.can_consume(db_weight.reads_writes(5, 5)) {
+                log::error!("do_activate_subnet_node_v2 2");
+                return false;
+            }
+
+            if queue && subnet_node.classification.node_class != SubnetNodeClass::Registered {
+                // Because each queued node is always `SubnetNodeClass::Registered`
+                // return true and pop them out of the queue
+                return true;
+            }
+
+            // Consume the necessary weight
+            weight_meter.consume(db_weight.reads_writes(5, 5));
+
+            // Try to take the RegisteredSubnetNodesData
+            RegisteredSubnetNodesDataV2::<T>::take(subnet_id, subnet_node.id);
+
+            // Default use if subnet is active and not currently registering
+            // --- If subnet activated, activate the node starting at `Idle`
+            subnet_node.classification.node_class = SubnetNodeClass::Idle;
+            // --- Increase subnet_epoch by one to ensure node starts on a fresh subnet_epoch unless subnet is still registering
+            subnet_node.classification.start_epoch = subnet_epoch;
+
+            // Logic ran if subnet is registering and node is registering
+            // The only time a node is fast-tracked to Validator class is if they are an initial
+            // coldkey validator for a subnet while the subnet is registering
+            if subnet_state == SubnetState::Registered && !queue {
+                // If we're activating a subnet node while subnet is registering, set it to validator
+                subnet_node.classification.node_class = SubnetNodeClass::Validator;
+                // --- Start node on current subnet_epoch for the next era
+                // subnet_node.classification.start_epoch = subnet_epoch;
+
+                // --- Insert into election slot if entering as Validator class
+                // The only other way to enter the election slots is by being graduated by consensus
+                // This should not be possible due to registration checks max subnet nodes
+                if !Self::insert_node_into_election_slot(subnet_id, subnet_node.id) {
+                    log::error!("do_activate_subnet_node_v2 3");
+                    return false;
+                }
+            }
+
+            // --- Insert new active node
+            SubnetNodesDataV2::<T>::insert(subnet_id, subnet_node.id, &subnet_node);
+            // Increase total active nodes in subnet
+            TotalActiveSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
+
+            // Increase total active nodes
+            TotalActiveNodes::<T>::mutate(|n: &mut u32| *n += 1);
+
+            ValidatorReputation::<T>::mutate(validator_id, |rep| {
+                rep.lifetime_node_count = rep.lifetime_node_count.saturating_add(1);
+                rep.total_active_nodes = rep.total_active_nodes.saturating_add(1);
+            });
+
+            Self::deposit_event(Event::SubnetNodeActivated {
+                subnet_id: subnet_id,
+                subnet_node_id: subnet_node.id,
+            });
+
+            true
+        }
     }
 
     #[pallet::hooks]
@@ -9290,14 +10344,14 @@ pub mod pallet {
                 && (block - 1) % overwatch_epoch_length == 0
             {
                 // Calculate Overwatch Node Weights
-                let block_step_weight = Self::calculate_overwatch_rewards();
+                let block_step_weight = Self::calculate_overwatch_rewards_v2();
                 // `consume(..)` saturates at zero
                 weight_meter.consume(block_step_weight);
             } else if (block - 2) >= epoch_length && (block - 2) % epoch_length == 0 {
                 // Calculate rewards
                 // Distribute to foundation/treasury
                 // Calculate emissions based on subnet weights (delegate stake/node count based)
-                let block_step_weight = Self::handle_subnet_emission_weights(current_epoch);
+                let block_step_weight = Self::handle_subnet_emission_weights_v2(current_epoch);
                 // `consume(..)` saturates at zero
                 weight_meter.consume(block_step_weight);
             } else if let Some(subnet_id) = SlotAssignment::<T>::get(epoch_slot) {
@@ -9307,7 +10361,7 @@ pub mod pallet {
                 let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
                 // Uses `WeightMeter` so we don't consume after
-                Self::emission_step(
+                Self::emission_step_v2(
                     &mut weight_meter,
                     block,
                     current_epoch,

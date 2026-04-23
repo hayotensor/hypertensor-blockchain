@@ -11,5 +11,7 @@ pub mod owner;
 pub mod randomness;
 pub mod reputation;
 pub mod slot;
+pub mod slot_v2;
 pub mod subnet;
 pub mod subnet_node;
+pub mod validator;

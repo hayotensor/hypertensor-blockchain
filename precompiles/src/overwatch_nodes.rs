@@ -43,20 +43,17 @@ where
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
-    #[precompile::public("registerOverwatchNode(address,uint256)")]
+    #[precompile::public("registerOverwatchNode(uint256)")]
     #[precompile::payable]
     fn register_overwatch_node(
         handle: &mut impl PrecompileHandle,
-        hotkey: Address,
         stake_to_be_added: U256,
     ) -> EvmResult<()> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
         let stake_to_be_added = stake_to_be_added.unique_saturated_into();
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::register_overwatch_node {
-            hotkey,
             stake_to_be_added,
         };
 

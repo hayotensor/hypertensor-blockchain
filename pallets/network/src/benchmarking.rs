@@ -3918,69 +3918,69 @@ mod benchmarks {
         )
     }
 
-    #[benchmark]
-    fn update_coldkey() {
-        let max_subnet_nodes = MaxSubnetNodes::<T>::get();
-        let end = 4;
-        build_activated_subnet::<T>(
-            DEFAULT_SUBNET_NAME.into(),
-            0,
-            end,
-            DEFAULT_DEPOSIT_AMOUNT,
-            DEFAULT_SUBNET_NODE_STAKE,
-        );
-        let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
+    // #[benchmark]
+    // fn update_coldkey() {
+    //     let max_subnet_nodes = MaxSubnetNodes::<T>::get();
+    //     let end = 4;
+    //     build_activated_subnet::<T>(
+    //         DEFAULT_SUBNET_NAME.into(),
+    //         0,
+    //         end,
+    //         DEFAULT_DEPOSIT_AMOUNT,
+    //         DEFAULT_SUBNET_NODE_STAKE,
+    //     );
+    //     let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
 
-        let min_nodes = MinSubnetNodes::<T>::get();
-        let max_subnets = MaxSubnets::<T>::get();
-        let max_subnet_nodes = MaxSubnetNodes::<T>::get();
+    //     let min_nodes = MinSubnetNodes::<T>::get();
+    //     let max_subnets = MaxSubnets::<T>::get();
+    //     let max_subnet_nodes = MaxSubnetNodes::<T>::get();
 
-        let coldkey = get_coldkey::<T>(subnet_id, max_subnet_nodes, end);
-        let hotkey = get_hotkey::<T>(subnet_id, max_subnet_nodes, max_subnets, end);
-        let new_coldkey: T::AccountId = get_account::<T>("new_coldkey", 0);
+    //     let coldkey = get_coldkey::<T>(subnet_id, max_subnet_nodes, end);
+    //     let hotkey = get_hotkey::<T>(subnet_id, max_subnet_nodes, max_subnets, end);
+    //     let new_coldkey: T::AccountId = get_account::<T>("new_coldkey", 0);
 
-        #[extrinsic_call]
-        update_coldkey(
-            RawOrigin::Signed(coldkey.clone()),
-            hotkey.clone(),
-            new_coldkey.clone(),
-        );
+    //     #[extrinsic_call]
+    //     update_coldkey(
+    //         RawOrigin::Signed(coldkey.clone()),
+    //         hotkey.clone(),
+    //         new_coldkey.clone(),
+    //     );
 
-        let key_owner = HotkeyOwner::<T>::get(hotkey.clone());
-        assert_eq!(key_owner, new_coldkey.clone());
-    }
+    //     let key_owner = HotkeyOwner::<T>::get(hotkey.clone());
+    //     assert_eq!(key_owner, new_coldkey.clone());
+    // }
 
-    #[benchmark]
-    fn update_hotkey() {
-        let max_subnet_nodes = MaxSubnetNodes::<T>::get();
-        let end = 4;
-        build_activated_subnet::<T>(
-            DEFAULT_SUBNET_NAME.into(),
-            0,
-            end,
-            DEFAULT_DEPOSIT_AMOUNT,
-            DEFAULT_SUBNET_NODE_STAKE,
-        );
-        let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
+    // #[benchmark]
+    // fn update_hotkey() {
+    //     let max_subnet_nodes = MaxSubnetNodes::<T>::get();
+    //     let end = 4;
+    //     build_activated_subnet::<T>(
+    //         DEFAULT_SUBNET_NAME.into(),
+    //         0,
+    //         end,
+    //         DEFAULT_DEPOSIT_AMOUNT,
+    //         DEFAULT_SUBNET_NODE_STAKE,
+    //     );
+    //     let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
 
-        let min_nodes = MinSubnetNodes::<T>::get();
-        let max_subnets = MaxSubnets::<T>::get();
-        let max_subnet_nodes = MaxSubnetNodes::<T>::get();
+    //     let min_nodes = MinSubnetNodes::<T>::get();
+    //     let max_subnets = MaxSubnets::<T>::get();
+    //     let max_subnet_nodes = MaxSubnetNodes::<T>::get();
 
-        let coldkey = get_coldkey::<T>(subnet_id, max_subnet_nodes, end);
-        let hotkey = get_hotkey::<T>(subnet_id, max_subnet_nodes, max_subnets, end);
-        let new_hotkey: T::AccountId = get_account::<T>("new_coldkey", 0);
+    //     let coldkey = get_coldkey::<T>(subnet_id, max_subnet_nodes, end);
+    //     let hotkey = get_hotkey::<T>(subnet_id, max_subnet_nodes, max_subnets, end);
+    //     let new_hotkey: T::AccountId = get_account::<T>("new_coldkey", 0);
 
-        #[extrinsic_call]
-        update_hotkey(
-            RawOrigin::Signed(coldkey.clone()),
-            hotkey.clone(),
-            new_hotkey.clone(),
-        );
+    //     #[extrinsic_call]
+    //     update_hotkey(
+    //         RawOrigin::Signed(coldkey.clone()),
+    //         hotkey.clone(),
+    //         new_hotkey.clone(),
+    //     );
 
-        let key_owner = HotkeyOwner::<T>::get(new_hotkey.clone());
-        assert_eq!(key_owner, coldkey.clone());
-    }
+    //     let key_owner = HotkeyOwner::<T>::get(new_hotkey.clone());
+    //     assert_eq!(key_owner, coldkey.clone());
+    // }
 
     #[benchmark]
     fn update_peer_info() {

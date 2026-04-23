@@ -82,6 +82,35 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    pub fn do_register_or_update_validator_identity(
+        coldkey: T::AccountId,
+        validator_id: u32,
+        identity: Option<IdentityData>,
+    ) -> DispatchResult {
+        // --- Ensure is or has had a subnet node
+        // This will not completely stop non-subnet-node users from registering identities but prevents it
+        // Accounts that have never registered a subnet node will not have a HotkeyOwner stored
+        let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
+            .map_err(|_| Error::<T>::InvalidValidatorId)?;
+
+        ensure!(coldkey == validator_coldkey, Error::<T>::NotKeyOwner);
+
+        ValidatorsData::<T>::try_mutate_exists(validator_id, |maybe_params| -> DispatchResult {
+            let params = maybe_params
+                .as_mut()
+                .ok_or(Error::<T>::InvalidOverwatchNodeId)?;
+            params.identity = identity;
+            Ok(())
+        });
+
+        // Self::deposit_event(Event::IdentityRegistered {
+        //     coldkey: coldkey,
+        //     identity: coldkey_identity,
+        // });
+
+        Ok(())
+    }
+
     pub fn do_remove_identity(coldkey: T::AccountId) -> DispatchResult {
         let coldkey_identity = ColdkeyIdentity::<T>::take(&coldkey);
         ColdkeyIdentityNameOwner::<T>::remove(coldkey_identity.clone().name);

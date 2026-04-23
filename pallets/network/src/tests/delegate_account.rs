@@ -2,7 +2,7 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountDelegateStake, AccountOverwatchStake, AccountSubnetStake, ColdkeyHotkeys,
+    DelegateAccountStake, AccountOverwatchStake, AccountSubnetStake, ColdkeyHotkeys,
     ColdkeyIdentity, ColdkeyIdentityNameOwner, ColdkeyReputation, DefaultMaxSocialIdLength,
     DefaultMaxUrlLength, DefaultMaxVectorLength, DelegateAccount, Error, HotkeyOverwatchNodeId,
     HotkeyOwner, HotkeySubnetId, HotkeySubnetNodeId, MaxSubnetNodes, MaxSubnets,
@@ -727,12 +727,12 @@ fn test_remove_delegate_balance() {
 
         let account_id = account(100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
         Network::increase_delegate_account_balance(&account_id, 100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
 
         let block = System::block_number();
@@ -750,7 +750,7 @@ fn test_remove_delegate_balance() {
             }
         );
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
         let unbondings: BTreeMap<u32, u128> = StakeUnbondingLedger::<Test>::get(&account_id);
@@ -769,12 +769,12 @@ fn test_remove_delegate_balance_amount_zero_error() {
     new_test_ext().execute_with(|| {
         let account_id = account(100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
         Network::increase_delegate_account_balance(&account_id, 100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
 
         assert_err!(
@@ -782,7 +782,7 @@ fn test_remove_delegate_balance_amount_zero_error() {
             Error::<Test>::AmountZero
         );
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
     })
 }
@@ -792,12 +792,12 @@ fn test_remove_delegate_balance_not_enough_stake_error() {
     new_test_ext().execute_with(|| {
         let account_id = account(100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
         Network::increase_delegate_account_balance(&account_id, 100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
 
         assert_err!(
@@ -805,7 +805,7 @@ fn test_remove_delegate_balance_not_enough_stake_error() {
             Error::<Test>::NotEnoughStakeToWithdraw
         );
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
     })
 }

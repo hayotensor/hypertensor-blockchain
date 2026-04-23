@@ -213,6 +213,71 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    pub fn do_owner_set_emergency_validator_set_v2(
+        origin: T::RuntimeOrigin,
+        subnet_id: u32,
+        mut subnet_node_ids: Vec<u32>,
+    ) -> DispatchResult {
+        let coldkey: T::AccountId = ensure_signed(origin)?;
+
+        ensure!(
+            Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
+            Error::<T>::NotSubnetOwner
+        );
+
+        ensure!(
+            Self::is_subnet_paused(subnet_id).unwrap_or(false),
+            Error::<T>::SubnetMustBePaused
+        );
+
+        // Remove duplicate subnet node ids
+        subnet_node_ids.dedup_by(|a, b| a == b);
+
+        let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+
+        // Filter out subnet node ids that are not validators
+        subnet_node_ids.retain(|id| match SubnetNodesDataV2::<T>::try_get(subnet_id, id) {
+            Ok(subnet_node) => {
+                subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
+            }
+            Err(()) => false,
+        });
+
+        // Ensure the number of subnet node ids is at least >= min subnet nodes requirement
+        ensure!(
+            subnet_node_ids.len() as u32 >= MinSubnetNodes::<T>::get(),
+            Error::<T>::InvalidMinEmergencySubnetNodes
+        );
+
+        // Ensure the number of subnet node ids is at most <= max subnet nodes requirement
+        ensure!(
+            subnet_node_ids.len() as u32 <= MaxEmergencySubnetNodes::<T>::get(),
+            Error::<T>::InvalidMaxEmergencySubnetNodes
+        );
+
+        // Calculate the target emergency epochs
+        let target_emergency_epochs = Self::get_max_steps_for_node_removal(subnet_id) + 1;
+
+        // Insert emergency subnet validator data
+        EmergencySubnetNodeElectionData::<T>::insert(
+            subnet_id,
+            EmergencySubnetValidatorData {
+                subnet_node_ids: subnet_node_ids.clone(),
+                target_emergency_validators_epochs: target_emergency_epochs,
+                total_epochs: 0,
+                max_emergency_validators_epoch: 0,
+            },
+        );
+
+        Self::deposit_event(Event::SubnetForked {
+            subnet_id: subnet_id,
+            owner: coldkey,
+            subnet_node_ids,
+        });
+
+        Ok(())
+    }
+
     /// Get the required epochs to have a node removed based on not being in consensus data
     /// based on the `AbsentDecreaseReputationFactor`
     /// i.e. if a node is not in consensus data, it will be removed after this many epochs
@@ -245,7 +310,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Owner can remove the emergency validator set at any time
-    /// 
+    ///
     /// # Arguments
     /// * `origin` - The origin of the transaction
     /// * `subnet_id` - The id of the subnet
@@ -281,7 +346,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Owner can fully remove the subnet
-    /// 
+    ///
     /// # Arguments
     /// * `origin` - The origin of the transaction
     /// * `subnet_id` - The id of the subnet

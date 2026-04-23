@@ -228,7 +228,8 @@ fn test_calculate_subnet_weights_active_live_only() {
             true,
             None,
         );
-        let registering_subnet_id = SubnetName::<Test>::get(registering_subnet_name.clone()).unwrap();
+        let registering_subnet_id =
+            SubnetName::<Test>::get(registering_subnet_name.clone()).unwrap();
 
         increase_epochs(1);
 

@@ -23,7 +23,7 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
-        let account_delegate_balance: u128 = AccountDelegateStake::<T>::get(&account_id);
+        let account_delegate_balance: u128 = DelegateAccountStake::<T>::get(&account_id);
 
         ensure!(amount_to_remove > 0, Error::<T>::AmountZero);
 
@@ -63,7 +63,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn increase_delegate_account_balance(account_id: &T::AccountId, amount: u128) {
         // -- increase delegate account balance
-        AccountDelegateStake::<T>::mutate(account_id, |mut n| n.saturating_accrue(amount));
+        DelegateAccountStake::<T>::mutate(account_id, |mut n| n.saturating_accrue(amount));
 
         // -- increase total account delegate stake
         TotalAccountDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
@@ -71,7 +71,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn decrease_delegate_account_balance(account_id: &T::AccountId, amount: u128) {
         // -- decrease delegate account balance
-        AccountDelegateStake::<T>::mutate(account_id, |mut n| n.saturating_reduce(amount));
+        DelegateAccountStake::<T>::mutate(account_id, |mut n| n.saturating_reduce(amount));
 
         // -- decrease total account delegate stake
         TotalAccountDelegateStake::<T>::mutate(|mut n| n.saturating_reduce(amount));

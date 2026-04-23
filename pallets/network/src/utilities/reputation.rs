@@ -138,6 +138,112 @@ impl<T: Config> Pallet<T> {
         ColdkeyReputation::<T>::insert(&coldkey, coldkey_reputation);
     }
 
+    pub fn increase_validator_reputation(
+        validator_id: u32,
+        attestation_percentage: u128,
+        min_attestation_percentage: u128,
+        increase_weight_factor: u128,
+        epoch: u32,
+    ) {
+        if !ValidatorReputation::<T>::contains_key(validator_id) {
+            return;
+        }
+
+        if attestation_percentage < min_attestation_percentage {
+            return;
+        }
+
+        // Safe get, has Default value
+        let mut validator_reputation = ValidatorReputation::<T>::get(validator_id);
+        let current_score = validator_reputation.score;
+
+        let new_score = Self::increase_rep(current_score, increase_weight_factor, None);
+
+        // Update fields
+        validator_reputation.score = new_score;
+        validator_reputation.total_increases += 1;
+        validator_reputation.last_validator_epoch = epoch;
+
+        if validator_reputation.start_epoch == 0 {
+            validator_reputation.start_epoch = epoch;
+        }
+
+        // Update average attestation
+        let prev_total = validator_reputation
+            .total_increases
+            .saturating_add(validator_reputation.total_decreases)
+            .saturating_sub(1) as u128;
+
+        validator_reputation.average_attestation = if prev_total == 0 {
+            attestation_percentage
+        } else {
+            (validator_reputation
+                .average_attestation
+                .saturating_mul(prev_total)
+                .saturating_add(attestation_percentage))
+            .saturating_div(prev_total + 1)
+        };
+
+        ValidatorReputation::<T>::insert(validator_id, validator_reputation);
+    }
+
+    /// Decrease coldkey reptuation
+    ///
+    /// # Arguments
+    ///
+    /// * `coldkey` - Nodes coldkey
+    /// * `attestation_percentage` - The attestation ratio of the validator nodes consensus
+    /// * `min_attestation_percentage` - Blockchains minimum attestation percentage (66%)
+    /// * `decrease_weight_factor` - `ColdkeyReputationDecreaseFactor`.
+    /// * `epoch`: The blockchains general epoch
+    pub fn decrease_validator_reputation(
+        validator_id: u32,
+        attestation_percentage: u128,
+        min_attestation_percentage: u128,
+        decrease_weight_factor: u128, // <- slope/steepness control
+        epoch: u32,
+    ) {
+        if !ValidatorReputation::<T>::contains_key(validator_id) {
+            return;
+        }
+
+        if attestation_percentage >= min_attestation_percentage {
+            return;
+        }
+
+        // Safe get, has Default value
+        let mut validator_reputation = ValidatorReputation::<T>::get(validator_id);
+        let current_score = validator_reputation.score;
+
+        // Penalty increases as score increases (same pattern as reward logic)
+        let new_score = Self::decrease_rep(current_score, decrease_weight_factor, None);
+
+        validator_reputation.score = new_score;
+        validator_reputation.total_decreases += 1;
+        validator_reputation.last_validator_epoch = epoch;
+
+        if validator_reputation.start_epoch == 0 {
+            validator_reputation.start_epoch = epoch;
+        }
+
+        let prev_total = validator_reputation
+            .total_increases
+            .saturating_add(validator_reputation.total_decreases)
+            .saturating_sub(1) as u128;
+
+        validator_reputation.average_attestation = if prev_total == 0 {
+            attestation_percentage
+        } else {
+            (validator_reputation
+                .average_attestation
+                .saturating_mul(prev_total)
+                .saturating_add(attestation_percentage))
+            .saturating_div(prev_total + 1)
+        };
+
+        ValidatorReputation::<T>::insert(validator_id, validator_reputation);
+    }
+
     pub fn increase_subnet_reputation(subnet_id: u32, factor_1: u128, factor_2: u128) {
         SubnetReputation::<T>::try_mutate(
             subnet_id,
@@ -195,18 +301,22 @@ impl<T: Config> Pallet<T> {
         factor_1: u128,
         factor_2: Option<u128>,
     ) -> u128 {
-        let new_reputation = SubnetNodeReputation::<T>::try_mutate(
+        let new_reputation = SubnetNodeReputation::<T>::try_mutate_exists(
             subnet_id,
             subnet_node_id,
-            |n: &mut u128| -> Result<u128, DispatchError> {
-                *n = Self::increase_rep(current_reputation, factor_1, factor_2);
-                Self::deposit_event(Event::NodeReputationUpdate {
-                    subnet_id,
-                    subnet_node_id,
-                    prev_reputation: current_reputation,
-                    new_reputation: *n,
-                });
-                Ok(*n)
+            |maybe_reputation| -> Result<u128, DispatchError> {
+                if let Some(reputation) = maybe_reputation {
+                    *reputation = Self::increase_rep(current_reputation, factor_1, factor_2);
+                    Self::deposit_event(Event::NodeReputationUpdate {
+                        subnet_id,
+                        subnet_node_id,
+                        prev_reputation: current_reputation,
+                        new_reputation: *reputation,
+                    });
+                    Ok(*reputation)
+                } else {
+                    Ok(current_reputation)
+                }
             },
         );
 
@@ -222,18 +332,22 @@ impl<T: Config> Pallet<T> {
         factor_1: u128,
         factor_2: Option<u128>,
     ) -> u128 {
-        let new_reputation = SubnetNodeReputation::<T>::try_mutate(
+        let new_reputation = SubnetNodeReputation::<T>::try_mutate_exists(
             subnet_id,
             subnet_node_id,
-            |n: &mut u128| -> Result<u128, DispatchError> {
-                *n = Self::decrease_rep(current_reputation, factor_1, factor_2);
-                Self::deposit_event(Event::NodeReputationUpdate {
-                    subnet_id,
-                    subnet_node_id,
-                    prev_reputation: current_reputation,
-                    new_reputation: *n,
-                });
-                Ok(*n)
+            |maybe_reputation| -> Result<u128, DispatchError> {
+                if let Some(reputation) = maybe_reputation {
+                    *reputation = Self::decrease_rep(current_reputation, factor_1, factor_2);
+                    Self::deposit_event(Event::NodeReputationUpdate {
+                        subnet_id,
+                        subnet_node_id,
+                        prev_reputation: current_reputation,
+                        new_reputation: *reputation,
+                    });
+                    Ok(*reputation)
+                } else {
+                    Ok(current_reputation)
+                }
             },
         );
 
