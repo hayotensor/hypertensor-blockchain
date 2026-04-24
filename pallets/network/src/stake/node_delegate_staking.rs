@@ -290,61 +290,6 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    /// Swap delegate staking between subnet nodes
-    ///
-    /// # Arguments
-    ///
-    /// * `from_subnet_id` - Subnet ID unstaking from in relation to subnet node ID.
-    /// * `from_subnet_node_id` - Subnet node ID unstaking from .
-    /// * `to_subnet_id` - Subnet ID adding staking to from in relation to subnet node ID.
-    /// * `to_subnet_node_id` - Subnet node ID adding stake to.
-    /// * `node_delegate_stake_shares_to_swap` - Shares to remove to then be added as converted balance
-    ///
-    pub fn do_swap_node_delegate_stake(
-        origin: T::RuntimeOrigin,
-        from_subnet_id: u32,
-        from_subnet_node_id: u32,
-        to_subnet_id: u32,
-        to_subnet_node_id: u32,
-        node_delegate_stake_shares_to_swap: u128,
-    ) -> DispatchResult {
-        let account_id: T::AccountId = ensure_signed(origin)?;
-
-        // --- Remove
-        // Don't add to ledger
-        // DO add to queue
-        let (result, balance, _) = Self::perform_do_remove_node_delegate_stake(
-            &account_id,
-            from_subnet_id,
-            from_subnet_node_id,
-            node_delegate_stake_shares_to_swap,
-            false,
-        );
-
-        result?;
-
-        // --- Add to queue
-        let call = QueuedSwapCall::SwapToNodeDelegateStake {
-            account_id: account_id.clone(),
-            to_subnet_id,
-            to_subnet_node_id,
-            balance,
-        };
-
-        Self::queue_swap(account_id.clone(), call)?;
-
-        Self::deposit_event(Event::DelegateNodeStakeSwapped {
-            account_id: account_id,
-            from_subnet_id: from_subnet_id,
-            from_subnet_node_id: from_subnet_node_id,
-            to_subnet_id: to_subnet_id,
-            to_subnet_node_id: to_subnet_node_id,
-            amount: balance,
-        });
-
-        Ok(())
-    }
-
     pub fn do_transfer_node_delegate_stake(
         origin: T::RuntimeOrigin,
         subnet_id: u32,

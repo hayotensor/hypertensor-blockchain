@@ -8,8 +8,8 @@ use crate::{
     MaxDelegateStakePercentage, MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes,
     MaxSubnets, MinSubnetNodes, MinSubnetRegistrationEpochs,
     TotalNodeDelegateStakeBalance,
-    NodeSlotIndex, PeerIdSubnetNodeId, SubnetNodeQueue,
-    RegisteredSubnetNodesData, SubnetNodeQueueEpochs, Reputation, NodeRewardRateUpdatePeriod,
+    NodeSlotIndex, PeerIdSubnetNodeId, SubnetNodeQueueV2,
+    RegisteredSubnetNodesDataV2, SubnetNodeQueueEpochs, Reputation, NodeRewardRateUpdatePeriod,
     SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeIdHotkey, UniqueParamSubnetNodeId,
     SubnetNodesData, SubnetOwner, SubnetState, SubnetsData,
@@ -56,7 +56,7 @@ fn test_register_subnet_node_v2() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
@@ -74,28 +74,36 @@ fn test_register_subnet_node_v2() {
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         let queue_epochs = SubnetNodeQueueEpochs::<Test>::get(subnet_id);
 
-        assert_ok!(Network::register_subnet_node(
+        assert_ok!(Network::register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            50000000000,
+            None,
+            None,
+        ));
+
+        let validator_id = TotalValidatorIds::<Test>::get();
+
+        assert_ok!(Network::register_subnet_node_v2(
+            RuntimeOrigin::signed(coldkey.clone()),
+            validator_id,
             subnet_id,
-            hotkey.clone(),
+            None,
             PeerInfo {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
             None,
             None,
-            0,
-            amount,
+            stake_amount,
             None,
             None,
-            None,
-            u128::MAX
+            burn_amount + 100000000,
         ));
 
-        let hotkey_subnet_node_id =
-            HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-        let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
+        let subnet_node = RegisteredSubnetNodesDataV2::<Test>::get(subnet_id, subnet_node_id);
         assert_eq!(
             subnet_node.classification.node_class,
             SubnetNodeClass::Registered
@@ -108,17 +116,17 @@ fn test_register_subnet_node_v2() {
         let new_total_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
         assert_eq!(total_subnet_nodes + 1, new_total_nodes);
 
-        let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
+        let reg_queue = SubnetNodeQueueV2::<Test>::get(subnet_id);
         let found = reg_queue
             .iter()
-            .find(|node| node.id == hotkey_subnet_node_id);
-        assert_eq!(found.unwrap().id, hotkey_subnet_node_id);
+            .find(|node| node.id == subnet_node_id);
+        assert_eq!(found.unwrap().id, subnet_node_id);
 
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SubnetNodeRegistered {
                 subnet_id: subnet_id,
-                subnet_node_id: hotkey_subnet_node_id,
+                subnet_node_id: subnet_node_id,
                 coldkey: coldkey,
                 hotkey: hotkey,
                 data: subnet_node.clone(),
@@ -142,7 +150,7 @@ fn test_register_subnet_node_v2_and_activate() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
@@ -159,28 +167,36 @@ fn test_register_subnet_node_v2_and_activate() {
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         let queue_epochs = SubnetNodeQueueEpochs::<Test>::get(subnet_id);
 
-        assert_ok!(Network::register_subnet_node(
+        assert_ok!(Network::register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            50000000000,
+            None,
+            None,
+        ));
+
+        let validator_id = TotalValidatorIds::<Test>::get();
+
+        assert_ok!(Network::register_subnet_node_v2(
+            RuntimeOrigin::signed(coldkey.clone()),
+            validator_id,
             subnet_id,
-            hotkey.clone(),
+            None,
             PeerInfo {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
             None,
             None,
-            0,
-            amount,
+            stake_amount,
             None,
             None,
-            None,
-            u128::MAX
+            burn_amount + 100000000,
         ));
 
-        let hotkey_subnet_node_id =
-            HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-        let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
+        let subnet_node = RegisteredSubnetNodesDataV2::<Test>::get(subnet_id, subnet_node_id);
         assert_eq!(
             subnet_node.classification.node_class,
             SubnetNodeClass::Registered
@@ -190,17 +206,17 @@ fn test_register_subnet_node_v2_and_activate() {
         let new_total_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
         assert_eq!(total_subnet_nodes + 1, new_total_nodes);
 
-        let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
+        let reg_queue = SubnetNodeQueueV2::<Test>::get(subnet_id);
         let found = reg_queue
             .iter()
-            .find(|node| node.id == hotkey_subnet_node_id);
-        assert_eq!(found.unwrap().id, hotkey_subnet_node_id);
+            .find(|node| node.id == subnet_node_id);
+        assert_eq!(found.unwrap().id, subnet_node_id);
 
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SubnetNodeRegistered {
                 subnet_id: subnet_id,
-                subnet_node_id: hotkey_subnet_node_id,
+                subnet_node_id: subnet_node_id,
                 coldkey: coldkey,
                 hotkey: hotkey,
                 data: subnet_node.clone(),
@@ -216,12 +232,12 @@ fn test_register_subnet_node_v2_and_activate() {
 
         // Get subnet weights (nodes only activate from queue if there are weights)
         // Note: This means a subnet is active if it gets weights
-        let _ = Network::handle_subnet_emission_weights(epoch);
+        let _ = Network::handle_subnet_emission_weights_v2(epoch);
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
         // Trigger the node activation
-        Network::emission_step(
+        Network::emission_step_v2(
             &mut WeightMeter::new(),
             System::block_number(),
             Network::get_current_epoch_as_u32(),
@@ -231,17 +247,17 @@ fn test_register_subnet_node_v2_and_activate() {
 
         // Check out of queue
         assert_eq!(
-            RegisteredSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id),
+            RegisteredSubnetNodesDataV2::<Test>::try_get(subnet_id, subnet_node_id),
             Err(())
         );
-        let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
+        let reg_queue = SubnetNodeQueueV2::<Test>::get(subnet_id);
         let found = reg_queue
             .iter()
-            .find(|node| node.id == hotkey_subnet_node_id);
+            .find(|node| node.id == subnet_node_id);
         assert_eq!(found, None);
 
         // Check in activation
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
+        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
         assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Idle);
         assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
     })
@@ -263,7 +279,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
@@ -304,28 +320,36 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
             let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
             let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-            assert_ok!(Network::register_subnet_node(
+            assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
+                hotkey,
+                50000000000,
+                None,
+                None,
+            ));
+
+            let validator_id = TotalValidatorIds::<Test>::get();
+
+            assert_ok!(Network::register_subnet_node_v2(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
                 subnet_id,
-                hotkey.clone(),
+                None,
                 PeerInfo {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
                 None,
                 None,
-                0,
-                amount,
+                stake_amount,
                 None,
                 None,
-                None,
-                u128::MAX
+                burn_amount + 100000000,
             ));
 
-            let hotkey_subnet_node_id =
-                HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+            let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-            let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
+            let subnet_node = RegisteredSubnetNodesDataV2::<Test>::get(subnet_id, subnet_node_id);
             assert_eq!(
                 subnet_node.classification.node_class,
                 SubnetNodeClass::Registered
@@ -334,15 +358,15 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
 
             assert_eq!(total_subnet_nodes + 1, TotalSubnetNodes::<Test>::get(subnet_id));
 
-            let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
+            let reg_queue = SubnetNodeQueueV2::<Test>::get(subnet_id);
             let found = reg_queue
                 .iter()
-                .find(|node| node.id == hotkey_subnet_node_id);
-            assert_eq!(found.unwrap().id, hotkey_subnet_node_id);
+                .find(|node| node.id == subnet_node_id);
+            assert_eq!(found.unwrap().id, subnet_node_id);
             System::set_block_number(System::block_number() + 1);
         }
 
-        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id).len() as u32, reg_end - reg_start);
+        assert_eq!(SubnetNodeQueueV2::<Test>::get(subnet_id).len() as u32, reg_end - reg_start);
 
         let total_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
@@ -355,10 +379,10 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
 
         // Get subnet weights (nodes only activate from queue if there are weights)
         // Note: This means a subnet is active if it gets weights
-        let _ = Network::handle_subnet_emission_weights(epoch);
+        let _ = Network::handle_subnet_emission_weights_v2(epoch);
 
         // Trigger the node activation
-        Network::emission_step(
+        Network::emission_step_v2(
             &mut WeightMeter::new(),
             System::block_number(),
             Network::get_current_epoch_as_u32(),
@@ -369,44 +393,41 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
         // Only activate up to the churn limit
         assert_eq!(prev_active_total_nodes + churn_limit, TotalActiveSubnetNodes::<Test>::get(subnet_id));
 
-        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id).len() as u32, reg_end - reg_start - churn_limit);
+        assert_eq!(SubnetNodeQueueV2::<Test>::get(subnet_id).len() as u32, reg_end - reg_start - churn_limit);
         
         for n in reg_start..reg_end {
             let _n = n + 1;
-            let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, _n);
-
-            let hotkey_subnet_node_id =
-                HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+            let subnet_node_id = _n;
 
             // Ensure all nodes up to the churn limit were activated
             if _n <= reg_start + churn_limit {
 
                 // Check in activation
-                let subnet_node = SubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
+                let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
                 assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Idle);
                 assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
 
                 // Check out of queue
                 assert_eq!(
-                    RegisteredSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id),
+                    RegisteredSubnetNodesDataV2::<Test>::try_get(subnet_id, subnet_node_id),
                     Err(())
                 );
-                let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
+                let reg_queue = SubnetNodeQueueV2::<Test>::get(subnet_id);
                 let found = reg_queue
                     .iter()
-                    .find(|node| node.id == hotkey_subnet_node_id);
+                    .find(|node| node.id == subnet_node_id);
                 assert_eq!(found, None);
             } else {
                 // Other nodes still in queue
                 assert_eq!(
-                    SubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id),
+                    SubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
                     Err(())
                 );
-                let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
+                let reg_queue = SubnetNodeQueueV2::<Test>::get(subnet_id);
                 let found = reg_queue
                     .iter()
-                    .find(|node| node.id == hotkey_subnet_node_id);
-                assert_eq!(found.unwrap().id, hotkey_subnet_node_id);
+                    .find(|node| node.id == subnet_node_id);
+                assert_eq!(found.unwrap().id, subnet_node_id);
             }
         }
     })

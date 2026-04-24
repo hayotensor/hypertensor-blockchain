@@ -989,7 +989,7 @@ impl<T: Config> Pallet<T> {
         let db_weight = T::DbWeight::get();
         // --- Ensure users are staked to subnet node
         let total_node_delegated_stake_shares =
-            TotalValidatorDelegateStakeShares::<T>::get(validator_id);
+            ValidatorDelegateStakeShares::<T>::get(validator_id);
         // TotalNodeDelegateStakeShares
         weight_meter.consume(db_weight.reads(1));
 
@@ -999,8 +999,14 @@ impl<T: Config> Pallet<T> {
         if total_node_delegated_stake_shares != 0 {
             let node_delegate_reward = Self::percent_mul(account_reward, delegate_reward_rate);
             let updated_account_reward = account_reward.saturating_sub(node_delegate_reward);
-            log::error!("handle_validator_delegate_stake_v2 node_delegate_reward   {:?}", node_delegate_reward);
-            log::error!("handle_validator_delegate_stake_v2 updated_account_reward {:?}", updated_account_reward);
+            log::error!(
+                "handle_validator_delegate_stake_v2 node_delegate_reward   {:?}",
+                node_delegate_reward
+            );
+            log::error!(
+                "handle_validator_delegate_stake_v2 updated_account_reward {:?}",
+                updated_account_reward
+            );
             Self::do_increase_validator_delegate_stake(validator_id, node_delegate_reward);
             // reads:
             // TotalNodeDelegateStakeBalance | TotalNodeDelegateStakeShares

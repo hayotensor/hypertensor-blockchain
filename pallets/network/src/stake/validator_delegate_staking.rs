@@ -114,10 +114,10 @@ impl<T: Config> Pallet<T> {
         delegate_stake_to_be_added: u128,
     ) -> (DispatchResult, u128, u128) {
         let total_validator_delegated_stake_shares =
-            match TotalValidatorDelegateStakeShares::<T>::get(validator_id) {
+            match ValidatorDelegateStakeShares::<T>::get(validator_id) {
                 0 => {
                     // --- Mitigate inflation attack
-                    TotalValidatorDelegateStakeShares::<T>::mutate(validator_id, |mut n| {
+                    ValidatorDelegateStakeShares::<T>::mutate(validator_id, |mut n| {
                         n.saturating_accrue(Self::MIN_LIQUIDITY)
                     });
                     0
@@ -125,7 +125,7 @@ impl<T: Config> Pallet<T> {
                 shares => shares,
             };
         let total_validator_delegated_stake_balance =
-            TotalValidatorDelegateStakeBalance::<T>::get(validator_id);
+            ValidatorDelegateStakeBalance::<T>::get(validator_id);
 
         // --- Get amount to be added as shares based on stake to balance added to account
         let delegate_stake_to_be_added_as_shares = Self::convert_to_shares(
@@ -215,9 +215,9 @@ impl<T: Config> Pallet<T> {
         }
 
         let total_validator_delegated_stake_shares =
-            TotalValidatorDelegateStakeShares::<T>::get(validator_id);
+            ValidatorDelegateStakeShares::<T>::get(validator_id);
         let total_validator_delegated_stake_balance =
-            TotalValidatorDelegateStakeBalance::<T>::get(validator_id);
+            ValidatorDelegateStakeBalance::<T>::get(validator_id);
 
         // --- Get accounts current balance
         let delegate_stake_to_be_removed = Self::convert_to_balance(
@@ -268,6 +268,45 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    pub fn do_swap_validator_delegate_stake(
+        origin: T::RuntimeOrigin,
+        from_validator_id: u32,
+        to_validator_id: u32,
+        validator_delegate_stake_shares_to_swap: u128,
+    ) -> DispatchResult {
+        let account_id: T::AccountId = ensure_signed(origin)?;
+
+        // --- Remove
+        // Don't add to ledger
+        // DO add to queue
+        let (result, balance, _) = Self::perform_do_remove_validator_delegate_stake(
+            &account_id,
+            from_validator_id,
+            validator_delegate_stake_shares_to_swap,
+            false,
+        );
+
+        result?;
+
+        // --- Add to queue
+        let call = QueuedSwapCall::SwapToValidatorDelegateStake {
+            account_id: account_id.clone(),
+            to_validator_id,
+            balance,
+        };
+
+        Self::queue_swap(account_id.clone(), call)?;
+
+        // Self::deposit_event(Event::DelegateValidatorStakeSwapped {
+        //     account_id: account_id,
+        //     from_validator_id: from_validator_id,
+        //     to_validator_id: to_validator_id,
+        //     amount: balance,
+        // });
+
+        Ok(())
+    }
+
     pub fn do_transfer_validator_delegate_stake(
         origin: T::RuntimeOrigin,
         validator_id: u32,
@@ -287,9 +326,9 @@ impl<T: Config> Pallet<T> {
         );
 
         let total_validator_delegated_stake_shares =
-            TotalValidatorDelegateStakeShares::<T>::get(validator_id);
+            ValidatorDelegateStakeShares::<T>::get(validator_id);
         let total_validator_delegated_stake_balance =
-            TotalValidatorDelegateStakeBalance::<T>::get(validator_id);
+            ValidatorDelegateStakeBalance::<T>::get(validator_id);
 
         // --- Get accounts current balance
         let delegate_stake_to_be_transferred = Self::convert_to_balance(
@@ -335,16 +374,16 @@ impl<T: Config> Pallet<T> {
         });
 
         // -- increase total validator delegate stake balance
-        TotalValidatorDelegateStakeBalance::<T>::mutate(validator_id, |mut n| {
+        ValidatorDelegateStakeBalance::<T>::mutate(validator_id, |mut n| {
             n.saturating_accrue(amount)
         });
 
         // -- increase total validator delegate stake shares
-        TotalValidatorDelegateStakeShares::<T>::mutate(validator_id, |mut n| {
+        ValidatorDelegateStakeShares::<T>::mutate(validator_id, |mut n| {
             n.saturating_accrue(shares)
         });
 
-        TotalDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
+        TotalValidatorDelegateStakeBalance::<T>::mutate(|mut n| n.saturating_accrue(amount));
     }
 
     pub fn decrease_account_validator_delegate_stake(
@@ -359,33 +398,33 @@ impl<T: Config> Pallet<T> {
         });
 
         // -- decrease total validator delegate stake balance
-        TotalValidatorDelegateStakeBalance::<T>::mutate(validator_id, |mut n| {
+        ValidatorDelegateStakeBalance::<T>::mutate(validator_id, |mut n| {
             n.saturating_reduce(amount)
         });
 
         // -- decrease total validator delegate stake shares
-        TotalValidatorDelegateStakeShares::<T>::mutate(validator_id, |mut n| {
+        ValidatorDelegateStakeShares::<T>::mutate(validator_id, |mut n| {
             n.saturating_reduce(shares)
         });
 
-        TotalDelegateStake::<T>::mutate(|mut n| n.saturating_reduce(amount));
+        TotalValidatorDelegateStakeBalance::<T>::mutate(|mut n| n.saturating_reduce(amount));
     }
 
     /// Rewards are deposited here from the ``rewards.rs`` or by donations
     pub fn do_increase_validator_delegate_stake(validator_id: u32, amount: u128) {
-        if TotalValidatorDelegateStakeBalance::<T>::get(validator_id) == 0
-            || TotalValidatorDelegateStakeShares::<T>::get(validator_id) == 0
+        if ValidatorDelegateStakeBalance::<T>::get(validator_id) == 0
+            || ValidatorDelegateStakeShares::<T>::get(validator_id) == 0
         {
-            TotalValidatorDelegateStakeShares::<T>::mutate(validator_id, |mut n| {
+            ValidatorDelegateStakeShares::<T>::mutate(validator_id, |mut n| {
                 n.saturating_accrue(Self::MIN_LIQUIDITY)
             });
         };
 
         // -- increase total validator delegate stake
-        TotalValidatorDelegateStakeBalance::<T>::mutate(validator_id, |mut n| {
+        ValidatorDelegateStakeBalance::<T>::mutate(validator_id, |mut n| {
             n.saturating_accrue(amount)
         });
 
-        TotalDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
+        TotalValidatorDelegateStakeBalance::<T>::mutate(|mut n| n.saturating_accrue(amount));
     }
 }

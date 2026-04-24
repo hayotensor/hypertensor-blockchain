@@ -426,13 +426,13 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
             ProxyType::NonTransfer => !matches!(
                 c,
                 RuntimeCall::Balances(..)
-                    | RuntimeCall::Network(pallet_network::Call::add_to_delegate_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::add_delegate_stake { .. })
                     | RuntimeCall::Network(pallet_network::Call::swap_delegate_stake { .. })
                     | RuntimeCall::Network(pallet_network::Call::transfer_delegate_stake { .. })
                     | RuntimeCall::Network(pallet_network::Call::remove_delegate_stake { .. })
                     | RuntimeCall::Network(pallet_network::Call::donate_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::add_to_node_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_node_delegate_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::add_node_delegate_stake { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::swap_validator_delegate_stake { .. })
                     | RuntimeCall::Network(
                         pallet_network::Call::transfer_node_delegate_stake { .. }
                     )
@@ -464,13 +464,13 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
             // In-network management of current delegate staking funds
             ProxyType::SubNetworkDelegateStaking => matches!(
                 c,
-                // RuntimeCall::Network(pallet_network::Call::add_to_delegate_stake { .. })
+                // RuntimeCall::Network(pallet_network::Call::add_delegate_stake { .. })
                 RuntimeCall::Network(pallet_network::Call::swap_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::transfer_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::remove_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::donate_delegate_stake { .. })
-                    // | RuntimeCall::Network(pallet_network::Call::add_to_node_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_node_delegate_stake { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::add_node_delegate_stake { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::swap_validator_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::transfer_node_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::remove_node_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::donate_node_delegate_stake { .. })

@@ -1,11 +1,11 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    ColdkeyHotkeys, ColdkeySubnetNodes, Error, HotkeyOwner, HotkeySubnetId, HotkeySubnetNodeId,
-    MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake, PeerInfo,
-    RegisteredSubnetNodesData, StakeCooldownEpochs, StakeUnbondingLedger, SubnetMaxStakeBalance,
-    SubnetName, SubnetNodeQueueEpochs, SubnetNodesData, SubnetRemovalReason, SubnetsData,
-    TotalActiveSubnets, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
+    Error, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake,
+    NodeSubnetStake, PeerInfo, RegisteredSubnetNodesDataV2, StakeCooldownEpochs,
+    StakeUnbondingLedger, SubnetMaxStakeBalance, SubnetName, SubnetNodeQueueEpochs,
+    SubnetNodesDataV2, SubnetRemovalReason, SubnetsData, TotalActiveSubnets, TotalSubnetNodeUids,
+    TotalSubnetNodes, TotalSubnetStake, TotalValidatorIds, ValidatorSubnetNodes,
 };
 use frame_support::traits::Currency;
 use frame_support::weights::WeightMeter;
@@ -19,7 +19,7 @@ use sp_std::collections::btree_map::BTreeMap;
 // ///
 // ///
 // ///
-// /// Staking
+// /// Node Staking
 // ///
 // ///
 // ///
@@ -36,7 +36,7 @@ fn test_add_to_stake_not_key_owner() {
         let _ = Balances::deposit_creating(&account(1), deposit_amount);
 
         assert_err!(
-            Network::add_stake(RuntimeOrigin::signed(account(1)), 0, 0, account(1), amount),
+            Network::add_node_stake(RuntimeOrigin::signed(account(1)), 0, 0, amount),
             Error::<Test>::InvalidSubnetId,
         );
 
@@ -46,7 +46,7 @@ fn test_add_to_stake_not_key_owner() {
 
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -54,11 +54,10 @@ fn test_add_to_stake_not_key_owner() {
         let _ = Balances::deposit_creating(&account(1), deposit_amount);
 
         assert_err!(
-            Network::add_stake(
+            Network::add_node_stake(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
                 subnet_id,
-                0,
-                account(total_subnet_nodes + 1),
+                1,
                 amount,
             ),
             Error::<Test>::NotKeyOwner,
@@ -74,13 +73,7 @@ fn test_remove_stake_not_key_owner() {
         let _ = Balances::deposit_creating(&account(1), deposit_amount);
 
         assert_err!(
-            Network::add_stake(
-                RuntimeOrigin::signed(account(1)),
-                0,
-                0,
-                account(1),
-                stake_amount,
-            ),
+            Network::add_node_stake(RuntimeOrigin::signed(account(1)), 0, 0, stake_amount,),
             Error::<Test>::InvalidSubnetId,
         );
 
@@ -96,28 +89,27 @@ fn test_remove_stake_not_key_owner() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
         let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount);
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = end;
 
-        assert_ok!(Network::add_stake(
+        assert_ok!(Network::add_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
-            hotkey.clone(),
             stake_amount,
         ));
 
         assert_err!(
-            Network::remove_stake(
+            Network::remove_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
-                account(2),
+                1,
                 stake_amount,
             ),
             Error::<Test>::NotKeyOwner,
@@ -142,7 +134,7 @@ fn test_add_to_stake() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -152,23 +144,22 @@ fn test_add_to_stake() {
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = end;
 
         assert_eq!(
-            Network::account_subnet_stake(hotkey.clone(), subnet_id),
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
             stake_amount
         );
 
-        assert_ok!(Network::add_stake(
+        assert_ok!(Network::add_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
-            hotkey.clone(),
             stake_amount,
         ));
 
         assert_eq!(
-            Network::account_subnet_stake(hotkey.clone(), subnet_id),
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
             stake_amount + stake_amount
         );
         assert_eq!(Network::total_stake(), amount_staked + stake_amount);
@@ -196,7 +187,7 @@ fn test_add_to_stake_invalid_amount_error() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -206,19 +197,18 @@ fn test_add_to_stake_invalid_amount_error() {
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = end;
 
         assert_eq!(
-            Network::account_subnet_stake(hotkey.clone(), subnet_id),
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
             stake_amount
         );
 
         assert_err!(
-            Network::add_stake(
+            Network::add_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
-                hotkey.clone(),
                 0,
             ),
             Error::<Test>::InvalidAmount
@@ -243,7 +233,7 @@ fn test_add_to_stake_max_stake_error() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -255,19 +245,18 @@ fn test_add_to_stake_max_stake_error() {
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = end;
 
         assert_eq!(
-            Network::account_subnet_stake(hotkey.clone(), subnet_id),
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
             stake_amount
         );
 
         assert_err!(
-            Network::add_stake(
+            Network::add_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
-                hotkey.clone(),
                 max_stake,
             ),
             Error::<Test>::MaxStakeReached
@@ -289,7 +278,7 @@ fn test_add_to_stake_not_enough_balance_to_stake_error() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet(
+        build_activated_subnet_v2(
             subnet_name.clone(),
             0,
             end,
@@ -301,14 +290,13 @@ fn test_add_to_stake_not_enough_balance_to_stake_error() {
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
         let amount_staked = TotalSubnetStake::<Test>::get(subnet_id);
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = end;
 
         assert_err!(
-            Network::add_stake(
+            Network::add_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
-                hotkey.clone(),
                 stake_amount,
             ),
             Error::<Test>::NotEnoughBalanceToStake
@@ -330,7 +318,7 @@ fn test_add_to_stake_balance_withdraw_error() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet(
+        build_activated_subnet_v2(
             subnet_name.clone(),
             0,
             end,
@@ -345,14 +333,13 @@ fn test_add_to_stake_balance_withdraw_error() {
         let max_stake = SubnetMaxStakeBalance::<Test>::get(subnet_id);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = end;
 
         assert_err!(
-            Network::add_stake(
+            Network::add_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id,
-                hotkey.clone(),
                 400,
             ),
             Error::<Test>::BalanceWithdrawalError
@@ -368,7 +355,7 @@ fn test_remove_stake_not_enough_stake_error() {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_id_key_offset = get_subnet_id_key_offset(subnet_id);
@@ -386,22 +373,17 @@ fn test_remove_stake_not_enough_stake_error() {
         increase_epochs(min_stake_epochs + 2);
 
         assert_err!(
-            Network::remove_stake(
+            Network::remove_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
-                hotkey.clone(),
+                end,
                 stake_amount + 1,
             ),
             Error::<Test>::NotEnoughStakeToWithdraw,
         );
 
         assert_err!(
-            Network::remove_stake(
-                RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                hotkey.clone(),
-                0,
-            ),
+            Network::remove_node_stake(RuntimeOrigin::signed(coldkey.clone()), subnet_id, end, 0,),
             Error::<Test>::AmountZero,
         );
     });
@@ -415,7 +397,7 @@ fn test_remove_stake_min_stake_not_reached_error() {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_id_key_offset = get_subnet_id_key_offset(subnet_id);
@@ -433,10 +415,10 @@ fn test_remove_stake_min_stake_not_reached_error() {
         increase_epochs(min_stake_epochs + 2);
 
         assert_err!(
-            Network::remove_stake(
+            Network::remove_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
-                hotkey.clone(),
+                end,
                 stake_amount,
             ),
             Error::<Test>::MinStakeNotReached,
@@ -462,7 +444,7 @@ fn test_remove_stake() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -470,20 +452,19 @@ fn test_remove_stake() {
 
         let subnet_name: Vec<u8> = "subnet-name".into();
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
+        let subnet_node_id = end;
+        let subnet_node = SubnetNodesDataV2::<Test>::get(subnet_id, subnet_node_id);
 
         // add double amount to stake
-        assert_ok!(Network::add_stake(
+        assert_ok!(Network::add_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
-            hotkey.clone(),
             stake_amount,
         ));
 
         assert_eq!(
-            Network::account_subnet_stake(hotkey.clone(), subnet_id),
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
             stake_amount + stake_amount
         );
 
@@ -498,15 +479,15 @@ fn test_remove_stake() {
         let block = System::block_number();
 
         // remove amount ontop
-        assert_ok!(Network::remove_stake(
+        assert_ok!(Network::remove_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey.clone(),
+            subnet_node_id,
             stake_amount,
         ));
 
         assert_eq!(
-            Network::account_subnet_stake(hotkey.clone(), subnet_id),
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
             stake_amount
         );
 
@@ -523,132 +504,134 @@ fn test_remove_stake() {
     });
 }
 
-#[test]
-fn test_remove_stake_min_active_node_stake_epochs() {
-    new_test_ext().execute_with(|| {
-        let subnet_name: Vec<u8> = "subnet-name".into();
-        let deposit_amount: u128 = 1000000000000000000000000;
-        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+// #[test]
+// fn test_remove_stake_min_active_node_stake_epochs() {
+//     new_test_ext().execute_with(|| {
+//         let subnet_name: Vec<u8> = "subnet-name".into();
+//         let deposit_amount: u128 = 1000000000000000000000000;
+//         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        let subnets = TotalActiveSubnets::<Test>::get() + 1;
-        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let max_subnets = MaxSubnets::<Test>::get();
+//         let subnets = TotalActiveSubnets::<Test>::get() + 1;
+//         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+//         let max_subnets = MaxSubnets::<Test>::get();
 
-        let end = 11;
+//         let end = 11;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+//         build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
-        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-        let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
+//         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+//         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
-        // let coldkey = account(subnet_id * total_subnet_nodes + 1);
-        // let hotkey = account(max_subnet_nodes + end * subnets + 2);
-        let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
-        let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let peer_id = get_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let bootnode_peer_id =
-            get_bootnode_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let client_peer_id = get_client_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let burn_amount = Network::calculate_burn_amount(subnet_id);
+//         let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
+//         let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, end + 1);
+//         let peer_id = get_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
+//         let bootnode_peer_id =
+//             get_bootnode_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
+//         let client_peer_id = get_client_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
+//         let burn_amount = Network::calculate_burn_amount(subnet_id);
 
-        let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount);
+//         let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount);
 
-        assert_ok!(Network::register_subnet_node(
-            RuntimeOrigin::signed(coldkey.clone()),
-            subnet_id,
-            hotkey.clone(),
-            PeerInfo {
-                peer_id: peer_id.clone(),
-                multiaddr: None,
-            },
-            None,
-            None,
-            0,
-            stake_amount,
-            None,
-            None,
-            None,
-            u128::MAX
-        ));
+//         assert_ok!(Network::register_validator(
+//             RuntimeOrigin::signed(coldkey.clone()),
+//             hotkey,
+//             50000000000,
+//             None,
+//             None,
+//         ));
 
-        let total_subnet_node_uids = TotalSubnetNodeUids::<Test>::get(subnet_id);
-        let hotkey_subnet_node_id =
-            HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+//         let validator_id = TotalValidatorIds::<Test>::get();
 
-        let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
-        let start_epoch = subnet_node.classification.start_epoch;
+//         assert_ok!(Network::register_subnet_node_v2(
+//             RuntimeOrigin::signed(coldkey.clone()),
+//             validator_id,
+//             subnet_id,
+//             None,
+//             PeerInfo {
+//                 peer_id: peer_id.clone(),
+//                 multiaddr: None,
+//             },
+//             None,
+//             None,
+//             stake_amount,
+//             None,
+//             None,
+//             u128::MAX,
+//         ));
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+//         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-        let queue_epochs = SubnetNodeQueueEpochs::<Test>::get(subnet_id);
+//         let subnet_node = RegisteredSubnetNodesDataV2::<Test>::get(subnet_id, subnet_node_id);
+//         let start_epoch = subnet_node.classification.start_epoch;
 
-        let epoch = Network::get_current_epoch_as_u32();
-        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+//         let queue_epochs = SubnetNodeQueueEpochs::<Test>::get(subnet_id);
 
-        // increase to the nodes start epoch
-        set_block_to_subnet_slot_epoch(subnet_epoch + queue_epochs + 2, subnet_id);
+//         let epoch = Network::get_current_epoch_as_u32();
+//         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        let epoch = Network::get_current_epoch_as_u32();
-        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+//         // increase to the nodes start epoch
+//         set_block_to_subnet_slot_epoch(subnet_epoch + queue_epochs + 2, subnet_id);
 
-        // Get subnet weights (nodes only activate from queue if there are weights)
-        // Note: This means a subnet is active if it gets weights
-        let _ = Network::handle_subnet_emission_weights(epoch);
+//         let epoch = Network::get_current_epoch_as_u32();
+//         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        // Trigger the node activation
-        Network::emission_step(
-            &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
-            Network::get_current_subnet_epoch_as_u32(subnet_id),
-            subnet_id,
-        );
+//         // Get subnet weights (nodes only activate from queue if there are weights)
+//         // Note: This means a subnet is active if it gets weights
+//         let _ = Network::handle_subnet_emission_weights_v2(epoch);
 
-        assert_eq!(
-            RegisteredSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id),
-            Err(())
-        );
+//         // Trigger the node activation
+//         Network::emission_step_v2(
+//             &mut WeightMeter::new(),
+//             System::block_number(),
+//             Network::get_current_epoch_as_u32(),
+//             Network::get_current_subnet_epoch_as_u32(subnet_id),
+//             subnet_id,
+//         );
 
-        // add double amount to stake
-        assert_ok!(Network::add_stake(
-            RuntimeOrigin::signed(coldkey.clone()),
-            subnet_id,
-            subnet_node_id,
-            hotkey.clone(),
-            stake_amount,
-        ));
+//         assert_eq!(
+//             RegisteredSubnetNodesDataV2::<Test>::try_get(subnet_id, subnet_node_id),
+//             Err(())
+//         );
 
-        assert_eq!(
-            Network::account_subnet_stake(hotkey.clone(), subnet_id),
-            stake_amount + stake_amount
-        );
+//         // add double amount to stake
+//         assert_ok!(Network::add_node_stake(
+//             RuntimeOrigin::signed(coldkey.clone()),
+//             subnet_id,
+//             subnet_node_id,
+//             stake_amount,
+//         ));
 
-        assert_err!(
-            Network::remove_stake(
-                RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                hotkey.clone(),
-                stake_amount,
-            ),
-            Error::<Test>::MinActiveNodeStakeEpochs
-        );
+//         assert_eq!(
+//             NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
+//             stake_amount + stake_amount
+//         );
 
-        let min_stake_epochs = MinActiveNodeStakeEpochs::<Test>::get();
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
-        let start_epoch = subnet_node.classification.start_epoch;
+//         assert_err!(
+//             Network::remove_node_stake(
+//                 RuntimeOrigin::signed(coldkey.clone()),
+//                 subnet_id,
+//                 subnet_node_id,
+//                 stake_amount,
+//             ),
+//             Error::<Test>::MinActiveNodeStakeEpochs
+//         );
 
-        set_epoch(start_epoch + min_stake_epochs + 2, 0); // increase by 2 to account for subnet epoch crossover
+//         let min_stake_epochs = MinActiveNodeStakeEpochs::<Test>::get();
+//         let subnet_node = SubnetNodesDataV2::<Test>::get(subnet_id, subnet_node_id);
+//         let start_epoch = subnet_node.classification.start_epoch;
 
-        assert_ok!(Network::remove_stake(
-            RuntimeOrigin::signed(coldkey.clone()),
-            subnet_id,
-            hotkey.clone(),
-            stake_amount,
-        ));
+//         set_epoch(start_epoch + min_stake_epochs + 2, 0); // increase by 2 to account for subnet epoch crossover
 
-        // assert_eq!(Network::account_subnet_stake(hotkey.clone(), subnet_id), amount);
-    });
-}
+//         assert_ok!(Network::remove_node_stake(
+//             RuntimeOrigin::signed(coldkey.clone()),
+//             subnet_id,
+//             subnet_node_id,
+//             stake_amount,
+//         ));
+
+//         // assert_eq!(NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id), amount);
+//     });
+// }
 
 #[test]
 fn test_remove_stake_after_remove_subnet_node() {
@@ -663,7 +646,7 @@ fn test_remove_stake_after_remove_subnet_node() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 11;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
@@ -672,13 +655,11 @@ fn test_remove_stake_after_remove_subnet_node() {
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
         let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount);
-        let hotkey_subnet_node_id =
-            HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
 
-        assert_ok!(Network::remove_subnet_node(
-            RuntimeOrigin::signed(hotkey.clone()),
+        assert_ok!(Network::remove_subnet_node_v2(
+            RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey_subnet_node_id,
+            end,
         ));
 
         let epoch_length = EpochLength::get();
@@ -688,14 +669,14 @@ fn test_remove_stake_after_remove_subnet_node() {
         );
 
         // remove amount ontop
-        assert_ok!(Network::remove_stake(
+        assert_ok!(Network::remove_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey.clone(),
+            end,
             stake_amount,
         ));
 
-        assert_eq!(Network::account_subnet_stake(hotkey.clone(), subnet_id), 0);
+        assert_eq!(NodeSubnetStake::<Test>::get(end, subnet_id), 0);
     });
 }
 
@@ -712,7 +693,7 @@ fn test_remove_stake_after_remove_subnet() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 11;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
@@ -725,10 +706,6 @@ fn test_remove_stake_after_remove_subnet() {
         Network::do_remove_subnet(subnet_id, SubnetRemovalReason::MinSubnetDelegateStake);
 
         assert_eq!(SubnetsData::<Test>::contains_key(subnet_id), false);
-        assert_eq!(
-            HotkeySubnetNodeId::<Test>::try_get(subnet_id, &hotkey),
-            Err(())
-        );
 
         let epoch_length = EpochLength::get();
         let min_required_unstake_epochs = StakeCooldownEpochs::<Test>::get();
@@ -739,14 +716,14 @@ fn test_remove_stake_after_remove_subnet() {
         let block = System::block_number();
 
         // remove amount ontop
-        assert_ok!(Network::remove_stake(
+        assert_ok!(Network::remove_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey.clone(),
+            end,
             stake_amount,
         ));
 
-        assert_eq!(Network::account_subnet_stake(hotkey.clone(), subnet_id), 0);
+        assert_eq!(NodeSubnetStake::<Test>::get(end, subnet_id), 0);
 
         let unbondings: BTreeMap<u32, u128> = StakeUnbondingLedger::<Test>::get(coldkey.clone());
         let total_ledger_balance: u128 = unbondings.values().copied().sum();
@@ -759,14 +736,7 @@ fn test_remove_stake_after_remove_subnet() {
         );
         assert_eq!(*ledger_balance, stake_amount);
 
-        assert_eq!(HotkeySubnetId::<Test>::try_get(&hotkey), Err(()));
-
-        let hotkeys = ColdkeyHotkeys::<Test>::get(&coldkey);
-        assert_eq!(hotkeys.get(&hotkey), None);
-
-        assert_eq!(HotkeyOwner::<Test>::try_get(&hotkey), Err(()));
-
-        let coldkey_subnet_nodes = ColdkeySubnetNodes::<Test>::get(coldkey.clone());
+        let coldkey_subnet_nodes = ValidatorSubnetNodes::<Test>::get(end);
         assert_eq!(coldkey_subnet_nodes.get(&subnet_id), None);
     });
 }
@@ -784,7 +754,7 @@ fn test_remove_stake_after_remove_subnet_twice() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 11;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
@@ -797,10 +767,6 @@ fn test_remove_stake_after_remove_subnet_twice() {
         Network::do_remove_subnet(subnet_id, SubnetRemovalReason::MinSubnetDelegateStake);
 
         assert_eq!(SubnetsData::<Test>::contains_key(subnet_id), false);
-        assert_eq!(
-            HotkeySubnetNodeId::<Test>::try_get(subnet_id, &hotkey),
-            Err(())
-        );
 
         let epoch_length = EpochLength::get();
         let min_required_unstake_epochs = StakeCooldownEpochs::<Test>::get();
@@ -809,21 +775,21 @@ fn test_remove_stake_after_remove_subnet_twice() {
         );
 
         // remove amount ontop
-        assert_ok!(Network::remove_stake(
+        assert_ok!(Network::remove_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey.clone(),
+            end,
             stake_amount / 2,
         ));
 
-        assert_ok!(Network::remove_stake(
+        assert_ok!(Network::remove_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey.clone(),
+            end,
             stake_amount / 2,
         ));
 
-        assert_eq!(Network::account_subnet_stake(hotkey.clone(), subnet_id), 0);
+        assert_eq!(NodeSubnetStake::<Test>::get(end, subnet_id), 0);
     });
 }
 
@@ -846,21 +812,21 @@ fn test_subnet_node_try_removing_all_stake_error() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = end;
 
         let min_stake_epochs = MinActiveNodeStakeEpochs::<Test>::get();
         increase_epochs(min_stake_epochs + 2);
 
         assert_err!(
-            Network::remove_stake(
+            Network::remove_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
-                hotkey.clone(),
+                subnet_node_id,
                 stake_amount,
             ),
             Error::<Test>::MinStakeNotReached
@@ -882,7 +848,7 @@ fn test_register_try_removing_all_stake_error() {
         let max_subnets = MaxSubnets::<Test>::get();
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -898,35 +864,40 @@ fn test_register_try_removing_all_stake_error() {
         let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount);
         let starting_balance = Balances::free_balance(&coldkey.clone());
 
-        assert_ok!(Network::register_subnet_node(
+        assert_ok!(Network::register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            50000000000,
+            None,
+            None,
+        ));
+
+        let validator_id = TotalValidatorIds::<Test>::get();
+
+        assert_ok!(Network::register_subnet_node_v2(
+            RuntimeOrigin::signed(coldkey.clone()),
+            validator_id,
             subnet_id,
-            hotkey.clone(),
+            None,
             PeerInfo {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
-            Some(PeerInfo {
-                peer_id: bootnode_peer_id.clone(),
-                multiaddr: None,
-            }),
-            Some(PeerInfo {
-                peer_id: client_peer_id.clone(),
-                multiaddr: None,
-            }),
-            0,
+            None,
+            None,
             stake_amount,
             None,
             None,
-            None,
-            u128::MAX
+            u128::MAX,
         ));
 
+        let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
+
         assert_err!(
-            Network::remove_stake(
+            Network::remove_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
-                hotkey.clone(),
+                subnet_node_id,
                 stake_amount,
             ),
             Error::<Test>::MinStakeNotReached

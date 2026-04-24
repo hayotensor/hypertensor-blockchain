@@ -2,9 +2,9 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    DefaultMaxVectorLength, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, PeerIdOverwatchNodeId,
-    PeerInfo, SubnetBootnodes, SubnetElectedValidator, SubnetName, SubnetNodeClass,
-    TotalActiveSubnets,
+    ColdkeyValidatorId, DefaultMaxVectorLength, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
+    PeerIdOverwatchNodeId, PeerInfo, SubnetBootnodes, SubnetElectedValidator, SubnetName,
+    SubnetNodeClass, TotalActiveSubnets,
 };
 use frame_support::assert_ok;
 use frame_support::traits::{Currency, ExistenceRequirement};
@@ -15,31 +15,31 @@ use sp_std::collections::btree_map::BTreeMap;
 // RPC Getter Function Tests
 //
 
-#[test]
-fn test_get_coldkey_subnet_nodes_info() {
-    new_test_ext().execute_with(|| {
-        let subnet_name: Vec<u8> = "subnet-name".into();
+// #[test]
+// fn test_get_coldkey_subnet_nodes_info() {
+//     new_test_ext().execute_with(|| {
+//         let subnet_name: Vec<u8> = "subnet-name".into();
 
-        let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
+//         let deposit_amount: u128 = 10000000000000000000000;
+//         let amount: u128 = 1000000000000000000000;
 
-        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+//         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        let subnets = TotalActiveSubnets::<Test>::get() + 1;
-        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let max_subnets = MaxSubnets::<Test>::get();
-        let end = 4;
+//         let subnets = TotalActiveSubnets::<Test>::get() + 1;
+//         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+//         let max_subnets = MaxSubnets::<Test>::get();
+//         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+//         build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
-        let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
-        let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
+//         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
+//         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        let rpc_results = Network::get_coldkey_subnet_nodes_info(coldkey.clone());
+//         let rpc_results = Network::get_coldkey_subnet_nodes_info(coldkey.clone());
 
-        assert!(rpc_results.len() > 0);
-    })
-}
+//         assert!(rpc_results.len() > 0);
+//     })
+// }
 
 #[test]
 fn test_proof_of_stake() {
@@ -56,7 +56,7 @@ fn test_proof_of_stake() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
@@ -83,7 +83,7 @@ fn test_proof_of_stake_all_peer_id_types() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         // Test with main peer_id
@@ -151,22 +151,30 @@ fn test_proof_of_stake_all_peer_id_types() {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::register_subnet_node(
+        assert_ok!(Network::register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
-            subnet_id,
             hotkey.clone(),
+            5000000000000000,
+            None,
+            None
+        ));
+        let validator_id = ColdkeyValidatorId::<Test>::get(coldkey.clone()).unwrap();
+
+        assert_ok!(Network::register_subnet_node_v2(
+            RuntimeOrigin::signed(coldkey.clone()),
+            validator_id,
+            subnet_id,
+            None,
             PeerInfo {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
             None,
             None,
-            0,
             stake_amount,
             None,
             None,
-            None,
-            u128::MAX
+            u128::MAX,
         ));
 
         // Increase epoch by 1 to get to the registered node start epoch
@@ -191,7 +199,7 @@ fn test_proof_of_stake_with_different_classes() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end);
@@ -235,7 +243,7 @@ fn test_proof_of_stake_invalid_peer_id_fails() {
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         // Test with non-existent peer_id
@@ -254,7 +262,7 @@ fn test_get_subnet_info() {
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let subnet_info = Network::get_subnet_info(subnet_id);
@@ -273,8 +281,8 @@ fn test_get_all_subnets_info() {
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet("subnet1".into(), 0, 0, deposit_amount, stake_amount);
-        build_activated_subnet("subnet2".into(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2("subnet1".into(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2("subnet2".into(), 0, 0, deposit_amount, stake_amount);
 
         let all_subnets = Network::get_all_subnets_info();
 
@@ -289,10 +297,10 @@ fn test_get_subnet_node_info() {
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let node_info = Network::get_subnet_node_info(subnet_id, 1);
+        let node_info = Network::get_subnet_node_info_v2(subnet_id, 1);
 
         assert!(node_info.is_some(), "Node info should exist");
         let info = node_info.unwrap();
@@ -309,10 +317,10 @@ fn test_get_subnet_nodes_info() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let end = 5;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let nodes_info = Network::get_subnet_nodes_info(subnet_id);
+        let nodes_info = Network::get_subnet_nodes_info_v2(subnet_id);
 
         assert!(
             nodes_info.len() == end as usize,
@@ -327,23 +335,23 @@ fn test_get_all_subnet_nodes_info() {
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet("subnet1".into(), 0, 3, deposit_amount, stake_amount);
-        build_activated_subnet("subnet2".into(), 0, 3, deposit_amount, stake_amount);
+        build_activated_subnet_v2("subnet1".into(), 0, 3, deposit_amount, stake_amount);
+        build_activated_subnet_v2("subnet2".into(), 0, 3, deposit_amount, stake_amount);
 
-        let all_nodes = Network::get_all_subnet_nodes_info();
+        let all_nodes = Network::get_all_subnet_nodes_info_v2();
 
         assert!(all_nodes.len() >= 6, "Should have nodes from all subnets");
     })
 }
 
 #[test]
-fn test_get_elected_validator_info() {
+fn test_get_elected_validator_info_v2() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "test-subnet".into();
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, 12, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 12, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let epoch_length = EpochLength::get();
@@ -356,7 +364,7 @@ fn test_get_elected_validator_info() {
         // Elect a validator
         Network::elect_validator(subnet_id, subnet_epoch, block_number);
 
-        let validator_info = Network::get_elected_validator_info(subnet_id, subnet_epoch);
+        let validator_info = Network::get_elected_validator_info_v2(subnet_id, subnet_epoch);
 
         assert!(
             validator_info.is_some(),
@@ -372,10 +380,10 @@ fn test_get_validators_and_attestors() {
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, 12, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 12, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let validators = Network::get_validators_and_attestors(subnet_id);
+        let validators = Network::get_validators_and_attestors_v2(subnet_id);
 
         assert!(validators.len() == 12, "Should have validators/attestors");
     })
@@ -397,7 +405,7 @@ fn test_get_bootnodes() {
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let bootnodes = Network::get_bootnodes(subnet_id);
@@ -411,7 +419,7 @@ fn test_get_bootnodes() {
 }
 
 #[test]
-fn test_get_coldkey_stakes() {
+fn test_get_validator_stakes() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "test-subnet".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -421,10 +429,9 @@ fn test_get_coldkey_stakes() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
-        let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
-        let stakes = Network::get_coldkey_stakes(coldkey.clone());
+        let stakes = Network::get_validator_stakes(1);
 
         assert!(stakes.len() > 0, "Coldkey should have stakes");
     })
@@ -437,14 +444,14 @@ fn test_get_delegate_stakes() {
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let delegator = account(100);
         let _ = Balances::deposit_creating(&delegator, 1000000000000000000000 + 500);
 
         // Add delegate stake
-        assert_ok!(Network::add_to_delegate_stake(
+        assert_ok!(Network::add_delegate_stake(
             RuntimeOrigin::signed(delegator.clone()),
             subnet_id,
             1000000000000000000000
@@ -457,27 +464,27 @@ fn test_get_delegate_stakes() {
 }
 
 #[test]
-fn test_get_node_delegate_stakes() {
+fn test_get_validator_delegate_stakes() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "test-subnet".into();
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let validator_id = 1;
 
         let delegator = account(100);
         let _ = Balances::deposit_creating(&delegator, 1000000000000000000000 + 500);
 
         // Add node delegate stake
-        assert_ok!(Network::add_to_node_delegate_stake(
+        assert_ok!(Network::add_validator_delegate_stake(
             RuntimeOrigin::signed(delegator.clone()),
-            subnet_id,
-            1,
+            validator_id,
             1000000000000000000000
         ));
 
-        let node_delegate_stakes = Network::get_node_delegate_stakes(delegator);
+        let node_delegate_stakes = Network::get_validator_delegate_stakes(delegator);
 
         assert!(
             node_delegate_stakes.len() > 0,

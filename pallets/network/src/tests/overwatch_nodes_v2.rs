@@ -4,10 +4,10 @@ use crate::{
     Error, HotkeyOverwatchNodeId, HotkeyOwner, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets,
     MinSubnetMinStake, MinSubnetNodes, OverwatchEpochLengthMultiplier, OverwatchMinAge,
     OverwatchMinStakeBalance, OverwatchNodeBlacklist, OverwatchNodeIdHotkey, OverwatchNodeIndex,
-    OverwatchNodeWeights, OverwatchNodes, OverwatchStake, OverwatchStakeWeightFactor,
+    OverwatchNodeStakeBalance, OverwatchNodeWeights, OverwatchNodes, OverwatchStakeWeightFactor,
     OverwatchSubnetWeights, OverwatchValidatorWhitelist, PeerId, PeerIdOverwatchNodeId,
     StakeCooldownEpochs, StakeUnbondingLedger, SubnetName, SubnetNodesData, SubnetNodesDataV2,
-    SubnetState, TotalOverwatchNodeUids, TotalOverwatchNodes, TotalOverwatchStake,
+    SubnetState, TotalOverwatchNodeStakeBalance, TotalOverwatchNodeUids, TotalOverwatchNodes,
     TotalValidatorIds,
 };
 use frame_support::traits::Currency;
@@ -83,7 +83,10 @@ fn test_register_overwatch_node() {
         //     OverwatchNodeIdHotkey::<Test>::get(overwatch_node_id),
         //     Some(hotkey.clone())
         // );
-        assert_eq!(OverwatchStake::<Test>::get(overwatch_node_id), amount);
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
+            amount
+        );
     });
 }
 
@@ -558,7 +561,7 @@ fn test_equal_stake_equal_weights_v3() {
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..2 {
             let hotkey = account(n + 1);
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
             assert_ne!(overwatch_stake, 0);
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
@@ -566,7 +569,7 @@ fn test_equal_stake_equal_weights_v3() {
         let block_weight = Network::calculate_overwatch_rewards_v2();
 
         for n in 0..2 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
 
             if let Some(old_stake) = ostake_snapshot.get(&(n + 1)) {
                 assert!(overwatch_stake > *old_stake);
@@ -614,7 +617,7 @@ fn test_stake_no_dampening_effect() {
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..2 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
             assert_ne!(overwatch_stake, 0);
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
@@ -622,7 +625,7 @@ fn test_stake_no_dampening_effect() {
         let block_weight = Network::calculate_overwatch_rewards_v2();
 
         for n in 0..2 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
 
             if let Some(old_stake) = ostake_snapshot.get(&(n + 1)) {
                 assert!(overwatch_stake > *old_stake);
@@ -668,7 +671,7 @@ fn test_two_noces_same_stake_dif_weights_v3() {
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..2 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
             assert_ne!(overwatch_stake, 0);
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
@@ -676,7 +679,7 @@ fn test_two_noces_same_stake_dif_weights_v3() {
         let block_weight = Network::calculate_overwatch_rewards_v2();
 
         for n in 0..2 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
 
             if let Some(old_stake) = ostake_snapshot.get(&(n + 1)) {
                 assert!(overwatch_stake > *old_stake);
@@ -727,7 +730,7 @@ fn test_multiple_subnets_score_accumulation_v3() {
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..2 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
             assert_ne!(overwatch_stake, 0);
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
@@ -735,7 +738,7 @@ fn test_multiple_subnets_score_accumulation_v3() {
         let block_weight = Network::calculate_overwatch_rewards_v2();
 
         for n in 0..2 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
 
             if let Some(old_stake) = ostake_snapshot.get(&(n + 1)) {
                 assert!(overwatch_stake > *old_stake);
@@ -790,7 +793,7 @@ fn test_multiple_subnets_score_accumulation_v3_2() {
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..2 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
             assert_ne!(overwatch_stake, 0);
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
@@ -798,7 +801,7 @@ fn test_multiple_subnets_score_accumulation_v3_2() {
         let block_weight = Network::calculate_overwatch_rewards_v2();
 
         for n in 0..2 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
 
             if let Some(old_stake) = ostake_snapshot.get(&(n + 1)) {
                 assert!(overwatch_stake > *old_stake);
@@ -847,7 +850,7 @@ fn test_multiple_subnets_score_accumulation_v3_2_v2() {
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..2 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
             assert_ne!(overwatch_stake, 0);
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
@@ -855,7 +858,7 @@ fn test_multiple_subnets_score_accumulation_v3_2_v2() {
         let block_weight = Network::calculate_overwatch_rewards_v2();
 
         for n in 0..2 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
 
             if let Some(old_stake) = ostake_snapshot.get(&(n + 1)) {
                 assert!(overwatch_stake > *old_stake);
@@ -960,7 +963,7 @@ fn test_multiple_subnets_check_percent_acccuracy() {
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..8 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
             assert_ne!(overwatch_stake, 0);
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
@@ -968,7 +971,7 @@ fn test_multiple_subnets_check_percent_acccuracy() {
         let block_weight = Network::calculate_overwatch_rewards_v2();
 
         for n in 0..8 {
-            let overwatch_stake = OverwatchStake::<Test>::get(n + 1);
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(n + 1);
 
             if let Some(old_stake) = ostake_snapshot.get(&(n + 1)) {
                 assert!(overwatch_stake > *old_stake);
@@ -1035,8 +1038,8 @@ fn test_add_to_overwatch_stake() {
         let increase_amount = 100000000000000000000;
         let _ = Balances::deposit_creating(&coldkey.clone(), increase_amount);
 
-        let prev_account_balance = OverwatchStake::<Test>::get(overwatch_node_id);
-        let prev_total_overwatch_balance = TotalOverwatchStake::<Test>::get();
+        let prev_account_balance = OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id);
+        let prev_total_overwatch_balance = TotalOverwatchNodeStakeBalance::<Test>::get();
 
         assert_ok!(Network::add_overwatch_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -1046,16 +1049,16 @@ fn test_add_to_overwatch_stake() {
 
         assert_eq!(
             prev_account_balance + increase_amount,
-            OverwatchStake::<Test>::get(overwatch_node_id)
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id)
         );
 
         assert_eq!(
             prev_total_overwatch_balance + increase_amount,
-            TotalOverwatchStake::<Test>::get()
+            TotalOverwatchNodeStakeBalance::<Test>::get()
         );
 
         assert_eq!(
-            OverwatchStake::<Test>::get(overwatch_node_id),
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
             amount + increase_amount
         );
     });
@@ -1156,7 +1159,7 @@ fn test_add_to_remove_overwatch_stake() {
         ));
 
         assert_eq!(
-            OverwatchStake::<Test>::get(overwatch_node_id),
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
             amount + increase_amount
         );
 
@@ -1164,8 +1167,8 @@ fn test_add_to_remove_overwatch_stake() {
 
         let starting_balance = Balances::free_balance(&coldkey.clone());
 
-        let prev_account_balance = OverwatchStake::<Test>::get(overwatch_node_id);
-        let prev_total_overwatch_balance = TotalOverwatchStake::<Test>::get();
+        let prev_account_balance = OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id);
+        let prev_total_overwatch_balance = TotalOverwatchNodeStakeBalance::<Test>::get();
 
         assert_ok!(Network::remove_overwatch_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -1175,15 +1178,15 @@ fn test_add_to_remove_overwatch_stake() {
 
         assert_eq!(
             prev_account_balance - remove_amount,
-            OverwatchStake::<Test>::get(overwatch_node_id)
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id)
         );
         assert_eq!(
             prev_total_overwatch_balance - remove_amount,
-            TotalOverwatchStake::<Test>::get()
+            TotalOverwatchNodeStakeBalance::<Test>::get()
         );
 
         assert_eq!(
-            OverwatchStake::<Test>::get(overwatch_node_id),
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
             amount + increase_amount - remove_amount
         );
 
@@ -1234,7 +1237,7 @@ fn test_add_to_remove_overwatch_stake_unbond() {
         ));
 
         assert_eq!(
-            OverwatchStake::<Test>::get(overwatch_node_id),
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
             amount + increase_amount
         );
 
@@ -1250,7 +1253,7 @@ fn test_add_to_remove_overwatch_stake_unbond() {
         ));
 
         assert_eq!(
-            OverwatchStake::<Test>::get(overwatch_node_id),
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
             amount + increase_amount - remove_amount
         );
 
@@ -1326,7 +1329,7 @@ fn test_remove_overwatch_stake_after_removing_overwatch_node() {
         ));
 
         assert_eq!(
-            OverwatchStake::<Test>::get(overwatch_node_id),
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
             amount + increase_amount
         );
 
@@ -1345,7 +1348,7 @@ fn test_remove_overwatch_stake_after_removing_overwatch_node() {
         ));
 
         assert_eq!(
-            OverwatchStake::<Test>::get(overwatch_node_id),
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
             amount + increase_amount - remove_amount
         );
         assert_eq!(starting_balance, Balances::free_balance(&coldkey.clone()));
@@ -1395,7 +1398,7 @@ fn test_add_to_remove_overwatch_stake_errors() {
         ));
 
         assert_eq!(
-            OverwatchStake::<Test>::get(overwatch_node_id),
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
             amount + increase_amount
         );
 

@@ -40,8 +40,8 @@ impl<T: Config> Pallet<T> {
         // {node_id, account_id}
         let mut node_hotkeys: BTreeMap<u32, T::AccountId> = BTreeMap::new();
 
-        let total_stake = TotalOverwatchStake::<T>::get();
-        // TotalOverwatchStake
+        let total_stake = TotalOverwatchNodeStakeBalance::<T>::get();
+        // TotalOverwatchNodeStakeBalance
         weight = weight.saturating_add(db_weight.reads(1));
 
         // Step 1: Group reveals by subnet
@@ -62,8 +62,8 @@ impl<T: Config> Pallet<T> {
                     continue;
                 };
 
-                let stake_balance = OverwatchStake::<T>::get(overwatch_node_id);
-                // OverwatchStake
+                let stake_balance = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
+                // OverwatchNodeStakeBalance
                 weight = weight.saturating_add(db_weight.reads(1));
 
                 let stake_weight_adj =

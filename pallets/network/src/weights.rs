@@ -68,12 +68,12 @@ pub trait WeightInfo {
 	fn add_stake() -> Weight;
 	fn remove_stake() -> Weight;
 	fn claim_unbondings() -> Weight;
-	fn add_to_delegate_stake() -> Weight;
+	fn add_delegate_stake() -> Weight;
 	fn swap_delegate_stake() -> Weight;
 	fn transfer_delegate_stake() -> Weight;
 	fn remove_delegate_stake() -> Weight;
 	fn donate_delegate_stake() -> Weight;
-	fn add_to_node_delegate_stake() -> Weight;
+	fn add_node_delegate_stake() -> Weight;
 	fn swap_node_delegate_stake() -> Weight;
 	fn transfer_node_delegate_stake() -> Weight;
 	fn remove_node_delegate_stake() -> Weight;
@@ -1416,7 +1416,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::TotalDelegateStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNetFlow` (r:1 w:1)
 	/// Proof: `Network::SubnetNetFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn add_to_delegate_stake() -> Weight {
+	fn add_delegate_stake() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1922`
 		//  Estimated: `5387`
@@ -1591,7 +1591,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::AccountNodeDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalNodeDelegateStake` (r:1 w:1)
 	/// Proof: `Network::TotalNodeDelegateStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn add_to_node_delegate_stake() -> Weight {
+	fn add_node_delegate_stake() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2470`
 		//  Estimated: `5935`
@@ -2172,8 +2172,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
 	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Network::TotalOverwatchStake` (r:1 w:1)
-	/// Proof: `Network::TotalOverwatchStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalOverwatchNodeStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalOverwatchNodeStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalOverwatchNodeUids` (r:1 w:1)
 	/// Proof: `Network::TotalOverwatchNodeUids` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::OverwatchNodes` (r:0 w:1)
@@ -2389,8 +2389,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
 	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Network::TotalOverwatchStake` (r:1 w:1)
-	/// Proof: `Network::TotalOverwatchStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalOverwatchNodeStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalOverwatchNodeStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn add_to_overwatch_stake() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1336`
@@ -2412,8 +2412,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::OverwatchMinStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::TotalOverwatchStake` (r:1 w:1)
-	/// Proof: `Network::TotalOverwatchStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalOverwatchNodeStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalOverwatchNodeStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::StakeCooldownEpochs` (r:1 w:0)
 	/// Proof: `Network::StakeCooldownEpochs` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::StakeUnbondingLedger` (r:1 w:1)
@@ -4644,8 +4644,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::OverwatchEpochLengthMultiplier` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::OverwatchStakeWeightFactor` (r:1 w:0)
 	/// Proof: `Network::OverwatchStakeWeightFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalOverwatchStake` (r:1 w:1)
-	/// Proof: `Network::TotalOverwatchStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalOverwatchNodeStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalOverwatchNodeStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::OverwatchReveals` (r:17 w:0)
 	/// Proof: `Network::OverwatchReveals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::OverwatchNodes` (r:1 w:0)
@@ -6083,7 +6083,7 @@ impl WeightInfo for () {
 	/// Proof: `Network::TotalDelegateStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNetFlow` (r:1 w:1)
 	/// Proof: `Network::SubnetNetFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn add_to_delegate_stake() -> Weight {
+	fn add_delegate_stake() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1922`
 		//  Estimated: `5387`
@@ -6258,7 +6258,7 @@ impl WeightInfo for () {
 	/// Proof: `Network::AccountNodeDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalNodeDelegateStake` (r:1 w:1)
 	/// Proof: `Network::TotalNodeDelegateStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn add_to_node_delegate_stake() -> Weight {
+	fn add_node_delegate_stake() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `2470`
 		//  Estimated: `5935`
@@ -6839,8 +6839,8 @@ impl WeightInfo for () {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
 	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Network::TotalOverwatchStake` (r:1 w:1)
-	/// Proof: `Network::TotalOverwatchStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalOverwatchNodeStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalOverwatchNodeStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalOverwatchNodeUids` (r:1 w:1)
 	/// Proof: `Network::TotalOverwatchNodeUids` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::OverwatchNodes` (r:0 w:1)
@@ -7056,8 +7056,8 @@ impl WeightInfo for () {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
 	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Network::TotalOverwatchStake` (r:1 w:1)
-	/// Proof: `Network::TotalOverwatchStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalOverwatchNodeStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalOverwatchNodeStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn add_to_overwatch_stake() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `1336`
@@ -7079,8 +7079,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::OverwatchMinStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::TotalOverwatchStake` (r:1 w:1)
-	/// Proof: `Network::TotalOverwatchStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalOverwatchNodeStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalOverwatchNodeStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::StakeCooldownEpochs` (r:1 w:0)
 	/// Proof: `Network::StakeCooldownEpochs` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::StakeUnbondingLedger` (r:1 w:1)
@@ -9311,8 +9311,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::OverwatchEpochLengthMultiplier` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::OverwatchStakeWeightFactor` (r:1 w:0)
 	/// Proof: `Network::OverwatchStakeWeightFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalOverwatchStake` (r:1 w:1)
-	/// Proof: `Network::TotalOverwatchStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalOverwatchNodeStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalOverwatchNodeStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::OverwatchReveals` (r:17 w:0)
 	/// Proof: `Network::OverwatchReveals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::OverwatchNodes` (r:1 w:0)

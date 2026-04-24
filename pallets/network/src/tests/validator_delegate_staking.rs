@@ -1,11 +1,11 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    AccountNodeDelegateStakeShares, AccountSubnetDelegateStakeShares, Error, MaxSubnetNodes,
+    AccountSubnetDelegateStakeShares, AccountValidatorDelegateStakeShares, Error, MaxSubnetNodes,
     MinDelegateStakeDeposit, MinSubnetMinStake, NextSwapQueueId, NodeDelegateStakeCooldownEpochs,
     QueuedSwapCall, StakeUnbondingLedger, SubnetName, SwapCallQueue, SwapQueueOrder,
-    TotalActiveSubnets, TotalNodeDelegateStake, TotalNodeDelegateStakeBalance,
-    TotalNodeDelegateStakeShares, TotalSubnetNodes,
+    TotalActiveSubnets, TotalSubnetNodes, TotalValidatorDelegateStakeBalance,
+    ValidatorDelegateStakeBalance, ValidatorDelegateStakeShares,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
@@ -35,7 +35,7 @@ fn test_add_to_node_delegate_stake() {
         let amount: u128 = 100e+18 as u128;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards(
+        build_activated_subnet_with_delegator_rewards_v2(
             subnet_name.clone(),
             0,
             16,
@@ -44,32 +44,30 @@ fn test_add_to_node_delegate_stake() {
             DEFAULT_DELEGATE_REWARD_RATE,
         );
 
+        let validator_id = 1;
+
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_node_id = 1;
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
-        let prev_account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get(
-            (account(total_subnet_nodes + 1), subnet_id, subnet_node_id),
-        );
+        let prev_account_node_delegate_stake_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(
+                account(total_subnet_nodes + 1),
+                validator_id,
+            );
 
         assert_eq!(prev_account_node_delegate_stake_shares, 0);
 
         let mut prev_total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
-
-        // let mut prev_total_node_delegate_stake_shares = if TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id) == 0 {
-        //     1000
-        // } else {
-        //     TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id)
-        // };
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         assert_eq!(prev_total_node_delegate_stake_shares, 0);
 
         let prev_total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         assert_eq!(prev_total_node_delegate_stake_balance, 0);
 
-        let prev_total_node_delegate_stake = TotalNodeDelegateStake::<Test>::get();
+        let prev_total_node_delegate_stake = TotalValidatorDelegateStakeBalance::<Test>::get();
         assert_eq!(prev_total_node_delegate_stake, 0);
 
         // Expected amount
@@ -82,21 +80,17 @@ fn test_add_to_node_delegate_stake() {
 
         let _ = Balances::deposit_creating(&account(total_subnet_nodes + 1), amount + 500);
 
-        // let subnet_node_id = 1;
-
-        assert_ok!(Network::add_to_node_delegate_stake(
+        assert_ok!(Network::add_validator_delegate_stake(
             RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             amount,
         ));
 
         // Ensure user shares changed and is expected
-        let account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get((
+        let account_node_delegate_stake_shares = AccountValidatorDelegateStakeShares::<Test>::get(
             account(total_subnet_nodes + 1),
-            subnet_id,
-            subnet_node_id,
-        ));
+            validator_id,
+        );
         assert_eq!(
             account_node_delegate_stake_shares,
             node_delegate_stake_to_be_added_as_shares
@@ -104,21 +98,21 @@ fn test_add_to_node_delegate_stake() {
 
         // Ensure node balance changed and is expected
         let total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         assert_eq!(
             total_node_delegate_stake_balance,
             prev_total_node_delegate_stake_balance + amount
         );
 
         // Ensure network balance changed and is expected
-        let total_node_delegate_stake = TotalNodeDelegateStake::<Test>::get();
+        let total_node_delegate_stake = TotalValidatorDelegateStakeBalance::<Test>::get();
         assert_eq!(
             total_node_delegate_stake,
             prev_total_node_delegate_stake + amount
         );
 
         let total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         let account_node_delegate_stake_balance = Network::convert_to_balance(
             account_node_delegate_stake_shares,
@@ -143,7 +137,7 @@ fn test_add_to_node_delegate_stake_min_node_delegate_stake_deposit_not_reached_e
         let amount: u128 = 100e+18 as u128;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards(
+        build_activated_subnet_with_delegator_rewards_v2(
             subnet_name.clone(),
             0,
             16,
@@ -152,19 +146,23 @@ fn test_add_to_node_delegate_stake_min_node_delegate_stake_deposit_not_reached_e
             DEFAULT_DELEGATE_REWARD_RATE,
         );
 
+        let validator_id = 1;
+
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
-        let prev_account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get(
-            (account(total_subnet_nodes + 1), subnet_id, 0),
-        );
+        let prev_account_node_delegate_stake_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(
+                account(total_subnet_nodes + 1),
+                validator_id,
+            );
 
         let mut prev_total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, 0);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         let prev_total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, 0);
-        let prev_total_node_delegate_stake = TotalNodeDelegateStake::<Test>::get();
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
+        let prev_total_node_delegate_stake = TotalValidatorDelegateStakeBalance::<Test>::get();
 
         let mut node_delegate_stake_to_be_added_as_shares = Network::convert_to_shares(
             amount,
@@ -177,13 +175,12 @@ fn test_add_to_node_delegate_stake_min_node_delegate_stake_deposit_not_reached_e
         let subnet_node_id = 1;
 
         assert_err!(
-            Network::add_to_node_delegate_stake(
+            Network::add_validator_delegate_stake(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-                subnet_id,
-                subnet_node_id,
+                validator_id,
                 MinDelegateStakeDeposit::<Test>::get() - 1,
             ),
-            Error::<Test>::MinNodeDelegateStakeDepositNotReached
+            Error::<Test>::MinDelegateStakeDepositNotReached
         );
     })
 }
@@ -196,7 +193,7 @@ fn test_add_to_node_delegate_stake_not_enough_balance_to_stake_error() {
         let amount: u128 = 100e+18 as u128;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards(
+        build_activated_subnet_with_delegator_rewards_v2(
             subnet_name.clone(),
             0,
             16,
@@ -205,21 +202,25 @@ fn test_add_to_node_delegate_stake_not_enough_balance_to_stake_error() {
             DEFAULT_DELEGATE_REWARD_RATE,
         );
 
+        let validator_id = 1;
+
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
         let subnet_node_id = 1;
 
-        let prev_account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get(
-            (account(total_subnet_nodes + 1), subnet_id, subnet_node_id),
-        );
+        let prev_account_node_delegate_stake_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(
+                account(total_subnet_nodes + 1),
+                validator_id,
+            );
 
         let mut prev_total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         let prev_total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
-        let prev_total_node_delegate_stake = TotalNodeDelegateStake::<Test>::get();
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
+        let prev_total_node_delegate_stake = TotalValidatorDelegateStakeBalance::<Test>::get();
 
         let mut node_delegate_stake_to_be_added_as_shares = Network::convert_to_shares(
             amount,
@@ -230,10 +231,9 @@ fn test_add_to_node_delegate_stake_not_enough_balance_to_stake_error() {
         let _ = Balances::deposit_creating(&account(total_subnet_nodes + 1), amount + 500);
 
         assert_err!(
-            Network::add_to_node_delegate_stake(
+            Network::add_validator_delegate_stake(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-                subnet_id,
-                subnet_node_id,
+                validator_id,
                 amount + 501,
             ),
             Error::<Test>::NotEnoughBalanceToStake
@@ -249,7 +249,7 @@ fn test_add_to_node_delegate_stake_balance_withdraw_error() {
         let amount: u128 = 100e+18 as u128;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards(
+        build_activated_subnet_with_delegator_rewards_v2(
             subnet_name.clone(),
             0,
             16,
@@ -258,21 +258,25 @@ fn test_add_to_node_delegate_stake_balance_withdraw_error() {
             DEFAULT_DELEGATE_REWARD_RATE,
         );
 
+        let validator_id = 1;
+
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
         let subnet_node_id = 1;
 
-        let prev_account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get(
-            (account(total_subnet_nodes + 1), subnet_id, subnet_node_id),
-        );
+        let prev_account_node_delegate_stake_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(
+                account(total_subnet_nodes + 1),
+                validator_id,
+            );
 
         let mut prev_total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         let prev_total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
-        let prev_total_node_delegate_stake = TotalNodeDelegateStake::<Test>::get();
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
+        let prev_total_node_delegate_stake = TotalValidatorDelegateStakeBalance::<Test>::get();
 
         let mut node_delegate_stake_to_be_added_as_shares = Network::convert_to_shares(
             amount,
@@ -283,10 +287,9 @@ fn test_add_to_node_delegate_stake_balance_withdraw_error() {
         let _ = Balances::deposit_creating(&account(total_subnet_nodes + 1), amount + 500);
 
         assert_err!(
-            Network::add_to_node_delegate_stake(
+            Network::add_validator_delegate_stake(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-                subnet_id,
-                subnet_node_id,
+                validator_id,
                 amount + 499,
             ),
             Error::<Test>::BalanceWithdrawalError
@@ -295,7 +298,7 @@ fn test_add_to_node_delegate_stake_balance_withdraw_error() {
 }
 
 #[test]
-fn test_remove_node_delegate_stake() {
+fn test_remove_validator_delegate_stake() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -303,7 +306,7 @@ fn test_remove_node_delegate_stake() {
 
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards(
+        build_activated_subnet_with_delegator_rewards_v2(
             subnet_name.clone(),
             0,
             16,
@@ -312,39 +315,29 @@ fn test_remove_node_delegate_stake() {
             DEFAULT_DELEGATE_REWARD_RATE,
         );
 
+        let validator_id = 1;
+        let to_validator_id = 2;
+
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
         let subnet_node_id = 1;
 
-        let subnet_name_2: Vec<u8> = "subnet-name-2".into();
-        build_activated_subnet_with_delegator_rewards(
-            subnet_name_2.clone(),
-            0,
-            16,
-            deposit_amount,
-            stake_amount,
-            DEFAULT_DELEGATE_REWARD_RATE,
-        );
-        let subnet_id_2 = SubnetName::<Test>::get(subnet_name_2.clone()).unwrap();
-
         let _ = Balances::deposit_creating(&account(total_subnet_nodes + 1), amount + 500);
 
-        assert_ok!(Network::add_to_node_delegate_stake(
+        assert_ok!(Network::add_validator_delegate_stake(
             RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             amount,
         ));
 
-        let account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get((
+        let account_node_delegate_stake_shares = AccountValidatorDelegateStakeShares::<Test>::get(
             account(total_subnet_nodes + 1),
-            subnet_id,
-            subnet_node_id,
-        ));
+            validator_id,
+        );
         let total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         let total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         let account_node_delegate_stake_balance = Network::convert_to_balance(
             account_node_delegate_stake_shares,
@@ -376,55 +369,49 @@ fn test_remove_node_delegate_stake() {
         let epoch = System::block_number() / EpochLength::get();
         let block = System::block_number();
 
-        assert_ok!(Network::remove_node_delegate_stake(
+        assert_ok!(Network::remove_validator_delegate_stake(
             RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             account_node_delegate_stake_shares_to_be_removed,
         ));
 
         assert_err!(
-            Network::remove_node_delegate_stake(
+            Network::remove_validator_delegate_stake(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-                subnet_id,
-                subnet_node_id,
+                validator_id,
                 0,
             ),
             Error::<Test>::SharesZero
         );
 
         assert_err!(
-            Network::swap_node_delegate_stake(
+            Network::swap_validator_delegate_stake(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-                subnet_id,
-                subnet_node_id, // unstaking from node 1
-                subnet_id_2,
-                subnet_node_id + 1,
+                validator_id, // unstaking from validator 1
+                to_validator_id,
                 0,
             ),
             Error::<Test>::SharesZero
         );
 
         assert_err!(
-            Network::swap_from_node_to_subnet(
+            Network::swap_from_validator_to_subnet(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
+                to_validator_id,
                 subnet_id,
-                subnet_node_id,
-                subnet_id_2,
                 0,
             ),
             Error::<Test>::SharesZero
         );
 
-        let account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get((
+        let account_node_delegate_stake_shares = AccountValidatorDelegateStakeShares::<Test>::get(
             account(total_subnet_nodes + 1),
-            subnet_id,
-            subnet_node_id,
-        ));
+            validator_id,
+        );
         let total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         let total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         assert_eq!(
             account_node_delegate_stake_shares,
@@ -457,7 +444,7 @@ fn test_remove_node_delegate_stake() {
 }
 
 #[test]
-fn test_remove_node_delegate_stake_not_enough_stake_to_withdraw() {
+fn test_remove_validator_delegate_stake_not_enough_stake_to_withdraw() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -465,7 +452,7 @@ fn test_remove_node_delegate_stake_not_enough_stake_to_withdraw() {
 
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards(
+        build_activated_subnet_with_delegator_rewards_v2(
             subnet_name.clone(),
             0,
             16,
@@ -474,50 +461,37 @@ fn test_remove_node_delegate_stake_not_enough_stake_to_withdraw() {
             DEFAULT_DELEGATE_REWARD_RATE,
         );
 
+        let validator_id: u32 = 1;
+        let to_validator_id: u32 = 2;
+
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
         let subnet_node_id = 1;
 
-        let subnet_name_2: Vec<u8> = "subnet-name-2".into();
-        build_activated_subnet_with_delegator_rewards(
-            subnet_name_2.clone(),
-            0,
-            16,
-            deposit_amount,
-            stake_amount,
-            DEFAULT_DELEGATE_REWARD_RATE,
+        assert_err!(
+            Network::remove_validator_delegate_stake(
+                RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
+                validator_id,
+                amount
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
         );
 
-        let subnet_id_2 = SubnetName::<Test>::get(subnet_name_2.clone()).unwrap();
-
         assert_err!(
-            Network::remove_node_delegate_stake(
+            Network::swap_validator_delegate_stake(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-                subnet_id,
-                subnet_node_id,
+                validator_id,
+                to_validator_id,
                 amount,
             ),
             Error::<Test>::NotEnoughStakeToWithdraw
         );
 
         assert_err!(
-            Network::swap_node_delegate_stake(
+            Network::swap_from_validator_to_subnet(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
+                validator_id,
                 subnet_id,
-                subnet_node_id, // unstaking from node 1
-                subnet_id_2,
-                subnet_node_id + 1,
-                amount,
-            ),
-            Error::<Test>::NotEnoughStakeToWithdraw
-        );
-
-        assert_err!(
-            Network::swap_from_node_to_subnet(
-                RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-                subnet_id,
-                subnet_node_id,
-                subnet_id_2,
                 amount,
             ),
             Error::<Test>::NotEnoughStakeToWithdraw
@@ -526,7 +500,7 @@ fn test_remove_node_delegate_stake_not_enough_stake_to_withdraw() {
 }
 
 #[test]
-fn test_swap_node_delegate_stake() {
+fn test_swap_validator_delegate_stake() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -538,7 +512,7 @@ fn test_swap_node_delegate_stake() {
 
         let from_account_n = max_subnet_nodes + 1 * subnets;
 
-        build_activated_subnet_with_delegator_rewards(
+        build_activated_subnet_with_delegator_rewards_v2(
             subnet_name.clone(),
             0,
             16,
@@ -546,6 +520,10 @@ fn test_swap_node_delegate_stake() {
             stake_amount,
             DEFAULT_DELEGATE_REWARD_RATE,
         );
+
+        let validator_id = 1;
+        let to_validator_id = 2;
+        let starting_to_validator_id = to_validator_id;
 
         let from_subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_from_subnet_nodes = TotalSubnetNodes::<Test>::get(from_subnet_id);
@@ -556,7 +534,7 @@ fn test_swap_node_delegate_stake() {
 
         let to_account_n = max_subnet_nodes + 1 * subnets;
 
-        build_activated_subnet_with_delegator_rewards(
+        build_activated_subnet_with_delegator_rewards_v2(
             to_subnet_name.clone(),
             0,
             16,
@@ -569,22 +547,20 @@ fn test_swap_node_delegate_stake() {
 
         let _ = Balances::deposit_creating(&account(total_from_subnet_nodes + 1), amount + 500);
 
-        assert_ok!(Network::add_to_node_delegate_stake(
+        assert_ok!(Network::add_validator_delegate_stake(
             RuntimeOrigin::signed(account(total_from_subnet_nodes + 1)),
-            from_subnet_id,
-            1,
+            validator_id,
             amount,
         ));
 
-        let account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get((
+        let account_node_delegate_stake_shares = AccountValidatorDelegateStakeShares::<Test>::get(
             account(total_from_subnet_nodes + 1),
-            from_subnet_id,
-            1,
-        ));
+            validator_id,
+        );
         let total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(from_subnet_id, 1);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         let total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(from_subnet_id, 1);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         let account_node_delegate_stake_balance = Network::convert_to_balance(
             account_node_delegate_stake_shares,
@@ -625,12 +601,10 @@ fn test_swap_node_delegate_stake() {
 
         let starting_to_subnet_node_id = 2;
 
-        assert_ok!(Network::swap_node_delegate_stake(
+        assert_ok!(Network::swap_validator_delegate_stake(
             RuntimeOrigin::signed(account(total_from_subnet_nodes + 1)),
-            from_subnet_id,
-            1, // unstaking from node 1
-            to_subnet_id,
-            starting_to_subnet_node_id,
+            validator_id, // unstaking from node 1
+            to_validator_id,
             account_node_delegate_stake_shares_to_be_removed,
         ));
 
@@ -641,15 +615,14 @@ fn test_swap_node_delegate_stake() {
         // from subnet ID and Subnet node 1
         // Get accounts delegate stake info from staking to node 1 (now removed partial)
         //
-        let account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get((
+        let account_node_delegate_stake_shares = AccountValidatorDelegateStakeShares::<Test>::get(
             account(total_from_subnet_nodes + 1),
-            from_subnet_id,
-            1,
-        ));
+            validator_id,
+        );
         let total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(from_subnet_id, 1);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         let total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(from_subnet_id, 1);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         let account_node_delegate_stake_balance = Network::convert_to_balance(
             account_node_delegate_stake_shares,
@@ -671,15 +644,13 @@ fn test_swap_node_delegate_stake() {
                 to_subnet_id,
                 balance,
             } => assert!(false),
-            QueuedSwapCall::SwapToNodeDelegateStake {
+            QueuedSwapCall::SwapToValidatorDelegateStake {
                 account_id,
-                to_subnet_id,
-                to_subnet_node_id,
+                to_validator_id,
                 balance,
             } => {
                 assert_eq!(*account_id, account(total_from_subnet_nodes + 1));
-                assert_eq!(*to_subnet_id, starting_to_subnet_id);
-                assert_eq!(*to_subnet_node_id, starting_to_subnet_node_id);
+                assert_eq!(*to_validator_id, starting_to_validator_id);
                 assert_ne!(*balance, 0);
             }
         };
@@ -690,45 +661,11 @@ fn test_swap_node_delegate_stake() {
         assert!(queue
             .first()
             .map_or(false, |&first_id| first_id == prev_next_id));
-
-        //
-        // to subnet ID and Subnet node 2
-        // Get accounts delegate stake info transferred to node 2 (now staked to)
-        //
-
-        // let account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get((
-        //     account(total_from_subnet_nodes + 1),
-        //     to_subnet_id,
-        //     2,
-        // ));
-        // let total_node_delegate_stake_balance =
-        //     TotalNodeDelegateStakeBalance::<Test>::get(to_subnet_id, 2);
-        // let total_node_delegate_stake_shares =
-        //     TotalNodeDelegateStakeShares::<Test>::get(to_subnet_id, 2);
-
-        // let account_node_delegate_stake_balance = Network::convert_to_balance(
-        //     account_node_delegate_stake_shares,
-        //     total_node_delegate_stake_shares,
-        //     total_node_delegate_stake_balance,
-        // );
-
-        // assert_ne!(account_node_delegate_stake_balance, 0);
-
-        // assert!(
-        //     (account_node_delegate_stake_balance
-        //         >= Network::percent_mul(expected_balance_to_be_removed, 990000000000000000))
-        //         && (account_node_delegate_stake_balance <= expected_balance_to_be_removed)
-        // );
-
-        // // Ensure the code didn't create an unbonding insert
-        // let unbondings: BTreeMap<u32, u128> =
-        //     StakeUnbondingLedger::<Test>::get(account(total_from_subnet_nodes + 1));
-        // assert_eq!(unbondings.len(), 0);
     })
 }
 
 #[test]
-fn test_transfer_node_delegate_stake() {
+fn test_transfer_validator_delegate_stake() {
     new_test_ext().execute_with(|| {
         let _ = env_logger::builder().is_test(true).try_init();
 
@@ -737,34 +674,31 @@ fn test_transfer_node_delegate_stake() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
         let subnet_name: Vec<u8> = "subnet-name".into();
-        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_node_id = 1;
+        let validator_id = 1;
 
         let n_account = 1000;
         let to_n_account = 1001;
 
         let _ = Balances::deposit_creating(&account(n_account), amount + 500);
 
-        assert_ok!(Network::add_to_node_delegate_stake(
+        assert_ok!(Network::add_validator_delegate_stake(
             RuntimeOrigin::signed(account(n_account)),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             amount,
         ));
 
         let n_account_balance = Balances::free_balance(&account(n_account));
         let to_n_account_balance = Balances::free_balance(&account(to_n_account));
 
-        let account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get((
-            account(n_account),
-            subnet_id,
-            subnet_node_id,
-        ));
+        let account_node_delegate_stake_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(account(n_account), validator_id);
         let total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         let total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         let account_node_delegate_stake_balance = Network::convert_to_balance(
             account_node_delegate_stake_shares,
@@ -778,18 +712,14 @@ fn test_transfer_node_delegate_stake() {
                 && (account_node_delegate_stake_balance <= amount)
         );
 
-        let to_delegate_shares = AccountNodeDelegateStakeShares::<Test>::get((
-            account(to_n_account),
-            subnet_id,
-            subnet_node_id,
-        ));
+        let to_delegate_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(account(to_n_account), validator_id);
 
         assert_eq!(to_delegate_shares, 0);
 
-        assert_ok!(Network::transfer_node_delegate_stake(
+        assert_ok!(Network::transfer_validator_delegate_stake(
             RuntimeOrigin::signed(account(n_account)),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             account(to_n_account),
             account_node_delegate_stake_shares,
         ));
@@ -809,23 +739,17 @@ fn test_transfer_node_delegate_stake() {
         assert_eq!(to_n_account_unbondings.len(), 0);
 
         // from shares
-        let after_delegate_shares = AccountNodeDelegateStakeShares::<Test>::get((
-            account(n_account),
-            subnet_id,
-            subnet_node_id,
-        ));
+        let after_delegate_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(account(n_account), validator_id);
 
         // to shares
-        let after_to_node_delegate_shares = AccountNodeDelegateStakeShares::<Test>::get((
-            account(to_n_account),
-            subnet_id,
-            subnet_node_id,
-        ));
+        let after_to_node_delegate_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(account(to_n_account), validator_id);
 
         let after_total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
         let after_total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
 
         assert_eq!(after_delegate_shares, 0);
         assert_eq!(
@@ -844,7 +768,7 @@ fn test_transfer_node_delegate_stake() {
 }
 
 #[test]
-fn test_transfer_node_delegate_stake_partial_balance() {
+fn test_transfer_validator_delegate_stake_partial_balance() {
     new_test_ext().execute_with(|| {
         let _ = env_logger::builder().is_test(true).try_init();
 
@@ -853,34 +777,31 @@ fn test_transfer_node_delegate_stake_partial_balance() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
         let subnet_name: Vec<u8> = "subnet-name".into();
-        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_node_id = 1;
+        let validator_id = 1;
 
         let n_account = 1000;
         let to_n_account = 1001;
 
         let _ = Balances::deposit_creating(&account(n_account), amount + 500);
 
-        assert_ok!(Network::add_to_node_delegate_stake(
+        assert_ok!(Network::add_validator_delegate_stake(
             RuntimeOrigin::signed(account(n_account)),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             amount,
         ));
 
         let n_account_balance = Balances::free_balance(&account(n_account));
         let to_n_account_balance = Balances::free_balance(&account(to_n_account));
 
-        let account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get((
-            account(n_account),
-            subnet_id,
-            subnet_node_id,
-        ));
+        let account_node_delegate_stake_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(account(n_account), validator_id);
         let total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         let total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         let account_node_delegate_stake_balance = Network::convert_to_balance(
             account_node_delegate_stake_shares,
@@ -894,20 +815,16 @@ fn test_transfer_node_delegate_stake_partial_balance() {
                 && (account_node_delegate_stake_balance <= amount)
         );
 
-        let to_delegate_shares = AccountNodeDelegateStakeShares::<Test>::get((
-            account(to_n_account),
-            subnet_id,
-            subnet_node_id,
-        ));
+        let to_delegate_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(account(to_n_account), validator_id);
 
         assert_eq!(to_delegate_shares, 0);
 
         let shares_to_transfer = account_node_delegate_stake_shares / 2;
 
-        assert_ok!(Network::transfer_node_delegate_stake(
+        assert_ok!(Network::transfer_validator_delegate_stake(
             RuntimeOrigin::signed(account(n_account)),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             account(to_n_account),
             shares_to_transfer,
         ));
@@ -927,23 +844,17 @@ fn test_transfer_node_delegate_stake_partial_balance() {
         assert_eq!(to_n_account_unbondings.len(), 0);
 
         // from shares
-        let after_delegate_shares = AccountNodeDelegateStakeShares::<Test>::get((
-            account(n_account),
-            subnet_id,
-            subnet_node_id,
-        ));
+        let after_delegate_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(account(n_account), validator_id);
 
         // to shares
-        let after_to_node_delegate_shares = AccountNodeDelegateStakeShares::<Test>::get((
-            account(to_n_account),
-            subnet_id,
-            subnet_node_id,
-        ));
+        let after_to_node_delegate_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(account(to_n_account), validator_id);
 
         let after_total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
         let after_total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
 
         assert_eq!(
             after_delegate_shares,
@@ -964,8 +875,7 @@ fn test_transfer_node_delegate_stake_partial_balance() {
 #[test]
 fn test_inflation_exploit_mitigation_dead_shares() {
     new_test_ext().execute_with(|| {
-        let subnet_id = 1;
-        let subnet_node_id = 1;
+        let validator_id = 1;
         let first_user = account(1);
         let second_user = account(2);
         let stake = 1_000_000_000_000;
@@ -975,38 +885,33 @@ fn test_inflation_exploit_mitigation_dead_shares() {
         Balances::deposit_creating(&second_user, stake * 10);
 
         // First user delegates stake
-        Network::do_add_node_delegate_stake(
+        Network::do_add_validator_delegate_stake(
             RuntimeOrigin::signed(first_user.clone()),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             stake,
         );
 
         // Get shares after first stake
 
         let first_user_shares =
-            AccountNodeDelegateStakeShares::<Test>::get((&first_user, subnet_id, subnet_node_id));
-        let total_shares_after_first =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            AccountValidatorDelegateStakeShares::<Test>::get(&first_user, validator_id);
+        let total_shares_after_first = ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         // Ensure that shares given are less than 100% of total because of pre-injected 1000 shares
         assert!(first_user_shares < total_shares_after_first);
 
         // Second user adds same stake
-        Network::do_add_node_delegate_stake(
+        Network::do_add_validator_delegate_stake(
             RuntimeOrigin::signed(second_user.clone()),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             stake,
         );
 
         // Get second user shares
         let second_user_shares =
-            AccountNodeDelegateStakeShares::<Test>::get((&second_user, subnet_id, subnet_node_id));
-        let total_shares_after_both =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
-        let total_balance_after_both =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            AccountValidatorDelegateStakeShares::<Test>::get(&second_user, validator_id);
+        let total_shares_after_both = ValidatorDelegateStakeShares::<Test>::get(validator_id);
+        let total_balance_after_both = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
 
         log::error!("first_user_shares  {:?}", first_user_shares);
         log::error!("second_user_shares {:?}", second_user_shares);
@@ -1043,8 +948,7 @@ fn test_inflation_exploit_mitigation_dead_shares() {
 #[test]
 fn test_no_inflation_exploit_via_increase_delegate_stake() {
     new_test_ext().execute_with(|| {
-        let subnet_id = 1;
-        let subnet_node_id = 1;
+        let validator_id = 1;
         let attacker = account(1);
         let initial_balance = 1_000_000;
         let stake_amount = 100_000;
@@ -1054,42 +958,36 @@ fn test_no_inflation_exploit_via_increase_delegate_stake() {
         Balances::make_free_balance_be(&attacker, initial_balance);
 
         // Step 1: Attacker stakes
-        assert_ok!(Network::do_add_node_delegate_stake(
+        assert_ok!(Network::do_add_validator_delegate_stake(
             RuntimeOrigin::signed(attacker.clone()),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             stake_amount
         ));
 
         let shares_before =
-            AccountNodeDelegateStakeShares::<Test>::get((&attacker, subnet_id, subnet_node_id));
-        let shares_total_before =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
-        let pool_balance_before =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            AccountValidatorDelegateStakeShares::<Test>::get(&attacker, validator_id);
+        let shares_total_before = ValidatorDelegateStakeShares::<Test>::get(validator_id);
+        let pool_balance_before = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         assert!(shares_before > 0);
         assert!(shares_total_before > 0);
         assert!(pool_balance_before > 0);
 
         // Step 2: Attacker deposits reward (donation-style increase)
-        Network::do_increase_node_delegate_stake(subnet_id, subnet_node_id, reward_amount);
+        Network::do_increase_validator_delegate_stake(validator_id, reward_amount);
 
         // Step 3: Check that no new shares were minted
         let shares_after_reward =
-            AccountNodeDelegateStakeShares::<Test>::get((&attacker, subnet_id, subnet_node_id));
-        let shares_total_after_reward =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
-        let pool_balance_before =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            AccountValidatorDelegateStakeShares::<Test>::get(&attacker, validator_id);
+        let shares_total_after_reward = ValidatorDelegateStakeShares::<Test>::get(validator_id);
+        let pool_balance_before = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
 
         assert_eq!(shares_after_reward, shares_before);
         assert_eq!(shares_total_after_reward, shares_total_before);
 
         // Step 4: Unstake all
-        assert_ok!(Network::do_remove_node_delegate_stake(
+        assert_ok!(Network::do_remove_validator_delegate_stake(
             RuntimeOrigin::signed(attacker.clone()),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             shares_after_reward
         ));
 
@@ -1129,8 +1027,7 @@ fn test_donation_attack_simulation() {
     new_test_ext().execute_with(|| {
         let _ = env_logger::builder().is_test(true).try_init();
 
-        let subnet_id = 1;
-        let subnet_node_id = 1;
+        let validator_id = 1;
 
         let attacker = account(1);
         let victim = account(2);
@@ -1153,60 +1050,57 @@ fn test_donation_attack_simulation() {
 
         // ---- Step 1: Attacker deposits minimal amount ----
         // The MinDelegateStakeDeposit (deposit min) is 1000, otherwise reverts with CouldNotConvertToBalance
-        assert_ok!(Network::do_add_node_delegate_stake(
+        assert_ok!(Network::do_add_validator_delegate_stake(
             RuntimeOrigin::signed(attacker.clone()),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             ATTACKER_INITIAL_DEPOSIT,
         ));
 
         let total_subnet_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
         let total_subnet_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
 
         // Validate initial deposit
         let attacker_balance = Network::convert_to_balance(
-            AccountNodeDelegateStakeShares::<Test>::get((&attacker, subnet_id, subnet_node_id)),
+            AccountValidatorDelegateStakeShares::<Test>::get(&attacker, validator_id),
             total_subnet_delegate_stake_shares,
             total_subnet_delegate_stake_balance,
         );
         log::error!("attacker_balance         {:?}", attacker_balance);
 
         assert_eq!(
-            AccountNodeDelegateStakeShares::<Test>::get((&attacker, subnet_id, subnet_node_id)),
+            AccountValidatorDelegateStakeShares::<Test>::get(&attacker, validator_id),
             ATTACKER_INITIAL_DEPOSIT
         );
-        // assert_eq!(TotalNodeDelegateStakeShares::<Test>::get(subnet_id), ATTACKER_INITIAL_DEPOSIT);
+        // assert_eq!(ValidatorDelegateStakeShares::<Test>::get(subnet_id), ATTACKER_INITIAL_DEPOSIT);
         // ---- We mint 1000 dead shares so we check against this
         assert_eq!(
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id),
+            ValidatorDelegateStakeShares::<Test>::get(validator_id),
             ATTACKER_INITIAL_DEPOSIT + 1000
         );
         assert_eq!(
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id),
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id),
             ATTACKER_INITIAL_DEPOSIT
         );
 
         // ---- Step 2: Attacker donates to inflate share price ----
-        Network::do_increase_node_delegate_stake(subnet_id, subnet_node_id, ATTACKER_DONATION);
+        Network::do_increase_validator_delegate_stake(validator_id, ATTACKER_DONATION);
 
         // ---- Step 3: Victim deposits and gets almost no shares ----
         // We ensure they get shares
-        assert_ok!(Network::do_add_node_delegate_stake(
+        assert_ok!(Network::do_add_validator_delegate_stake(
             RuntimeOrigin::signed(victim.clone()),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             VICTIM_DEPOSIT,
         ));
 
-        let victim_shares =
-            AccountNodeDelegateStakeShares::<Test>::get((&victim, subnet_id, subnet_node_id));
+        let victim_shares = AccountValidatorDelegateStakeShares::<Test>::get(&victim, validator_id);
 
         let total_subnet_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
         let total_subnet_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
 
         let victim_balance = Network::convert_to_balance(
             victim_shares,
@@ -1220,7 +1114,7 @@ fn test_donation_attack_simulation() {
         );
 
         let attacker_balance = Network::convert_to_balance(
-            AccountNodeDelegateStakeShares::<Test>::get((&attacker, subnet_id, subnet_node_id)),
+            AccountValidatorDelegateStakeShares::<Test>::get(&attacker, validator_id),
             total_subnet_delegate_stake_shares,
             total_subnet_delegate_stake_balance,
         );
@@ -1229,11 +1123,10 @@ fn test_donation_attack_simulation() {
 
         // ---- Step 4: Attacker withdraws and gets profit ----
         // We ensure they do not profit from this attack
-        assert_ok!(Network::do_remove_node_delegate_stake(
+        assert_ok!(Network::do_remove_validator_delegate_stake(
             RuntimeOrigin::signed(attacker.clone()),
-            subnet_id,
-            subnet_node_id,
-            AccountNodeDelegateStakeShares::<Test>::get((&attacker, subnet_id, subnet_node_id))
+            validator_id,
+            AccountValidatorDelegateStakeShares::<Test>::get(&attacker, validator_id)
         ));
 
         let attacker_final_balance = Balances::free_balance(&attacker);
@@ -1243,7 +1136,7 @@ fn test_donation_attack_simulation() {
 }
 
 #[test]
-fn test_donate_node_delegate_stake() {
+fn test_donate_validator_delegate_stake() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 1000000000000000000000000;
@@ -1251,18 +1144,17 @@ fn test_donate_node_delegate_stake() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-        let subnet_node_id = 1;
+        let validator_id = 1;
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
         let _ = Balances::deposit_creating(&account(total_subnet_nodes + 1), amount + 500);
 
         assert_err!(
-            Network::donate_node_delegate_stake(
+            Network::donate_validator_delegate_stake(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-                subnet_id,
                 0,
                 amount,
             ),
@@ -1270,49 +1162,44 @@ fn test_donate_node_delegate_stake() {
         );
 
         assert_err!(
-            Network::donate_node_delegate_stake(
+            Network::donate_validator_delegate_stake(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-                subnet_id,
-                subnet_node_id,
+                validator_id,
                 0,
             ),
             Error::<Test>::MinDelegateStake
         );
 
         assert_err!(
-            Network::donate_node_delegate_stake(
+            Network::donate_validator_delegate_stake(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-                subnet_id,
-                subnet_node_id,
+                validator_id,
                 amount + 501,
             ),
             Error::<Test>::NotEnoughBalance
         );
 
         assert_err!(
-            Network::donate_node_delegate_stake(
+            Network::donate_validator_delegate_stake(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-                subnet_id,
-                subnet_node_id,
+                validator_id,
                 amount + 500,
             ),
             Error::<Test>::BalanceWithdrawalError
         );
 
         let prev_total_subnet_ndstake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
-        let prev_total_ndstake = TotalNodeDelegateStake::<Test>::get();
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
+        let prev_total_ndstake = TotalValidatorDelegateStakeBalance::<Test>::get();
 
-        assert_ok!(Network::donate_node_delegate_stake(
+        assert_ok!(Network::donate_validator_delegate_stake(
             RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             amount,
         ));
 
-        let total_subnet_dstake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
-        let total_ndstake = TotalNodeDelegateStake::<Test>::get();
+        let total_subnet_dstake_balance = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
+        let total_ndstake = TotalValidatorDelegateStakeBalance::<Test>::get();
         assert_eq!(
             total_subnet_dstake_balance,
             prev_total_subnet_ndstake_balance + amount
@@ -1324,19 +1211,17 @@ fn test_donate_node_delegate_stake() {
         let _ = Balances::deposit_creating(&account(total_subnet_nodes + 1), amount + 500);
 
         let prev_total_subnet_ndstake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
-        let prev_total_ndstake = TotalNodeDelegateStake::<Test>::get();
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
+        let prev_total_ndstake = TotalValidatorDelegateStakeBalance::<Test>::get();
 
-        assert_ok!(Network::donate_node_delegate_stake(
+        assert_ok!(Network::donate_validator_delegate_stake(
             RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             amount,
         ));
 
-        let total_subnet_ndstake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(subnet_id, subnet_node_id);
-        let total_ndstake = TotalNodeDelegateStake::<Test>::get();
+        let total_subnet_ndstake_balance = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
+        let total_ndstake = TotalValidatorDelegateStakeBalance::<Test>::get();
         assert_eq!(
             total_subnet_ndstake_balance,
             prev_total_subnet_ndstake_balance + amount
@@ -1346,7 +1231,7 @@ fn test_donate_node_delegate_stake() {
 }
 
 #[test]
-fn test_swap_from_node_to_subnet() {
+fn test_swap_from_validator_to_subnet() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -1356,7 +1241,7 @@ fn test_swap_from_node_to_subnet() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         log::error!("subnets count {:?}", subnets);
-        build_activated_subnet_with_delegator_rewards(
+        build_activated_subnet_with_delegator_rewards_v2(
             subnet_name.clone(),
             0,
             16,
@@ -1364,6 +1249,9 @@ fn test_swap_from_node_to_subnet() {
             stake_amount,
             DEFAULT_DELEGATE_REWARD_RATE,
         );
+
+        let validator_id = 1;
+        let from_validator_id = validator_id;
 
         let from_subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_from_subnet_nodes = TotalSubnetNodes::<Test>::get(from_subnet_id);
@@ -1373,7 +1261,7 @@ fn test_swap_from_node_to_subnet() {
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         log::error!("subnets count {:?}", subnets);
 
-        build_activated_subnet_with_delegator_rewards(
+        build_activated_subnet_with_delegator_rewards_v2(
             to_subnet_name.clone(),
             0,
             16,
@@ -1386,22 +1274,20 @@ fn test_swap_from_node_to_subnet() {
 
         let _ = Balances::deposit_creating(&account(total_from_subnet_nodes + 1), amount + 500);
 
-        assert_ok!(Network::add_to_node_delegate_stake(
+        assert_ok!(Network::add_validator_delegate_stake(
             RuntimeOrigin::signed(account(total_from_subnet_nodes + 1)),
-            from_subnet_id,
-            1,
+            validator_id,
             amount,
         ));
 
-        let account_node_delegate_stake_shares = AccountNodeDelegateStakeShares::<Test>::get((
+        let account_node_delegate_stake_shares = AccountValidatorDelegateStakeShares::<Test>::get(
             account(total_from_subnet_nodes + 1),
-            from_subnet_id,
-            1,
-        ));
+            validator_id,
+        );
         let total_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(from_subnet_id, 1);
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         let total_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(from_subnet_id, 1);
+            ValidatorDelegateStakeShares::<Test>::get(validator_id);
 
         let account_node_delegate_stake_balance = Network::convert_to_balance(
             account_node_delegate_stake_shares,
@@ -1432,10 +1318,9 @@ fn test_swap_from_node_to_subnet() {
 
         let prev_next_id = NextSwapQueueId::<Test>::get();
 
-        assert_ok!(Network::swap_from_node_to_subnet(
+        assert_ok!(Network::swap_from_validator_to_subnet(
             RuntimeOrigin::signed(account(total_from_subnet_nodes + 1)),
-            from_subnet_id,
-            1,
+            from_validator_id,
             to_subnet_id,
             account_node_delegate_stake_shares_to_be_removed,
         ));
@@ -1466,7 +1351,7 @@ fn test_swap_from_node_to_subnet() {
                 assert_eq!(*to_subnet_id, starting_to_subnet_id);
                 assert_ne!(*balance, 0);
             }
-            QueuedSwapCall::SwapToNodeDelegateStake { .. } => assert!(false),
+            QueuedSwapCall::SwapToValidatorDelegateStake { .. } => assert!(false),
         };
 
         let next_id = NextSwapQueueId::<Test>::get();

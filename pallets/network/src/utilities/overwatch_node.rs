@@ -37,7 +37,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_overwatch_associated_coldkey_and_hotkey(
-        overwatch_node_id: u32
+        overwatch_node_id: u32,
     ) -> Result<(T::AccountId, T::AccountId), DispatchError> {
         let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
             .map_err(|_| Error::<T>::InvalidOverwatchNodeId)?;

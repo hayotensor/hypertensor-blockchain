@@ -298,7 +298,7 @@ fn get_commit(num: u32) -> (u128, Vec<u8>, sp_core::H256) {
 //                         Network::get_min_subnet_delegate_stake_balance(subnet_id);
 //                     if total_delegate_stake_balance < min_subnet_delegate_stake {
 //                         let mut delta = min_subnet_delegate_stake - total_delegate_stake_balance;
-//                         assert_ok!(Network::add_to_delegate_stake(
+//                         assert_ok!(Network::add_delegate_stake(
 //                             RuntimeOrigin::signed(account(alice)),
 //                             subnet_id,
 //                             delta,

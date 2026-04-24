@@ -12,6 +12,8 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+// Delegate account business logic
+// Delegate accounts are the accounts nodes can allocate emissions to
 
 use super::*;
 use sp_runtime::Saturating;

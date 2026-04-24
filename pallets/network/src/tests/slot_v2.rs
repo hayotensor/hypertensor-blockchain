@@ -1,11 +1,11 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    AccountOverwatchStake, FinalSubnetEmissionWeights, HotkeySubnetNodeId, MaxSubnetNodes,
-    MaxSubnets, MinSubnetMinStake, NewRegistrationCostMultiplier, OverwatchReveals,
-    QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetConsensusSubmission,
-    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName, SubnetNodeQueue,
-    TotalActiveSubnets,
+    FinalSubnetEmissionWeights, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
+    NewRegistrationCostMultiplier, OverwatchNodeStakeBalance, OverwatchNodeValidatorId,
+    OverwatchReveals, QueueImmunityEpochs, RegisteredSubnetNodesDataV2,
+    SubnetConsensusSubmissionV2, SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator,
+    SubnetName, SubnetNodeQueueV2, TotalActiveSubnets,
 };
 use sp_std::collections::btree_map::BTreeMap;
 
@@ -21,8 +21,8 @@ use sp_std::collections::btree_map::BTreeMap;
 // See:
 //  - test_distribute_rewards_prioritized_queue_node_id
 //  - test_distribute_rewards_remove_queue_node_id
-// handle_subnet_emission_weights: test_handle_subnet_emission_weights
-// calculate_subnet_weights: test_calculate_subnet_weights
+// handle_subnet_emission_weights_v2: test_handle_subnet_emission_weights
+// calculate_subnet_weights_v2: test_calculate_subnet_weights
 // precheck_subnet_consensus_submission: test_precheck_subnet_consensus_submission
 // calculate_rewards: test_calculate_rewards
 
@@ -42,7 +42,7 @@ fn test_calculate_overwatch_rewards() {
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
         }
 
         set_overwatch_epoch(1);
@@ -52,18 +52,18 @@ fn test_calculate_overwatch_rewards() {
 
         let overwatch_nodes = 4;
         for o in 0..overwatch_nodes {
-            insert_overwatch_node(o, o);
-            set_overwatch_stake(o, 100);
+            let o_node_id = o + 1;
+            insert_overwatch_node_v2(o_node_id);
+            set_overwatch_node_stake(o_node_id, 100);
         }
 
-        let mut ostake_snapshot: BTreeMap<<Test as frame_system::Config>::AccountId, u128> =
-            BTreeMap::new();
+        let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..overwatch_nodes {
-            let hotkey = account(n);
-            let overwatch_stake = AccountOverwatchStake::<Test>::get(hotkey.clone());
+            let o_node_id = n + 1;
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(o_node_id);
 
             assert_ne!(overwatch_stake, 0);
-            ostake_snapshot.insert(hotkey.clone(), overwatch_stake);
+            ostake_snapshot.insert(o_node_id, overwatch_stake);
         }
 
         for s in 0..max_subnets {
@@ -104,13 +104,13 @@ fn test_calculate_overwatch_rewards() {
             assert!(has_reveal, "No reveal found for subnet {}", subnet_id);
         }
 
-        Network::calculate_overwatch_rewards();
+        Network::calculate_overwatch_rewards_v2();
 
         for n in 0..overwatch_nodes {
-            let hotkey = account(n);
-            let overwatch_stake = AccountOverwatchStake::<Test>::get(hotkey.clone());
+            let o_node_id = n + 1;
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(o_node_id);
 
-            if let Some(old_stake) = ostake_snapshot.get(&hotkey) {
+            if let Some(old_stake) = ostake_snapshot.get(&o_node_id) {
                 assert!(overwatch_stake > *old_stake);
             } else {
                 assert!(false); // auto-fail
@@ -144,11 +144,11 @@ fn test_handle_subnet_emission_weights() {
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
         }
         increase_epochs(1);
 
-        let _ = Network::handle_subnet_emission_weights(Network::get_current_epoch_as_u32());
+        let _ = Network::handle_subnet_emission_weights_v2(Network::get_current_epoch_as_u32());
 
         let subnet_emission_weights =
             FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
@@ -179,12 +179,12 @@ fn test_calculate_subnet_weights() {
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
         }
         increase_epochs(1);
 
         let (subnet_weights, mut weight) =
-            Network::calculate_subnet_weights(Network::get_current_epoch_as_u32());
+            Network::calculate_subnet_weights_v2(Network::get_current_epoch_as_u32());
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
@@ -213,13 +213,13 @@ fn test_calculate_subnet_weights_active_live_only() {
 
         for s in 0..max_subnets - 1 {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
         }
 
         // add a registering subnet
         let registering_n = max_subnets - 1;
         let registering_subnet_name: Vec<u8> = format!("subnet-name-{registering_n}").into();
-        build_registered_subnet(
+        build_registered_subnet_v2(
             registering_subnet_name.clone(),
             0,
             4,
@@ -234,7 +234,7 @@ fn test_calculate_subnet_weights_active_live_only() {
         increase_epochs(1);
 
         let (subnet_weights, mut weight) =
-            Network::calculate_subnet_weights(Network::get_current_epoch_as_u32());
+            Network::calculate_subnet_weights_v2(Network::get_current_epoch_as_u32());
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
@@ -265,13 +265,13 @@ fn test_precheck_subnet_consensus_submission() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let new_start = end + 1;
+        let new_start = end;
         let new_end = new_start + 4;
-        build_registered_nodes_in_queue(subnet_id, new_start, new_end, deposit_amount, amount);
+        build_registered_nodes_in_queue_v2(subnet_id, new_start, new_end, deposit_amount, amount);
 
         QueueImmunityEpochs::<Test>::insert(subnet_id, 1);
 
@@ -284,10 +284,9 @@ fn test_precheck_subnet_consensus_submission() {
         for n in new_start..new_end {
             let _n = n + 1;
             let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, _n);
-            let hotkey_subnet_node_id =
-                HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+            let hotkey_subnet_node_id = _n;
             let subnet_node_data =
-                RegisteredSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id)
+                RegisteredSubnetNodesDataV2::<Test>::try_get(subnet_id, hotkey_subnet_node_id)
                     .unwrap();
             registered_nodes_data.insert(
                 hotkey_subnet_node_id,
@@ -295,7 +294,7 @@ fn test_precheck_subnet_consensus_submission() {
             );
         }
 
-        let queue = SubnetNodeQueue::<Test>::get(subnet_id);
+        let queue = SubnetNodeQueueV2::<Test>::get(subnet_id);
         assert_eq!(queue.len() as u32, new_end - new_start);
 
         let first = queue.first().unwrap();
@@ -312,9 +311,9 @@ fn test_precheck_subnet_consensus_submission() {
         assert!(validator_id != None, "Validator is None");
         assert!(validator_id != Some(0), "Validator is 0");
 
-        run_subnet_consensus_step(subnet_id, Some(last.id), Some(first.id));
+        run_subnet_consensus_step_v2(subnet_id, Some(last.id), Some(first.id));
 
-        let submission = SubnetConsensusSubmission::<Test>::get(
+        let submission = SubnetConsensusSubmissionV2::<Test>::get(
             subnet_id,
             Network::get_current_subnet_epoch_as_u32(subnet_id),
         );
@@ -341,7 +340,7 @@ fn test_precheck_subnet_consensus_submission() {
         set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
 
         let (consensus_submission_data, consensus_submission_block_weight) =
-            Network::precheck_subnet_consensus_submission(
+            Network::precheck_subnet_consensus_submission_v2(
                 subnet_id,
                 Network::get_current_epoch_as_u32() - 1,
                 Network::get_current_epoch_as_u32(),
@@ -384,11 +383,11 @@ fn test_calculate_rewards() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         increase_epochs(1);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let _ = Network::handle_subnet_emission_weights(Network::get_current_epoch_as_u32());
+        let _ = Network::handle_subnet_emission_weights_v2(Network::get_current_epoch_as_u32());
 
         let subnet_emission_weights =
             FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());

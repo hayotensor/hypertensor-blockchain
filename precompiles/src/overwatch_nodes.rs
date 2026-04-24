@@ -53,9 +53,7 @@ where
         let stake_to_be_added = stake_to_be_added.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::register_overwatch_node {
-            stake_to_be_added,
-        };
+        let call = pallet_network::Call::<R>::register_overwatch_node { stake_to_be_added };
 
         RuntimeHelper::<R>::try_dispatch(
             handle,
@@ -331,7 +329,7 @@ where
     #[precompile::view]
     fn total_overwatch_stake(handle: &mut impl PrecompileHandle) -> EvmResult<u128> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let total_stake: u128 = pallet_network::TotalOverwatchStake::<R>::get();
+        let total_stake: u128 = pallet_network::TotalOverwatchNodeStakeBalance::<R>::get();
 
         Ok(total_stake)
     }

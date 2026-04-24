@@ -1402,6 +1402,22 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    pub fn get_subnet_node_v2(
+        subnet_id: u32,
+        subnet_node_id: u32,
+    ) -> Option<SubnetNodeV2> {
+        if SubnetNodesDataV2::<T>::contains_key(subnet_id, subnet_node_id) {
+            Some(SubnetNodesDataV2::<T>::get(subnet_id, subnet_node_id))
+        } else if RegisteredSubnetNodesDataV2::<T>::contains_key(subnet_id, subnet_node_id) {
+            Some(RegisteredSubnetNodesDataV2::<T>::get(
+                subnet_id,
+                subnet_node_id,
+            ))
+        } else {
+            None
+        }
+    }
+
     /// Get any subnet node that has been activated (not including registered nodes)
     pub fn get_activated_subnet_node(
         subnet_id: u32,
@@ -1875,9 +1891,9 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn clean_validator_subnet_nodes(validator_id: u32) {
-        ValidatorSubnetNodes::<T>::mutate(validator_id, |colkey_map| {
+        ValidatorSubnetNodes::<T>::mutate(validator_id, |map| {
             // Collect subnet_ids to remove (invalid subnets)
-            let mut subnets_to_remove: Vec<u32> = colkey_map
+            let mut subnets_to_remove: Vec<u32> = map
                 .keys()
                 .filter(|&subnet_id| !Self::subnet_exists(*subnet_id))
                 .copied()
@@ -1885,7 +1901,7 @@ impl<T: Config> Pallet<T> {
 
             // Remove invalid subnets
             for subnet_id in &subnets_to_remove {
-                colkey_map.remove(subnet_id);
+                map.remove(subnet_id);
             }
             // Note: We don't check for node IDs because this is handled in `perform_remove_subnet_node`
             // Why: ValidatorSubnetNodes is not cleaned when a subnet is removed
@@ -2077,7 +2093,7 @@ impl<T: Config> Pallet<T> {
             last_delegate_reward_rate_update: data.last_delegate_reward_rate_update,
             delegate_account: data.delegate_account,
             identity: data.identity,
-            coldkey: validator_coldkey,
+            coldkey: Some(validator_coldkey),
         };
 
         Ok(validator)

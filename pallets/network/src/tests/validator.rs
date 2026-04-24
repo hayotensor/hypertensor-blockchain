@@ -67,7 +67,7 @@ fn test_register_validator() {
             current_id
         );
         assert_eq!(
-            ValidatorColdkeyHotkey::<Test>::get(coldkey.clone()),
+            ValidatorColdkeyHotkey::<Test>::get(coldkey.clone()).unwrap(),
             hotkey.clone()
         );
         assert_eq!(
@@ -142,7 +142,7 @@ fn test_register_validator_subnet_node() {
             current_id
         );
         assert_eq!(
-            ValidatorColdkeyHotkey::<Test>::get(coldkey.clone()),
+            ValidatorColdkeyHotkey::<Test>::get(coldkey.clone()).unwrap(),
             hotkey.clone()
         );
         assert_eq!(
@@ -430,7 +430,7 @@ fn test_update_validator_hotkey() {
         let v_data = ValidatorsData::<Test>::get(current_id);
         let v_data_hotkey = v_data.hotkey;
         let v_hotkey = ValidatorIdHotkey::<Test>::get(current_id).unwrap();
-        let c_hotkey = ValidatorColdkeyHotkey::<Test>::get(coldkey.clone());
+        let c_hotkey = ValidatorColdkeyHotkey::<Test>::get(coldkey.clone()).unwrap();
 
         assert_eq!(v_hotkey, c_hotkey);
 
@@ -460,11 +460,11 @@ fn test_update_validator_hotkey() {
 
         assert_eq!(
             new_hotkey,
-            ValidatorColdkeyHotkey::<Test>::get(coldkey.clone())
+            ValidatorColdkeyHotkey::<Test>::get(coldkey.clone()).unwrap()
         );
         assert_ne!(
             c_hotkey,
-            ValidatorColdkeyHotkey::<Test>::get(coldkey.clone())
+            ValidatorColdkeyHotkey::<Test>::get(coldkey.clone()).unwrap()
         );
 
         assert_eq!(new_hotkey, ValidatorsData::<Test>::get(current_id).hotkey);
@@ -501,7 +501,7 @@ fn test_update_validator_delegate_reward_rate() {
         let v_data = ValidatorsData::<Test>::get(current_id);
         let v_data_hotkey = v_data.hotkey;
         let v_hotkey = ValidatorIdHotkey::<Test>::get(current_id).unwrap();
-        let c_hotkey = ValidatorColdkeyHotkey::<Test>::get(coldkey.clone());
+        let c_hotkey = ValidatorColdkeyHotkey::<Test>::get(coldkey.clone()).unwrap();
 
         assert_eq!(v_hotkey, c_hotkey);
 

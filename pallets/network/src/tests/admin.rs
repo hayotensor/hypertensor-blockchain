@@ -96,7 +96,7 @@ fn test_collective_remove_subnet() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
         // Build subnet
-        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
 
         // Remove subnet with collective origin (super majority required)
@@ -114,7 +114,7 @@ fn test_collective_remove_subnet_fails_without_super_majority() {
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
 
         // Should fail with regular majority
@@ -1344,7 +1344,7 @@ fn test_collective_remove_subnet_node() {
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
 
         // Remove a subnet node with super majority

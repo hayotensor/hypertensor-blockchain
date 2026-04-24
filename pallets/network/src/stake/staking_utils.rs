@@ -31,9 +31,11 @@ impl<T: Config> Pallet<T> {
 
         let unbondings = StakeUnbondingLedger::<T>::get(&coldkey);
 
+        let total_unbondings = unbondings.len() as u32;
+        log::error!("total_unbondings {:?}", total_unbondings);
+
         // --- Ensure we don't surpass max unlockings by attempting to unlock unbondings
-        // if unbondings.len() as u32 == T::MaxUnbondings::get() {
-        if unbondings.len() as u32 == MaxUnbondings::<T>::get() {
+        if total_unbondings == MaxUnbondings::<T>::get() {
             Self::do_claim_unbondings(&coldkey);
         }
 
@@ -42,7 +44,7 @@ impl<T: Config> Pallet<T> {
 
         // We're about to add another unbonding to the ledger - it must be n-1
         ensure!(
-            unbondings.len() < MaxUnbondings::<T>::get() as usize,
+            total_unbondings < MaxUnbondings::<T>::get(),
             Error::<T>::MaxUnlockingsReached
         );
 

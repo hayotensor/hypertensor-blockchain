@@ -35,7 +35,7 @@ fn test_do_epoch_preliminaries_remove_expired_pause() {
         let mut first_subnet_id = 0;
         for s in 0..last_subnet {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
             let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
             remove_subnet_id = subnet_id;
 
@@ -79,7 +79,7 @@ fn test_do_epoch_preliminaries_remove_expired_pause() {
                     );
                 }
 
-                assert_ok!(Network::add_to_delegate_stake(
+                assert_ok!(Network::add_delegate_stake(
                     RuntimeOrigin::signed(account(0)),
                     subnet_id,
                     total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -123,7 +123,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake() {
         let mut first_subnet_id = 0;
         for s in 0..last_subnet {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
             let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
             remove_subnet_id = subnet_id;
 
@@ -141,7 +141,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake() {
             TotalSubnetDelegateStakeBalance::<Test>::get(first_subnet_id);
         let min_subnet_delegate_stake =
             Network::get_min_subnet_delegate_stake_balance(first_subnet_id);
-        assert_ok!(Network::add_to_delegate_stake(
+        assert_ok!(Network::add_delegate_stake(
             RuntimeOrigin::signed(account(0)),
             first_subnet_id,
             total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -191,7 +191,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake_fail() {
         let mut first_subnet_id = 0;
         for s in 0..last_subnet {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
             let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
             remove_subnet_id = subnet_id;
 
@@ -209,7 +209,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake_fail() {
             TotalSubnetDelegateStakeBalance::<Test>::get(first_subnet_id);
         let min_subnet_delegate_stake =
             Network::get_min_subnet_delegate_stake_balance(first_subnet_id);
-        assert_ok!(Network::add_to_delegate_stake(
+        assert_ok!(Network::add_delegate_stake(
             RuntimeOrigin::signed(account(0)),
             first_subnet_id,
             total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -250,7 +250,7 @@ fn test_do_epoch_preliminaries_remove_under_min_reputation() {
         let mut first_subnet_id = 0;
         for s in 0..last_subnet {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
             let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
             remove_subnet_id = subnet_id;
 
@@ -270,7 +270,7 @@ fn test_do_epoch_preliminaries_remove_under_min_reputation() {
                 TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
             let min_subnet_delegate_stake =
                 Network::get_min_subnet_delegate_stake_balance(subnet_id);
-            assert_ok!(Network::add_to_delegate_stake(
+            assert_ok!(Network::add_delegate_stake(
                 RuntimeOrigin::signed(account(0)),
                 subnet_id,
                 total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -313,7 +313,7 @@ fn test_do_epoch_preliminaries_remove_max_subnets() {
         let mut remove_subnet_id = 0;
         for s in 0..max_subnets.saturating_add(1) {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet_new_excess_subnets(
+            build_activated_subnet_new_excess_subnets_v2(
                 subnet_name.clone().into(),
                 0,
                 end,
@@ -364,7 +364,7 @@ fn test_do_epoch_preliminaries_remove_max_subnets() {
                     } else {
                         total_delegate_stake_balance - min_subnet_delegate_stake + 100
                     };
-                    assert_ok!(Network::add_to_delegate_stake(
+                    assert_ok!(Network::add_delegate_stake(
                         RuntimeOrigin::signed(account(0)),
                         subnet_id,
                         add,
@@ -412,7 +412,7 @@ fn test_do_epoch_preliminaries_remove_registered_min_nodes() {
         let end = MinSubnetNodes::<Test>::get();
 
         let subnet_name: Vec<u8> = format!("subnet-name-remove").into();
-        build_registered_subnet(
+        build_registered_subnet_v2(
             subnet_name.clone(),
             0,
             end,
@@ -470,7 +470,7 @@ fn test_do_epoch_preliminaries_remove_past_enactment_phase() {
         let end = MinSubnetNodes::<Test>::get();
 
         let subnet_name: Vec<u8> = format!("subnet-name-remove").into();
-        build_registered_subnet(
+        build_registered_subnet_v2(
             subnet_name.clone(),
             0,
             end,

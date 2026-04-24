@@ -116,7 +116,7 @@ impl<T: Config> Pallet<T> {
         AccountOverwatchStake::<T>::mutate(hotkey, |mut n| n.saturating_accrue(amount));
 
         // -- increase total overwatch stake
-        TotalOverwatchStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
+        TotalOverwatchNodeStakeBalance::<T>::mutate(|mut n| n.saturating_accrue(amount));
     }
 
     pub fn decrease_account_overwatch_stake(hotkey: &T::AccountId, amount: u128) {
@@ -124,7 +124,7 @@ impl<T: Config> Pallet<T> {
         AccountOverwatchStake::<T>::mutate(hotkey, |mut n| n.saturating_reduce(amount));
 
         // -- decrease total overwatch stake
-        TotalOverwatchStake::<T>::mutate(|mut n| n.saturating_reduce(amount));
+        TotalOverwatchNodeStakeBalance::<T>::mutate(|mut n| n.saturating_reduce(amount));
     }
 
     fn swap_account_overwatch_stake(old_hotkey: &T::AccountId, new_hotkey: &T::AccountId) {

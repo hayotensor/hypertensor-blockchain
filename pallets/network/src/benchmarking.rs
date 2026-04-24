@@ -383,7 +383,7 @@ fn build_activated_subnet<T: Config>(
             .expect("REASON"),
         ExistenceRequirement::KeepAlive,
     ));
-    assert_ok!(Network::<T>::add_to_delegate_stake(
+    assert_ok!(Network::<T>::add_delegate_stake(
         RawOrigin::Signed(delegate_staker_account.clone()).into(),
         subnet_id,
         min_subnet_delegate_stake,
@@ -590,7 +590,7 @@ fn build_registered_subnet<T: Config>(
             .expect("REASON"),
         ExistenceRequirement::KeepAlive,
     ));
-    assert_ok!(Network::<T>::add_to_delegate_stake(
+    assert_ok!(Network::<T>::add_delegate_stake(
         RawOrigin::Signed(delegate_staker_account.clone()).into(),
         subnet_id,
         min_subnet_delegate_stake,
@@ -785,7 +785,7 @@ pub fn set_overwatch_stake<T: Config>(hotkey_n: u32, amount: u128) {
     // -- increase account staking balance
     AccountOverwatchStake::<T>::mutate(account, |mut n| *n += amount);
     // -- increase total stake
-    TotalOverwatchStake::<T>::mutate(|mut n| *n += amount);
+    TotalOverwatchNodeStakeBalance::<T>::mutate(|mut n| *n += amount);
 }
 
 pub fn submit_overwatch_reveal<T: Config>(
@@ -1480,7 +1480,7 @@ mod benchmarks {
                 .expect("REASON"),
             ExistenceRequirement::KeepAlive,
         ));
-        assert_ok!(Network::<T>::add_to_delegate_stake(
+        assert_ok!(Network::<T>::add_delegate_stake(
             RawOrigin::Signed(delegate_staker_account.clone()).into(),
             subnet_id,
             min_subnet_delegate_stake,
@@ -2775,7 +2775,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_to_delegate_stake(
+        assert_ok!(Network::<T>::add_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
@@ -2835,7 +2835,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn add_to_delegate_stake() {
+    fn add_delegate_stake() {
         let end = 4;
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
@@ -2858,7 +2858,7 @@ mod benchmarks {
         let starting_delegator_balance = T::Currency::free_balance(&delegate_account.clone());
 
         #[extrinsic_call]
-        add_to_delegate_stake(
+        add_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()),
             subnet_id,
             DEFAULT_STAKE_TO_BE_ADDED,
@@ -2922,7 +2922,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_to_delegate_stake(
+        assert_ok!(Network::<T>::add_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             from_subnet_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
@@ -2979,7 +2979,7 @@ mod benchmarks {
                 assert_eq!(*to_subnet_id, starting_to_subnet_id);
                 assert_ne!(*balance, 0);
             }
-            QueuedSwapCall::SwapToNodeDelegateStake { .. } => assert!(false),
+            QueuedSwapCall::SwapToValidatorDelegateStake { .. } => assert!(false),
         };
 
         let next_id = NextSwapQueueId::<T>::get();
@@ -3013,7 +3013,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_to_delegate_stake(
+        assert_ok!(Network::<T>::add_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
@@ -3064,7 +3064,7 @@ mod benchmarks {
                 .expect("REASON"),
             ExistenceRequirement::KeepAlive,
         ));
-        assert_ok!(Network::<T>::add_to_delegate_stake(
+        assert_ok!(Network::<T>::add_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
@@ -3126,7 +3126,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_to_delegate_stake(
+        assert_ok!(Network::<T>::add_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
@@ -3176,7 +3176,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn add_to_node_delegate_stake() {
+    fn add_node_delegate_stake() {
         let end = 12;
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
@@ -3200,7 +3200,7 @@ mod benchmarks {
         ));
 
         #[extrinsic_call]
-        add_to_node_delegate_stake(
+        add_node_delegate_stake(
             RawOrigin::Signed(delegate_node_account.clone()),
             subnet_id,
             subnet_node_id,
@@ -3255,7 +3255,7 @@ mod benchmarks {
 
         let delegate_node_account: T::AccountId = funded_account::<T>("delegate_node_account", 0);
 
-        assert_ok!(Network::<T>::add_to_node_delegate_stake(
+        assert_ok!(Network::<T>::add_node_delegate_stake(
             RawOrigin::Signed(delegate_node_account.clone()).into(),
             from_subnet_id,
             from_subnet_node_id,
@@ -3333,17 +3333,15 @@ mod benchmarks {
         assert_eq!(call_queue.clone().unwrap().id, prev_next_id);
         match &call_queue.clone().unwrap().call {
             QueuedSwapCall::SwapToSubnetDelegateStake { .. } => assert!(false),
-            QueuedSwapCall::SwapToNodeDelegateStake {
+            QueuedSwapCall::SwapToValidatorDelegateStake { 
                 account_id,
-                to_subnet_id,
-                to_subnet_node_id,
+                to_validator_id,
                 balance,
-            } => {
+             } => {
                 assert_eq!(*account_id, delegate_node_account.clone());
-                assert_eq!(*to_subnet_id, starting_to_subnet_id);
-                assert_eq!(*to_subnet_node_id, starting_to_subnet_node_id);
+                assert_eq!(*to_validator_id, starting_to_validator_id);
                 assert_ne!(*balance, 0);
-            }
+             },
         };
 
         let next_id = NextSwapQueueId::<T>::get();
@@ -3378,7 +3376,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_to_node_delegate_stake(
+        assert_ok!(Network::<T>::add_node_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
             subnet_node_id,
@@ -3444,7 +3442,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_to_node_delegate_stake(
+        assert_ok!(Network::<T>::add_node_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
             subnet_node_id,
@@ -3543,7 +3541,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_to_node_delegate_stake(
+        assert_ok!(Network::<T>::add_node_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             from_subnet_id,
             from_subnet_node_id,
@@ -3605,7 +3603,7 @@ mod benchmarks {
                 assert_eq!(*to_subnet_id, starting_to_subnet_id);
                 assert_ne!(*balance, 0);
             }
-            QueuedSwapCall::SwapToNodeDelegateStake { .. } => assert!(false),
+            QueuedSwapCall::SwapToValidatorDelegateStake { .. } => assert!(false),
         };
 
         let next_id = NextSwapQueueId::<T>::get();
@@ -3650,7 +3648,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_to_delegate_stake(
+        assert_ok!(Network::<T>::add_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             from_subnet_id,
             DEFAULT_SUBNET_NODE_STAKE
@@ -3682,17 +3680,15 @@ mod benchmarks {
         assert_eq!(call_queue.clone().unwrap().id, prev_next_id);
         match &call_queue.clone().unwrap().call {
             QueuedSwapCall::SwapToSubnetDelegateStake { .. } => assert!(false),
-            QueuedSwapCall::SwapToNodeDelegateStake {
+            QueuedSwapCall::SwapToValidatorDelegateStake { 
                 account_id,
-                to_subnet_id,
-                to_subnet_node_id,
+                to_validator_id,
                 balance,
             } => {
                 assert_eq!(*account_id, delegate_account.clone());
-                assert_eq!(*to_subnet_id, starting_to_subnet_id);
-                assert_eq!(*to_subnet_node_id, starting_to_subnet_node_id);
+                assert_eq!(*to_validator_id, starting_to_validator_id);
                 assert_ne!(*balance, 0);
-            }
+            },
         };
 
         let next_id = NextSwapQueueId::<T>::get();
@@ -5702,7 +5698,7 @@ mod benchmarks {
 
         let starting_delegator_balance = T::Currency::free_balance(&account.clone());
 
-        assert_ok!(Network::<T>::add_to_delegate_stake(
+        assert_ok!(Network::<T>::add_delegate_stake(
             RawOrigin::Signed(account.clone()).into(),
             from_subnet_id,
             amount,
@@ -5764,7 +5760,7 @@ mod benchmarks {
                 assert_eq!(*to_subnet_id, starting_to_subnet_id);
                 assert_ne!(*balance, 0);
             }
-            QueuedSwapCall::SwapToNodeDelegateStake { .. } => assert!(false),
+            QueuedSwapCall::SwapToValidatorDelegateStake { .. } => assert!(false),
         };
 
         let next_id = NextSwapQueueId::<T>::get();
@@ -5803,7 +5799,7 @@ mod benchmarks {
                 assert_ne!(*balance, 0);
                 assert_ne!(*balance, u128::MAX);
             }
-            QueuedSwapCall::SwapToNodeDelegateStake { .. } => assert!(false),
+            QueuedSwapCall::SwapToValidatorDelegateStake { .. } => assert!(false),
         };
     }
 

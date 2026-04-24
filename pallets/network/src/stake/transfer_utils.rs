@@ -67,20 +67,47 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Swap stake from a subnet to a subnet node
-    ///
-    /// # Arguments
-    ///
-    /// * `from_subnet_id` - Subnet ID unstaking from.
-    /// * `to_subnet_id` - Subnet ID staking to in relation to subnet node ID .
-    /// * `to_subnet_node_id` - Subnet node ID adding stake to.
-    /// * `delegate_stake_shares_to_swap` - Shares to remove (from subnet) to (to node) then be added as converted balance.
-    ///
-    pub fn do_swap_from_subnet_to_node(
+    pub fn do_swap_from_validator_to_subnet(
+        origin: T::RuntimeOrigin,
+        from_validator_id: u32,
+        to_subnet_id: u32,
+        node_delegate_stake_shares_to_swap: u128,
+    ) -> DispatchResult {
+        let account_id: T::AccountId = ensure_signed(origin)?;
+
+        // Perform removal of stake AND ensure success
+        // Return the balance we removed
+        let (result, balance, _) = Self::perform_do_remove_validator_delegate_stake(
+            &account_id,
+            from_validator_id,
+            node_delegate_stake_shares_to_swap,
+            false,
+        );
+
+        result?;
+
+        let call = QueuedSwapCall::SwapToSubnetDelegateStake {
+            account_id: account_id.clone(),
+            to_subnet_id,
+            balance,
+        };
+
+        Self::queue_swap(account_id.clone(), call)?;
+
+        // Self::deposit_event(Event::DelegateValidatorToSubnetDelegateStakeSwapped {
+        //     account_id: account_id.clone(),
+        //     from_validator_id: from_validator_id,
+        //     to_subnet_id: to_subnet_id,
+        //     amount: balance,
+        // });
+
+        Ok(())
+    }
+
+    pub fn do_swap_from_subnet_to_validator(
         origin: T::RuntimeOrigin,
         from_subnet_id: u32,
-        to_subnet_id: u32,
-        to_subnet_node_id: u32,
+        to_validator_id: u32,
         delegate_stake_shares_to_swap: u128,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
@@ -94,22 +121,20 @@ impl<T: Config> Pallet<T> {
 
         result?;
 
-        let call = QueuedSwapCall::SwapToNodeDelegateStake {
+        let call = QueuedSwapCall::SwapToValidatorDelegateStake {
             account_id: account_id.clone(),
-            to_subnet_id,
-            to_subnet_node_id,
+            to_validator_id,
             balance,
         };
 
         Self::queue_swap(account_id.clone(), call)?;
 
-        Self::deposit_event(Event::SubnetDelegateToNodeDelegateStakeSwapped {
-            account_id: account_id,
-            from_subnet_id: from_subnet_id,
-            to_subnet_id: to_subnet_id,
-            to_subnet_node_id: to_subnet_node_id,
-            amount: balance,
-        });
+        // Self::deposit_event(Event::SubnetDelegateToValidatorDelegateStakeSwapped {
+        //     account_id: account_id,
+        //     from_subnet_id: from_subnet_id,
+        //     to_validator_id: to_validator_id,
+        //     amount: balance,
+        // });
 
         Ok(())
     }

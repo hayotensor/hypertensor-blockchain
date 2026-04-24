@@ -41,7 +41,7 @@ impl<T: Config> Pallet<T> {
             None => return Err(Error::<T>::CouldNotConvertToBalance.into()),
         };
 
-        let account_stake_balance: u128 = OverwatchStake::<T>::get(overwatch_node_id);
+        let account_stake_balance: u128 = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
 
         ensure!(
             account_stake_balance.saturating_add(stake_to_be_added)
@@ -89,7 +89,7 @@ impl<T: Config> Pallet<T> {
         // --- Ensure that the stake amount to be removed is above zero.
         ensure!(stake_to_be_removed > 0, Error::<T>::AmountZero);
 
-        let account_stake_balance: u128 = OverwatchStake::<T>::get(overwatch_node_id);
+        let account_stake_balance: u128 = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
 
         // --- Ensure that the account has enough stake to withdraw.
         ensure!(
@@ -133,17 +133,21 @@ impl<T: Config> Pallet<T> {
 
     pub fn increase_overwatch_node_stake(overwatch_node_id: u32, amount: u128) {
         // -- increase account overwatch staking balance
-        OverwatchStake::<T>::mutate(overwatch_node_id, |mut n| n.saturating_accrue(amount));
+        OverwatchNodeStakeBalance::<T>::mutate(overwatch_node_id, |mut n| {
+            n.saturating_accrue(amount)
+        });
 
         // -- increase total overwatch stake
-        TotalOverwatchStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
+        TotalOverwatchNodeStakeBalance::<T>::mutate(|mut n| n.saturating_accrue(amount));
     }
 
     pub fn decrease_overwatch_node_stake(overwatch_node_id: u32, amount: u128) {
         // -- decrease account overwatch staking balance
-        OverwatchStake::<T>::mutate(overwatch_node_id, |mut n| n.saturating_reduce(amount));
+        OverwatchNodeStakeBalance::<T>::mutate(overwatch_node_id, |mut n| {
+            n.saturating_reduce(amount)
+        });
 
         // -- decrease total overwatch stake
-        TotalOverwatchStake::<T>::mutate(|mut n| n.saturating_reduce(amount));
+        TotalOverwatchNodeStakeBalance::<T>::mutate(|mut n| n.saturating_reduce(amount));
     }
 }

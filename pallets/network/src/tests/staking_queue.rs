@@ -2,11 +2,11 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountNodeDelegateStakeShares, AccountSubnetDelegateStakeShares, DelegateStakeCooldownEpochs,
-    HotkeySubnetNodeId, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, NextSwapQueueId,
+    AccountSubnetDelegateStakeShares, AccountValidatorDelegateStakeShares,
+    DelegateStakeCooldownEpochs, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, NextSwapQueueId,
     QueuedSwapCall, QueuedSwapItem, StakeUnbondingLedger, SubnetName, SwapCallQueue,
-    SwapQueueOrder, TotalNodeDelegateStakeBalance, TotalNodeDelegateStakeShares,
-    TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeShares,
+    SwapQueueOrder, TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeShares,
+    ValidatorDelegateStakeBalance, ValidatorDelegateStakeShares,
 };
 use frame_support::assert_ok;
 use frame_support::traits::Currency;
@@ -55,18 +55,16 @@ fn insert_to_subnet_swap_call_queue(account_id: AccountIdOf<Test>, subnet_id: u3
     NextSwapQueueId::<Test>::mutate(|next_id| *next_id = next_id.saturating_add(1));
 }
 
-fn insert_to_node_swap_call_queue(
+fn insert_to_validator_swap_call_queue(
     account_id: AccountIdOf<Test>,
-    subnet_id: u32,
-    subnet_node_id: u32,
+    validator_id: u32,
     balance: u128,
 ) {
     let id = NextSwapQueueId::<Test>::get();
 
-    let call = QueuedSwapCall::SwapToNodeDelegateStake {
+    let call = QueuedSwapCall::SwapToValidatorDelegateStake {
         account_id: account_id,
-        to_subnet_id: subnet_id,
-        to_subnet_node_id: subnet_node_id,
+        to_validator_id: validator_id,
         balance: balance,
     };
 
@@ -96,11 +94,11 @@ fn test_update_swap_queue_delegate_stake() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
         let from_subnet_name: Vec<u8> = "subnet-name".into();
-        build_activated_subnet(from_subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2(from_subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
         let from_subnet_id = SubnetName::<Test>::get(from_subnet_name.clone()).unwrap();
 
         let to_subnet_name: Vec<u8> = "subnet-name-2".into();
-        build_activated_subnet(to_subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2(to_subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
         let to_subnet_id = SubnetName::<Test>::get(to_subnet_name.clone()).unwrap();
 
         let n_account = 255;
@@ -125,7 +123,7 @@ fn test_update_swap_queue_delegate_stake() {
 
         let starting_delegator_balance = Balances::free_balance(&account(n_account));
 
-        assert_ok!(Network::add_to_delegate_stake(
+        assert_ok!(Network::add_delegate_stake(
             RuntimeOrigin::signed(account(n_account)),
             from_subnet_id,
             amount,
@@ -191,7 +189,7 @@ fn test_update_swap_queue_delegate_stake() {
                 assert_eq!(*to_subnet_id, starting_to_subnet_id);
                 assert_ne!(*balance, 0);
             }
-            QueuedSwapCall::SwapToNodeDelegateStake { .. } => assert!(false),
+            QueuedSwapCall::SwapToValidatorDelegateStake { .. } => assert!(false),
         };
 
         let next_id = NextSwapQueueId::<Test>::get();
@@ -247,16 +245,15 @@ fn test_update_swap_queue_delegate_stake() {
                 assert_ne!(*balance, 0);
                 assert_ne!(*balance, u128::MAX);
             }
-            QueuedSwapCall::SwapToNodeDelegateStake { .. } => assert!(false),
+            QueuedSwapCall::SwapToValidatorDelegateStake { .. } => assert!(false),
         };
 
         //
-        // Update back to the `starting_to_subnet_id` with node ID as a `SwapToNodeDelegateStake`
+        // Update back to the `starting_to_subnet_id` with node ID as a `SwapToValidatorDelegateStake`
         //
-        let call = QueuedSwapCall::SwapToNodeDelegateStake {
+        let call = QueuedSwapCall::SwapToValidatorDelegateStake {
             account_id: account(n_account),
-            to_subnet_id: starting_to_subnet_id,
-            to_subnet_node_id: 1,
+            to_validator_id: 1,
             balance: u128::MAX,
         };
 
@@ -271,15 +268,15 @@ fn test_update_swap_queue_delegate_stake() {
                 Event::SwapCallQueueUpdated {
                     id: prev_next_id_val,
                     account_id: account_id_val,
-                    call: QueuedSwapCall::SwapToSubnetDelegateStake {
+                    call: QueuedSwapCall::SwapToValidatorDelegateStake {
                         account_id: account_id_val2,
-                        to_subnet_id: from_subnet_id_val,
+                        to_validator_id: 1,
                         balance: _, // Ignore balance
                     }
                 } if *prev_next_id_val == prev_next_id
                 && *account_id_val == account(n_account)
                 && *account_id_val2 == account(n_account)
-                && *from_subnet_id_val == from_subnet_id
+                // && *from_subnet_id_val == from_subnet_id
             )
         });
         assert!(event_exists);
@@ -288,18 +285,15 @@ fn test_update_swap_queue_delegate_stake() {
         assert_eq!(call_queue.clone().unwrap().id, prev_next_id);
         match &call_queue.clone().unwrap().call {
             QueuedSwapCall::SwapToSubnetDelegateStake { .. } => assert!(false),
-            QueuedSwapCall::SwapToNodeDelegateStake {
+            QueuedSwapCall::SwapToValidatorDelegateStake { 
                 account_id,
-                to_subnet_id,
-                to_subnet_node_id,
+                to_validator_id,
                 balance,
             } => {
                 assert_eq!(*account_id, account(n_account));
-                assert_eq!(*to_subnet_id, starting_to_subnet_id);
-                assert_eq!(*to_subnet_node_id, 1);
                 assert_ne!(*balance, 0);
                 assert_ne!(*balance, u128::MAX);
-            }
+            },
         };
     });
 }
@@ -313,7 +307,7 @@ fn test_update_swap_queue_node_delegate_stake() {
         let end = 4;
 
         let from_subnet_name: Vec<u8> = "subnet-name".into();
-        build_activated_subnet(
+        build_activated_subnet_v2(
             from_subnet_name.clone(),
             0,
             end,
@@ -324,18 +318,22 @@ fn test_update_swap_queue_node_delegate_stake() {
         let from_subnet_node_id = 1;
 
         let to_subnet_name: Vec<u8> = "subnet-name-2".into();
-        build_activated_subnet(to_subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(to_subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let to_subnet_id = SubnetName::<Test>::get(to_subnet_name.clone()).unwrap();
         let to_subnet_node_id = 1;
+
+        let from_validator_id = 1;
+        let to_validator_id = 2;
+        let starting_to_validator_id = to_validator_id;
 
         let n_account = 255;
 
         let _ = Balances::deposit_creating(&account(n_account), amount + 500);
 
         let total_subnet_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(from_subnet_id, from_subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(from_validator_id);
         let total_subnet_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(from_subnet_id, from_subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(from_validator_id);
 
         let mut node_delegate_stake_to_be_added_as_shares = Network::convert_to_shares(
             amount,
@@ -350,31 +348,27 @@ fn test_update_swap_queue_node_delegate_stake() {
 
         let starting_delegator_balance = Balances::free_balance(&account(n_account));
 
-        assert_ok!(Network::add_to_node_delegate_stake(
+        assert_ok!(Network::add_validator_delegate_stake(
             RuntimeOrigin::signed(account(n_account)),
-            from_subnet_id,
-            from_subnet_node_id,
+            from_validator_id,
             amount,
         ));
 
-        let node_delegate_shares = AccountNodeDelegateStakeShares::<Test>::get((
-            account(n_account),
-            from_subnet_id,
-            from_subnet_node_id,
-        ));
+        let validator_delegate_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(account(n_account), from_validator_id);
         assert_eq!(
-            node_delegate_shares,
+            validator_delegate_shares,
             node_delegate_stake_to_be_added_as_shares
         );
-        assert_ne!(node_delegate_shares, 0);
+        assert_ne!(validator_delegate_shares, 0);
 
         let total_subnet_node_delegate_stake_shares =
-            TotalNodeDelegateStakeShares::<Test>::get(from_subnet_id, from_subnet_node_id);
+            ValidatorDelegateStakeShares::<Test>::get(from_validator_id);
         let total_subnet_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(from_subnet_id, from_subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(from_validator_id);
 
         let mut from_node_delegate_balance = Network::convert_to_balance(
-            node_delegate_shares,
+            validator_delegate_shares,
             total_subnet_node_delegate_stake_shares,
             total_subnet_node_delegate_stake_balance,
         );
@@ -383,35 +377,30 @@ fn test_update_swap_queue_node_delegate_stake() {
         // assert_eq!(from_delegate_balance, delegate_stake_to_be_added_as_shares);
 
         let prev_total_subnet_node_delegate_stake_balance =
-            TotalNodeDelegateStakeBalance::<Test>::get(from_subnet_id, from_subnet_node_id);
+            ValidatorDelegateStakeBalance::<Test>::get(from_validator_id);
         let prev_next_id = NextSwapQueueId::<Test>::get();
 
-        assert_ok!(Network::swap_node_delegate_stake(
+        assert_ok!(Network::swap_validator_delegate_stake(
             RuntimeOrigin::signed(account(n_account)),
-            from_subnet_id,
-            from_subnet_node_id,
-            to_subnet_id,
-            to_subnet_node_id,
-            node_delegate_shares,
+            from_validator_id,
+            to_validator_id,
+            validator_delegate_shares,
         ));
 
         // Check ledger doesn't have any unbondings and is empty
         assert!(StakeUnbondingLedger::<Test>::get(account(n_account)).is_empty());
 
-        let from_node_delegate_shares = AccountNodeDelegateStakeShares::<Test>::get((
-            account(n_account),
-            from_subnet_id,
-            from_subnet_node_id,
-        ));
-        assert_eq!(from_node_delegate_shares, 0);
+        let from_validator_delegate_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(account(n_account), from_validator_id);
+        assert_eq!(from_validator_delegate_shares, 0);
 
         assert_ne!(
             prev_total_subnet_node_delegate_stake_balance,
-            TotalNodeDelegateStakeBalance::<Test>::get(from_subnet_id, from_subnet_node_id)
+            ValidatorDelegateStakeBalance::<Test>::get(from_validator_id)
         );
         assert!(
             prev_total_subnet_node_delegate_stake_balance
-                > TotalNodeDelegateStakeBalance::<Test>::get(from_subnet_id, from_subnet_node_id)
+                > ValidatorDelegateStakeBalance::<Test>::get(from_validator_id)
         );
 
         // Check the queue
@@ -420,16 +409,13 @@ fn test_update_swap_queue_node_delegate_stake() {
         assert_eq!(call_queue.clone().unwrap().id, prev_next_id);
         match &call_queue.clone().unwrap().call {
             QueuedSwapCall::SwapToSubnetDelegateStake { .. } => assert!(false),
-            QueuedSwapCall::SwapToNodeDelegateStake {
+            QueuedSwapCall::SwapToValidatorDelegateStake {
                 account_id,
-                to_subnet_id,
-                to_subnet_node_id,
+                to_validator_id,
                 balance,
             } => {
                 assert_eq!(*account_id, account(n_account));
-                assert_eq!(*to_subnet_id, starting_to_subnet_id);
-                assert_eq!(*to_subnet_node_id, 1);
-                assert_ne!(*balance, 0);
+                assert_eq!(*to_validator_id, starting_to_validator_id);
             }
         };
 
@@ -486,16 +472,15 @@ fn test_update_swap_queue_node_delegate_stake() {
                 assert_ne!(*balance, 0);
                 assert_ne!(*balance, u128::MAX);
             }
-            QueuedSwapCall::SwapToNodeDelegateStake { .. } => assert!(false),
+            QueuedSwapCall::SwapToValidatorDelegateStake { .. } => assert!(false),
         };
 
         //
-        // Update back to the `starting_to_subnet_id` with node ID as a `SwapToNodeDelegateStake`
+        // Update back to the `starting_to_subnet_id` with node ID as a `SwapToValidatorDelegateStake`
         //
-        let call = QueuedSwapCall::SwapToNodeDelegateStake {
+        let call = QueuedSwapCall::SwapToValidatorDelegateStake {
             account_id: account(n_account),
-            to_subnet_id: starting_to_subnet_id,
-            to_subnet_node_id: 1,
+            to_validator_id: 1,
             balance: u128::MAX,
         };
 
@@ -527,18 +512,14 @@ fn test_update_swap_queue_node_delegate_stake() {
         assert_eq!(call_queue.clone().unwrap().id, prev_next_id);
         match &call_queue.clone().unwrap().call {
             QueuedSwapCall::SwapToSubnetDelegateStake { .. } => assert!(false),
-            QueuedSwapCall::SwapToNodeDelegateStake {
+            QueuedSwapCall::SwapToValidatorDelegateStake { 
                 account_id,
-                to_subnet_id,
-                to_subnet_node_id,
-                balance,
-            } => {
+                to_validator_id,
+                balance
+             } => {
                 assert_eq!(*account_id, account(n_account));
-                assert_eq!(*to_subnet_id, starting_to_subnet_id);
-                assert_eq!(*to_subnet_node_id, 1);
-                assert_ne!(*balance, 0);
                 assert_ne!(*balance, u128::MAX);
-            }
+             },
         };
     });
 }
@@ -554,9 +535,10 @@ fn test_execute_ready_swap_calls() {
         let end = 4;
 
         let name_1: Vec<u8> = "subnet-name".into();
-        build_activated_subnet(name_1.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(name_1.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id_1 = SubnetName::<Test>::get(name_1.clone()).unwrap();
         let subnet_id_1_key_offset = get_subnet_id_key_offset(subnet_id_1);
+        let validator_id = 1;
 
         let queues_count = 12;
 
@@ -570,24 +552,10 @@ fn test_execute_ready_swap_calls() {
                     AccountSubnetDelegateStakeShares::<Test>::get(&account(n), subnet_id_1);
                 assert_eq!(user_shares, 0);
             } else {
-                let hotkey = get_hotkey(
-                    subnet_id_1_key_offset,
-                    max_subnet_nodes,
-                    max_subnets,
-                    end - 1,
-                );
-                let hotkey_subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id_1, hotkey);
-                insert_to_node_swap_call_queue(
-                    account(n),
-                    subnet_id_1,
-                    hotkey_subnet_node_id.unwrap(),
-                    amount,
-                );
-                let user_shares = AccountNodeDelegateStakeShares::<Test>::get((
-                    &account(n),
-                    subnet_id_1,
-                    hotkey_subnet_node_id.unwrap(),
-                ));
+                let subnet_node_id = end - 1;
+                insert_to_validator_swap_call_queue(account(n), validator_id, amount);
+                let user_shares =
+                    AccountValidatorDelegateStakeShares::<Test>::get(&account(n), validator_id);
                 assert_eq!(user_shares, 0);
             }
         }
@@ -610,9 +578,10 @@ fn test_execute_ready_swap_calls() {
                         assert_ne!(*balance, 0);
                         assert_ne!(*balance, u128::MAX);
                     }
-                    QueuedSwapCall::SwapToNodeDelegateStake { .. } => assert!(false),
+                    QueuedSwapCall::SwapToValidatorDelegateStake { .. } => assert!(false),
                 };
             } else {
+                //
             }
             n += 1;
         }
@@ -641,18 +610,9 @@ fn test_execute_ready_swap_calls() {
                 assert!(user_shares > 0);
             } else {
                 // check node delegate stake balance
-                let hotkey = get_hotkey(
-                    subnet_id_1_key_offset,
-                    max_subnet_nodes,
-                    max_subnets,
-                    end - 1,
-                );
-                let hotkey_subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id_1, hotkey);
-                let user_shares = AccountNodeDelegateStakeShares::<Test>::get((
-                    &account(n),
-                    subnet_id_1,
-                    hotkey_subnet_node_id.unwrap(),
-                ));
+                let subnet_node_id = end - 1;
+                let user_shares =
+                    AccountValidatorDelegateStakeShares::<Test>::get(&account(n), validator_id);
                 assert!(user_shares > 0);
             }
         }

@@ -104,18 +104,15 @@ impl<T: Config> Pallet<T> {
         delegate_account_id: Option<T::AccountId>,
         delegate_rate: Option<u128>,
     ) -> DispatchResult {
-        ValidatorsData::<T>::try_mutate_exists(
-            validator_id,
-            |maybe_params| -> DispatchResult {
-                Self::perform_update_validator_delegate_account(
-                    validator_id,
-                    validator_coldkey,
-                    maybe_params,
-                    delegate_account_id,
-                    delegate_rate,
-                )
-            },
-        )?;
+        ValidatorsData::<T>::try_mutate_exists(validator_id, |maybe_params| -> DispatchResult {
+            Self::perform_update_validator_delegate_account(
+                validator_id,
+                validator_coldkey,
+                maybe_params,
+                delegate_account_id,
+                delegate_rate,
+            )
+        })?;
 
         Ok(())
     }

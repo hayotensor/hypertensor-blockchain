@@ -1349,6 +1349,26 @@ pub mod pallet {
         pub consecutive_included_epochs: u32,
     }
 
+    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+    pub struct SubnetNodeInfoV2<AccountId> {
+        pub validator_id: Option<u32>,
+        pub subnet_id: u32,
+        pub subnet_node_id: u32,
+        pub coldkey: AccountId,
+        pub hotkey: AccountId,
+        pub peer_info: PeerInfo,
+        pub bootnode_peer_info: Option<PeerInfo>,
+        pub client_peer_info: Option<PeerInfo>,
+        pub classification: SubnetNodeClassification,
+        pub unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        pub non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        pub stake_balance: u128,
+        pub subnet_node_reputation: Option<u128>,
+        pub node_slot_index: Option<u32>,
+        pub consecutive_idle_epochs: u32,
+        pub consecutive_included_epochs: u32,
+    }
+
     /// RPC helper for node stakes
     #[derive(
         Default,
@@ -1366,6 +1386,24 @@ pub mod pallet {
         pub subnet_id: Option<u32>,
         pub subnet_node_id: Option<u32>,
         pub hotkey: AccountId,
+        pub balance: u128,
+    }
+
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        Clone,
+        PartialEq,
+        Eq,
+        RuntimeDebug,
+        PartialOrd,
+        Ord,
+        scale_info::TypeInfo,
+    )]
+    pub struct NodeStakeInfo {
+        pub subnet_id: Option<u32>,
+        pub subnet_node_id: Option<u32>,
         pub balance: u128,
     }
 
@@ -1404,6 +1442,25 @@ pub mod pallet {
     pub struct NodeDelegateStakeInfo {
         pub subnet_id: u32,
         pub subnet_node_id: u32,
+        pub shares: u128,
+        pub balance: u128,
+    }
+
+    /// RPC helper for node delegate stakes
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        Clone,
+        PartialEq,
+        Eq,
+        RuntimeDebug,
+        PartialOrd,
+        Ord,
+        scale_info::TypeInfo,
+    )]
+    pub struct ValidatorDelegateStakeInfo {
+        pub validator_id: u32,
         pub shares: u128,
         pub balance: u128,
     }
@@ -3808,12 +3865,12 @@ pub mod pallet {
     )]
     pub struct ValidatorInfo<AccountId> {
         pub id: u32,
+        pub coldkey: Option<AccountId>,
         pub hotkey: AccountId,
         pub delegate_reward_rate: u128,
         pub last_delegate_reward_rate_update: u32,
         pub delegate_account: Option<DelegateAccount<AccountId>>,
         pub identity: Option<IdentityData>,
-        pub coldkey: AccountId,
     }
 
     #[pallet::type_value]
@@ -3849,14 +3906,8 @@ pub mod pallet {
         StorageMap<_, Blake2_128Concat, u32, T::AccountId, OptionQuery>;
 
     #[pallet::storage]
-    pub type ValidatorColdkeyHotkey<T: Config> = StorageMap<
-        _,
-        Blake2_128Concat,
-        T::AccountId,
-        T::AccountId,
-        ValueQuery,
-        DefaultAccountId<T>,
-    >;
+    pub type ValidatorColdkeyHotkey<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, T::AccountId, OptionQuery>;
 
     /// Mapping of each hotkeys subnet node ID in each subnet
     /// Subnet ID => Hotkey => Subnet Node ID
@@ -3866,7 +3917,7 @@ pub mod pallet {
 
     /// The subnet nodes validator ID
     /// This never gets deleted to always allow for removing stake
-    #[pallet::storage] // subnet_id --> param --> node ID
+    #[pallet::storage] // subnet_id --> subnet node id --> validator ID
     pub type SubnetNodeValidatorId<T> = StorageDoubleMap<
         _,
         Identity,
@@ -3900,11 +3951,11 @@ pub mod pallet {
 
     /// Total stake sum of all nodes in specified validator
     #[pallet::storage] // validator_id --> u128
-    pub type TotalValidatorDelegateStakeShares<T> = StorageMap<_, Identity, u32, u128, ValueQuery>;
+    pub type ValidatorDelegateStakeShares<T> = StorageMap<_, Identity, u32, u128, ValueQuery>;
 
     /// Total stake sum of all nodes in specified validator
     #[pallet::storage] // validator_id --> u128
-    pub type TotalValidatorDelegateStakeBalance<T> = StorageMap<_, Identity, u32, u128, ValueQuery>;
+    pub type ValidatorDelegateStakeBalance<T> = StorageMap<_, Identity, u32, u128, ValueQuery>;
 
     /// An accounts delegate stake sharesper validator
     #[pallet::storage] // account --> validator_id --> u128
@@ -3918,6 +3969,9 @@ pub mod pallet {
         ValueQuery,
         DefaultZeroU128,
     >;
+
+    #[pallet::storage]
+    pub type TotalValidatorDelegateStakeBalance<T> = StorageValue<_, u128, ValueQuery>;
 
     //
     // Node burn
@@ -4504,7 +4558,7 @@ pub mod pallet {
     >;
 
     #[pallet::storage] // overwatch_node_id --> stake
-    pub type OverwatchStake<T: Config> =
+    pub type OverwatchNodeStakeBalance<T: Config> =
         StorageMap<_, Blake2_128Concat, u32, u128, ValueQuery, DefaultZeroU128>;
 
     //
@@ -4512,7 +4566,7 @@ pub mod pallet {
     //
 
     #[pallet::storage]
-    pub type TotalOverwatchStake<T> = StorageValue<_, u128, ValueQuery>;
+    pub type TotalOverwatchNodeStakeBalance<T> = StorageValue<_, u128, ValueQuery>;
 
     /// Overwatch hotkey stake balance
     #[pallet::storage] // subnet_uid --> stake
@@ -4539,11 +4593,10 @@ pub mod pallet {
             to_subnet_id: u32,
             balance: u128,
         },
-        // swap_node_delegate_stake
-        SwapToNodeDelegateStake {
+        // swap_validator_delegate_stake
+        SwapToValidatorDelegateStake {
             account_id: AccountId,
-            to_subnet_id: u32,
-            to_subnet_node_id: u32,
+            to_validator_id: u32,
             balance: u128,
         },
     }
@@ -4560,7 +4613,7 @@ pub mod pallet {
         pub fn get_queue_balance(&self) -> u128 {
             match self {
                 QueuedSwapCall::SwapToSubnetDelegateStake { balance, .. } => *balance,
-                QueuedSwapCall::SwapToNodeDelegateStake { balance, .. } => *balance,
+                QueuedSwapCall::SwapToValidatorDelegateStake { balance, .. } => *balance,
             }
         }
     }
@@ -5514,7 +5567,7 @@ pub mod pallet {
         ///
         #[pallet::call_index(50)]
         #[pallet::weight({0})]
-        pub fn add_to_delegate_stake(
+        pub fn add_delegate_stake(
             origin: OriginFor<T>,
             subnet_id: u32,
             stake_to_be_added: u128,
@@ -5696,7 +5749,7 @@ pub mod pallet {
         ///
         #[pallet::call_index(55)]
         #[pallet::weight({0})]
-        pub fn add_to_node_delegate_stake(
+        pub fn add_node_delegate_stake(
             origin: OriginFor<T>,
             subnet_id: u32,
             subnet_node_id: u32,
@@ -5751,14 +5804,15 @@ pub mod pallet {
                 Error::<T>::InvalidSubnetNodeId
             );
 
-            Self::do_swap_node_delegate_stake(
-                origin,
-                from_subnet_id,
-                from_subnet_node_id,
-                to_subnet_id,
-                to_subnet_node_id,
-                node_delegate_stake_shares_to_swap,
-            )
+            // Self::do_swap_node_delegate_stake(
+            //     origin,
+            //     from_subnet_id,
+            //     from_subnet_node_id,
+            //     to_subnet_id,
+            //     to_subnet_node_id,
+            //     node_delegate_stake_shares_to_swap,
+            // )
+            Ok(())
         }
 
         /// Transfer node delegate stake balance (via shares) to a new account
@@ -5940,13 +5994,14 @@ pub mod pallet {
                 Error::<T>::InvalidSubnetNodeId
             );
 
-            Self::do_swap_from_subnet_to_node(
-                origin,
-                from_subnet_id,
-                to_subnet_id,
-                to_subnet_node_id,
-                delegate_stake_shares_to_swap,
-            )
+            // Self::do_swap_from_subnet_to_node(
+            //     origin,
+            //     from_subnet_id,
+            //     to_subnet_id,
+            //     to_subnet_node_id,
+            //     delegate_stake_shares_to_swap,
+            // )
+            Ok(())
         }
 
         #[pallet::call_index(62)]
@@ -6041,15 +6096,16 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            Self::do_propose_attestation(
-                subnet_id,
-                hotkey,
-                data,
-                prioritize_queue_node_id,
-                remove_queue_node_id,
-                args,
-                attest_data,
-            )
+            // Self::do_propose_attestation(
+            //     subnet_id,
+            //     hotkey,
+            //     data,
+            //     prioritize_queue_node_id,
+            //     remove_queue_node_id,
+            //     args,
+            //     attest_data,
+            // )
+            Ok(().into())
         }
 
         /// Attest validators view of the subnet
@@ -6071,7 +6127,8 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            Self::do_attest(subnet_id, hotkey, attest_data)
+            // Self::do_attest(subnet_id, hotkey, attest_data)
+            Ok(().into())
         }
 
         /// Update coldkey
@@ -7379,7 +7436,6 @@ pub mod pallet {
         pub fn remove_validator_delegate_stake(
             origin: OriginFor<T>,
             validator_id: u32,
-            to_account_id: T::AccountId,
             validator_delegate_stake_shares_to_be_removed: u128,
         ) -> DispatchResult {
             Self::is_paused()?;
@@ -7881,6 +7937,151 @@ pub mod pallet {
             Self::is_paused()?;
 
             Self::do_attest_v2(hotkey, subnet_id, subnet_node_id, data)
+        }
+
+        #[pallet::call_index(190)]
+        #[pallet::weight({0})]
+        pub fn add_node_stake(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_node_id: u32,
+            stake_to_be_added: u128,
+        ) -> DispatchResult {
+            ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            Self::do_add_node_stake(origin.clone(), subnet_id, subnet_node_id, stake_to_be_added)
+        }
+
+        #[pallet::call_index(191)]
+        #[pallet::weight({0})]
+        pub fn remove_node_stake(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_node_id: u32,
+            stake_to_be_removed: u128,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            Self::do_remove_node_stake(
+                origin.clone(),
+                subnet_id,
+                subnet_node_id,
+                stake_to_be_removed,
+            )
+        }
+
+        #[pallet::call_index(192)]
+        #[pallet::weight({0})]
+        pub fn swap_validator_delegate_stake(
+            origin: OriginFor<T>,
+            from_validator_id: u32,
+            to_validator_id: u32,
+            stake_to_be_removed: u128,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            Self::do_swap_validator_delegate_stake(
+                origin.clone(),
+                from_validator_id,
+                to_validator_id,
+                stake_to_be_removed,
+            )
+        }
+
+        #[pallet::call_index(193)]
+        #[pallet::weight({0})]
+        pub fn donate_validator_delegate_stake(
+            origin: OriginFor<T>,
+            validator_id: u32,
+            amount: u128,
+        ) -> DispatchResult {
+            let account_id: T::AccountId = ensure_signed(origin)?;
+
+            Self::is_paused()?;
+
+            // --- Ensure Subnet Node exists, otherwise at risk of burning tokens
+            ensure!(
+                ValidatorsData::<T>::contains_key(validator_id),
+                Error::<T>::InvalidSubnetNodeId
+            );
+
+            ensure!(
+                amount >= MinDelegateStakeDeposit::<T>::get(),
+                Error::<T>::MinDelegateStake
+            );
+
+            let amount_as_balance = match Self::u128_to_balance(amount) {
+                Some(b) => b,
+                None => return Err(Error::<T>::CouldNotConvertToBalance.into()),
+            };
+
+            // --- Ensure the callers account_id has enough balance to perform the transaction.
+            ensure!(
+                Self::can_remove_balance_from_coldkey_account(&account_id, amount_as_balance),
+                Error::<T>::NotEnoughBalance
+            );
+
+            // --- Ensure the remove operation from the account_id is a success.
+            ensure!(
+                Self::remove_balance_from_coldkey_account(&account_id, amount_as_balance) == true,
+                Error::<T>::BalanceWithdrawalError
+            );
+
+            Self::do_increase_validator_delegate_stake(validator_id, amount);
+
+            Ok(())
+        }
+
+        #[pallet::call_index(194)]
+        #[pallet::weight({0})]
+        pub fn swap_from_validator_to_subnet(
+            origin: OriginFor<T>,
+            from_validator_id: u32,
+            to_subnet_id: u32,
+            node_delegate_stake_shares_to_swap: u128,
+        ) -> DispatchResult {
+            Self::is_paused()?;
+
+            ensure!(
+                SubnetsData::<T>::contains_key(to_subnet_id),
+                Error::<T>::InvalidSubnetId
+            );
+
+            Self::do_swap_from_validator_to_subnet(
+                origin,
+                from_validator_id,
+                to_subnet_id,
+                node_delegate_stake_shares_to_swap,
+            )
+        }
+
+        #[pallet::call_index(195)]
+        #[pallet::weight({0})]
+        pub fn swap_from_subnet_to_validator(
+            origin: OriginFor<T>,
+            from_subnet_id: u32,
+            to_validator_id: u32,
+            subnet_delegate_stake_shares_to_swap: u128,
+        ) -> DispatchResult {
+            Self::is_paused()?;
+
+            ensure!(
+                ValidatorsData::<T>::contains_key(to_validator_id),
+                Error::<T>::InvalidValidatorId
+            );
+
+            Self::do_swap_from_subnet_to_validator(
+                origin,
+                from_subnet_id,
+                to_validator_id,
+                subnet_delegate_stake_shares_to_swap,
+            )
         }
     }
 
@@ -9295,6 +9496,18 @@ pub mod pallet {
                 SubnetNodesData::<T>::clear_prefix(subnet_id, u32::MAX, None);
             weight_acc.add_clear_prefix(removed_subnet_nodes_data.unique);
 
+            let registered_subnet_nodes_data_removed =
+                RegisteredSubnetNodesData::<T>::clear_prefix(subnet_id, u32::MAX, None);
+            weight_acc.add_clear_prefix(registered_subnet_nodes_data_removed.unique);
+
+            let removed_subnet_nodes_data =
+                SubnetNodesDataV2::<T>::clear_prefix(subnet_id, u32::MAX, None);
+            weight_acc.add_clear_prefix(removed_subnet_nodes_data.unique);
+
+            let registered_subnet_nodes_data_removed =
+                RegisteredSubnetNodesDataV2::<T>::clear_prefix(subnet_id, u32::MAX, None);
+            weight_acc.add_clear_prefix(registered_subnet_nodes_data_removed.unique);
+
             let total_nodes = TotalActiveSubnetNodes::<T>::take(subnet_id);
             weight_acc.add_take();
 
@@ -9342,9 +9555,6 @@ pub mod pallet {
             let subnet_node_consecutive_included_epochs_removed =
                 SubnetNodeConsecutiveIncludedEpochs::<T>::clear_prefix(subnet_id, u32::MAX, None);
             weight_acc.add_clear_prefix(subnet_node_consecutive_included_epochs_removed.unique);
-            let registered_subnet_nodes_data_removed =
-                RegisteredSubnetNodesData::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(registered_subnet_nodes_data_removed.unique);
 
             let subnet_elected_validator =
                 SubnetElectedValidator::<T>::clear_prefix(subnet_id, u32::MAX, None);
@@ -10475,24 +10685,20 @@ pub mod pallet {
                         *balance,
                     );
                 }
-                QueuedSwapCall::SwapToNodeDelegateStake {
+                QueuedSwapCall::SwapToValidatorDelegateStake {
                     account_id,
-                    to_subnet_id,
-                    to_subnet_node_id,
+                    to_validator_id,
                     balance,
                 } => {
-                    if !weight_meter.can_consume(
-                        T::WeightInfo::handle_increase_account_node_delegate_stake_shares(),
-                    ) {
+                    if !weight_meter
+                        .can_consume(T::WeightInfo::handle_increase_account_delegate_stake())
+                    {
                         return false;
                     }
-                    weight_meter.consume(
-                        T::WeightInfo::handle_increase_account_node_delegate_stake_shares(),
-                    );
-                    let (_, _, _) = Self::handle_increase_account_node_delegate_stake_shares(
+                    // weight_meter.consume(T::WeightInfo::handle_increase_account_validator_delegate_stake());
+                    let (_, _, _) = Self::handle_increase_account_validator_delegate_stake(
                         account_id,
-                        *to_subnet_id,
-                        *to_subnet_node_id,
+                        *to_validator_id,
                         *balance,
                     );
                 }

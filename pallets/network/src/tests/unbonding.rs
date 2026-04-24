@@ -2,10 +2,11 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     AccountNodeDelegateStakeShares, AccountSubnetDelegateStakeShares, AccountSubnetStake,
-    DelegateStakeCooldownEpochs, Error, HotkeySubnetNodeId, MaxSubnetNodes, MaxSubnets,
-    MaxUnbondings, MinSubnetMinStake, NodeDelegateStakeCooldownEpochs, PeerInfo,
-    RegisteredSubnetNodesData, StakeCooldownEpochs, StakeUnbondingLedger, SubnetName,
-    SubnetNodeQueueEpochs, TotalActiveSubnets, TotalSubnetNodes,
+    AccountValidatorDelegateStakeShares, DelegateStakeCooldownEpochs, Error, HotkeySubnetNodeId,
+    MaxSubnetNodes, MaxSubnets, MaxUnbondings, MinSubnetMinStake, NodeDelegateStakeCooldownEpochs,
+    NodeSubnetStake, PeerInfo, RegisteredSubnetNodesData, RegisteredSubnetNodesDataV2,
+    StakeCooldownEpochs, StakeUnbondingLedger, SubnetName, SubnetNodeQueueEpochs,
+    TotalActiveSubnets, TotalSubnetNodeUids, TotalSubnetNodes, TotalValidatorIds,
 };
 use frame_support::traits::Currency;
 use frame_support::weights::WeightMeter;
@@ -42,7 +43,7 @@ fn test_register_remove_claim_stake_unbondings() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -59,45 +60,56 @@ fn test_register_remove_claim_stake_unbondings() {
         let starting_balance = Balances::free_balance(&coldkey.clone());
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
-        assert_ok!(Network::register_subnet_node(
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
+            None,
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
+
+        assert_ok!(Network::register_subnet_node_v2(
+            RuntimeOrigin::signed(coldkey.clone()),
+            current_id,
             subnet_id,
-            hotkey.clone(),
+            None,
             PeerInfo {
-                peer_id: peer_id.clone(),
+                peer_id: peer(999),
                 multiaddr: None,
             },
             None,
             None,
-            0,
             amount,
             None,
             None,
-            None,
-            u128::MAX
+            u128::MAX,
         ));
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-        let stake_balance = AccountSubnetStake::<Test>::get(&hotkey.clone(), subnet_id);
+        let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
         assert_eq!(stake_balance, amount);
 
         let after_stake_balance = Balances::free_balance(&coldkey.clone());
         assert_eq!(after_stake_balance, starting_balance - amount - burn_amount);
 
-        assert_ok!(Network::remove_subnet_node(
-            RuntimeOrigin::signed(hotkey.clone()),
+        assert_ok!(Network::remove_subnet_node_v2(
+            RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
         ));
 
-        let stake_balance = AccountSubnetStake::<Test>::get(&hotkey.clone(), subnet_id);
+        let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
 
         // remove amount ontop
-        assert_ok!(Network::remove_stake(
+        assert_ok!(Network::do_remove_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey.clone(),
+            subnet_node_id,
+            // false,
             stake_balance,
         ));
 
@@ -150,7 +162,7 @@ fn test_register_remove_delegate_claim_stake_unbondings() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
@@ -160,7 +172,7 @@ fn test_register_remove_delegate_claim_stake_unbondings() {
 
         let starting_balance = Balances::free_balance(&delegate_staker.clone());
 
-        assert_ok!(Network::add_to_delegate_stake(
+        assert_ok!(Network::add_delegate_stake(
             RuntimeOrigin::signed(delegate_staker.clone()),
             subnet_id,
             delegate_stake_amount,
@@ -229,11 +241,12 @@ fn test_register_remove_node_delegate_claim_stake_unbondings() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        let validator_id = end - 1;
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end - 1);
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = end - 1;
 
         let delegate_staker = account(999);
         let delegate_stake_amount = 1000e+18 as u128;
@@ -241,19 +254,29 @@ fn test_register_remove_node_delegate_claim_stake_unbondings() {
 
         let starting_balance = Balances::free_balance(&delegate_staker.clone());
 
-        assert_ok!(Network::add_to_node_delegate_stake(
+        // assert_ok!(Network::add_node_delegate_stake(
+        //     RuntimeOrigin::signed(delegate_staker.clone()),
+        //     subnet_id,
+        //     subnet_node_id,
+        //     delegate_stake_amount,
+        // ));
+
+        assert_ok!(Network::add_validator_delegate_stake(
             RuntimeOrigin::signed(delegate_staker.clone()),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             delegate_stake_amount,
         ));
 
-        let delegate_shares = AccountNodeDelegateStakeShares::<Test>::get((
-            delegate_staker.clone(),
-            subnet_id,
-            subnet_node_id,
-        ));
+        let delegate_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(delegate_staker.clone(), validator_id);
         assert!(delegate_shares > 0);
+
+        // let delegate_shares = AccountNodeDelegateStakeShares::<Test>::get((
+        //     delegate_staker.clone(),
+        //     subnet_id,
+        //     subnet_node_id,
+        // ));
+        // assert!(delegate_shares > 0);
 
         let after_stake_balance = Balances::free_balance(&delegate_staker.clone());
         assert_eq!(
@@ -265,10 +288,9 @@ fn test_register_remove_node_delegate_claim_stake_unbondings() {
         let before_remove_balance = Balances::free_balance(&delegate_staker.clone());
 
         // remove
-        assert_ok!(Network::remove_node_delegate_stake(
+        assert_ok!(Network::remove_validator_delegate_stake(
             RuntimeOrigin::signed(delegate_staker.clone()),
-            subnet_id,
-            subnet_node_id,
+            validator_id,
             delegate_shares,
         ));
 
@@ -315,7 +337,7 @@ fn test_register_activate_remove_claim_stake_unbondings() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -332,33 +354,40 @@ fn test_register_activate_remove_claim_stake_unbondings() {
         let starting_balance = Balances::free_balance(&coldkey.clone());
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
-        assert_ok!(Network::register_subnet_node(
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
+            None,
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
+
+        assert_ok!(Network::register_subnet_node_v2(
+            RuntimeOrigin::signed(coldkey.clone()),
+            current_id,
             subnet_id,
-            hotkey.clone(),
+            None,
             PeerInfo {
-                peer_id: peer_id.clone(),
+                peer_id: peer(999),
                 multiaddr: None,
             },
             None,
             None,
-            0,
             amount,
             None,
             None,
-            None,
-            u128::MAX
+            u128::MAX,
         ));
 
-        let hotkey_subnet_node_id =
-            HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-        let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
+        let subnet_node = RegisteredSubnetNodesDataV2::<Test>::get(subnet_id, subnet_node_id);
         let start_epoch = subnet_node.classification.start_epoch;
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
-
-        let stake_balance = AccountSubnetStake::<Test>::get(&hotkey.clone(), subnet_id);
+        let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
         assert_eq!(stake_balance, amount);
 
         let after_stake_balance = Balances::free_balance(&coldkey.clone());
@@ -377,10 +406,10 @@ fn test_register_activate_remove_claim_stake_unbondings() {
 
         // Get subnet weights (nodes only activate from queue if there are weights)
         // Note: This means a subnet is active if it gets weights
-        let _ = Network::handle_subnet_emission_weights(epoch);
+        let _ = Network::handle_subnet_emission_weights_v2(epoch);
 
         // Trigger the node activation
-        Network::emission_step(
+        Network::emission_step_v2(
             &mut WeightMeter::new(),
             System::block_number(),
             Network::get_current_epoch_as_u32(),
@@ -389,27 +418,34 @@ fn test_register_activate_remove_claim_stake_unbondings() {
         );
 
         assert_eq!(
-            RegisteredSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id),
+            RegisteredSubnetNodesDataV2::<Test>::try_get(subnet_id, subnet_node_id),
             Err(())
         );
 
-        assert_ok!(Network::remove_subnet_node(
+        assert_ok!(Network::remove_subnet_node_v2(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
         ));
 
-        let stake_balance = AccountSubnetStake::<Test>::get(&hotkey.clone(), subnet_id);
+        let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
 
         // remove amount ontop
-        assert_ok!(Network::remove_stake(
+        assert_ok!(Network::do_remove_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey.clone(),
+            subnet_node_id,
+            // false,
             stake_balance,
         ));
+        // assert_ok!(Network::remove_stake(
+        //     RuntimeOrigin::signed(coldkey.clone()),
+        //     subnet_id,
+        //     hotkey.clone(),
+        //     stake_balance,
+        // ));
 
-        assert_eq!(Network::account_subnet_stake(hotkey.clone(), 1), 0);
+        assert_eq!(NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id), 0);
 
         let epoch_length = EpochLength::get();
         let epoch = System::block_number() / epoch_length;
@@ -458,7 +494,7 @@ fn test_remove_stake_twice_in_epoch() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -475,27 +511,37 @@ fn test_remove_stake_twice_in_epoch() {
         let starting_balance = Balances::free_balance(&coldkey.clone());
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
-        assert_ok!(Network::register_subnet_node(
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
+            None,
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
+
+        assert_ok!(Network::register_subnet_node_v2(
+            RuntimeOrigin::signed(coldkey.clone()),
+            current_id,
             subnet_id,
-            hotkey.clone(),
+            None,
             PeerInfo {
-                peer_id: peer_id.clone(),
+                peer_id: peer(999),
                 multiaddr: None,
             },
             None,
             None,
-            0,
             stake_amount,
             None,
             None,
-            None,
-            u128::MAX
+            u128::MAX,
         ));
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+        let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-        let stake_balance = AccountSubnetStake::<Test>::get(&hotkey.clone(), subnet_id);
+        let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
         assert_eq!(stake_balance, stake_amount);
 
         let after_stake_balance = Balances::free_balance(&coldkey.clone());
@@ -506,24 +552,30 @@ fn test_remove_stake_twice_in_epoch() {
 
         let _ = Balances::deposit_creating(&account(1), stake_amount * 2);
 
-        assert_ok!(Network::add_stake(
+        assert_ok!(Network::do_add_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
-            hotkey.clone(),
             stake_amount * 3,
         ));
 
-        let stake_balance = AccountSubnetStake::<Test>::get(&hotkey.clone(), subnet_id);
+        let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
         assert_eq!(stake_balance, stake_amount + stake_amount * 3);
 
         let epoch = System::block_number() / EpochLength::get();
         let block = System::block_number();
 
-        assert_ok!(Network::remove_stake(
+        // assert_ok!(Network::remove_stake(
+        //     RuntimeOrigin::signed(coldkey.clone()),
+        //     subnet_id,
+        //     hotkey.clone(),
+        //     stake_amount,
+        // ));
+        assert_ok!(Network::do_remove_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey.clone(),
+            subnet_node_id,
+            // false,
             stake_amount,
         ));
 
@@ -537,10 +589,17 @@ fn test_remove_stake_twice_in_epoch() {
             &block + StakeCooldownEpochs::<Test>::get() * EpochLength::get()
         );
 
-        assert_ok!(Network::remove_stake(
+        // assert_ok!(Network::remove_stake(
+        //     RuntimeOrigin::signed(coldkey.clone()),
+        //     subnet_id,
+        //     hotkey.clone(),
+        //     stake_amount,
+        // ));
+        assert_ok!(Network::do_remove_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey.clone(),
+            subnet_node_id,
+            // false,
             stake_amount,
         ));
 
@@ -559,10 +618,17 @@ fn test_remove_stake_twice_in_epoch() {
         let epoch = System::block_number() / EpochLength::get();
         let block = System::block_number();
 
-        assert_ok!(Network::remove_stake(
+        // assert_ok!(Network::remove_stake(
+        //     RuntimeOrigin::signed(coldkey.clone()),
+        //     subnet_id,
+        //     hotkey.clone(),
+        //     stake_amount,
+        // ));
+        assert_ok!(Network::do_remove_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey.clone(),
+            subnet_node_id,
+            // false,
             stake_amount,
         ));
 
@@ -609,7 +675,7 @@ fn test_claim_stake_unbondings_no_unbondings_err() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -626,25 +692,37 @@ fn test_claim_stake_unbondings_no_unbondings_err() {
         let starting_balance = Balances::free_balance(&coldkey.clone());
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
-        assert_ok!(Network::register_subnet_node(
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
+            None,
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
+
+        assert_ok!(Network::register_subnet_node_v2(
+            RuntimeOrigin::signed(coldkey.clone()),
+            current_id,
             subnet_id,
-            hotkey.clone(),
+            None,
             PeerInfo {
-                peer_id: peer_id.clone(),
+                peer_id: peer(999),
                 multiaddr: None,
             },
             None,
             None,
-            0,
             stake_amount,
             None,
             None,
-            None,
-            u128::MAX
+            u128::MAX,
         ));
 
-        let stake_balance = AccountSubnetStake::<Test>::get(&hotkey.clone(), subnet_id);
+        let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
+
+        let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
         assert_eq!(stake_balance, stake_amount);
 
         let after_stake_balance = Balances::free_balance(&coldkey.clone());
@@ -658,20 +736,24 @@ fn test_claim_stake_unbondings_no_unbondings_err() {
             Error::<Test>::NoStakeUnbondingsOrCooldownNotMet
         );
 
-        let subnet_node_id = HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
-
-        assert_ok!(Network::add_stake(
+        assert_ok!(Network::do_add_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
-            hotkey.clone(),
             100,
         ));
 
-        assert_ok!(Network::remove_stake(
+        // assert_ok!(Network::remove_stake(
+        //     RuntimeOrigin::signed(coldkey.clone()),
+        //     subnet_id,
+        //     hotkey.clone(),
+        //     100,
+        // ));
+        assert_ok!(Network::do_remove_node_stake(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
-            hotkey.clone(),
+            subnet_node_id,
+            // false,
             100,
         ));
 
@@ -696,7 +778,7 @@ fn test_remove_to_stake_max_unlockings_reached_err() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -712,45 +794,72 @@ fn test_remove_to_stake_max_unlockings_reached_err() {
 
         let starting_balance = Balances::free_balance(&coldkey.clone());
 
-        assert_ok!(Network::register_subnet_node(
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
+            None,
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
+
+        assert_ok!(Network::register_subnet_node_v2(
+            RuntimeOrigin::signed(coldkey.clone()),
+            current_id,
             subnet_id,
-            hotkey.clone(),
+            None,
             PeerInfo {
-                peer_id: peer_id.clone(),
+                peer_id: peer(999),
                 multiaddr: None,
             },
             None,
             None,
-            0,
-            stake_amount * 2,
+            deposit_amount,
             None,
             None,
-            None,
-            u128::MAX
+            u128::MAX,
         ));
 
-        // let max_unlockings = MaxUnbondings::get();
+        let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
+
         let max_unlockings = MaxUnbondings::<Test>::get();
+        log::error!("max_unlockings {:?}", max_unlockings);
         for n in 0..max_unlockings + 2 {
             let _n = n + 1;
             // increase_epochs(1);
             System::set_block_number(System::block_number() + 1);
             if _n > max_unlockings {
+                // assert_err!(
+                //     Network::remove_stake(
+                //         RuntimeOrigin::signed(coldkey.clone()),
+                //         subnet_id,
+                //         hotkey.clone(),
+                //         1000,
+                //     ),
+                //     Error::<Test>::MaxUnlockingsReached
+                // );
                 assert_err!(
-                    Network::remove_stake(
+                    Network::remove_node_stake(
                         RuntimeOrigin::signed(coldkey.clone()),
                         subnet_id,
-                        hotkey.clone(),
+                        subnet_node_id,
                         1000,
                     ),
                     Error::<Test>::MaxUnlockingsReached
                 );
             } else {
-                assert_ok!(Network::remove_stake(
+                // assert_ok!(Network::remove_stake(
+                //     RuntimeOrigin::signed(coldkey.clone()),
+                //     subnet_id,
+                //     hotkey.clone(),
+                //     1000,
+                // ));
+                assert_ok!(Network::remove_node_stake(
                     RuntimeOrigin::signed(coldkey.clone()),
                     subnet_id,
-                    hotkey.clone(),
+                    subnet_node_id,
                     1000,
                 ));
 

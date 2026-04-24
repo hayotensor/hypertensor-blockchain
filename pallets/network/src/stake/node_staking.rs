@@ -25,6 +25,11 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
+        ensure!(
+            SubnetsData::<T>::contains_key(subnet_id),
+            Error::<T>::InvalidSubnetId
+        );
+
         // Resolve the validator that owns this subnet node, then ensure the caller is that
         // validator's coldkey. Only the owner is allowed to add stake.
         let validator_id = SubnetNodeValidatorId::<T>::try_get(subnet_id, subnet_node_id)
@@ -97,7 +102,7 @@ impl<T: Config> Pallet<T> {
         origin: T::RuntimeOrigin,
         subnet_id: u32,
         subnet_node_id: u32,
-        is_subnet_node: bool,
+        // is_subnet_node: bool,
         stake_to_be_removed: u128,
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
@@ -111,6 +116,14 @@ impl<T: Config> Pallet<T> {
             .map_err(|_| Error::<T>::InvalidValidatorId)?;
 
         ensure!(coldkey == validator_coldkey, Error::<T>::NotKeyOwner);
+
+        // Check if node is currently active
+        let is_subnet_node =
+            if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id) {
+                true
+            } else {
+                false
+            };
 
         let node_stake_balance: u128 = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
 
@@ -130,6 +143,8 @@ impl<T: Config> Pallet<T> {
                     >= SubnetMinStakeBalance::<T>::get(subnet_id),
                 Error::<T>::MinStakeNotReached
             );
+        } else if stake_to_be_removed >= node_stake_balance {
+            Self::clean_validator_subnet_nodes(validator_id);
         }
 
         // --- Ensure that we can convert this u128 to a balance.
