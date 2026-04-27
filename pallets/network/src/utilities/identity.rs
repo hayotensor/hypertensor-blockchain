@@ -16,110 +16,32 @@
 use super::*;
 
 impl<T: Config> Pallet<T> {
-    pub fn do_register_or_update_identity(
-        coldkey: T::AccountId,
-        hotkey: T::AccountId,
-        name: BoundedVec<u8, DefaultMaxVectorLength>,
-        url: BoundedVec<u8, DefaultMaxUrlLength>,
-        image: BoundedVec<u8, DefaultMaxUrlLength>,
-        discord: BoundedVec<u8, DefaultMaxSocialIdLength>,
-        x: BoundedVec<u8, DefaultMaxSocialIdLength>,
-        telegram: BoundedVec<u8, DefaultMaxSocialIdLength>,
-        github: BoundedVec<u8, DefaultMaxUrlLength>,
-        hugging_face: BoundedVec<u8, DefaultMaxUrlLength>,
-        description: BoundedVec<u8, DefaultMaxVectorLength>,
-        misc: BoundedVec<u8, DefaultMaxVectorLength>,
-    ) -> DispatchResult {
-        // --- Ensure is or has had a subnet node
-        // This will not completely stop non-subnet-node users from registering identities but prevents it
-        // Accounts that have never registered a subnet node will not have a HotkeyOwner stored
-        ensure!(
-            HotkeyOwner::<T>::get(&hotkey) == coldkey,
-            Error::<T>::NotKeyOwner
-        );
+    // pub fn do_update_validator_identity(
+    //     coldkey: T::AccountId,
+    //     validator_id: u32,
+    //     identity: Option<IdentityData>,
+    // ) -> DispatchResult {
+    //     // --- Ensure is or has had a subnet node
+    //     // This will not completely stop non-subnet-node users from registering identities but prevents it
+    //     // Accounts that have never registered a subnet node will not have a hotkey stored
+    //     let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
+    //         .map_err(|_| Error::<T>::InvalidValidatorId)?;
 
-        ensure!(!name.is_empty(), Error::<T>::IdentityFieldEmpty);
-        ensure!(!url.is_empty(), Error::<T>::IdentityFieldEmpty);
-        ensure!(!image.is_empty(), Error::<T>::IdentityFieldEmpty);
-        ensure!(!discord.is_empty(), Error::<T>::IdentityFieldEmpty);
-        ensure!(!x.is_empty(), Error::<T>::IdentityFieldEmpty);
-        ensure!(!telegram.is_empty(), Error::<T>::IdentityFieldEmpty);
-        ensure!(!github.is_empty(), Error::<T>::IdentityFieldEmpty);
-        ensure!(!hugging_face.is_empty(), Error::<T>::IdentityFieldEmpty);
-        ensure!(!description.is_empty(), Error::<T>::IdentityFieldEmpty);
-        ensure!(!misc.is_empty(), Error::<T>::IdentityFieldEmpty);
+    //     ensure!(coldkey == validator_coldkey, Error::<T>::NotKeyOwner);
 
-        if let Ok(owner) = ColdkeyIdentityNameOwner::<T>::try_get(name.clone()) {
-            ensure!(owner == coldkey.clone(), Error::<T>::IdentityTaken);
-        }
+    //     ValidatorsData::<T>::try_mutate_exists(validator_id, |maybe_params| -> DispatchResult {
+    //         let params = maybe_params
+    //             .as_mut()
+    //             .ok_or(Error::<T>::InvalidOverwatchNodeId)?;
+    //         params.identity = identity;
+    //         Ok(())
+    //     });
 
-        // Remove previous name to ensure they can't own multiple names
-        if let Ok(coldkey_identity) = ColdkeyIdentity::<T>::try_get(&coldkey) {
-            ColdkeyIdentityNameOwner::<T>::remove(coldkey_identity.name);
-        }
+    //     Self::deposit_event(Event::IdentityUpdated {
+    //         coldkey: coldkey,
+    //         identity: coldkey_identity,
+    //     });
 
-        let coldkey_identity = ColdkeyIdentityData {
-            name: name.clone(),
-            url,
-            image,
-            discord,
-            x,
-            telegram,
-            github,
-            hugging_face,
-            description,
-            misc,
-        };
-
-        ColdkeyIdentityNameOwner::<T>::insert(name.clone(), &coldkey);
-        ColdkeyIdentity::<T>::insert(&coldkey, &coldkey_identity);
-
-        Self::deposit_event(Event::IdentityRegistered {
-            coldkey: coldkey,
-            identity: coldkey_identity,
-        });
-
-        Ok(())
-    }
-
-    pub fn do_register_or_update_validator_identity(
-        coldkey: T::AccountId,
-        validator_id: u32,
-        identity: Option<IdentityData>,
-    ) -> DispatchResult {
-        // --- Ensure is or has had a subnet node
-        // This will not completely stop non-subnet-node users from registering identities but prevents it
-        // Accounts that have never registered a subnet node will not have a HotkeyOwner stored
-        let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
-            .map_err(|_| Error::<T>::InvalidValidatorId)?;
-
-        ensure!(coldkey == validator_coldkey, Error::<T>::NotKeyOwner);
-
-        ValidatorsData::<T>::try_mutate_exists(validator_id, |maybe_params| -> DispatchResult {
-            let params = maybe_params
-                .as_mut()
-                .ok_or(Error::<T>::InvalidOverwatchNodeId)?;
-            params.identity = identity;
-            Ok(())
-        });
-
-        // Self::deposit_event(Event::IdentityRegistered {
-        //     coldkey: coldkey,
-        //     identity: coldkey_identity,
-        // });
-
-        Ok(())
-    }
-
-    pub fn do_remove_identity(coldkey: T::AccountId) -> DispatchResult {
-        let coldkey_identity = ColdkeyIdentity::<T>::take(&coldkey);
-        ColdkeyIdentityNameOwner::<T>::remove(coldkey_identity.clone().name);
-
-        Self::deposit_event(Event::IdentityRemoved {
-            coldkey: coldkey,
-            identity: coldkey_identity.clone(),
-        });
-
-        Ok(())
-    }
+    //     Ok(())
+    // }
 }

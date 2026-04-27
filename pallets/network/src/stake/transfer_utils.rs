@@ -27,45 +27,45 @@ impl<T: Config> Pallet<T> {
     /// * `to_subnet_id` - Subnet ID staking to in relation to subnet node ID .
     /// * `node_delegate_stake_shares_to_swap` - Shares to remove (from node) to (to subnet) then be added as converted balance.
     ///
-    pub fn do_swap_from_node_to_subnet(
-        origin: T::RuntimeOrigin,
-        from_subnet_id: u32,
-        from_subnet_node_id: u32,
-        to_subnet_id: u32,
-        node_delegate_stake_shares_to_swap: u128,
-    ) -> DispatchResult {
-        let account_id: T::AccountId = ensure_signed(origin)?;
+    // pub fn do_swap_from_node_to_subnet(
+    //     origin: T::RuntimeOrigin,
+    //     from_subnet_id: u32,
+    //     from_subnet_node_id: u32,
+    //     to_subnet_id: u32,
+    //     node_delegate_stake_shares_to_swap: u128,
+    // ) -> DispatchResult {
+    //     let account_id: T::AccountId = ensure_signed(origin)?;
 
-        // Perform removal of stake AND ensure success
-        // Return the balance we removed
-        let (result, balance, _) = Self::perform_do_remove_node_delegate_stake(
-            &account_id,
-            from_subnet_id,
-            from_subnet_node_id,
-            node_delegate_stake_shares_to_swap,
-            false,
-        );
+    //     // Perform removal of stake AND ensure success
+    //     // Return the balance we removed
+    //     let (result, balance, _) = Self::perform_do_remove_node_delegate_stake(
+    //         &account_id,
+    //         from_subnet_id,
+    //         from_subnet_node_id,
+    //         node_delegate_stake_shares_to_swap,
+    //         false,
+    //     );
 
-        result?;
+    //     result?;
 
-        let call = QueuedSwapCall::SwapToSubnetDelegateStake {
-            account_id: account_id.clone(),
-            to_subnet_id,
-            balance,
-        };
+    //     let call = QueuedSwapCall::SwapToSubnetDelegateStake {
+    //         account_id: account_id.clone(),
+    //         to_subnet_id,
+    //         balance,
+    //     };
 
-        Self::queue_swap(account_id.clone(), call)?;
+    //     Self::queue_swap(account_id.clone(), call)?;
 
-        Self::deposit_event(Event::DelegateNodeToSubnetDelegateStakeSwapped {
-            account_id: account_id.clone(),
-            from_subnet_id: from_subnet_id,
-            from_subnet_node_id: from_subnet_node_id,
-            to_subnet_id: to_subnet_id,
-            amount: balance,
-        });
+    //     Self::deposit_event(Event::DelegateNodeToSubnetDelegateStakeSwapped {
+    //         account_id: account_id.clone(),
+    //         from_subnet_id: from_subnet_id,
+    //         from_subnet_node_id: from_subnet_node_id,
+    //         to_subnet_id: to_subnet_id,
+    //         amount: balance,
+    //     });
 
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     pub fn do_swap_from_validator_to_subnet(
         origin: T::RuntimeOrigin,

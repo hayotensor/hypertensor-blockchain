@@ -2,21 +2,22 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountSubnetStake, BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ColdkeyReputation,
-    ColdkeySubnetNodes, ColdkeyValidatorId, CurrentNodeBurnRate, DefaultMaxVectorLength, Error,
-    HotkeyOwner, HotkeySubnetId, HotkeySubnetNodeId, HotkeyValidatorId, MaxDelegateStakePercentage,
+    BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId,
+    ColdkeyValidatorId, CurrentNodeBurnRate, DefaultMaxVectorLength, Error,
+    HotkeyValidatorId, MaxDelegateStakePercentage,
     MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     MinSubnetNodes, MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex,
-    NodeSubnetStake, PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData,
-    RegisteredSubnetNodesDataV2, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName,
+    NodeSubnetStake, PeerIdSubnetNodeId, PeerInfo,
+    RegisteredSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName,
     SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
     SubnetNodeIdHotkey, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeV2,
-    SubnetNodeValidatorId, SubnetNodesData, SubnetNodesDataV2, SubnetOwner,
+    SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
     SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, TotalActiveNodes,
     TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake,
     TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
     TotalSubnetUids, TotalValidatorIds, UniqueParamSubnetNodeId, ValidatorColdkey,
-    ValidatorColdkeyHotkey, ValidatorIdHotkey, ValidatorsData,
+    ValidatorColdkeyHotkey, ValidatorIdHotkey, ValidatorsData, IdentityData,
+    DefaultMaxUrlLength, DefaultMaxSocialIdLength
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
@@ -240,7 +241,7 @@ fn test_register_validator_subnet_node() {
         ));
 
         let node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
-        let node = RegisteredSubnetNodesDataV2::<Test>::get(subnet_id, node_id);
+        let node = RegisteredSubnetNodesData::<Test>::get(subnet_id, node_id);
         assert_eq!(node.id, node_id);
         assert_eq!(node.validator_id, current_id);
         assert_eq!(
@@ -280,7 +281,7 @@ fn test_get_hotkey_associated_subnet_node_prefers_subnet_node_hotkey_override() 
         let subnet_node_hotkey = account(1101);
 
         ValidatorIdHotkey::<Test>::insert(validator_id, validator_hotkey.clone());
-        SubnetNodesDataV2::<Test>::insert(
+        SubnetNodesData::<Test>::insert(
             subnet_id,
             subnet_node_id,
             SubnetNodeV2 {
@@ -300,7 +301,6 @@ fn test_get_hotkey_associated_subnet_node_prefers_subnet_node_hotkey_override() 
                 non_unique: None,
             },
         );
-        HotkeySubnetNodeId::<Test>::insert(subnet_id, &subnet_node_hotkey, subnet_node_id);
         SubnetNodeIdHotkey::<Test>::insert(subnet_id, subnet_node_id, &subnet_node_hotkey);
 
         assert_ok!(Network::get_hotkey_associated_subnet_node(
@@ -331,7 +331,7 @@ fn test_get_hotkey_associated_subnet_node_uses_validator_hotkey_without_override
         let validator_hotkey = account(1200);
 
         ValidatorIdHotkey::<Test>::insert(validator_id, validator_hotkey.clone());
-        SubnetNodesDataV2::<Test>::insert(
+        SubnetNodesData::<Test>::insert(
             subnet_id,
             subnet_node_id,
             SubnetNodeV2 {
@@ -532,5 +532,121 @@ fn test_update_validator_delegate_reward_rate() {
             reward_rate,
             ValidatorsData::<Test>::get(current_id).delegate_reward_rate
         );
+    })
+}
+
+#[test]
+fn test_update_validator_identity() {
+    new_test_ext().execute_with(|| {
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
+            None,
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
+        assert!(current_id > 0);
+        assert_eq!(
+            ValidatorIdHotkey::<Test>::get(current_id).unwrap(),
+            hotkey.clone()
+        );
+
+        let name = to_bounded::<DefaultMaxVectorLength>("name");
+        let url = to_bounded::<DefaultMaxUrlLength>("url");
+        let image = to_bounded::<DefaultMaxUrlLength>("image");
+        let discord = to_bounded::<DefaultMaxSocialIdLength>("discord");
+        let x = to_bounded::<DefaultMaxSocialIdLength>("x");
+        let telegram = to_bounded::<DefaultMaxSocialIdLength>("telegram");
+        let github = to_bounded::<DefaultMaxUrlLength>("github");
+        let hugging_face = to_bounded::<DefaultMaxUrlLength>("hugging_face");
+        let description = to_bounded::<DefaultMaxVectorLength>("description");
+        let misc = to_bounded::<DefaultMaxVectorLength>("misc");
+
+        let identity: IdentityData = IdentityData {
+            name: Some(name.clone()),
+            url: Some(url.clone()),
+            image: Some(image.clone()),
+            discord: Some(discord.clone()),
+            x: Some(x.clone()),
+            telegram: Some(telegram.clone()),
+            github: Some(github.clone()),
+            hugging_face: Some(hugging_face.clone()),
+            description: Some(description.clone()),
+            misc: Some(misc.clone()),
+        };
+
+        assert_ok!(Network::update_validator_identity(
+            RuntimeOrigin::signed(coldkey.clone()),
+            current_id,
+            Some(identity),
+        ));
+
+        let v_data = ValidatorsData::<Test>::get(current_id);
+        let v_identity = v_data.identity;
+        assert!(v_identity.is_some());
+
+        assert_eq!(v_identity.clone().unwrap().name, Some(name.clone()));
+        assert_eq!(v_identity.clone().unwrap().url, Some(url.clone()));
+        assert_eq!(v_identity.clone().unwrap().image, Some(image.clone()));
+        assert_eq!(v_identity.clone().unwrap().discord, Some(discord.clone()));
+        assert_eq!(v_identity.clone().unwrap().x, Some(x.clone()));
+        assert_eq!(v_identity.clone().unwrap().telegram, Some(telegram.clone()));
+        assert_eq!(v_identity.clone().unwrap().github, Some(github.clone()));
+        assert_eq!(v_identity.clone().unwrap().hugging_face, Some(hugging_face.clone()));
+        assert_eq!(v_identity.clone().unwrap().description, Some(description.clone()));
+        assert_eq!(v_identity.clone().unwrap().misc, Some(misc.clone()));
+
+
+        // Remove one identity parameter
+        let identity: IdentityData = IdentityData {
+            name: Some(name.clone()),
+            url: Some(url.clone()),
+            image: Some(image.clone()),
+            discord: Some(discord.clone()),
+            x: None,
+            telegram: Some(telegram.clone()),
+            github: Some(github.clone()),
+            hugging_face: Some(hugging_face.clone()),
+            description: Some(description.clone()),
+            misc: Some(misc.clone()),
+        };
+
+        assert_ok!(Network::update_validator_identity(
+            RuntimeOrigin::signed(coldkey.clone()),
+            current_id,
+            Some(identity),
+        ));
+
+        let v_data = ValidatorsData::<Test>::get(current_id);
+        let v_identity = v_data.identity;
+        assert!(v_identity.is_some());
+
+        assert_eq!(v_identity.clone().unwrap().name, Some(name.clone()));
+        assert_eq!(v_identity.clone().unwrap().url, Some(url.clone()));
+        assert_eq!(v_identity.clone().unwrap().image, Some(image.clone()));
+        assert_eq!(v_identity.clone().unwrap().discord, Some(discord.clone()));
+        assert_eq!(v_identity.clone().unwrap().x, None);
+        assert_eq!(v_identity.clone().unwrap().telegram, Some(telegram.clone()));
+        assert_eq!(v_identity.clone().unwrap().github, Some(github.clone()));
+        assert_eq!(v_identity.clone().unwrap().hugging_face, Some(hugging_face.clone()));
+        assert_eq!(v_identity.clone().unwrap().description, Some(description.clone()));
+        assert_eq!(v_identity.clone().unwrap().misc, Some(misc.clone()));
+
+
+        // Remove the identity
+        assert_ok!(Network::update_validator_identity(
+            RuntimeOrigin::signed(coldkey.clone()),
+            current_id,
+            None,
+        ));
+
+        let v_data = ValidatorsData::<Test>::get(current_id);
+        let v_identity = v_data.identity;
+        assert!(v_identity.is_none());
     })
 }

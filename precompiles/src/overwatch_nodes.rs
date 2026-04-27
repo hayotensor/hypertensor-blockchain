@@ -431,23 +431,6 @@ where
         Ok(hotkey)
     }
 
-    #[precompile::public("hotkeyOverwatchNodeId(address)")]
-    #[precompile::view]
-    fn hotkey_overwatch_node_id(
-        handle: &mut impl PrecompileHandle,
-        hotkey: Address,
-    ) -> EvmResult<U256> {
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
-
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let overwatch_node_id = pallet_network::HotkeyOverwatchNodeId::<R>::get(hotkey)
-            .ok_or(revert("Hotkey overwatch node ID not found"))?;
-
-        let overwatch_node_id_u256 = try_u32_to_u256(overwatch_node_id)?;
-
-        Ok(overwatch_node_id_u256)
-    }
-
     #[precompile::public("peerIdOverwatchNode(uint256,string)")]
     #[precompile::view]
     fn peer_id_overwatch_node(

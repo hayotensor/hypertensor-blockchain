@@ -15,31 +15,28 @@ use sp_std::collections::btree_map::BTreeMap;
 // RPC Getter Function Tests
 //
 
-// #[test]
-// fn test_get_coldkey_subnet_nodes_info() {
-//     new_test_ext().execute_with(|| {
-//         let subnet_name: Vec<u8> = "subnet-name".into();
+#[test]
+fn test_get_validator_subnet_nodes_info() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
 
-//         let deposit_amount: u128 = 10000000000000000000000;
-//         let amount: u128 = 1000000000000000000000;
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
 
-//         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-//         let subnets = TotalActiveSubnets::<Test>::get() + 1;
-//         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-//         let max_subnets = MaxSubnets::<Test>::get();
-//         let end = 4;
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let max_subnets = MaxSubnets::<Test>::get();
+        let end = 4;
 
-//         build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
-//         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
-//         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
+        let rpc_results = Network::get_validator_subnet_nodes_info(1);
 
-//         let rpc_results = Network::get_coldkey_subnet_nodes_info(coldkey.clone());
-
-//         assert!(rpc_results.len() > 0);
-//     })
-// }
+        assert!(rpc_results.len() > 0);
+    })
+}
 
 #[test]
 fn test_proof_of_stake() {
@@ -300,7 +297,7 @@ fn test_get_subnet_node_info() {
         build_activated_subnet_v2(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let node_info = Network::get_subnet_node_info_v2(subnet_id, 1);
+        let node_info = Network::get_subnet_node_info(subnet_id, 1);
 
         assert!(node_info.is_some(), "Node info should exist");
         let info = node_info.unwrap();
@@ -320,7 +317,7 @@ fn test_get_subnet_nodes_info() {
         build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let nodes_info = Network::get_subnet_nodes_info_v2(subnet_id);
+        let nodes_info = Network::get_subnet_nodes_info(subnet_id);
 
         assert!(
             nodes_info.len() == end as usize,
@@ -338,7 +335,7 @@ fn test_get_all_subnet_nodes_info() {
         build_activated_subnet_v2("subnet1".into(), 0, 3, deposit_amount, stake_amount);
         build_activated_subnet_v2("subnet2".into(), 0, 3, deposit_amount, stake_amount);
 
-        let all_nodes = Network::get_all_subnet_nodes_info_v2();
+        let all_nodes = Network::get_all_subnet_nodes_info();
 
         assert!(all_nodes.len() >= 6, "Should have nodes from all subnets");
     })
@@ -364,7 +361,7 @@ fn test_get_elected_validator_info_v2() {
         // Elect a validator
         Network::elect_validator(subnet_id, subnet_epoch, block_number);
 
-        let validator_info = Network::get_elected_validator_info_v2(subnet_id, subnet_epoch);
+        let validator_info = Network::get_elected_validator_info(subnet_id, subnet_epoch);
 
         assert!(
             validator_info.is_some(),
@@ -383,7 +380,7 @@ fn test_get_validators_and_attestors() {
         build_activated_subnet_v2(subnet_name.clone(), 0, 12, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let validators = Network::get_validators_and_attestors_v2(subnet_id);
+        let validators = Network::get_validators_and_attestors(subnet_id);
 
         assert!(validators.len() == 12, "Should have validators/attestors");
     })

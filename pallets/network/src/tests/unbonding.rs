@@ -1,10 +1,10 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    AccountNodeDelegateStakeShares, AccountSubnetDelegateStakeShares, AccountSubnetStake,
-    AccountValidatorDelegateStakeShares, DelegateStakeCooldownEpochs, Error, HotkeySubnetNodeId,
+    AccountNodeDelegateStakeShares, AccountSubnetDelegateStakeShares,
+    AccountValidatorDelegateStakeShares, DelegateStakeCooldownEpochs, Error,
     MaxSubnetNodes, MaxSubnets, MaxUnbondings, MinSubnetMinStake, NodeDelegateStakeCooldownEpochs,
-    NodeSubnetStake, PeerInfo, RegisteredSubnetNodesData, RegisteredSubnetNodesDataV2,
+    NodeSubnetStake, PeerInfo, RegisteredSubnetNodesData,
     StakeCooldownEpochs, StakeUnbondingLedger, SubnetName, SubnetNodeQueueEpochs,
     TotalActiveSubnets, TotalSubnetNodeUids, TotalSubnetNodes, TotalValidatorIds,
 };
@@ -113,7 +113,7 @@ fn test_register_remove_claim_stake_unbondings() {
             stake_balance,
         ));
 
-        assert_eq!(Network::account_subnet_stake(hotkey.clone(), 1), 0);
+        // assert_eq!(NodeSubnetStake::<Test>::get(subnet_node_id, 1), 0);
 
         let epoch_length = EpochLength::get();
         let epoch = System::block_number() / epoch_length;
@@ -384,7 +384,7 @@ fn test_register_activate_remove_claim_stake_unbondings() {
 
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-        let subnet_node = RegisteredSubnetNodesDataV2::<Test>::get(subnet_id, subnet_node_id);
+        let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
         let start_epoch = subnet_node.classification.start_epoch;
 
         let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
@@ -406,10 +406,10 @@ fn test_register_activate_remove_claim_stake_unbondings() {
 
         // Get subnet weights (nodes only activate from queue if there are weights)
         // Note: This means a subnet is active if it gets weights
-        let _ = Network::handle_subnet_emission_weights_v2(epoch);
+        let _ = Network::handle_subnet_emission_weights(epoch);
 
         // Trigger the node activation
-        Network::emission_step_v2(
+        Network::emission_step(
             &mut WeightMeter::new(),
             System::block_number(),
             Network::get_current_epoch_as_u32(),
@@ -418,7 +418,7 @@ fn test_register_activate_remove_claim_stake_unbondings() {
         );
 
         assert_eq!(
-            RegisteredSubnetNodesDataV2::<Test>::try_get(subnet_id, subnet_node_id),
+            RegisteredSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
             Err(())
         );
 

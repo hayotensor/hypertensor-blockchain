@@ -42,14 +42,14 @@ pub trait NetworkCustomApi<BlockHash> {
     ) -> RpcResult<bool>;
     #[method(name = "network_getBootnodes")]
     fn get_bootnodes(&self, subnet_id: u32, at: Option<BlockHash>) -> RpcResult<Vec<u8>>;
-    #[method(name = "network_getColdkeySubnetNodesInfo")]
-    fn get_coldkey_subnet_nodes_info(
+    #[method(name = "network_getValidatorSubnetNodesInfo")]
+    fn get_validator_subnet_nodes_info(
         &self,
-        coldkey: AccountId20,
+        validator_id: u32,
         at: Option<BlockHash>,
     ) -> RpcResult<Vec<u8>>;
-    #[method(name = "network_getColdkeyStakes")]
-    fn get_coldkey_stakes(&self, coldkey: AccountId20, at: Option<BlockHash>)
+    #[method(name = "network_getValidatorStakes")]
+    fn get_validator_stakes(&self, validator_id: u32, at: Option<BlockHash>)
         -> RpcResult<Vec<u8>>;
     #[method(name = "network_getDelegateStakes")]
     fn get_delegate_stakes(
@@ -224,26 +224,26 @@ where
             .map_err(|e| Error::RuntimeError(format!("Unable to get bootnodes: {:?}", e)).into())
     }
 
-    fn get_coldkey_subnet_nodes_info(
+    fn get_validator_subnet_nodes_info(
         &self,
-        coldkey: AccountId20,
+        validator_id: u32,
         at: Option<<Block as BlockT>::Hash>,
     ) -> RpcResult<Vec<u8>> {
         let api = self.client.runtime_api();
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
-        api.get_coldkey_subnet_nodes_info(at, coldkey).map_err(|e| {
-            Error::RuntimeError(format!("Unable to get coldkey subnet nodes info: {:?}", e)).into()
+        api.get_validator_subnet_nodes_info(at, validator_id).map_err(|e| {
+            Error::RuntimeError(format!("Unable to get validator subnet nodes info: {:?}", e)).into()
         })
     }
 
-    fn get_coldkey_stakes(
+    fn get_validator_stakes(
         &self,
-        coldkey: AccountId20,
+        validator_id: u32,
         at: Option<<Block as BlockT>::Hash>,
     ) -> RpcResult<Vec<u8>> {
         let api = self.client.runtime_api();
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
-        api.get_coldkey_stakes(at, coldkey).map_err(|e| {
+        api.get_validator_stakes(at, validator_id).map_err(|e| {
             Error::RuntimeError(format!("Unable to get coldkey stakes: {:?}", e)).into()
         })
     }

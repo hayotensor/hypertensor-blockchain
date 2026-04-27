@@ -2,9 +2,9 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     Error, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake,
-    NodeSubnetStake, PeerInfo, RegisteredSubnetNodesDataV2, StakeCooldownEpochs,
+    NodeSubnetStake, PeerInfo, RegisteredSubnetNodesData, StakeCooldownEpochs,
     StakeUnbondingLedger, SubnetMaxStakeBalance, SubnetName, SubnetNodeQueueEpochs,
-    SubnetNodesDataV2, SubnetRemovalReason, SubnetsData, TotalActiveSubnets, TotalSubnetNodeUids,
+    SubnetNodesData, SubnetRemovalReason, SubnetsData, TotalActiveSubnets, TotalSubnetNodeUids,
     TotalSubnetNodes, TotalSubnetStake, TotalValidatorIds, ValidatorSubnetNodes,
 };
 use frame_support::traits::Currency;
@@ -453,7 +453,7 @@ fn test_remove_stake() {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
         let subnet_node_id = end;
-        let subnet_node = SubnetNodesDataV2::<Test>::get(subnet_id, subnet_node_id);
+        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 
         // add double amount to stake
         assert_ok!(Network::add_node_stake(
@@ -561,7 +561,7 @@ fn test_remove_stake() {
 
 //         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-//         let subnet_node = RegisteredSubnetNodesDataV2::<Test>::get(subnet_id, subnet_node_id);
+//         let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 //         let start_epoch = subnet_node.classification.start_epoch;
 
 //         let queue_epochs = SubnetNodeQueueEpochs::<Test>::get(subnet_id);
@@ -577,10 +577,10 @@ fn test_remove_stake() {
 
 //         // Get subnet weights (nodes only activate from queue if there are weights)
 //         // Note: This means a subnet is active if it gets weights
-//         let _ = Network::handle_subnet_emission_weights_v2(epoch);
+//         let _ = Network::handle_subnet_emission_weights(epoch);
 
 //         // Trigger the node activation
-//         Network::emission_step_v2(
+//         Network::emission_step(
 //             &mut WeightMeter::new(),
 //             System::block_number(),
 //             Network::get_current_epoch_as_u32(),
@@ -589,7 +589,7 @@ fn test_remove_stake() {
 //         );
 
 //         assert_eq!(
-//             RegisteredSubnetNodesDataV2::<Test>::try_get(subnet_id, subnet_node_id),
+//             RegisteredSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
 //             Err(())
 //         );
 
@@ -617,7 +617,7 @@ fn test_remove_stake() {
 //         );
 
 //         let min_stake_epochs = MinActiveNodeStakeEpochs::<Test>::get();
-//         let subnet_node = SubnetNodesDataV2::<Test>::get(subnet_id, subnet_node_id);
+//         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 //         let start_epoch = subnet_node.classification.start_epoch;
 
 //         set_epoch(start_epoch + min_stake_epochs + 2, 0); // increase by 2 to account for subnet epoch crossover

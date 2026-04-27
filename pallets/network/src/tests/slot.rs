@@ -3,9 +3,9 @@ use crate::tests::test_utils::*;
 use crate::{
     FinalSubnetEmissionWeights, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     NewRegistrationCostMultiplier, OverwatchNodeStakeBalance, OverwatchNodeValidatorId,
-    OverwatchReveals, QueueImmunityEpochs, RegisteredSubnetNodesDataV2,
-    SubnetConsensusSubmissionV2, SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator,
-    SubnetName, SubnetNodeQueueV2, TotalActiveSubnets,
+    OverwatchReveals, QueueImmunityEpochs, RegisteredSubnetNodesData,
+    SubnetConsensusSubmission, SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator,
+    SubnetName, SubnetNodeQueue, TotalActiveSubnets,
 };
 use sp_std::collections::btree_map::BTreeMap;
 
@@ -21,8 +21,8 @@ use sp_std::collections::btree_map::BTreeMap;
 // See:
 //  - test_distribute_rewards_prioritized_queue_node_id
 //  - test_distribute_rewards_remove_queue_node_id
-// handle_subnet_emission_weights_v2: test_handle_subnet_emission_weights
-// calculate_subnet_weights_v2: test_calculate_subnet_weights
+// handle_subnet_emission_weights: test_handle_subnet_emission_weights
+// calculate_subnet_weights: test_calculate_subnet_weights
 // precheck_subnet_consensus_submission: test_precheck_subnet_consensus_submission
 // calculate_rewards: test_calculate_rewards
 
@@ -104,7 +104,7 @@ fn test_calculate_overwatch_rewards() {
             assert!(has_reveal, "No reveal found for subnet {}", subnet_id);
         }
 
-        Network::calculate_overwatch_rewards_v2();
+        Network::calculate_overwatch_rewards();
 
         for n in 0..overwatch_nodes {
             let o_node_id = n + 1;
@@ -148,7 +148,7 @@ fn test_handle_subnet_emission_weights() {
         }
         increase_epochs(1);
 
-        let _ = Network::handle_subnet_emission_weights_v2(Network::get_current_epoch_as_u32());
+        let _ = Network::handle_subnet_emission_weights(Network::get_current_epoch_as_u32());
 
         let subnet_emission_weights =
             FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
@@ -184,7 +184,7 @@ fn test_calculate_subnet_weights() {
         increase_epochs(1);
 
         let (subnet_weights, mut weight) =
-            Network::calculate_subnet_weights_v2(Network::get_current_epoch_as_u32());
+            Network::calculate_subnet_weights(Network::get_current_epoch_as_u32());
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
@@ -234,7 +234,7 @@ fn test_calculate_subnet_weights_active_live_only() {
         increase_epochs(1);
 
         let (subnet_weights, mut weight) =
-            Network::calculate_subnet_weights_v2(Network::get_current_epoch_as_u32());
+            Network::calculate_subnet_weights(Network::get_current_epoch_as_u32());
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
@@ -286,7 +286,7 @@ fn test_precheck_subnet_consensus_submission() {
             let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, _n);
             let hotkey_subnet_node_id = _n;
             let subnet_node_data =
-                RegisteredSubnetNodesDataV2::<Test>::try_get(subnet_id, hotkey_subnet_node_id)
+                RegisteredSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id)
                     .unwrap();
             registered_nodes_data.insert(
                 hotkey_subnet_node_id,
@@ -294,7 +294,7 @@ fn test_precheck_subnet_consensus_submission() {
             );
         }
 
-        let queue = SubnetNodeQueueV2::<Test>::get(subnet_id);
+        let queue = SubnetNodeQueue::<Test>::get(subnet_id);
         assert_eq!(queue.len() as u32, new_end - new_start);
 
         let first = queue.first().unwrap();
@@ -313,7 +313,7 @@ fn test_precheck_subnet_consensus_submission() {
 
         run_subnet_consensus_step_v2(subnet_id, Some(last.id), Some(first.id));
 
-        let submission = SubnetConsensusSubmissionV2::<Test>::get(
+        let submission = SubnetConsensusSubmission::<Test>::get(
             subnet_id,
             Network::get_current_subnet_epoch_as_u32(subnet_id),
         );
@@ -340,7 +340,7 @@ fn test_precheck_subnet_consensus_submission() {
         set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
 
         let (consensus_submission_data, consensus_submission_block_weight) =
-            Network::precheck_subnet_consensus_submission_v2(
+            Network::precheck_subnet_consensus_submission(
                 subnet_id,
                 Network::get_current_epoch_as_u32() - 1,
                 Network::get_current_epoch_as_u32(),
@@ -387,7 +387,7 @@ fn test_calculate_rewards() {
         increase_epochs(1);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let _ = Network::handle_subnet_emission_weights_v2(Network::get_current_epoch_as_u32());
+        let _ = Network::handle_subnet_emission_weights(Network::get_current_epoch_as_u32());
 
         let subnet_emission_weights =
             FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());

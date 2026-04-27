@@ -1,10 +1,10 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    AccountOverwatchStake, AccountSubnetStake, FinalSubnetEmissionWeights, HotkeyOverwatchNodeId,
+    AccountOverwatchStake, NodeSubnetStake, FinalSubnetEmissionWeights,
     MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetNodes, NewRegistrationCostMultiplier,
     OverwatchCommit, OverwatchCommits, OverwatchEpochLengthMultiplier, OverwatchReveal,
-    OverwatchReveals, SlotAssignment, SubnetConsensusSubmission, SubnetElectedValidator,
+    OverwatchReveals, SlotAssignment, SubnetElectedValidator,
     SubnetName, SubnetReputation, TotalSubnetDelegateStakeBalance,
 };
 use frame_support::assert_ok;
@@ -375,7 +375,7 @@ fn get_commit(num: u32) -> (u128, Vec<u8>, sp_core::H256) {
 //                         let hotkey =
 //                             get_hotkey(subnet_id_key_offset, max_subnet_nodes, max_subnets, n + 1);
 
-//                         let stake = AccountSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
+//                         let stake = NodeSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
 
 //                         assert_ne!(stake, 0);
 //                         stake_snapshot.insert(hotkey.clone(), stake);
@@ -392,7 +392,7 @@ fn get_commit(num: u32) -> (u128, Vec<u8>, sp_core::H256) {
 //                         let hotkey =
 //                             get_hotkey(subnet_id_key_offset, max_subnet_nodes, max_subnets, n + 1);
 
-//                         let stake = AccountSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
+//                         let stake = NodeSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
 
 //                         if let Some(old_stake) = stake_snapshot.get(&hotkey) {
 //                             assert!(stake > *old_stake);

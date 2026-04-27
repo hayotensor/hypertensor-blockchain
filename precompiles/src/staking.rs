@@ -582,22 +582,22 @@ where
         Ok(total_subnet_stake)
     }
 
-    #[precompile::public("accountSubnetStake(address,uint256)")]
-    #[precompile::view]
-    fn account_subnet_stake(
-        handle: &mut impl PrecompileHandle,
-        hotkey: Address,
-        subnet_id: U256,
-    ) -> EvmResult<u128> {
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
-        let subnet_id = try_u256_to_u32(subnet_id)?;
+    // #[precompile::public("accountSubnetStake(address,uint256)")]
+    // #[precompile::view]
+    // fn account_subnet_stake(
+    //     handle: &mut impl PrecompileHandle,
+    //     hotkey: Address,
+    //     subnet_id: U256,
+    // ) -> EvmResult<u128> {
+    //     let hotkey = R::AddressMapping::into_account_id(hotkey.into());
+    //     let subnet_id = try_u256_to_u32(subnet_id)?;
 
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let account_subnet_stake: u128 =
-            pallet_network::AccountSubnetStake::<R>::get(&hotkey, subnet_id);
+    //     handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
+    //     let account_subnet_stake: u128 =
+    //         pallet_network::NodeSubnetStake::<R>::get(&hotkey, subnet_id);
 
-        Ok(account_subnet_stake)
-    }
+    //     Ok(account_subnet_stake)
+    // }
 
     #[precompile::public("totalSubnetDelegateStakeBalance(uint256)")]
     #[precompile::view]

@@ -2,12 +2,11 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountOverwatchStake, AccountSubnetStake, ColdkeyHotkeys, ColdkeyIdentity,
-    ColdkeyIdentityNameOwner, ColdkeyReputation, DefaultMaxSocialIdLength, DefaultMaxUrlLength,
-    DefaultMaxVectorLength, Error, HotkeyOverwatchNodeId, HotkeyOwner, HotkeySubnetId,
-    HotkeySubnetNodeId, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake,
+    AccountOverwatchStake, NodeSubnetStake,
+    DefaultMaxSocialIdLength, DefaultMaxUrlLength,
+    DefaultMaxVectorLength, Error, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake,
     OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodes, StakeUnbondingLedger,
-    SubnetName, SubnetNodeIdHotkey, SubnetNodesData, TotalActiveSubnets, TotalSubnetNodes,
+    SubnetName, TotalActiveSubnets, TotalSubnetNodes,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
@@ -46,11 +45,8 @@ use sp_std::collections::btree_map::BTreeMap;
 
 //         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 //         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
-
-//         let hotkey_subnet_node_id =
-//             HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
 //         let starting_account_subnet_stake =
-//             AccountSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
+//             NodeSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
 
 //         // add extra stake and then add to ledger to check if it swapped
 //         let add_stake_amount = 10e+18 as u128;
@@ -101,7 +97,7 @@ use sp_std::collections::btree_map::BTreeMap;
 //             add_stake_amount,
 //         ));
 
-//         let stake_balance = AccountSubnetStake::<Test>::get(&hotkey.clone(), subnet_id);
+//         let stake_balance = NodeSubnetStake::<Test>::get(&hotkey.clone(), subnet_id);
 //         assert_eq!(
 //             stake_balance,
 //             starting_account_subnet_stake + add_stake_amount
@@ -157,10 +153,6 @@ use sp_std::collections::btree_map::BTreeMap;
 //         assert_eq!(unbondings.len() as u32, 0);
 //         assert_eq!(ledger_balance, 0);
 
-//         // old coldkey shouldn't have the hotkeys any longer
-//         let hotkeys = ColdkeyHotkeys::<Test>::get(&coldkey.clone());
-//         assert_eq!(hotkeys.len(), 0);
-
 //         let coldkey_identity = ColdkeyIdentity::<Test>::try_get(coldkey.clone());
 //         assert_eq!(coldkey_identity, Err(()));
 
@@ -179,23 +171,9 @@ use sp_std::collections::btree_map::BTreeMap;
 //         );
 //         assert_eq!(new_ledger_balance, original_ledger_balance);
 
-//         let subnet_node_id_hotkey =
-//             SubnetNodeIdHotkey::<Test>::get(subnet_id, hotkey_subnet_node_id).unwrap();
-//         assert_eq!(subnet_node_id_hotkey, hotkey.clone());
-
 //         let subnet_node_data =
 //             SubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id).unwrap();
 //         assert_eq!(subnet_node_data.hotkey, hotkey.clone());
-
-//         let key_owner = HotkeyOwner::<Test>::get(hotkey.clone());
-//         assert_eq!(key_owner, new_coldkey.clone());
-
-//         // Simple check the overwatch hotkey is the same
-//         let ow_node_id = HotkeyOverwatchNodeId::<Test>::get(&account(0));
-//         assert_eq!(overwatch_node_id, ow_node_id.unwrap());
-
-//         let hotkeys = ColdkeyHotkeys::<Test>::get(&new_coldkey.clone());
-//         assert_eq!(hotkeys.len(), 2); // 1 subnet node, 1 overwatch node
 
 //         let coldkey_identity = ColdkeyIdentity::<Test>::get(new_coldkey.clone());
 //         assert_eq!(coldkey_identity.name, name);
@@ -208,9 +186,6 @@ use sp_std::collections::btree_map::BTreeMap;
 //         assert_eq!(coldkey_identity.hugging_face, hugging_face);
 //         assert_eq!(coldkey_identity.description, description);
 //         assert_eq!(coldkey_identity.misc, misc);
-
-//         let coldkey_identity_name_owner = ColdkeyIdentityNameOwner::<Test>::get(name.clone());
-//         assert_eq!(coldkey_identity_name_owner, new_coldkey);
 
 //         let rep = ColdkeyReputation::<Test>::get(new_coldkey.clone());
 //         assert_eq!(rep, starting_rep);
@@ -425,10 +400,8 @@ use sp_std::collections::btree_map::BTreeMap;
 //         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 //         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
-//         let hotkey_subnet_node_id =
-//             HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
 //         let starting_account_subnet_stake =
-//             AccountSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
+//             NodeSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
 
 //         assert_ok!(Network::update_hotkey(
 //             RuntimeOrigin::signed(coldkey.clone()),
@@ -444,41 +417,20 @@ use sp_std::collections::btree_map::BTreeMap;
 //             }
 //         );
 
-//         //
-//         // Old hotkey
-//         //
-//         let hotkeys = ColdkeyHotkeys::<Test>::get(&coldkey.clone());
-//         assert_eq!(hotkeys.contains(&hotkey.clone()), false);
-
-//         let account_subnet_stake = AccountSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
+//         let account_subnet_stake = NodeSubnetStake::<Test>::get(hotkey.clone(), subnet_id);
 //         assert_eq!(account_subnet_stake, 0);
-
-//         let hotkey_subnet_id = HotkeySubnetId::<Test>::get(&hotkey.clone());
-//         assert_eq!(hotkey_subnet_id, None);
-
-//         assert_eq!(HotkeyOwner::<Test>::try_get(hotkey.clone()), Err(()));
 
 //         //
 //         // New hotkey
 //         //
 //         assert_eq!(hotkeys.contains(&new_hotkey.clone()), true);
 
-//         let subnet_node_id_hotkey =
-//             SubnetNodeIdHotkey::<Test>::get(subnet_id, hotkey_subnet_node_id).unwrap();
-//         assert_eq!(subnet_node_id_hotkey, new_hotkey.clone());
-
 //         let subnet_node_data =
 //             SubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id).unwrap();
 //         assert_eq!(subnet_node_data.hotkey, new_hotkey.clone());
 
-//         let key_owner = HotkeyOwner::<Test>::get(new_hotkey.clone());
-//         assert_eq!(key_owner, coldkey.clone());
-
-//         let account_subnet_stake = AccountSubnetStake::<Test>::get(new_hotkey.clone(), subnet_id);
+//         let account_subnet_stake = NodeSubnetStake::<Test>::get(new_hotkey.clone(), subnet_id);
 //         assert_eq!(account_subnet_stake, starting_account_subnet_stake);
-
-//         let hotkey_subnet_id = HotkeySubnetId::<Test>::get(&new_hotkey.clone());
-//         assert_eq!(hotkey_subnet_id, Some(subnet_id));
 
 //         //
 //         // Update overwatch node hotkey
@@ -500,17 +452,11 @@ use sp_std::collections::btree_map::BTreeMap;
 //         //
 //         assert_eq!(AccountOverwatchStake::<Test>::get(ow_hotkey.clone()), 0);
 
-//         let ow_node_id = HotkeyOverwatchNodeId::<Test>::try_get(&ow_hotkey.clone());
-//         assert_eq!(ow_node_id, Err(()));
-
 //         //
 //         // New ow node ID updated to new hotkey
 //         //
 //         let account_overwatch_stake = AccountOverwatchStake::<Test>::get(ow_new_hotkey.clone());
 //         assert_eq!(account_overwatch_stake, starting_account_overwatch_stake);
-
-//         let ow_node_id = HotkeyOverwatchNodeId::<Test>::get(&ow_new_hotkey.clone());
-//         assert_eq!(ow_node_id, Some(overwatch_node_id));
 
 //         let overwatch_node_hotkey = OverwatchNodeIdHotkey::<Test>::get(overwatch_node_id);
 //         assert_eq!(overwatch_node_hotkey, Some(ow_new_hotkey.clone()));

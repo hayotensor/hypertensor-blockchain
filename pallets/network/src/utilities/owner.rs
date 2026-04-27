@@ -107,8 +107,8 @@ impl<T: Config> Pallet<T> {
 
             // Update each registration queued node
             // Move each nodes start_epoch forward by the amount of epochs the subnet was paused
-            for (subnet_id, uid, _) in RegisteredSubnetNodesDataV2::<T>::iter() {
-                RegisteredSubnetNodesDataV2::<T>::mutate(subnet_id, uid, |subnet_node| {
+            for (subnet_id, uid, _) in RegisteredSubnetNodesData::<T>::iter() {
+                RegisteredSubnetNodesData::<T>::mutate(subnet_id, uid, |subnet_node| {
                     let curr_start_epoch = subnet_node.classification.start_epoch;
                     subnet_node.classification.start_epoch = curr_start_epoch.saturating_add(delta);
                 });
@@ -171,7 +171,7 @@ impl<T: Config> Pallet<T> {
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
         // Filter out subnet node ids that are not validators
-        subnet_node_ids.retain(|id| match SubnetNodesDataV2::<T>::try_get(subnet_id, id) {
+        subnet_node_ids.retain(|id| match SubnetNodesData::<T>::try_get(subnet_id, id) {
             Ok(subnet_node) => {
                 subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
             }
@@ -236,7 +236,7 @@ impl<T: Config> Pallet<T> {
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
         // Filter out subnet node ids that are not validators
-        subnet_node_ids.retain(|id| match SubnetNodesDataV2::<T>::try_get(subnet_id, id) {
+        subnet_node_ids.retain(|id| match SubnetNodesData::<T>::try_get(subnet_id, id) {
             Ok(subnet_node) => {
                 subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
             }

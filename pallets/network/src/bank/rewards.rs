@@ -23,7 +23,7 @@ impl<T: Config> Pallet<T> {
         block: u32,
         current_epoch: u32,
         current_subnet_epoch: u32,
-        consensus_submission_data: ConsensusSubmissionData<T::AccountId>,
+        consensus_submission_data: ConsensusSubmissionDataV2,
         rewards_data: RewardsData,
         min_attestation_percentage: u128,
         coldkey_reputation_increase_factor: u128,
@@ -61,7 +61,7 @@ impl<T: Config> Pallet<T> {
                 weight_meter,
             );
             return;
-        } else if let Some(validator_hotkey) = SubnetNodeIdHotkey::<T>::get(
+        } else if let Some(validator_id) = SubnetNodeValidatorId::<T>::get(
             subnet_id,
             consensus_submission_data.validator_subnet_node_id,
         ) {
@@ -74,8 +74,9 @@ impl<T: Config> Pallet<T> {
 
             Self::handle_validator_reward(
                 weight_meter,
-                &validator_hotkey,
+                validator_id,
                 subnet_id,
+                consensus_submission_data.validator_subnet_node_id,
                 &consensus_submission_data,
                 min_attestation_percentage,
                 coldkey_reputation_increase_factor,
@@ -86,7 +87,7 @@ impl<T: Config> Pallet<T> {
             // this logic stays here in case of future updates to allowing validators to exit
             // on the epoch they're elected for)
 
-            // We read `SubnetNodeIdHotkey` (else if) if we got to this point
+            // We read `SubnetNodeValidatorId` (else if) if we got to this point
             weight_meter.consume(db_weight.reads(1));
         }
 
@@ -150,7 +151,11 @@ impl<T: Config> Pallet<T> {
         weight_meter.consume(db_weight.writes(1));
 
         // --- Reward owner
-        Self::handle_subnet_owner_reward(weight_meter, subnet_id, rewards_data.subnet_owner_reward);
+        Self::handle_subnet_owner_reward(
+            weight_meter,
+            subnet_id,
+            rewards_data.subnet_owner_reward,
+        );
 
         // Loop iteration overhead
         weight_meter.consume(Weight::from_parts(
@@ -163,7 +168,7 @@ impl<T: Config> Pallet<T> {
         // Node -> reward
         let mut node_rewards: Vec<(u32, u128)> = Vec::new();
         // Node -> delegate stake reward
-        let mut node_delegate_stake_rewards: Vec<(u32, u128)> = Vec::new();
+        let mut validator_delegate_stake_rewards: Vec<(u32, u128)> = Vec::new();
         // Node -> (account -> amount)
         let mut node_delegate_account_allocations: Vec<(u32, (T::AccountId, u128))> = Vec::new();
 
@@ -412,55 +417,49 @@ impl<T: Config> Pallet<T> {
             }
 
             // We allow the node to not exist here and still increase the delegate reward pool
-            if subnet_node.delegate_reward_rate != 0 {
-                if let Some((updated_account_reward, (subnet_node_id, node_delegate_reward))) =
-                    Self::handle_node_delegate_stake(
-                        weight_meter,
-                        subnet_id,
-                        subnet_node.id,
-                        subnet_node.delegate_reward_rate,
-                        account_reward,
-                    )
-                {
-                    // Update account reward with the substracted amount that was given to the delegates
+            // --- Increase delegate account balance and emit event
+            if let Ok(validator_data) = &ValidatorsData::<T>::try_get(subnet_node.validator_id) {
+                if validator_data.delegate_reward_rate != 0 {
+                    if let Some((updated_account_reward, (subnet_node_id, node_delegate_reward))) =
+                        Self::handle_validator_delegate_stake(
+                            weight_meter,
+                            subnet_node.validator_id,
+                            validator_data.delegate_reward_rate,
+                            account_reward,
+                        )
+                    {
+                        // Update account reward with the substracted amount that was given to the delegates
+                        account_reward = updated_account_reward;
+                        // Add the node delegate reward to the list for event
+                        validator_delegate_stake_rewards
+                            .push((subnet_node.validator_id, node_delegate_reward));
+                    }
+                }
+
+                if let Some(delegate_account) = &validator_data.delegate_account {
+                    // We don't check if the rate is > 0 because the rate can't
+                    // be set to 0.
+                    let (updated_account_reward, delegate_account_deposit) =
+                        Self::handle_delegate_account(
+                            weight_meter,
+                            account_reward,
+                            &delegate_account.account_id,
+                            delegate_account.rate,
+                        );
                     account_reward = updated_account_reward;
-                    // Add the node delegate reward to the list for event
-                    node_delegate_stake_rewards.push((subnet_node_id, node_delegate_reward));
+
+                    node_delegate_account_allocations.push((
+                        subnet_node.id,
+                        (
+                            delegate_account.account_id.clone(),
+                            delegate_account_deposit,
+                        ),
+                    ));
                 }
             }
 
-            // --- Increase delegate account balance and emit event
-            if let Some(delegate_account) = &subnet_node.delegate_account {
-                // We don't check if the rate is > 0 because the rate can't
-                // be set to 0.
-                let (updated_account_reward, delegate_account_deposit) =
-                    Self::handle_delegate_account(
-                        weight_meter,
-                        account_reward,
-                        &delegate_account.account_id,
-                        delegate_account.rate,
-                    );
-                account_reward = updated_account_reward;
-
-                node_delegate_account_allocations.push((
-                    subnet_node.id,
-                    (
-                        delegate_account.account_id.clone(),
-                        delegate_account_deposit,
-                    ),
-                ));
-            }
-
-            // In case the hotkey was updated since the consensus data was submitted we
-            // get the current hotkey for the subnet node id.
-            //
-            // We know the node exists in this block because we check the reputation exists at the
-            // start of the loop. We still safely get the hotkey.
-            let subnet_node_hotkey = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node.id)
-                .unwrap_or(subnet_node.hotkey.clone());
-
-            Self::increase_account_stake(&subnet_node_hotkey, subnet_id, account_reward);
-            // AccountSubnetStake | TotalSubnetStake | TotalStake
+            Self::increase_node_stake(subnet_node.id, subnet_id, account_reward);
+            // NodeSubnetStake | TotalSubnetStake | TotalStake
             weight_meter.consume(db_weight.reads_writes(3, 3));
 
             node_rewards.push((subnet_node.id, account_reward));
@@ -482,7 +481,7 @@ impl<T: Config> Pallet<T> {
             subnet_id,
             node_rewards,
             delegate_stake_reward: rewards_data.delegate_stake_rewards,
-            node_delegate_stake_rewards,
+            node_delegate_stake_rewards: validator_delegate_stake_rewards,
             node_delegate_account_allocations,
         });
     }
@@ -490,7 +489,7 @@ impl<T: Config> Pallet<T> {
     /// Subnet is not in consensus
     pub fn handle_non_consensus(
         subnet_id: u32,
-        consensus_submission_data: ConsensusSubmissionData<T::AccountId>,
+        consensus_submission_data: ConsensusSubmissionDataV2,
         min_attestation_percentage: u128,
         coldkey_reputation_decrease_factor: u128,
         min_validator_reputation: u128,
@@ -544,11 +543,7 @@ impl<T: Config> Pallet<T> {
 
         // --- Decrease reputation of attestors
         for (subnet_node_id, attest_data) in consensus_submission_data.attests {
-            if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node_id) {
-                let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id) else {
-                    continue;
-                };
-
+            if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id) {
                 // We read the hotkey for 2 reasons:
                 // 1. Make sure the node currently is active
                 // 2. Get the latest hotkey for the node in case it was updated between when
@@ -570,29 +565,27 @@ impl<T: Config> Pallet<T> {
 
                 if new_reputation < min_validator_reputation {
                     weight_meter.consume(db_weight.reads(1));
-                    if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
-                        weight_meter.consume(db_weight.reads(1));
-                        let coldkey_subnet_nodes = ColdkeySubnetNodes::<T>::get(&coldkey);
-                        // x = number of subnets (outer BTreeMap size)
-                        let x = coldkey_subnet_nodes.len() as u32;
-                        // c = number of nodes in the specific subnet (inner BTreeSet size)
-                        let c = coldkey_subnet_nodes
-                            .get(&subnet_id)
-                            .map(|nodes| nodes.len() as u32)
-                            .unwrap_or(0);
+                    weight_meter.consume(db_weight.reads(1));
+                    let coldkey_subnet_nodes = ValidatorSubnetNodes::<T>::get(subnet_node_id);
+                    // x = number of subnets (outer BTreeMap size)
+                    let x = coldkey_subnet_nodes.len() as u32;
+                    // c = number of nodes in the specific subnet (inner BTreeSet size)
+                    let c = coldkey_subnet_nodes
+                        .get(&subnet_id)
+                        .map(|nodes| nodes.len() as u32)
+                        .unwrap_or(0);
 
-                        if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
+                    if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
+                        x,
+                        electable_nodes_count,
+                        c,
+                    )) {
+                        Self::remove_active_subnet_node(subnet_id, subnet_node_id);
+                        weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
                             x,
                             electable_nodes_count,
                             c,
-                        )) {
-                            Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-                            weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
-                                x,
-                                electable_nodes_count,
-                                c,
-                            ));
-                        }
+                        ));
                     }
                 }
             }
@@ -602,9 +595,10 @@ impl<T: Config> Pallet<T> {
 
     pub fn handle_validator_reward(
         weight_meter: &mut WeightMeter,
-        validator_hotkey: &T::AccountId,
+        validator_id: u32,
         subnet_id: u32,
-        consensus_submission_data: &ConsensusSubmissionData<T::AccountId>,
+        subnet_node_id: u32,
+        consensus_submission_data: &ConsensusSubmissionDataV2,
         min_attestation_percentage: u128,
         coldkey_reputation_increase_factor: u128,
         current_epoch: u32,
@@ -622,22 +616,21 @@ impl<T: Config> Pallet<T> {
         // MinAttestationPercentage | BaseValidatorReward
         weight_meter.consume(db_weight.reads(2));
 
-        if let Ok(validator_coldkey) = HotkeyOwner::<T>::try_get(&validator_hotkey) {
-            Self::increase_coldkey_reputation(
-                validator_coldkey,
-                consensus_submission_data.attestation_ratio,
-                min_attestation_percentage,
-                coldkey_reputation_increase_factor,
-                current_epoch,
-            );
-            weight_meter.consume(T::WeightInfo::increase_coldkey_reputation());
-        }
+        Self::increase_validator_reputation(
+            validator_id,
+            consensus_submission_data.attestation_ratio,
+            min_attestation_percentage,
+            coldkey_reputation_increase_factor,
+            current_epoch,
+        );
 
-        // HotkeyOwner
+        // weight_meter.consume(T::WeightInfo::increase_validator_reputation());
+
+        // 
         weight_meter.consume(db_weight.reads(1));
 
         // Give validator rewards to their stake
-        Self::increase_account_stake(&validator_hotkey, subnet_id, validator_reward);
+        Self::increase_node_stake(subnet_node_id, subnet_id, validator_reward);
     }
 
     pub fn handle_subnet_owner_reward(
@@ -686,7 +679,7 @@ impl<T: Config> Pallet<T> {
     pub fn handle_node_queue_consensus(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
-        consensus_submission_data: &ConsensusSubmissionData<T::AccountId>,
+        consensus_submission_data: &ConsensusSubmissionDataV2,
         super_majority_threshold: u128,
         electable_nodes_count: u32,
     ) {
@@ -732,37 +725,31 @@ impl<T: Config> Pallet<T> {
                 // 1. Make sure the node currently is active
                 // 2. Get the latest hotkey for the node in case it was updated between when
                 //    the validator submitted consensus data, and rewards distribution (now)
-                if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, remove_queue_node_id)
-                {
-                    weight_meter.consume(db_weight.reads(1));
-                    if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
-                        weight_meter.consume(db_weight.reads(1));
-                        let coldkey_subnet_nodes = ColdkeySubnetNodes::<T>::get(&coldkey);
-                        // x = number of subnets (outer BTreeMap size)
-                        let x = coldkey_subnet_nodes.len() as u32;
-                        // c = number of nodes in the specific subnet (inner BTreeSet size)
-                        let c = coldkey_subnet_nodes
-                            .get(&subnet_id)
-                            .map(|nodes| nodes.len() as u32)
-                            .unwrap_or(0);
+                weight_meter.consume(db_weight.reads(1));
+                let coldkey_subnet_nodes = ValidatorSubnetNodes::<T>::get(remove_queue_node_id);
+                // x = number of subnets (outer BTreeMap size)
+                let x = coldkey_subnet_nodes.len() as u32;
+                // c = number of nodes in the specific subnet (inner BTreeSet size)
+                let c = coldkey_subnet_nodes
+                    .get(&subnet_id)
+                    .map(|nodes| nodes.len() as u32)
+                    .unwrap_or(0);
 
-                        if weight_meter.can_consume(T::WeightInfo::remove_registered_subnet_node(
-                            x,
-                            electable_nodes_count,
-                            c,
-                        )) {
-                            Self::remove_registered_subnet_node(subnet_id, remove_queue_node_id);
-                            weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(
-                                x,
-                                electable_nodes_count,
-                                c,
-                            ));
-                            Self::deposit_event(Event::QueuedNodeRemoved {
-                                subnet_id,
-                                subnet_node_id: remove_queue_node_id,
-                            });
-                        }
-                    }
+                if weight_meter.can_consume(T::WeightInfo::remove_registered_subnet_node(
+                    x,
+                    electable_nodes_count,
+                    c,
+                )) {
+                    Self::remove_registered_subnet_node(subnet_id, remove_queue_node_id);
+                    weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(
+                        x,
+                        electable_nodes_count,
+                        c,
+                    ));
+                    Self::deposit_event(Event::QueuedNodeRemoved {
+                        subnet_id,
+                        subnet_node_id: remove_queue_node_id,
+                    });
                 }
             }
         }
@@ -781,32 +768,27 @@ impl<T: Config> Pallet<T> {
         // 1. Make sure the node currently is active
         // 2. Get the latest hotkey for the node in case it was updated between when
         //    the validator submitted consensus data, and rewards distribution (now)
-        if let Some(hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node_id) {
-            weight_meter.consume(db_weight.reads(1));
-            if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
-                weight_meter.consume(db_weight.reads(1));
-                let coldkey_subnet_nodes = ColdkeySubnetNodes::<T>::get(&coldkey);
-                // x = number of subnets (outer BTreeMap size)
-                let x = coldkey_subnet_nodes.len() as u32;
-                // c = number of nodes in the specific subnet (inner BTreeSet size)
-                let c = coldkey_subnet_nodes
-                    .get(&subnet_id)
-                    .map(|nodes| nodes.len() as u32)
-                    .unwrap_or(0);
+        weight_meter.consume(db_weight.reads(1));
+        let coldkey_subnet_nodes = ValidatorSubnetNodes::<T>::get(subnet_node_id);
+        // x = number of subnets (outer BTreeMap size)
+        let x = coldkey_subnet_nodes.len() as u32;
+        // c = number of nodes in the specific subnet (inner BTreeSet size)
+        let c = coldkey_subnet_nodes
+            .get(&subnet_id)
+            .map(|nodes| nodes.len() as u32)
+            .unwrap_or(0);
 
-                if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
-                    x,
-                    electable_nodes_count,
-                    c,
-                )) {
-                    Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-                    weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
-                        x,
-                        electable_nodes_count,
-                        c,
-                    ));
-                }
-            }
+        if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
+            x,
+            electable_nodes_count,
+            c,
+        )) {
+            Self::remove_active_subnet_node(subnet_id, subnet_node_id);
+            weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
+                x,
+                electable_nodes_count,
+                c,
+            ));
         }
     }
 
@@ -911,23 +893,34 @@ impl<T: Config> Pallet<T> {
         forked_subnet_node_ids
     }
 
-    pub fn handle_node_delegate_stake(
+    pub fn handle_validator_delegate_stake(
         weight_meter: &mut WeightMeter,
-        subnet_id: u32,
-        subnet_node_id: u32,
+        validator_id: u32,
         delegate_reward_rate: u128,
         account_reward: u128,
     ) -> Option<(u128, (u32, u128))> {
         let db_weight = T::DbWeight::get();
         // --- Ensure users are staked to subnet node
         let total_node_delegated_stake_shares =
-            TotalNodeDelegateStakeShares::<T>::get(subnet_id, subnet_node_id);
+            ValidatorDelegateStakeShares::<T>::get(validator_id);
         // TotalNodeDelegateStakeShares
         weight_meter.consume(db_weight.reads(1));
+
+        log::error!("handle_validator_delegate_stake");
+
+        // We make sure the pool has shares before depositing into it
         if total_node_delegated_stake_shares != 0 {
             let node_delegate_reward = Self::percent_mul(account_reward, delegate_reward_rate);
             let updated_account_reward = account_reward.saturating_sub(node_delegate_reward);
-            Self::do_increase_node_delegate_stake(subnet_id, subnet_node_id, node_delegate_reward);
+            log::error!(
+                "handle_validator_delegate_stake node_delegate_reward   {:?}",
+                node_delegate_reward
+            );
+            log::error!(
+                "handle_validator_delegate_stake updated_account_reward {:?}",
+                updated_account_reward
+            );
+            Self::do_increase_validator_delegate_stake(validator_id, node_delegate_reward);
             // reads:
             // TotalNodeDelegateStakeBalance | TotalNodeDelegateStakeShares
             //
@@ -935,10 +928,7 @@ impl<T: Config> Pallet<T> {
             // TotalNodeDelegateStakeShares | TotalNodeDelegateStakeBalance | TotalNodeDelegateStake
             weight_meter.consume(db_weight.reads_writes(5, 3));
 
-            return Some((
-                updated_account_reward,
-                (subnet_node_id, node_delegate_reward),
-            ));
+            return Some((updated_account_reward, (validator_id, node_delegate_reward)));
         }
         None
     }

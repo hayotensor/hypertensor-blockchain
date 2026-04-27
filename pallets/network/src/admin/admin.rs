@@ -298,9 +298,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidPercent
         );
 
-        ColdkeyReputationIncreaseFactor::<T>::set(value);
+        ValidatorReputationIncreaseFactor::<T>::set(value);
 
-        Self::deposit_event(Event::SetColdkeyReputationIncreaseFactor(value));
+        Self::deposit_event(Event::SetValidatorReputationIncreaseFactor(value));
 
         Ok(())
     }
@@ -310,9 +310,9 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidPercent
         );
 
-        ColdkeyReputationDecreaseFactor::<T>::set(value);
+        ValidatorReputationDecreaseFactor::<T>::set(value);
 
-        Self::deposit_event(Event::SetColdkeyReputationDecreaseFactor(value));
+        Self::deposit_event(Event::SetValidatorReputationDecreaseFactor(value));
 
         Ok(())
     }
@@ -472,7 +472,7 @@ impl<T: Config> Pallet<T> {
     }
     pub fn do_collective_remove_subnet_node(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
         Self::deposit_event(Event::CollectiveRemoveSubnetNode(subnet_id, subnet_node_id));
-        Self::do_remove_subnet_node(subnet_id, subnet_node_id)
+        Self::do_remove_subnet_node_v2(subnet_id, subnet_node_id)
     }
     pub fn do_collective_remove_overwatch_node(overwatch_node_id: u32) -> DispatchResult {
         Self::perform_remove_overwatch_node(overwatch_node_id);

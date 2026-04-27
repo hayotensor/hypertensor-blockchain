@@ -17,18 +17,6 @@
 use super::*;
 
 impl<T: Config> Pallet<T> {
-    pub fn hotkey_has_owner(hotkey: T::AccountId) -> bool {
-        HotkeyOwner::<T>::contains_key(&hotkey)
-    }
-
-    /// Check if the hotkeys owner
-    pub fn is_hotkey_owner(hotkey: &T::AccountId, coldkey: &T::AccountId) -> bool {
-        match HotkeyOwner::<T>::try_get(&hotkey) {
-            Ok(owner) => coldkey == &owner,
-            Err(()) => false,
-        }
-    }
-
     // Loosely validates Node ID
     pub fn validate_peer_id(peer_id: &PeerId) -> bool {
         let peer_id_0 = &peer_id.0;

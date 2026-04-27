@@ -179,7 +179,6 @@ pub trait WeightInfo {
 	fn add_balance_to_coldkey_account() -> Weight;
 	fn graduate_class() -> Weight;
 	fn insert_node_into_election_slot() -> Weight;
-	fn increase_coldkey_reputation() -> Weight;
 	fn get_min_subnet_delegate_stake_balance() -> Weight;
 	fn do_epoch_preliminaries(x: u32, n: u32, ) -> Weight;
 	fn calculate_overwatch_rewards(x: u32, o: u32, ) -> Weight;
@@ -1277,8 +1276,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::HotkeyOwner` (r:1 w:0)
 	/// Proof: `Network::HotkeyOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::AccountSubnetStake` (r:1 w:1)
-	/// Proof: `Network::AccountSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetMinStakeBalance` (r:1 w:0)
 	/// Proof: `Network::SubnetMinStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetMaxStakeBalance` (r:1 w:0)
@@ -1326,8 +1325,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetElectedValidator` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodesData` (r:1 w:0)
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::AccountSubnetStake` (r:1 w:1)
-	/// Proof: `Network::AccountSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetMinStakeBalance` (r:1 w:0)
 	/// Proof: `Network::SubnetMinStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::LastTxBlock` (r:1 w:1)
@@ -1975,8 +1974,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::HotkeySubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodesData` (r:1 w:1)
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::AccountSubnetStake` (r:3 w:2)
-	/// Proof: `Network::AccountSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:3 w:2)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -3301,8 +3300,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ColdkeyReputationIncreaseFactor` (r:0 w:1)
-	/// Proof: `Network::ColdkeyReputationIncreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorReputationIncreaseFactor` (r:0 w:1)
+	/// Proof: `Network::ValidatorReputationIncreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_reputation_increase_factor() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `24`
@@ -3320,8 +3319,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ColdkeyReputationDecreaseFactor` (r:0 w:1)
-	/// Proof: `Network::ColdkeyReputationDecreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorReputationDecreaseFactor` (r:0 w:1)
+	/// Proof: `Network::ValidatorReputationDecreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_reputation_decrease_factor() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `24`
@@ -4414,21 +4413,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(3_u64))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
 	}
-	/// Storage: `Network::ColdkeyReputationIncreaseFactor` (r:1 w:0)
-	/// Proof: `Network::ColdkeyReputationIncreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::ColdkeyReputation` (r:1 w:1)
-	/// Proof: `Network::ColdkeyReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn increase_coldkey_reputation() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `2148`
-		//  Estimated: `5613`
-		// Minimum execution time: 46_587_000 picoseconds.
-		Weight::from_parts(60_821_000, 5613)
-			.saturating_add(T::DbWeight::get().reads(3_u64))
-			.saturating_add(T::DbWeight::get().writes(1_u64))
-	}
 	/// Storage: `Balances::TotalIssuance` (r:1 w:0)
 	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
 	/// Storage: `Network::TotalStake` (r:1 w:0)
@@ -4697,10 +4681,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetDelegateStakeRewardsPercentage` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MinAttestationPercentage` (r:1 w:0)
 	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ColdkeyReputationIncreaseFactor` (r:1 w:0)
-	/// Proof: `Network::ColdkeyReputationIncreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ColdkeyReputationDecreaseFactor` (r:1 w:0)
-	/// Proof: `Network::ColdkeyReputationDecreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorReputationIncreaseFactor` (r:1 w:0)
+	/// Proof: `Network::ValidatorReputationIncreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorReputationDecreaseFactor` (r:1 w:0)
+	/// Proof: `Network::ValidatorReputationDecreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SuperMajorityAttestationRatio` (r:1 w:0)
 	/// Proof: `Network::SuperMajorityAttestationRatio` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MinSubnetNodeReputation` (r:1 w:0)
@@ -4717,8 +4701,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::HotkeyOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ColdkeyReputation` (r:1 w:1)
 	/// Proof: `Network::ColdkeyReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::AccountSubnetStake` (r:16 w:16)
-	/// Proof: `Network::AccountSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:16 w:16)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetStake` (r:1 w:1)
 	/// Proof: `Network::TotalSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalStake` (r:1 w:1)
@@ -5944,8 +5928,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::HotkeyOwner` (r:1 w:0)
 	/// Proof: `Network::HotkeyOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::AccountSubnetStake` (r:1 w:1)
-	/// Proof: `Network::AccountSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetMinStakeBalance` (r:1 w:0)
 	/// Proof: `Network::SubnetMinStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetMaxStakeBalance` (r:1 w:0)
@@ -5993,8 +5977,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetElectedValidator` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodesData` (r:1 w:0)
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::AccountSubnetStake` (r:1 w:1)
-	/// Proof: `Network::AccountSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetMinStakeBalance` (r:1 w:0)
 	/// Proof: `Network::SubnetMinStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::LastTxBlock` (r:1 w:1)
@@ -6642,8 +6626,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::HotkeySubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodesData` (r:1 w:1)
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::AccountSubnetStake` (r:3 w:2)
-	/// Proof: `Network::AccountSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:3 w:2)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -7968,8 +7952,8 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ColdkeyReputationIncreaseFactor` (r:0 w:1)
-	/// Proof: `Network::ColdkeyReputationIncreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorReputationIncreaseFactor` (r:0 w:1)
+	/// Proof: `Network::ValidatorReputationIncreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_reputation_increase_factor() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `24`
@@ -7987,8 +7971,8 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ColdkeyReputationDecreaseFactor` (r:0 w:1)
-	/// Proof: `Network::ColdkeyReputationDecreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorReputationDecreaseFactor` (r:0 w:1)
+	/// Proof: `Network::ValidatorReputationDecreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_reputation_decrease_factor() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `24`
@@ -9081,21 +9065,6 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(3_u64))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
 	}
-	/// Storage: `Network::ColdkeyReputationIncreaseFactor` (r:1 w:0)
-	/// Proof: `Network::ColdkeyReputationIncreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::ColdkeyReputation` (r:1 w:1)
-	/// Proof: `Network::ColdkeyReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	fn increase_coldkey_reputation() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `2148`
-		//  Estimated: `5613`
-		// Minimum execution time: 46_587_000 picoseconds.
-		Weight::from_parts(60_821_000, 5613)
-			.saturating_add(RocksDbWeight::get().reads(3_u64))
-			.saturating_add(RocksDbWeight::get().writes(1_u64))
-	}
 	/// Storage: `Balances::TotalIssuance` (r:1 w:0)
 	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
 	/// Storage: `Network::TotalStake` (r:1 w:0)
@@ -9364,10 +9333,10 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetDelegateStakeRewardsPercentage` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MinAttestationPercentage` (r:1 w:0)
 	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ColdkeyReputationIncreaseFactor` (r:1 w:0)
-	/// Proof: `Network::ColdkeyReputationIncreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ColdkeyReputationDecreaseFactor` (r:1 w:0)
-	/// Proof: `Network::ColdkeyReputationDecreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorReputationIncreaseFactor` (r:1 w:0)
+	/// Proof: `Network::ValidatorReputationIncreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorReputationDecreaseFactor` (r:1 w:0)
+	/// Proof: `Network::ValidatorReputationDecreaseFactor` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SuperMajorityAttestationRatio` (r:1 w:0)
 	/// Proof: `Network::SuperMajorityAttestationRatio` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MinSubnetNodeReputation` (r:1 w:0)
@@ -9384,8 +9353,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::HotkeyOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ColdkeyReputation` (r:1 w:1)
 	/// Proof: `Network::ColdkeyReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::AccountSubnetStake` (r:16 w:16)
-	/// Proof: `Network::AccountSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:16 w:16)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetStake` (r:1 w:1)
 	/// Proof: `Network::TotalSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalStake` (r:1 w:1)

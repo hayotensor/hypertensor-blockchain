@@ -62,8 +62,8 @@ impl<T: Config> Pallet<T> {
                     continue;
                 };
 
-                let stake_balance = AccountOverwatchStake::<T>::get(overwatch_node.hotkey.clone());
-                // AccountOverwatchStake
+                let stake_balance = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
+                // OverwatchNodeStakeBalance
                 weight = weight.saturating_add(db_weight.reads(1));
 
                 let stake_weight_adj =
@@ -167,7 +167,7 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            Self::increase_account_overwatch_stake(&hotkey, amount);
+            Self::increase_overwatch_node_stake(*node_id, amount);
             weight = weight.saturating_add(db_weight.reads_writes(2, 2));
 
             node_rewards.push((*node_id, amount));
@@ -235,12 +235,12 @@ impl<T: Config> Pallet<T> {
 
                     // Read constants
                     let min_attestation = MinAttestationPercentage::<T>::get();
-                    let rep_increase = ColdkeyReputationIncreaseFactor::<T>::get();
-                    let rep_decrease = ColdkeyReputationDecreaseFactor::<T>::get();
+                    let rep_increase = ValidatorReputationIncreaseFactor::<T>::get();
+                    let rep_decrease = ValidatorReputationDecreaseFactor::<T>::get();
                     let super_majority = SuperMajorityAttestationRatio::<T>::get();
 
-                    // MinAttestationPercentage | ColdkeyReputationIncreaseFactor
-                    // ColdkeyReputationIncreaseFactor | SuperMajorityAttestationRatio
+                    // MinAttestationPercentage | ValidatorReputationIncreaseFactor
+                    // ValidatorReputationIncreaseFactor | SuperMajorityAttestationRatio
                     weight_meter.consume(db_weight.reads(4));
 
                     // Distribute rewards
@@ -286,7 +286,11 @@ impl<T: Config> Pallet<T> {
                     // this ensures the subnet is active (not registered or paused)
 
                     // This will run if there is block weight remaining to call
-                    Self::handle_registration_queue(weight_meter, subnet_id, current_subnet_epoch);
+                    Self::handle_registration_queue(
+                        weight_meter,
+                        subnet_id,
+                        current_subnet_epoch,
+                    );
 
                     // This will run if there is block weight remaining to call
                     Self::update_burn_rate_for_epoch(weight_meter, subnet_id);
@@ -390,6 +394,7 @@ impl<T: Config> Pallet<T> {
             // Attempt activation
             let can_consume = Self::do_activate_subnet_node(
                 weight_meter,
+                subnet_node.validator_id,
                 subnet_id,
                 SubnetState::Active, // We know the subnet is active if `handle_registration_queue` is called
                 subnet_node.clone(),
@@ -617,75 +622,75 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         prev_subnet_epoch: u32,
         current_epoch: u32,
-    ) -> (Option<ConsensusSubmissionData<T::AccountId>>, Weight) {
+    ) -> (Option<ConsensusSubmissionDataV2>, Weight) {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
         // SubnetConsensusSubmission
         weight = weight.saturating_add(db_weight.reads(1));
 
-        let submission = match SubnetConsensusSubmission::<T>::try_get(subnet_id, prev_subnet_epoch)
-        {
-            Ok(submission) => submission,
-            Err(()) => {
-                // Check if a validator was elected
-                // - Make sure they did their job and submitted consensus data
-                // - If not, penalize the subnet and validator
-                weight = weight.saturating_add(db_weight.reads(1));
-                if let Some(validator_id) =
-                    SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch)
-                {
-                    //
-                    // Update subnet rep
-                    //
-                    Self::decrease_subnet_reputation(
-                        subnet_id,
-                        ValidatorAbsentSubnetReputationFactor::<T>::get(),
-                        None,
-                    );
-                    // Reads:
-                    // - SubnetReputation
-                    // - ValidatorAbsentSubnetReputationFactor
-                    // Writes:
-                    // - SubnetReputation
-                    weight = weight.saturating_add(db_weight.reads_writes(2, 1));
-
-                    // The elected validator cannot remove self if elected so we don't check if they exist
-
-                    //
-                    // Update node rep
-                    //
-                    if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, validator_id) {
-                        Self::decrease_and_return_node_reputation(
+        let submission =
+            match SubnetConsensusSubmission::<T>::try_get(subnet_id, prev_subnet_epoch) {
+                Ok(submission) => submission,
+                Err(()) => {
+                    // Check if a validator was elected
+                    // - Make sure they did their job and submitted consensus data
+                    // - If not, penalize the subnet and validator
+                    weight = weight.saturating_add(db_weight.reads(1));
+                    if let Some(validator_id) =
+                        SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch)
+                    {
+                        //
+                        // Update subnet rep
+                        //
+                        Self::decrease_subnet_reputation(
                             subnet_id,
-                            validator_id,
-                            rep,
-                            ValidatorAbsentDecreaseReputationFactor::<T>::get(subnet_id),
+                            ValidatorAbsentSubnetReputationFactor::<T>::get(),
                             None,
                         );
+                        // Reads:
+                        // - SubnetReputation
+                        // - ValidatorAbsentSubnetReputationFactor
+                        // Writes:
+                        // - SubnetReputation
+                        weight = weight.saturating_add(db_weight.reads_writes(2, 1));
+
+                        // The elected validator cannot remove self if elected so we don't check if they exist
+
+                        //
+                        // Update node rep
+                        //
+                        if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, validator_id) {
+                            Self::decrease_and_return_node_reputation(
+                                subnet_id,
+                                validator_id,
+                                rep,
+                                ValidatorAbsentDecreaseReputationFactor::<T>::get(subnet_id),
+                                None,
+                            );
+                        }
+
+                        // NOTE: We don't check if below minimum node reputation here to possibly
+                        // remove the node from the subnet, as this is done in the bank/rewards.rs ``distribute_rewards``
+
+                        // Reads:
+                        // - SubnetNodeReputation
+                        // - ValidatorAbsentDecreaseReputationFactor
+                        // Writes:
+                        // - SubnetNodeReputation
+                        weight = weight.saturating_add(db_weight.reads_writes(2, 1));
                     }
 
-                    // NOTE: We don't check if below minimum node reputation here to possibly
-                    // remove the node from the subnet, as this is done in the bank/rewards.rs ``distribute_rewards``
-
-                    // Reads:
-                    // - SubnetNodeReputation
-                    // - ValidatorAbsentDecreaseReputationFactor
-                    // Writes:
-                    // - SubnetNodeReputation
-                    weight = weight.saturating_add(db_weight.reads_writes(2, 1));
+                    return (None, weight);
                 }
-
-                return (None, weight);
-            }
-        };
+            };
 
         // --- Get all qualified possible attestors
         let max_attestors: u128 = submission.validator_ids.len() as u128;
 
         weight = weight.saturating_add(db_weight.reads(1));
 
-        let consensus_data = ConsensusSubmissionData {
+        let consensus_data = ConsensusSubmissionDataV2 {
             validator_subnet_node_id: submission.validator_id,
             validator_epoch_progress: submission.validator_epoch_progress,
             validator_reward_factor: submission.validator_reward_factor,

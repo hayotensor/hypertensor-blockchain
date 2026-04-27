@@ -18,22 +18,11 @@ use super::*;
 use frame_support::pallet_prelude::DispatchError;
 
 impl<T: Config> Pallet<T> {
-    pub fn get_overwatch_node_hotkey_coldkey(
-        overwatch_node_id: u32,
-    ) -> Option<(T::AccountId, T::AccountId)> {
-        let hotkey = OverwatchNodeIdHotkey::<T>::try_get(overwatch_node_id).ok()?;
-        let coldkey = HotkeyOwner::<T>::try_get(&hotkey).ok()?;
-
-        Some((hotkey, coldkey))
-    }
-
     pub fn is_overwatch_node_keys_owner(overwatch_node_id: u32, key: T::AccountId) -> bool {
-        let (hotkey, coldkey) = match Self::get_overwatch_node_hotkey_coldkey(overwatch_node_id) {
-            Some((hotkey, coldkey)) => (hotkey, coldkey),
-            None => return false,
-        };
-
-        key == hotkey || key == coldkey
+        match Self::get_overwatch_associated_coldkey_and_hotkey(overwatch_node_id) {
+            Ok((coldkey, hotkey)) => key == hotkey || key == coldkey,
+            Err(_) => false,
+        }
     }
 
     pub fn get_overwatch_associated_coldkey_and_hotkey(

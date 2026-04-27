@@ -4,7 +4,7 @@ use crate::Event;
 use crate::{
     AbsentDecreaseReputationFactor, BelowMinWeightDecreaseReputationFactor, ChurnLimit,
     DefaultMaxVectorLength, EmergencySubnetNodeElectionData, EmergencySubnetValidatorData, Error,
-    HotkeySubnetNodeId, IdleClassificationEpochs, IncludedClassificationEpochs,
+    IdleClassificationEpochs, IncludedClassificationEpochs,
     IncludedIncreaseReputationFactor, LastSubnetDelegateStakeRewardsUpdate, MaxChurnLimit,
     MaxDelegateStakePercentage, MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs,
     MaxMaxRegisteredNodes, MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetBootnodeAccess,
@@ -14,11 +14,11 @@ use crate::{
     MinQueueEpochs, MinSubnetMinStake, MinSubnetNodeReputation, NetworkMaxStakeBalance,
     NodeBurnRateAlpha, NonAttestorDecreaseReputationFactor,
     NonConsensusAttestorDecreaseReputationFactor, PeerInfo, PendingSubnetOwner,
-    QueueImmunityEpochs, RegisteredSubnetNodesDataV2, SubnetBootnodeAccess, SubnetData,
+    QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess, SubnetData,
     SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod,
     SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeMinWeightDecreaseReputationThreshold,
-    SubnetNodeQueueEpochs, SubnetNodeV2, SubnetNodesDataV2, SubnetOwner, SubnetPauseCooldownEpochs,
+    SubnetNodeQueueEpochs, SubnetNodeV2, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
     SubnetRegistrationInitialColdkeys, SubnetRemovalReason, SubnetRepo, SubnetState, SubnetsData,
     TargetNodeRegistrationsPerEpoch, ValidatorAbsentDecreaseReputationFactor,
     ValidatorNonConsensusSubnetNodeReputationFactor,
@@ -487,7 +487,7 @@ fn test_owner_pause_subnet_must_be_active_error() {
         let amount: u128 = 1000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_registered_subnet(
+        build_registered_subnet_v2(
             subnet_name.clone(),
             0,
             4,
@@ -539,7 +539,7 @@ fn test_owner_unpause_subnet() {
         let start_epoch = epoch + 100;
 
         let hotkey_subnet_node_id = 1000;
-        RegisteredSubnetNodesDataV2::<Test>::insert(
+        RegisteredSubnetNodesData::<Test>::insert(
             subnet_id,
             hotkey_subnet_node_id,
             SubnetNodeV2 {
@@ -593,7 +593,7 @@ fn test_owner_unpause_subnet() {
         assert_eq!(subnet_data.state, SubnetState::Active);
         assert_eq!(subnet_data.start_epoch, curr_epoch + 1);
 
-        let node = RegisteredSubnetNodesDataV2::<Test>::get(subnet_id, hotkey_subnet_node_id);
+        let node = RegisteredSubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
         // The start epoch update increases the epoch by 1
         assert_eq!(node.classification.start_epoch, start_epoch + delta + 1);
     });
@@ -627,7 +627,7 @@ fn test_owner_unpause_subnet_repause_cooldown_error() {
         let start_epoch = epoch + 100;
 
         let hotkey_subnet_node_id = 1000;
-        RegisteredSubnetNodesDataV2::<Test>::insert(
+        RegisteredSubnetNodesData::<Test>::insert(
             subnet_id,
             hotkey_subnet_node_id,
             SubnetNodeV2 {
@@ -681,7 +681,7 @@ fn test_owner_unpause_subnet_repause_cooldown_error() {
         assert_eq!(subnet_data.state, SubnetState::Active);
         assert_eq!(subnet_data.start_epoch, curr_epoch + 1);
 
-        let node = RegisteredSubnetNodesDataV2::<Test>::get(subnet_id, hotkey_subnet_node_id);
+        let node = RegisteredSubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
         // The start epoch update increases the epoch by 1
         assert_eq!(node.classification.start_epoch, start_epoch + delta + 1);
 
@@ -708,7 +708,7 @@ fn test_owner_unpause_subnet_must_be_paused_error() {
     let amount: u128 = 1000000000000000000000;
     let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-    build_registered_subnet(
+    build_registered_subnet_v2(
       subnet_name.clone(),
       0,
       4,
@@ -776,7 +776,7 @@ fn test_owner_unpause_subnet_verify_queue_updated() {
             let _n = n + 1;
             log::error!("_n {:?}", _n);
             let subnet_node_data =
-                RegisteredSubnetNodesDataV2::<Test>::try_get(subnet_id, _n).unwrap();
+                RegisteredSubnetNodesData::<Test>::try_get(subnet_id, _n).unwrap();
             registered_nodes_data.insert(_n, subnet_node_data.classification.start_epoch);
         }
 
@@ -809,7 +809,7 @@ fn test_owner_unpause_subnet_verify_queue_updated() {
         for n in start..end {
             let _n = n + 1;
             let subnet_node_data =
-                RegisteredSubnetNodesDataV2::<Test>::try_get(subnet_id, _n).unwrap();
+                RegisteredSubnetNodesData::<Test>::try_get(subnet_id, _n).unwrap();
 
             if let Some(prev_start_epoch) = registered_nodes_data.get(&_n) {
                 assert_eq!(
@@ -863,12 +863,12 @@ fn test_owner_set_emergency_validator_subnet() {
         assert_eq!(subnet_data.start_epoch, epoch);
 
         let mut original_subnet_node_ids: Vec<u32> = Vec::new();
-        for (id, _) in SubnetNodesDataV2::<Test>::iter_prefix(subnet_id) {
+        for (id, _) in SubnetNodesData::<Test>::iter_prefix(subnet_id) {
             original_subnet_node_ids.push(id);
         }
 
         let mut subnet_node_ids: Vec<u32> = Vec::new();
-        for (id, _) in SubnetNodesDataV2::<Test>::iter_prefix(subnet_id).take((max - 1) as usize) {
+        for (id, _) in SubnetNodesData::<Test>::iter_prefix(subnet_id).take((max - 1) as usize) {
             subnet_node_ids.push(id);
         }
 
@@ -1013,12 +1013,12 @@ fn test_owner_fork_subnet_max_fork_epoch() {
         assert_eq!(subnet_data.start_epoch, epoch);
 
         let mut original_subnet_node_ids: Vec<u32> = Vec::new();
-        for (id, _) in SubnetNodesDataV2::<Test>::iter_prefix(subnet_id) {
+        for (id, _) in SubnetNodesData::<Test>::iter_prefix(subnet_id) {
             original_subnet_node_ids.push(id);
         }
 
         let mut subnet_node_ids: Vec<u32> = Vec::new();
-        for (id, _) in SubnetNodesDataV2::<Test>::iter_prefix(subnet_id).take((max - 1) as usize) {
+        for (id, _) in SubnetNodesData::<Test>::iter_prefix(subnet_id).take((max - 1) as usize) {
             subnet_node_ids.push(id);
         }
 

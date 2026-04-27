@@ -15,7 +15,8 @@ use crate::{
     SubnetBootnodes, SubnetData, SubnetElectedValidator, SubnetEnactmentEpochs, SubnetName,
     SubnetOwner, SubnetRegistrationEpoch, SubnetRegistrationEpochs, SubnetRemovalReason,
     SubnetReputation, SubnetSlot, SubnetState, SubnetsData, TotalActiveSubnets,
-    TotalSubnetDelegateStakeBalance, TotalSubnetNodes,
+    TotalSubnetDelegateStakeBalance, TotalSubnetNodes, TotalValidatorIds, TotalSubnetNodeUids,
+
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
@@ -726,23 +727,34 @@ fn test_activate_subnet() {
             let burn_amount = Network::calculate_burn_amount(subnet_id);
             let _ =
                 Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount + 500);
-            assert_ok!(Network::register_subnet_node(
+            assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
+                hotkey,
+                50000000000,
+                None,
+                None,
+            ));
+
+            let validator_id = TotalValidatorIds::<Test>::get();
+
+            assert_ok!(Network::register_subnet_node_v2(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
                 subnet_id,
-                hotkey.clone(),
+                None,
                 PeerInfo {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
                 None,
                 None,
-                0,
                 amount,
                 None,
                 None,
-                None,
-                u128::MAX
+                u128::MAX,
             ));
+
+            let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
         let min_subnet_delegate_stake =
@@ -759,7 +771,7 @@ fn test_activate_subnet() {
         let min_registration_epochs = MinSubnetRegistrationEpochs::<Test>::get();
         increase_epochs(min_registration_epochs + 1);
 
-        assert_ok!(Network::activate_subnet(
+        assert_ok!(Network::activate_subnet_v2(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
@@ -845,23 +857,34 @@ fn test_activate_subnet_anytime() {
             let burn_amount = Network::calculate_burn_amount(subnet_id);
             let _ =
                 Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount + 500);
-            assert_ok!(Network::register_subnet_node(
+            assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
+                hotkey,
+                50000000000,
+                None,
+                None,
+            ));
+
+            let validator_id = TotalValidatorIds::<Test>::get();
+
+            assert_ok!(Network::register_subnet_node_v2(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
                 subnet_id,
-                hotkey.clone(),
+                None,
                 PeerInfo {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
                 None,
                 None,
-                0,
                 amount,
                 None,
                 None,
-                None,
-                u128::MAX
+                u128::MAX,
             ));
+
+            let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
         let min_subnet_delegate_stake =
@@ -878,7 +901,7 @@ fn test_activate_subnet_anytime() {
         let min_registration_epochs = MinSubnetRegistrationEpochs::<Test>::get();
         increase_epochs(min_registration_epochs + 1);
 
-        assert_ok!(Network::activate_subnet(
+        assert_ok!(Network::activate_subnet_v2(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
@@ -949,7 +972,7 @@ fn test_activate_subnet_conditions_not_met_in_registration_period() {
         // --- don't add delegte stake
 
         assert_err!(
-            Network::activate_subnet(RuntimeOrigin::signed(account(0)), subnet_id),
+            Network::activate_subnet_v2(RuntimeOrigin::signed(account(0)), subnet_id),
             Error::<Test>::SubnetActivationConditionsNotMetYet
         );
 
@@ -1023,27 +1046,38 @@ fn test_activate_subnet_invalid_subnet_id_error() {
             let burn_amount = Network::calculate_burn_amount(subnet_id);
             let _ =
                 Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount + 500);
-            assert_ok!(Network::register_subnet_node(
+            assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
+                hotkey,
+                50000000000,
+                None,
+                None,
+            ));
+
+            let validator_id = TotalValidatorIds::<Test>::get();
+
+            assert_ok!(Network::register_subnet_node_v2(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
                 subnet_id,
-                hotkey.clone(),
+                None,
                 PeerInfo {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
                 None,
                 None,
-                0,
                 amount,
                 None,
                 None,
-                None,
-                u128::MAX
+                u128::MAX,
             ));
+
+            let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
         assert_err!(
-            Network::activate_subnet(RuntimeOrigin::signed(account(0)), subnet_id + 1),
+            Network::activate_subnet_v2(RuntimeOrigin::signed(account(0)), subnet_id + 1),
             Error::<Test>::NotSubnetOwner
         );
     })
@@ -1112,23 +1146,34 @@ fn test_activate_subnet_already_activated_err() {
             let burn_amount = Network::calculate_burn_amount(subnet_id);
             let _ =
                 Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount + 500);
-            assert_ok!(Network::register_subnet_node(
+            assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
+                hotkey,
+                50000000000,
+                None,
+                None,
+            ));
+
+            let validator_id = TotalValidatorIds::<Test>::get();
+
+            assert_ok!(Network::register_subnet_node_v2(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
                 subnet_id,
-                hotkey.clone(),
+                None,
                 PeerInfo {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
                 None,
                 None,
-                0,
                 amount,
                 None,
                 None,
-                None,
-                u128::MAX
+                u128::MAX,
             ));
+
+            let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
         let min_subnet_delegate_stake =
@@ -1149,13 +1194,13 @@ fn test_activate_subnet_already_activated_err() {
         let min_registration_epochs = MinSubnetRegistrationEpochs::<Test>::get();
         increase_epochs(min_registration_epochs + 1);
 
-        assert_ok!(Network::activate_subnet(
+        assert_ok!(Network::activate_subnet_v2(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
 
         assert_err!(
-            Network::activate_subnet(RuntimeOrigin::signed(account(0)), subnet_id),
+            Network::activate_subnet_v2(RuntimeOrigin::signed(account(0)), subnet_id),
             Error::<Test>::SubnetActivatedAlready
         );
     })
@@ -1224,27 +1269,38 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
             let burn_amount = Network::calculate_burn_amount(subnet_id);
             let _ =
                 Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount + 500);
-            assert_ok!(Network::register_subnet_node(
+            assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
+                hotkey,
+                50000000000,
+                None,
+                None,
+            ));
+
+            let validator_id = TotalValidatorIds::<Test>::get();
+
+            assert_ok!(Network::register_subnet_node_v2(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
                 subnet_id,
-                hotkey.clone(),
+                None,
                 PeerInfo {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
                 None,
                 None,
-                0,
                 amount,
                 None,
                 None,
-                None,
-                u128::MAX
+                u128::MAX,
             ));
+
+            let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
         assert_err!(
-            Network::activate_subnet(RuntimeOrigin::signed(account(0)), subnet_id),
+            Network::activate_subnet_v2(RuntimeOrigin::signed(account(0)), subnet_id),
             Error::<Test>::MinSubnetRegistrationEpochsNotMet
         );
 
@@ -1263,7 +1319,7 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
         ));
 
         assert_err!(
-            Network::activate_subnet(RuntimeOrigin::signed(account(0)), subnet_id),
+            Network::activate_subnet_v2(RuntimeOrigin::signed(account(0)), subnet_id),
             Error::<Test>::MinSubnetRegistrationEpochsNotMet
         );
     })
@@ -1332,23 +1388,34 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
             let burn_amount = Network::calculate_burn_amount(subnet_id);
             let _ =
                 Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount + 500);
-            assert_ok!(Network::register_subnet_node(
+            assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
+                hotkey,
+                50000000000,
+                None,
+                None,
+            ));
+
+            let validator_id = TotalValidatorIds::<Test>::get();
+
+            assert_ok!(Network::register_subnet_node_v2(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
                 subnet_id,
-                hotkey.clone(),
+                None,
                 PeerInfo {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
                 None,
                 None,
-                0,
                 amount,
                 None,
                 None,
-                None,
-                u128::MAX
+                u128::MAX,
             ));
+
+            let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -1368,7 +1435,7 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
         let enactment_epochs = SubnetEnactmentEpochs::<Test>::get();
         increase_epochs(registration_epochs + enactment_epochs + 1);
 
-        assert_ok!(Network::activate_subnet(
+        assert_ok!(Network::activate_subnet_v2(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
@@ -1444,7 +1511,7 @@ fn test_activate_subnet_min_subnet_nodes_remove_subnet() {
         let epochs = SubnetRegistrationEpochs::<Test>::get();
         increase_epochs(epochs + 1);
 
-        assert_ok!(Network::activate_subnet(
+        assert_ok!(Network::activate_subnet_v2(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
@@ -1525,30 +1592,41 @@ fn test_activate_subnet_min_delegate_balance_remove_subnet() {
             let burn_amount = Network::calculate_burn_amount(subnet_id);
             let _ =
                 Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount + 500);
-            assert_ok!(Network::register_subnet_node(
+            assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
+                hotkey,
+                50000000000,
+                None,
+                None,
+            ));
+
+            let validator_id = TotalValidatorIds::<Test>::get();
+
+            assert_ok!(Network::register_subnet_node_v2(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
                 subnet_id,
-                hotkey.clone(),
+                None,
                 PeerInfo {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
                 None,
                 None,
-                0,
                 amount,
                 None,
                 None,
-                None,
-                u128::MAX
+                u128::MAX,
             ));
+
+            let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
         // --- Increase epochs to enactment period
         let epochs = SubnetRegistrationEpochs::<Test>::get();
         increase_epochs(epochs + 1);
 
-        assert_ok!(Network::activate_subnet(
+        assert_ok!(Network::activate_subnet_v2(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
@@ -2288,7 +2366,7 @@ fn test_do_epoch_preliminaries_remove_subnet_not_activated() {
         let amount: u128 = 1000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_registered_subnet(
+        build_registered_subnet_v2(
             subnet_name.clone(),
             0,
             4,
@@ -2357,7 +2435,7 @@ fn test_do_epoch_preliminaries_remove_subnet_min_stake_balance() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
 
-        build_registered_subnet(
+        build_registered_subnet_v2(
             subnet_name.clone(),
             0,
             min_subnet_nodes - 1,
@@ -2453,7 +2531,7 @@ fn test_do_epoch_preliminaries_remove_subnet_min_stake_balance() {
 //         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
 //         let end = 4;
 
-//         build_registered_subnet(
+//         build_registered_subnet_v2(
 //             subnet_name.clone(),
 //             0,
 //             end,
@@ -2485,7 +2563,7 @@ fn test_do_epoch_preliminaries_remove_subnet_min_stake_balance() {
 //         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
 //         let end = 4;
 
-//         build_registered_subnet(
+//         build_registered_subnet_v2(
 //             subnet_name.clone(),
 //             0,
 //             end,

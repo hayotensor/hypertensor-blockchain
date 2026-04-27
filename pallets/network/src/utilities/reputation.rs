@@ -23,121 +23,6 @@ use super::*;
 use frame_support::pallet_prelude::DispatchError;
 
 impl<T: Config> Pallet<T> {
-    /// Increase coldkey reptuation
-    ///
-    /// # Arguments
-    ///
-    /// * `coldkey` - Nodes coldkey
-    /// * `attestation_percentage` - The attestation ratio of the validator nodes consensus
-    /// * `min_attestation_percentage` - Blockchains minimum attestation percentage (66%)
-    /// * `decrease_weight_factor` - `ColdkeyReputationIncreaseFactor`.
-    /// * `epoch`: The blockchains general epoch
-    pub fn increase_coldkey_reputation(
-        coldkey: T::AccountId,
-        attestation_percentage: u128,
-        min_attestation_percentage: u128,
-        increase_weight_factor: u128,
-        epoch: u32,
-    ) {
-        if !ColdkeyReputation::<T>::contains_key(&coldkey) {
-            return;
-        }
-
-        if attestation_percentage < min_attestation_percentage {
-            return;
-        }
-
-        // Safe get, has Default value
-        let mut coldkey_reputation = ColdkeyReputation::<T>::get(&coldkey);
-        let current_score = coldkey_reputation.score;
-
-        let new_score = Self::increase_rep(current_score, increase_weight_factor, None);
-
-        // Update fields
-        coldkey_reputation.score = new_score;
-        coldkey_reputation.total_increases += 1;
-        coldkey_reputation.last_validator_epoch = epoch;
-
-        if coldkey_reputation.start_epoch == 0 {
-            coldkey_reputation.start_epoch = epoch;
-        }
-
-        // Update average attestation
-        let prev_total = coldkey_reputation
-            .total_increases
-            .saturating_add(coldkey_reputation.total_decreases)
-            .saturating_sub(1) as u128;
-
-        coldkey_reputation.average_attestation = if prev_total == 0 {
-            attestation_percentage
-        } else {
-            (coldkey_reputation
-                .average_attestation
-                .saturating_mul(prev_total)
-                .saturating_add(attestation_percentage))
-            .saturating_div(prev_total + 1)
-        };
-
-        ColdkeyReputation::<T>::insert(&coldkey, coldkey_reputation);
-    }
-
-    /// Decrease coldkey reptuation
-    ///
-    /// # Arguments
-    ///
-    /// * `coldkey` - Nodes coldkey
-    /// * `attestation_percentage` - The attestation ratio of the validator nodes consensus
-    /// * `min_attestation_percentage` - Blockchains minimum attestation percentage (66%)
-    /// * `decrease_weight_factor` - `ColdkeyReputationDecreaseFactor`.
-    /// * `epoch`: The blockchains general epoch
-    pub fn decrease_coldkey_reputation(
-        coldkey: T::AccountId,
-        attestation_percentage: u128,
-        min_attestation_percentage: u128,
-        decrease_weight_factor: u128, // <- slope/steepness control
-        epoch: u32,
-    ) {
-        if !ColdkeyReputation::<T>::contains_key(&coldkey) {
-            return;
-        }
-
-        if attestation_percentage >= min_attestation_percentage {
-            return;
-        }
-
-        // Safe get, has Default value
-        let mut coldkey_reputation = ColdkeyReputation::<T>::get(&coldkey);
-        let current_score = coldkey_reputation.score;
-
-        // Penalty increases as score increases (same pattern as reward logic)
-        let new_score = Self::decrease_rep(current_score, decrease_weight_factor, None);
-
-        coldkey_reputation.score = new_score;
-        coldkey_reputation.total_decreases += 1;
-        coldkey_reputation.last_validator_epoch = epoch;
-
-        if coldkey_reputation.start_epoch == 0 {
-            coldkey_reputation.start_epoch = epoch;
-        }
-
-        let prev_total = coldkey_reputation
-            .total_increases
-            .saturating_add(coldkey_reputation.total_decreases)
-            .saturating_sub(1) as u128;
-
-        coldkey_reputation.average_attestation = if prev_total == 0 {
-            attestation_percentage
-        } else {
-            (coldkey_reputation
-                .average_attestation
-                .saturating_mul(prev_total)
-                .saturating_add(attestation_percentage))
-            .saturating_div(prev_total + 1)
-        };
-
-        ColdkeyReputation::<T>::insert(&coldkey, coldkey_reputation);
-    }
-
     pub fn increase_validator_reputation(
         validator_id: u32,
         attestation_percentage: u128,
@@ -194,7 +79,7 @@ impl<T: Config> Pallet<T> {
     /// * `coldkey` - Nodes coldkey
     /// * `attestation_percentage` - The attestation ratio of the validator nodes consensus
     /// * `min_attestation_percentage` - Blockchains minimum attestation percentage (66%)
-    /// * `decrease_weight_factor` - `ColdkeyReputationDecreaseFactor`.
+    /// * `decrease_weight_factor` - `ValidatorReputationDecreaseFactor`.
     /// * `epoch`: The blockchains general epoch
     pub fn decrease_validator_reputation(
         validator_id: u32,

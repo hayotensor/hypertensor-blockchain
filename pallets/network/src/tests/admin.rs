@@ -3,7 +3,7 @@ use super::test_utils::*;
 use crate::Event;
 use crate::{
     AttestorMinRewardFactor, AttestorRewardExponent, BaseNodeBurnAmount, BaseSlashPercentage,
-    BaseValidatorReward, ColdkeyReputationDecreaseFactor, ColdkeyReputationIncreaseFactor,
+    BaseValidatorReward, ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor,
     DelegateStakeCooldownEpochs, DelegateStakeSubnetRemovalInterval, DelegateStakeWeightFactor,
     Error, InConsensusSubnetReputationFactor, InflationSigmoidMidpoint, InflationSigmoidSteepness,
     LessThanMinNodesSubnetReputationFactor, MaxBootnodes, MaxChurnLimit, MaxChurnLimitMultiplier,
@@ -861,10 +861,10 @@ fn test_set_reputation_increase_factor() {
             new_value
         ));
 
-        assert_eq!(ColdkeyReputationIncreaseFactor::<Test>::get(), new_value);
+        assert_eq!(ValidatorReputationIncreaseFactor::<Test>::get(), new_value);
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::SetColdkeyReputationIncreaseFactor(new_value)
+            Event::SetValidatorReputationIncreaseFactor(new_value)
         );
     });
 }
@@ -881,10 +881,10 @@ fn test_set_reputation_decrease_factor() {
             new_value
         ));
 
-        assert_eq!(ColdkeyReputationDecreaseFactor::<Test>::get(), new_value);
+        assert_eq!(ValidatorReputationDecreaseFactor::<Test>::get(), new_value);
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::SetColdkeyReputationDecreaseFactor(new_value)
+            Event::SetValidatorReputationDecreaseFactor(new_value)
         );
     });
 }

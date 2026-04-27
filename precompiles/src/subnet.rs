@@ -1686,29 +1686,29 @@ where
         Ok(result)
     }
 
-    #[precompile::public("getInitialColdkeys(uint256)")]
-    #[precompile::view]
-    fn get_initial_coldkeys(
-        handle: &mut impl PrecompileHandle,
-        subnet_id: U256,
-    ) -> EvmResult<Vec<(Address, U256)>> {
-        let subnet_id = try_u256_to_u32(subnet_id)?;
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
+    // #[precompile::public("getInitialColdkeys(uint256)")]
+    // #[precompile::view]
+    // fn get_initial_coldkeys(
+    //     handle: &mut impl PrecompileHandle,
+    //     subnet_id: U256,
+    // ) -> EvmResult<Vec<(Address, U256)>> {
+    //     let subnet_id = try_u256_to_u32(subnet_id)?;
+    //     handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
 
-        let result = pallet_network::SubnetRegistrationInitialColdkeys::<R>::try_get(subnet_id)
-            .map_err(|_| revert("SubnetRegistrationInitialColdkeys not found for subnet"))?;
+    //     let result = pallet_network::SubnetRegistrationInitialColdkeys::<R>::try_get(subnet_id)
+    //         .map_err(|_| revert("SubnetRegistrationInitialColdkeys not found for subnet"))?;
 
-        let coldkeys: Vec<(Address, U256)> = result
-            .into_iter()
-            .map(|(acc, c)| {
-                let address = Address(sp_core::H160::from(acc.into()));
-                let count = U256::from(c);
-                (address, count)
-            })
-            .collect();
+    //     let coldkeys: Vec<(Address, U256)> = result
+    //         .into_iter()
+    //         .map(|(acc, c)| {
+    //             let address = Address(sp_core::H160::from(acc.into()));
+    //             let count = U256::from(c);
+    //             (address, count)
+    //         })
+    //         .collect();
 
-        Ok(coldkeys)
-    }
+    //     Ok(coldkeys)
+    // }
 
     #[precompile::public("getInitialColdkeyData(uint256)")]
     #[precompile::view]
