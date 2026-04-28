@@ -174,8 +174,12 @@ impl<T: Config> Pallet<T> {
 
                 // Process each node_id one by one
                 for node_id in node_ids {
-                    if !Self::get_validator_classified_subnet_node(*subnet_id, node_id, subnet_epoch)
-                        .is_none()
+                    if !Self::get_validator_classified_subnet_node(
+                        *subnet_id,
+                        node_id,
+                        subnet_epoch,
+                    )
+                    .is_none()
                     {
                         active_unique_node_count += 1;
                         // `break` to next subnet

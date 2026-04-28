@@ -49,7 +49,7 @@ where
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     #[precompile::public(
-        "registerSubnet(uint256,string,string,string,string,uint256,uint256,uint256,(address,uint256)[],(string,bytes)[])"
+        "registerSubnet(uint256,string,string,string,string,uint256,uint256,uint256,(uint256,uint256)[],(string,bytes)[])"
     )]
     #[precompile::payable]
     fn register_subnet(
@@ -62,25 +62,20 @@ where
         min_stake: U256,
         max_stake: U256,
         delegate_stake_percentage: U256,
-        initial_coldkeys: Vec<(Address, U256)>,
+        initial_validators: Vec<(U256, U256)>,
         bootnodes: Vec<(BoundedString<ConstU32<64>>, UnboundedBytes)>,
     ) -> EvmResult<()> {
-        log::info!("register_subnet");
-        log::error!("register_subnet");
-        log::warn!("register_subnet");
-        log::debug!("register_subnet");
-        log::trace!("register_subnet");
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
 
         let max_cost: u128 = max_cost.unique_saturated_into();
         let min_stake: u128 = min_stake.unique_saturated_into();
         let max_stake: u128 = max_stake.unique_saturated_into();
         let delegate_stake_percentage: u128 = delegate_stake_percentage.unique_saturated_into();
-        let initial_coldkeys: BTreeMap<R::AccountId, u32> = initial_coldkeys
+        let initial_validators: BTreeMap<u32, u32> = initial_validators
             .into_iter()
-            .map(|(addr, count)| {
+            .map(|(id, count)| {
                 Ok::<_, PrecompileFailure>((
-                    R::AddressMapping::into_account_id(addr.into()),
+                    try_u256_to_u32(id)?,
                     try_u256_to_u32(count)?,
                 ))
             })
@@ -103,7 +98,7 @@ where
             min_stake,
             max_stake,
             delegate_stake_percentage,
-            initial_coldkeys,
+            initial_validators,
             bootnodes,
         };
 
@@ -183,25 +178,29 @@ where
     }
 
     #[precompile::public(
-        "registerSubnetNode(uint256,address,(string,bytes),(string,bytes),(string,bytes),uint256,uint256,string,string,(address,uint256),uint256)"
+        "registerSubnetNode(uint256,uint256,address,(string,bytes),(string,bytes),(string,bytes),uint256,string,string,uint256)"
     )]
     #[precompile::payable]
     fn register_subnet_node(
         handle: &mut impl PrecompileHandle,
+        validator_id: U256,
         subnet_id: U256,
         hotkey: Address,
         peer_info: (BoundedString<ConstU32<64>>, UnboundedBytes),
         bootnode_peer_info: (BoundedString<ConstU32<64>>, UnboundedBytes),
         client_peer_info: (BoundedString<ConstU32<64>>, UnboundedBytes),
-        delegate_reward_rate: U256,
         stake_to_be_added: U256,
         unique: BoundedString<ConstU32<1024>>,
         non_unique: BoundedString<ConstU32<1024>>,
-        delegate_account: (Address, U256),
         max_burn_amount: U256,
     ) -> EvmResult<()> {
+        let validator_id = try_u256_to_u32(validator_id)?;
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
+        let hotkey = if hotkey.0 == H160::zero() {
+            None
+        } else {
+            Some(R::AddressMapping::into_account_id(hotkey.into()))
+        };
         let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
             if peer_info.1.as_bytes().is_empty() {
                 None
@@ -250,37 +249,26 @@ where
             None
         };
 
-        let delegate_reward_rate: u128 = delegate_reward_rate.unique_saturated_into();
         let stake_to_be_added: u128 = stake_to_be_added.unique_saturated_into();
         let unique: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
             bounded_string_to_option_bounded_vec::<1024, DefaultMaxVectorLength>(&unique)?;
         let non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
             bounded_string_to_option_bounded_vec::<1024, DefaultMaxVectorLength>(&non_unique)?;
-        let delegate_account_rate = delegate_account.1.unique_saturated_into();
-        let delegate_account = if delegate_account_rate > 0 {
-            Some(DelegateAccount {
-                account_id: R::AddressMapping::into_account_id(delegate_account.0.into()),
-                rate: delegate_account_rate,
-            })
-        } else {
-            None
-        };
         let max_burn_amount: u128 = max_burn_amount.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
 
         let call = pallet_network::Call::<R>::register_subnet_node {
+            validator_id,
             subnet_id,
             hotkey,
             peer_info,
             bootnode_peer_info,
             client_peer_info,
-            delegate_reward_rate,
             stake_to_be_added,
             unique,
             non_unique,
             max_burn_amount,
-            delegate_account: None,
         };
 
         RuntimeHelper::<R>::try_dispatch(
@@ -319,22 +307,19 @@ where
         Ok(())
     }
 
-    #[precompile::public("updateDelegateRewardRate(uint256,uint256,uint256)")]
+    #[precompile::public("updateValidatorDelegateRewardRate(uint256,uint256)")]
     #[precompile::payable]
-    fn update_node_delegate_reward_rate(
+    fn update_validator_delegate_reward_rate(
         handle: &mut impl PrecompileHandle,
-        subnet_id: U256,
-        subnet_node_id: U256,
+        validator_id: U256,
         new_delegate_reward_rate: U256,
     ) -> EvmResult<()> {
-        let subnet_id = try_u256_to_u32(subnet_id)?;
-        let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
+        let validator_id = try_u256_to_u32(validator_id)?;
         let new_delegate_reward_rate = new_delegate_reward_rate.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::update_node_delegate_reward_rate {
-            subnet_id,
-            subnet_node_id,
+        let call = pallet_network::Call::<R>::update_validator_delegate_reward_rate {
+            validator_id,
             new_delegate_reward_rate,
         };
 
@@ -348,9 +333,9 @@ where
         Ok(())
     }
 
-    #[precompile::public("updateUnique(uint256,uint256,string)")]
+    #[precompile::public("updateNodeUnique(uint256,uint256,string)")]
     #[precompile::payable]
-    fn update_unique(
+    fn update_node_unique(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
         subnet_node_id: U256,
@@ -362,7 +347,7 @@ where
             bounded_string_to_option_bounded_vec::<1024, DefaultMaxVectorLength>(&unique)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::update_unique {
+        let call = pallet_network::Call::<R>::update_node_unique {
             subnet_id,
             subnet_node_id,
             unique,
@@ -380,7 +365,7 @@ where
 
     #[precompile::public("updateNonUnique(uint256,uint256,string)")]
     #[precompile::payable]
-    fn update_non_unique(
+    fn update_node_non_unique(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
         subnet_node_id: U256,
@@ -392,7 +377,7 @@ where
             bounded_string_to_option_bounded_vec::<1024, DefaultMaxVectorLength>(&non_unique)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::update_non_unique {
+        let call = pallet_network::Call::<R>::update_node_non_unique {
             subnet_id,
             subnet_node_id,
             non_unique,
@@ -408,44 +393,20 @@ where
         Ok(())
     }
 
-    // #[precompile::public("updateColdkey(address,address)")]
+    // #[precompile::public("updateNodeHotkey(uint256,uint256,address)")]
     // #[precompile::payable]
-    // fn update_coldkey(
+    // fn update_node_hotkey(
     //     handle: &mut impl PrecompileHandle,
-    //     hotkey: Address,
-    //     new_coldkey: Address,
-    // ) -> EvmResult<()> {
-    //     let hotkey = R::AddressMapping::into_account_id(hotkey.into());
-    //     let new_coldkey = R::AddressMapping::into_account_id(new_coldkey.into());
-
-    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
-    //     let call = pallet_network::Call::<R>::update_coldkey {
-    //         hotkey,
-    //         new_coldkey,
-    //     };
-
-    //     RuntimeHelper::<R>::try_dispatch(
-    //         handle,
-    //         RawOrigin::Signed(origin.clone()).into(),
-    //         call,
-    //         0,
-    //     )?;
-
-    //     Ok(())
-    // }
-
-    // #[precompile::public("updateHotkey(address,address)")]
-    // #[precompile::payable]
-    // fn update_hotkey(
-    //     handle: &mut impl PrecompileHandle,
-    //     old_hotkey: Address,
+    //     subnet_id: u32,
+    //     subnet_node_id: u32,
     //     new_hotkey: Address,
     // ) -> EvmResult<()> {
-    //     let old_hotkey = R::AddressMapping::into_account_id(old_hotkey.into());
+    //     let subnet_id = try_u256_to_u32(subnet_id)?;
+    //     let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
     //     let new_hotkey = R::AddressMapping::into_account_id(new_hotkey.into());
 
     //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
-    //     let call = pallet_network::Call::<R>::update_hotkey {
+    //     let call = pallet_network::Call::<R>::update_node_hotkey {
     //         old_hotkey,
     //         new_hotkey,
     //     };
@@ -460,9 +421,9 @@ where
     //     Ok(())
     // }
 
-    #[precompile::public("updatePeerInfo(uint256,uint256,(string,bytes))")]
+    #[precompile::public("updateNodePeerInfo(uint256,uint256,(string,bytes))")]
     #[precompile::payable]
-    fn update_peer_info(
+    fn update_node_peer_info(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
         subnet_node_id: U256,
@@ -485,7 +446,7 @@ where
         };
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::update_peer_info {
+        let call = pallet_network::Call::<R>::update_node_peer_info {
             subnet_id,
             subnet_node_id,
             new_peer_info: peer_info,
@@ -501,9 +462,9 @@ where
         Ok(())
     }
 
-    #[precompile::public("updateBootnodePeerInfo(uint256,uint256,(string,bytes))")]
+    #[precompile::public("updateNodeBootnodePeerInfo(uint256,uint256,(string,bytes))")]
     #[precompile::payable]
-    fn update_bootnode_peer_info(
+    fn update_node_bootnode_peer_info(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
         subnet_node_id: U256,
@@ -526,7 +487,7 @@ where
         });
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::update_bootnode_peer_info {
+        let call = pallet_network::Call::<R>::update_node_bootnode_peer_info {
             subnet_id,
             subnet_node_id,
             new_peer_info: peer_info,
@@ -542,9 +503,9 @@ where
         Ok(())
     }
 
-    #[precompile::public("updateClientPeerInfo(uint256,uint256,(string,bytes))")]
+    #[precompile::public("updateNodeClientPeerInfo(uint256,uint256,(string,bytes))")]
     #[precompile::payable]
-    fn update_client_peer_info(
+    fn update_node_client_peer_info(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
         subnet_node_id: U256,
@@ -567,7 +528,7 @@ where
         });
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::update_client_peer_info {
+        let call = pallet_network::Call::<R>::update_node_client_peer_info {
             subnet_id,
             subnet_node_id,
             new_peer_info: peer_info,
@@ -583,88 +544,71 @@ where
         Ok(())
     }
 
-    #[precompile::public(
-        "registerOrUpdateIdentity(address,string,string,string,string,string,string,string,string,string,string)"
-    )]
-    #[precompile::payable]
-    fn register_or_update_identity(
-        handle: &mut impl PrecompileHandle,
-        hotkey: Address,
-        name: BoundedString<ConstU32<1024>>,
-        url: BoundedString<ConstU32<1024>>,
-        image: BoundedString<ConstU32<1024>>,
-        discord: BoundedString<ConstU32<255>>,
-        x: BoundedString<ConstU32<255>>,
-        telegram: BoundedString<ConstU32<255>>,
-        github: BoundedString<ConstU32<1024>>,
-        hugging_face: BoundedString<ConstU32<1024>>,
-        description: BoundedString<ConstU32<1024>>,
-        misc: BoundedString<ConstU32<1024>>,
-    ) -> EvmResult<()> {
-        let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
+    // #[precompile::public(
+    //     "updateValidatorIdentity(address,string,string,string,string,string,string,string,string,string,string)"
+    // )]
+    // #[precompile::payable]
+    // fn update_validator_identity(
+    //     handle: &mut impl PrecompileHandle,
+    //     hotkey: Address,
+    //     name: BoundedString<ConstU32<1024>>,
+    //     url: BoundedString<ConstU32<1024>>,
+    //     image: BoundedString<ConstU32<1024>>,
+    //     discord: BoundedString<ConstU32<255>>,
+    //     x: BoundedString<ConstU32<255>>,
+    //     telegram: BoundedString<ConstU32<255>>,
+    //     github: BoundedString<ConstU32<1024>>,
+    //     hugging_face: BoundedString<ConstU32<1024>>,
+    //     description: BoundedString<ConstU32<1024>>,
+    //     misc: BoundedString<ConstU32<1024>>,
+    // ) -> EvmResult<()> {
+    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
+    //     let hotkey = R::AddressMapping::into_account_id(hotkey.into());
 
-        let name: BoundedVec<u8, DefaultMaxVectorLength> =
-            bounded_string_to_bounded_vec::<1024, DefaultMaxVectorLength>(&name)?;
-        let url: BoundedVec<u8, DefaultMaxUrlLength> =
-            bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&url)?;
-        let image: BoundedVec<u8, DefaultMaxUrlLength> =
-            bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&image)?;
-        let discord: BoundedVec<u8, DefaultMaxSocialIdLength> =
-            bounded_string_to_bounded_vec::<255, DefaultMaxSocialIdLength>(&discord)?;
-        let x: BoundedVec<u8, DefaultMaxSocialIdLength> =
-            bounded_string_to_bounded_vec::<255, DefaultMaxSocialIdLength>(&x)?;
-        let telegram: BoundedVec<u8, DefaultMaxSocialIdLength> =
-            bounded_string_to_bounded_vec::<255, DefaultMaxSocialIdLength>(&telegram)?;
-        let github: BoundedVec<u8, DefaultMaxUrlLength> =
-            bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&github)?;
-        let hugging_face: BoundedVec<u8, DefaultMaxUrlLength> =
-            bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&hugging_face)?;
-        let description: BoundedVec<u8, DefaultMaxVectorLength> =
-            bounded_string_to_bounded_vec::<1024, DefaultMaxVectorLength>(&description)?;
-        let misc: BoundedVec<u8, DefaultMaxVectorLength> =
-            bounded_string_to_bounded_vec::<1024, DefaultMaxVectorLength>(&misc)?;
+    //     let name: BoundedVec<u8, DefaultMaxVectorLength> =
+    //         bounded_string_to_bounded_vec::<1024, DefaultMaxVectorLength>(&name)?;
+    //     let url: BoundedVec<u8, DefaultMaxUrlLength> =
+    //         bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&url)?;
+    //     let image: BoundedVec<u8, DefaultMaxUrlLength> =
+    //         bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&image)?;
+    //     let discord: BoundedVec<u8, DefaultMaxSocialIdLength> =
+    //         bounded_string_to_bounded_vec::<255, DefaultMaxSocialIdLength>(&discord)?;
+    //     let x: BoundedVec<u8, DefaultMaxSocialIdLength> =
+    //         bounded_string_to_bounded_vec::<255, DefaultMaxSocialIdLength>(&x)?;
+    //     let telegram: BoundedVec<u8, DefaultMaxSocialIdLength> =
+    //         bounded_string_to_bounded_vec::<255, DefaultMaxSocialIdLength>(&telegram)?;
+    //     let github: BoundedVec<u8, DefaultMaxUrlLength> =
+    //         bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&github)?;
+    //     let hugging_face: BoundedVec<u8, DefaultMaxUrlLength> =
+    //         bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&hugging_face)?;
+    //     let description: BoundedVec<u8, DefaultMaxVectorLength> =
+    //         bounded_string_to_bounded_vec::<1024, DefaultMaxVectorLength>(&description)?;
+    //     let misc: BoundedVec<u8, DefaultMaxVectorLength> =
+    //         bounded_string_to_bounded_vec::<1024, DefaultMaxVectorLength>(&misc)?;
 
-        let call = pallet_network::Call::<R>::register_or_update_identity {
-            hotkey,
-            name,
-            url,
-            image,
-            discord,
-            x,
-            telegram,
-            github,
-            hugging_face,
-            description,
-            misc,
-        };
+    //     let call = pallet_network::Call::<R>::register_or_update_identity {
+    //         hotkey,
+    //         name,
+    //         url,
+    //         image,
+    //         discord,
+    //         x,
+    //         telegram,
+    //         github,
+    //         hugging_face,
+    //         description,
+    //         misc,
+    //     };
 
-        RuntimeHelper::<R>::try_dispatch(
-            handle,
-            RawOrigin::Signed(origin.clone()).into(),
-            call,
-            0,
-        )?;
+    //     RuntimeHelper::<R>::try_dispatch(
+    //         handle,
+    //         RawOrigin::Signed(origin.clone()).into(),
+    //         call,
+    //         0,
+    //     )?;
 
-        Ok(())
-    }
-
-    #[precompile::public("removeIdentity()")]
-    #[precompile::payable]
-    fn remove_identity(handle: &mut impl PrecompileHandle) -> EvmResult<()> {
-        let origin = R::AddressMapping::into_account_id(handle.context().caller);
-
-        let call = pallet_network::Call::<R>::remove_identity {};
-
-        RuntimeHelper::<R>::try_dispatch(
-            handle,
-            RawOrigin::Signed(origin.clone()).into(),
-            call,
-            0,
-        )?;
-
-        Ok(())
-    }
+    //     Ok(())
+    // }
 
     #[precompile::public("ownerPauseSubnet(uint256)")]
     fn owner_pause_subnet(handle: &mut impl PrecompileHandle, subnet_id: U256) -> EvmResult<()> {

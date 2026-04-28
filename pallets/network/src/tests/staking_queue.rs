@@ -285,7 +285,7 @@ fn test_update_swap_queue_delegate_stake() {
         assert_eq!(call_queue.clone().unwrap().id, prev_next_id);
         match &call_queue.clone().unwrap().call {
             QueuedSwapCall::SwapToSubnetDelegateStake { .. } => assert!(false),
-            QueuedSwapCall::SwapToValidatorDelegateStake { 
+            QueuedSwapCall::SwapToValidatorDelegateStake {
                 account_id,
                 to_validator_id,
                 balance,
@@ -293,7 +293,7 @@ fn test_update_swap_queue_delegate_stake() {
                 assert_eq!(*account_id, account(n_account));
                 assert_ne!(*balance, 0);
                 assert_ne!(*balance, u128::MAX);
-            },
+            }
         };
     });
 }
@@ -512,14 +512,14 @@ fn test_update_swap_queue_node_delegate_stake() {
         assert_eq!(call_queue.clone().unwrap().id, prev_next_id);
         match &call_queue.clone().unwrap().call {
             QueuedSwapCall::SwapToSubnetDelegateStake { .. } => assert!(false),
-            QueuedSwapCall::SwapToValidatorDelegateStake { 
+            QueuedSwapCall::SwapToValidatorDelegateStake {
                 account_id,
                 to_validator_id,
-                balance
-             } => {
+                balance,
+            } => {
                 assert_eq!(*account_id, account(n_account));
                 assert_ne!(*balance, u128::MAX);
-             },
+            }
         };
     });
 }

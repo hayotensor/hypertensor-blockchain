@@ -11,12 +11,11 @@ use crate::{
     MinMaxRegisteredNodes, MinQueueEpochs, MinRegistrationCost, MinSubnetMinStake, MinSubnetNodes,
     MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
     NetworkMaxStakeBalance, PeerInfo, PrevSubnetActivationEpoch, RegistrationCostDecayBlocks,
-    RegistrationSubnetData, RegistrationSubnetDataV2, SlotAssignment, SubnetBootnodeAccess,
+    RegistrationSubnetData, SlotAssignment, SubnetBootnodeAccess,
     SubnetBootnodes, SubnetData, SubnetElectedValidator, SubnetEnactmentEpochs, SubnetName,
     SubnetOwner, SubnetRegistrationEpoch, SubnetRegistrationEpochs, SubnetRemovalReason,
     SubnetReputation, SubnetSlot, SubnetState, SubnetsData, TotalActiveSubnets,
-    TotalSubnetDelegateStakeBalance, TotalSubnetNodes, TotalValidatorIds, TotalSubnetNodeUids,
-
+    TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids, TotalSubnetNodes, TotalValidatorIds,
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
@@ -60,7 +59,7 @@ fn test_register_subnet() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -74,7 +73,7 @@ fn test_register_subnet() {
         let _ = Balances::deposit_creating(&account(0), cost + 1000);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data,
@@ -120,7 +119,7 @@ fn test_register_subnet_exists_error() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -135,14 +134,14 @@ fn test_register_subnet_exists_error() {
         // increase_epochs(next_registration_epoch - epoch);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data.clone(),
         ));
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data.clone(),
@@ -173,7 +172,7 @@ fn test_register_subnet_repo_error() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let mut add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -188,7 +187,7 @@ fn test_register_subnet_repo_error() {
         // increase_epochs(next_registration_epoch - epoch);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data.clone(),
@@ -198,7 +197,7 @@ fn test_register_subnet_repo_error() {
         add_subnet_data.name = subnet_name;
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data.clone(),
@@ -225,7 +224,7 @@ fn test_register_subnet_repo_error() {
 
 //         let subnets = TotalActiveSubnets::<Test>::get() + 1;
 //         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-// let mut add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+// let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
 //     subnets,
 //     max_subnet_nodes,
 //     subnet_name.clone().into(),
@@ -240,7 +239,7 @@ fn test_register_subnet_repo_error() {
 //         // increase_epochs(next_registration_epoch - epoch);
 
 //         // --- Register subnet for activation
-//         assert_ok!(Network::register_subnet_v2(
+//         assert_ok!(Network::register_subnet(
 //             RuntimeOrigin::signed(account(0)),
 //             100000000000000000000000,
 //             add_subnet_data.clone(),
@@ -254,7 +253,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.churn_limit = MinChurnLimit::<Test>::get() - 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -265,7 +264,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.churn_limit = MaxChurnLimit::<Test>::get() + 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -278,7 +277,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.subnet_node_queue_epochs = MinQueueEpochs::<Test>::get() - 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -289,7 +288,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.subnet_node_queue_epochs = MaxQueueEpochs::<Test>::get() + 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -301,7 +300,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.idle_classification_epochs = MinIdleClassificationEpochs::<Test>::get() - 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -312,7 +311,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.idle_classification_epochs = MaxIdleClassificationEpochs::<Test>::get() + 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -326,7 +325,7 @@ fn test_register_subnet_repo_error() {
 //             MinIncludedClassificationEpochs::<Test>::get() - 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -338,7 +337,7 @@ fn test_register_subnet_repo_error() {
 //             MaxIncludedClassificationEpochs::<Test>::get() + 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -352,7 +351,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.min_stake = MinSubnetMinStake::<Test>::get() - 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -364,7 +363,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.max_stake = NetworkMaxStakeBalance::<Test>::get() + 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -377,7 +376,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.max_stake = MaxSubnetMinStake::<Test>::get() - 4;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -391,7 +390,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.delegate_stake_percentage = MinDelegateStakePercentage::<Test>::get() - 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -402,7 +401,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.delegate_stake_percentage = MaxDelegateStakePercentage::<Test>::get() + 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -413,7 +412,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.delegate_stake_percentage = Network::percentage_factor_as_u128() + 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -426,7 +425,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.max_registered_nodes = MinMaxRegisteredNodes::<Test>::get() - 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -437,7 +436,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.max_registered_nodes = MaxMaxRegisteredNodes::<Test>::get() + 1;
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -449,7 +448,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.initial_validators = BTreeSet::new();
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -461,7 +460,7 @@ fn test_register_subnet_repo_error() {
 //             get_initial_validator_ids(subnets, max_subnet_nodes, start, end);
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -472,7 +471,7 @@ fn test_register_subnet_repo_error() {
 //         add_subnet_data.bootnodes = BTreeSet::new();
 
 //         assert_err!(
-//             Network::register_subnet_v2(
+//             Network::register_subnet(
 //                 RuntimeOrigin::signed(account(0)),
 //                 100000000000000000000000,
 //                 add_subnet_data.clone(),
@@ -499,7 +498,7 @@ fn test_register_subnet_errors() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let mut add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -514,7 +513,7 @@ fn test_register_subnet_errors() {
         // increase_epochs(next_registration_epoch - epoch);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data.clone(),
@@ -528,7 +527,7 @@ fn test_register_subnet_errors() {
         add_subnet_data.min_stake = MinSubnetMinStake::<Test>::get() - 1;
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data.clone(),
@@ -540,7 +539,7 @@ fn test_register_subnet_errors() {
         add_subnet_data.max_stake = NetworkMaxStakeBalance::<Test>::get() + 1;
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data.clone(),
@@ -553,7 +552,7 @@ fn test_register_subnet_errors() {
         add_subnet_data.max_stake = MaxSubnetMinStake::<Test>::get() - 4;
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data.clone(),
@@ -566,7 +565,7 @@ fn test_register_subnet_errors() {
         add_subnet_data.delegate_stake_percentage = MinDelegateStakePercentage::<Test>::get() - 1;
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data.clone(),
@@ -577,7 +576,7 @@ fn test_register_subnet_errors() {
         add_subnet_data.delegate_stake_percentage = MaxDelegateStakePercentage::<Test>::get() + 1;
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data.clone(),
@@ -588,7 +587,7 @@ fn test_register_subnet_errors() {
         add_subnet_data.delegate_stake_percentage = Network::percentage_factor_as_u128() + 1;
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data.clone(),
@@ -600,7 +599,7 @@ fn test_register_subnet_errors() {
         add_subnet_data.initial_validators = BTreeMap::new();
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data.clone(),
@@ -612,7 +611,7 @@ fn test_register_subnet_errors() {
             get_initial_validator_ids(subnets, max_subnet_nodes, start, end);
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data.clone(),
@@ -623,7 +622,7 @@ fn test_register_subnet_errors() {
         add_subnet_data.bootnodes = BTreeMap::new();
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data.clone(),
@@ -645,7 +644,7 @@ fn test_register_subnet_not_enough_balance_err() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -660,7 +659,7 @@ fn test_register_subnet_not_enough_balance_err() {
         // increase_epochs(next_registration_epoch - epoch);
 
         assert_err!(
-            Network::register_subnet_v2(
+            Network::register_subnet(
                 RuntimeOrigin::signed(account(0)),
                 100000000000000000000000,
                 add_subnet_data,
@@ -688,7 +687,7 @@ fn test_activate_subnet() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -701,7 +700,7 @@ fn test_activate_subnet() {
         let _ = Balances::deposit_creating(&account(0), cost + 1000);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data,
@@ -737,7 +736,7 @@ fn test_activate_subnet() {
 
             let validator_id = TotalValidatorIds::<Test>::get();
 
-            assert_ok!(Network::register_subnet_node_v2(
+            assert_ok!(Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -771,7 +770,7 @@ fn test_activate_subnet() {
         let min_registration_epochs = MinSubnetRegistrationEpochs::<Test>::get();
         increase_epochs(min_registration_epochs + 1);
 
-        assert_ok!(Network::activate_subnet_v2(
+        assert_ok!(Network::activate_subnet(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
@@ -816,7 +815,7 @@ fn test_activate_subnet_anytime() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -831,7 +830,7 @@ fn test_activate_subnet_anytime() {
         // increase_epochs(next_registration_epoch - epoch);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data,
@@ -867,7 +866,7 @@ fn test_activate_subnet_anytime() {
 
             let validator_id = TotalValidatorIds::<Test>::get();
 
-            assert_ok!(Network::register_subnet_node_v2(
+            assert_ok!(Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -901,7 +900,7 @@ fn test_activate_subnet_anytime() {
         let min_registration_epochs = MinSubnetRegistrationEpochs::<Test>::get();
         increase_epochs(min_registration_epochs + 1);
 
-        assert_ok!(Network::activate_subnet_v2(
+        assert_ok!(Network::activate_subnet(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
@@ -939,7 +938,7 @@ fn test_activate_subnet_conditions_not_met_in_registration_period() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -954,7 +953,7 @@ fn test_activate_subnet_conditions_not_met_in_registration_period() {
         // increase_epochs(next_registration_epoch - epoch);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data,
@@ -972,7 +971,7 @@ fn test_activate_subnet_conditions_not_met_in_registration_period() {
         // --- don't add delegte stake
 
         assert_err!(
-            Network::activate_subnet_v2(RuntimeOrigin::signed(account(0)), subnet_id),
+            Network::activate_subnet(RuntimeOrigin::signed(account(0)), subnet_id),
             Error::<Test>::SubnetActivationConditionsNotMetYet
         );
 
@@ -1005,7 +1004,7 @@ fn test_activate_subnet_invalid_subnet_id_error() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1020,7 +1019,7 @@ fn test_activate_subnet_invalid_subnet_id_error() {
         // increase_epochs(next_registration_epoch - epoch);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data,
@@ -1056,7 +1055,7 @@ fn test_activate_subnet_invalid_subnet_id_error() {
 
             let validator_id = TotalValidatorIds::<Test>::get();
 
-            assert_ok!(Network::register_subnet_node_v2(
+            assert_ok!(Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1077,7 +1076,7 @@ fn test_activate_subnet_invalid_subnet_id_error() {
         }
 
         assert_err!(
-            Network::activate_subnet_v2(RuntimeOrigin::signed(account(0)), subnet_id + 1),
+            Network::activate_subnet(RuntimeOrigin::signed(account(0)), subnet_id + 1),
             Error::<Test>::NotSubnetOwner
         );
     })
@@ -1105,7 +1104,7 @@ fn test_activate_subnet_already_activated_err() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1120,7 +1119,7 @@ fn test_activate_subnet_already_activated_err() {
         // increase_epochs(next_registration_epoch - epoch);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data,
@@ -1156,7 +1155,7 @@ fn test_activate_subnet_already_activated_err() {
 
             let validator_id = TotalValidatorIds::<Test>::get();
 
-            assert_ok!(Network::register_subnet_node_v2(
+            assert_ok!(Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1194,13 +1193,13 @@ fn test_activate_subnet_already_activated_err() {
         let min_registration_epochs = MinSubnetRegistrationEpochs::<Test>::get();
         increase_epochs(min_registration_epochs + 1);
 
-        assert_ok!(Network::activate_subnet_v2(
+        assert_ok!(Network::activate_subnet(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
 
         assert_err!(
-            Network::activate_subnet_v2(RuntimeOrigin::signed(account(0)), subnet_id),
+            Network::activate_subnet(RuntimeOrigin::signed(account(0)), subnet_id),
             Error::<Test>::SubnetActivatedAlready
         );
     })
@@ -1228,7 +1227,7 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1243,7 +1242,7 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
         // increase_epochs(next_registration_epoch - epoch);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data,
@@ -1279,7 +1278,7 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
 
             let validator_id = TotalValidatorIds::<Test>::get();
 
-            assert_ok!(Network::register_subnet_node_v2(
+            assert_ok!(Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1300,7 +1299,7 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
         }
 
         assert_err!(
-            Network::activate_subnet_v2(RuntimeOrigin::signed(account(0)), subnet_id),
+            Network::activate_subnet(RuntimeOrigin::signed(account(0)), subnet_id),
             Error::<Test>::MinSubnetRegistrationEpochsNotMet
         );
 
@@ -1319,7 +1318,7 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
         ));
 
         assert_err!(
-            Network::activate_subnet_v2(RuntimeOrigin::signed(account(0)), subnet_id),
+            Network::activate_subnet(RuntimeOrigin::signed(account(0)), subnet_id),
             Error::<Test>::MinSubnetRegistrationEpochsNotMet
         );
     })
@@ -1347,7 +1346,7 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1362,7 +1361,7 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
         // increase_epochs(next_registration_epoch - epoch);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data,
@@ -1398,7 +1397,7 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
 
             let validator_id = TotalValidatorIds::<Test>::get();
 
-            assert_ok!(Network::register_subnet_node_v2(
+            assert_ok!(Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1435,7 +1434,7 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
         let enactment_epochs = SubnetEnactmentEpochs::<Test>::get();
         increase_epochs(registration_epochs + enactment_epochs + 1);
 
-        assert_ok!(Network::activate_subnet_v2(
+        assert_ok!(Network::activate_subnet(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
@@ -1479,7 +1478,7 @@ fn test_activate_subnet_min_subnet_nodes_remove_subnet() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1494,7 +1493,7 @@ fn test_activate_subnet_min_subnet_nodes_remove_subnet() {
         // increase_epochs(next_registration_epoch - epoch);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data,
@@ -1511,7 +1510,7 @@ fn test_activate_subnet_min_subnet_nodes_remove_subnet() {
         let epochs = SubnetRegistrationEpochs::<Test>::get();
         increase_epochs(epochs + 1);
 
-        assert_ok!(Network::activate_subnet_v2(
+        assert_ok!(Network::activate_subnet(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
@@ -1553,7 +1552,7 @@ fn test_activate_subnet_min_delegate_balance_remove_subnet() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1566,7 +1565,7 @@ fn test_activate_subnet_min_delegate_balance_remove_subnet() {
         let epoch = System::block_number().saturating_div(epoch_length);
 
         // --- Register subnet for activation
-        assert_ok!(Network::register_subnet_v2(
+        assert_ok!(Network::register_subnet(
             RuntimeOrigin::signed(account(0)),
             100000000000000000000000,
             add_subnet_data,
@@ -1602,7 +1601,7 @@ fn test_activate_subnet_min_delegate_balance_remove_subnet() {
 
             let validator_id = TotalValidatorIds::<Test>::get();
 
-            assert_ok!(Network::register_subnet_node_v2(
+            assert_ok!(Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1626,7 +1625,7 @@ fn test_activate_subnet_min_delegate_balance_remove_subnet() {
         let epochs = SubnetRegistrationEpochs::<Test>::get();
         increase_epochs(epochs + 1);
 
-        assert_ok!(Network::activate_subnet_v2(
+        assert_ok!(Network::activate_subnet(
             RuntimeOrigin::signed(account(0)),
             subnet_id,
         ));
@@ -2301,7 +2300,7 @@ fn test_excess_subnet_removal_lowest_delegate_stake_fail2() {
 
 //         let min_nodes = MinSubnetNodes::<Test>::get();
 
-// let add_subnet_data: RegistrationSubnetDataV2 = default_registration_subnet_data_v2(
+// let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
 //     subnets,
 //     max_subnet_nodes,
 //     subnet_name.clone().into(),
@@ -2309,7 +2308,7 @@ fn test_excess_subnet_removal_lowest_delegate_stake_fail2() {
 //     min_nodes,
 // );
 //         // --- Register subnet for activation
-//         assert_ok!(Network::register_subnet_v2(
+//         assert_ok!(Network::register_subnet(
 //             RuntimeOrigin::signed(owner_coldkey.clone()),
 //             100000000000000000000000,
 //             add_subnet_data,

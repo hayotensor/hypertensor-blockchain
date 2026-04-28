@@ -286,11 +286,7 @@ impl<T: Config> Pallet<T> {
                     // this ensures the subnet is active (not registered or paused)
 
                     // This will run if there is block weight remaining to call
-                    Self::handle_registration_queue(
-                        weight_meter,
-                        subnet_id,
-                        current_subnet_epoch,
-                    );
+                    Self::handle_registration_queue(weight_meter, subnet_id, current_subnet_epoch);
 
                     // This will run if there is block weight remaining to call
                     Self::update_burn_rate_for_epoch(weight_meter, subnet_id);
@@ -629,61 +625,61 @@ impl<T: Config> Pallet<T> {
         // SubnetConsensusSubmission
         weight = weight.saturating_add(db_weight.reads(1));
 
-        let submission =
-            match SubnetConsensusSubmission::<T>::try_get(subnet_id, prev_subnet_epoch) {
-                Ok(submission) => submission,
-                Err(()) => {
-                    // Check if a validator was elected
-                    // - Make sure they did their job and submitted consensus data
-                    // - If not, penalize the subnet and validator
-                    weight = weight.saturating_add(db_weight.reads(1));
-                    if let Some(validator_id) =
-                        SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch)
-                    {
-                        //
-                        // Update subnet rep
-                        //
-                        Self::decrease_subnet_reputation(
+        let submission = match SubnetConsensusSubmission::<T>::try_get(subnet_id, prev_subnet_epoch)
+        {
+            Ok(submission) => submission,
+            Err(()) => {
+                // Check if a validator was elected
+                // - Make sure they did their job and submitted consensus data
+                // - If not, penalize the subnet and validator
+                weight = weight.saturating_add(db_weight.reads(1));
+                if let Some(validator_id) =
+                    SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch)
+                {
+                    //
+                    // Update subnet rep
+                    //
+                    Self::decrease_subnet_reputation(
+                        subnet_id,
+                        ValidatorAbsentSubnetReputationFactor::<T>::get(),
+                        None,
+                    );
+                    // Reads:
+                    // - SubnetReputation
+                    // - ValidatorAbsentSubnetReputationFactor
+                    // Writes:
+                    // - SubnetReputation
+                    weight = weight.saturating_add(db_weight.reads_writes(2, 1));
+
+                    // The elected validator cannot remove self if elected so we don't check if they exist
+
+                    //
+                    // Update node rep
+                    //
+                    if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, validator_id) {
+                        Self::decrease_and_return_node_reputation(
                             subnet_id,
-                            ValidatorAbsentSubnetReputationFactor::<T>::get(),
+                            validator_id,
+                            rep,
+                            ValidatorAbsentDecreaseReputationFactor::<T>::get(subnet_id),
                             None,
                         );
-                        // Reads:
-                        // - SubnetReputation
-                        // - ValidatorAbsentSubnetReputationFactor
-                        // Writes:
-                        // - SubnetReputation
-                        weight = weight.saturating_add(db_weight.reads_writes(2, 1));
-
-                        // The elected validator cannot remove self if elected so we don't check if they exist
-
-                        //
-                        // Update node rep
-                        //
-                        if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, validator_id) {
-                            Self::decrease_and_return_node_reputation(
-                                subnet_id,
-                                validator_id,
-                                rep,
-                                ValidatorAbsentDecreaseReputationFactor::<T>::get(subnet_id),
-                                None,
-                            );
-                        }
-
-                        // NOTE: We don't check if below minimum node reputation here to possibly
-                        // remove the node from the subnet, as this is done in the bank/rewards.rs ``distribute_rewards``
-
-                        // Reads:
-                        // - SubnetNodeReputation
-                        // - ValidatorAbsentDecreaseReputationFactor
-                        // Writes:
-                        // - SubnetNodeReputation
-                        weight = weight.saturating_add(db_weight.reads_writes(2, 1));
                     }
 
-                    return (None, weight);
+                    // NOTE: We don't check if below minimum node reputation here to possibly
+                    // remove the node from the subnet, as this is done in the bank/rewards.rs ``distribute_rewards``
+
+                    // Reads:
+                    // - SubnetNodeReputation
+                    // - ValidatorAbsentDecreaseReputationFactor
+                    // Writes:
+                    // - SubnetNodeReputation
+                    weight = weight.saturating_add(db_weight.reads_writes(2, 1));
                 }
-            };
+
+                return (None, weight);
+            }
+        };
 
         // --- Get all qualified possible attestors
         let max_attestors: u128 = submission.validator_ids.len() as u128;

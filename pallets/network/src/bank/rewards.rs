@@ -151,11 +151,7 @@ impl<T: Config> Pallet<T> {
         weight_meter.consume(db_weight.writes(1));
 
         // --- Reward owner
-        Self::handle_subnet_owner_reward(
-            weight_meter,
-            subnet_id,
-            rewards_data.subnet_owner_reward,
-        );
+        Self::handle_subnet_owner_reward(weight_meter, subnet_id, rewards_data.subnet_owner_reward);
 
         // Loop iteration overhead
         weight_meter.consume(Weight::from_parts(
@@ -626,7 +622,7 @@ impl<T: Config> Pallet<T> {
 
         // weight_meter.consume(T::WeightInfo::increase_validator_reputation());
 
-        // 
+        //
         weight_meter.consume(db_weight.reads(1));
 
         // Give validator rewards to their stake

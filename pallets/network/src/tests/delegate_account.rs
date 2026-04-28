@@ -2,14 +2,12 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountOverwatchStake,
-    DefaultMaxSocialIdLength, DefaultMaxUrlLength,
-    DefaultMaxVectorLength, DelegateAccount, DelegateAccountStake, Error,
-    MaxSubnetNodes, MaxSubnets,
+    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength,
+    DelegateAccount, DelegateAccountStake, Error, MaxSubnetNodes, MaxSubnets,
     MinActiveNodeStakeEpochs, MinSubnetMinStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey,
     OverwatchNodes, PeerInfo, StakeCooldownEpochs, StakeUnbondingLedger, SubnetName,
-    SubnetNodeClass, SubnetState, TotalAccountDelegateStake,
-    TotalActiveSubnets, TotalSubnetNodes, TotalValidatorIds, ValidatorsData,
+    SubnetNodeClass, SubnetState, TotalAccountDelegateStake, TotalActiveSubnets, TotalSubnetNodes,
+    TotalValidatorIds, ValidatorsData,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
@@ -376,7 +374,7 @@ fn test_register_subnet_node_delegate_account_invalid_delegate_account_rate_erro
 }
 
 #[test]
-fn test_remove_delegate_balance() {
+fn test_remove_delegate_account_balance() {
     new_test_ext().execute_with(|| {
         System::set_block_number(System::block_number() + 1);
 
@@ -392,7 +390,7 @@ fn test_remove_delegate_balance() {
 
         let block = System::block_number();
 
-        assert_ok!(Network::remove_delegate_balance(
+        assert_ok!(Network::remove_delegate_account_balance(
             RuntimeOrigin::signed(account_id.clone()),
             100,
         ));
@@ -420,7 +418,7 @@ fn test_remove_delegate_balance() {
 }
 
 #[test]
-fn test_remove_delegate_balance_amount_zero_error() {
+fn test_remove_delegate_account_balance_amount_zero_error() {
     new_test_ext().execute_with(|| {
         let account_id = account(100);
 
@@ -433,7 +431,7 @@ fn test_remove_delegate_balance_amount_zero_error() {
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
 
         assert_err!(
-            Network::remove_delegate_balance(RuntimeOrigin::signed(account_id.clone()), 0,),
+            Network::remove_delegate_account_balance(RuntimeOrigin::signed(account_id.clone()), 0,),
             Error::<Test>::AmountZero
         );
 
@@ -443,7 +441,7 @@ fn test_remove_delegate_balance_amount_zero_error() {
 }
 
 #[test]
-fn test_remove_delegate_balance_not_enough_stake_error() {
+fn test_remove_delegate_account_balance_not_enough_stake_error() {
     new_test_ext().execute_with(|| {
         let account_id = account(100);
 
@@ -456,7 +454,10 @@ fn test_remove_delegate_balance_not_enough_stake_error() {
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
 
         assert_err!(
-            Network::remove_delegate_balance(RuntimeOrigin::signed(account_id.clone()), 101,),
+            Network::remove_delegate_account_balance(
+                RuntimeOrigin::signed(account_id.clone()),
+                101,
+            ),
             Error::<Test>::NotEnoughStakeToWithdraw
         );
 

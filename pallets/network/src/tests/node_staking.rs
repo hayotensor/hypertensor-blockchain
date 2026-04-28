@@ -542,7 +542,7 @@ fn test_remove_stake() {
 
 //         let validator_id = TotalValidatorIds::<Test>::get();
 
-//         assert_ok!(Network::register_subnet_node_v2(
+//         assert_ok!(Network::register_subnet_node(
 //             RuntimeOrigin::signed(coldkey.clone()),
 //             validator_id,
 //             subnet_id,
@@ -656,7 +656,7 @@ fn test_remove_stake_after_remove_subnet_node() {
 
         let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount);
 
-        assert_ok!(Network::remove_subnet_node_v2(
+        assert_ok!(Network::remove_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             end,
@@ -874,7 +874,7 @@ fn test_register_try_removing_all_stake_error() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,

@@ -83,7 +83,7 @@ fn test_register_subnet_node_v2() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -176,7 +176,7 @@ fn test_register_subnet_node_v2_and_activate() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -329,7 +329,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
 
             let validator_id = TotalValidatorIds::<Test>::get();
 
-            assert_ok!(Network::register_subnet_node_v2(
+            assert_ok!(Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,

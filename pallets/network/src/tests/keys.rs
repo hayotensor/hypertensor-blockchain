@@ -2,11 +2,10 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountOverwatchStake, NodeSubnetStake,
-    DefaultMaxSocialIdLength, DefaultMaxUrlLength,
-    DefaultMaxVectorLength, Error, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake,
-    OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodes, StakeUnbondingLedger,
-    SubnetName, TotalActiveSubnets, TotalSubnetNodes,
+    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength,
+    Error, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake,
+    NodeSubnetStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodes,
+    StakeUnbondingLedger, SubnetName, TotalActiveSubnets, TotalSubnetNodes,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
@@ -36,7 +35,7 @@ use sp_std::collections::btree_map::BTreeMap;
 
 //         // Insert overwatch node with coldkey
 //         let overwatch_node_id = insert_overwatch_node(max_subnet_nodes + end * subnets, 0);
-//         set_overwatch_stake(
+//         set_overwatch_node_stake(
 //             max_subnet_nodes + end * subnets,
 //             OverwatchMinStakeBalance::<Test>::get(),
 //         );
@@ -368,7 +367,7 @@ use sp_std::collections::btree_map::BTreeMap;
 //         let overwatch_node_id =
 //             insert_overwatch_node(max_subnet_nodes + end * subnets, ow_hotkey_n);
 
-//         set_overwatch_stake(ow_hotkey_n, OverwatchMinStakeBalance::<Test>::get());
+//         set_overwatch_node_stake(ow_hotkey_n, OverwatchMinStakeBalance::<Test>::get());
 
 //         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
@@ -438,7 +437,7 @@ use sp_std::collections::btree_map::BTreeMap;
 //         let ow_new_hotkey = account(ow_hotkey_n + 1);
 
 //         let starting_account_overwatch_stake =
-//             AccountOverwatchStake::<Test>::get(ow_hotkey.clone());
+//             OverwatchNodeStakeBalance::<Test>::get(ow_hotkey.clone());
 //         assert!(starting_account_overwatch_stake > 0);
 
 //         assert_ok!(Network::update_hotkey(
@@ -450,12 +449,12 @@ use sp_std::collections::btree_map::BTreeMap;
 //         //
 //         // Old ow hotkey should be removed
 //         //
-//         assert_eq!(AccountOverwatchStake::<Test>::get(ow_hotkey.clone()), 0);
+//         assert_eq!(OverwatchNodeStakeBalance::<Test>::get(ow_hotkey.clone()), 0);
 
 //         //
 //         // New ow node ID updated to new hotkey
 //         //
-//         let account_overwatch_stake = AccountOverwatchStake::<Test>::get(ow_new_hotkey.clone());
+//         let account_overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(ow_new_hotkey.clone());
 //         assert_eq!(account_overwatch_stake, starting_account_overwatch_stake);
 
 //         let overwatch_node_hotkey = OverwatchNodeIdHotkey::<Test>::get(overwatch_node_id);

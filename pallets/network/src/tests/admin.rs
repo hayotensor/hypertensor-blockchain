@@ -3,16 +3,15 @@ use super::test_utils::*;
 use crate::Event;
 use crate::{
     AttestorMinRewardFactor, AttestorRewardExponent, BaseNodeBurnAmount, BaseSlashPercentage,
-    BaseValidatorReward, ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor,
-    DelegateStakeCooldownEpochs, DelegateStakeSubnetRemovalInterval, DelegateStakeWeightFactor,
-    Error, InConsensusSubnetReputationFactor, InflationSigmoidMidpoint, InflationSigmoidSteepness,
-    LessThanMinNodesSubnetReputationFactor, MaxBootnodes, MaxChurnLimit, MaxChurnLimitMultiplier,
-    MaxDelegateStakePercentage, MaxEmergencySubnetNodes, MaxEmergencyValidatorEpochsMultiplier,
-    MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes,
-    MaxMinDelegateStakeMultiplier, MaxMinSubnetNodeReputation, MaxNodeBurnRate,
-    MaxNodeReputationFactor, MaxOverwatchNodes, MaxPauseEpochsSubnetReputationFactor,
-    MaxQueueEpochs, MaxRewardRateDecrease, MaxSlashAmount, MaxSubnetBootnodeAccess,
-    MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
+    BaseValidatorReward, DelegateStakeCooldownEpochs, DelegateStakeSubnetRemovalInterval,
+    DelegateStakeWeightFactor, Error, InConsensusSubnetReputationFactor, InflationSigmoidMidpoint,
+    InflationSigmoidSteepness, LessThanMinNodesSubnetReputationFactor, MaxBootnodes, MaxChurnLimit,
+    MaxChurnLimitMultiplier, MaxDelegateStakePercentage, MaxEmergencySubnetNodes,
+    MaxEmergencyValidatorEpochsMultiplier, MaxIdleClassificationEpochs,
+    MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes, MaxMinDelegateStakeMultiplier,
+    MaxMinSubnetNodeReputation, MaxNodeBurnRate, MaxNodeReputationFactor, MaxOverwatchNodes,
+    MaxPauseEpochsSubnetReputationFactor, MaxQueueEpochs, MaxRewardRateDecrease, MaxSlashAmount,
+    MaxSubnetBootnodeAccess, MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
     MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnetPauseEpochs,
     MaxSubnetRemovalInterval, MaxSubnets, MaxSwapQueueCallsPerBlock, MaxUnbondings,
     MaximumHooksWeightV2, MinActiveNodeStakeEpochs, MinAttestationPercentage, MinChurnLimit,
@@ -30,7 +29,8 @@ use crate::{
     SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower, SubnetEnactmentEpochs,
     SubnetName, SubnetOwnerPercentage, SubnetPauseCooldownEpochs, SubnetRegistrationEpochs,
     SubnetWeightFactors, SubnetWeightFactorsData, SuperMajorityAttestationRatio, TxRateLimit,
-    ValidatorAbsentSubnetReputationFactor, ValidatorRewardK, ValidatorRewardMidpoint,
+    ValidatorAbsentSubnetReputationFactor, ValidatorReputationDecreaseFactor,
+    ValidatorReputationIncreaseFactor, ValidatorRewardK, ValidatorRewardMidpoint,
 };
 use frame_support::{assert_err, assert_ok};
 

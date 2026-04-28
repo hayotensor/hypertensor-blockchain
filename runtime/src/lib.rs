@@ -431,15 +431,15 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                     | RuntimeCall::Network(pallet_network::Call::transfer_delegate_stake { .. })
                     | RuntimeCall::Network(pallet_network::Call::remove_delegate_stake { .. })
                     | RuntimeCall::Network(pallet_network::Call::donate_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::add_node_delegate_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::add_validator_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::swap_validator_delegate_stake { .. })
                     | RuntimeCall::Network(
-                        pallet_network::Call::transfer_node_delegate_stake { .. }
+                        pallet_network::Call::transfer_validator_delegate_stake { .. }
                     )
-                    | RuntimeCall::Network(pallet_network::Call::remove_node_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::donate_node_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_from_node_to_subnet { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_from_subnet_to_node { .. })
+                    | RuntimeCall::Network(pallet_network::Call::remove_validator_delegate_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::donate_validator_delegate_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::swap_from_validator_to_subnet { .. })
+                    | RuntimeCall::Network(pallet_network::Call::swap_from_subnet_to_validator { .. })
                     | RuntimeCall::Network(pallet_network::Call::update_swap_queue { .. })
             ),
             ProxyType::Transfer => matches!(
@@ -449,7 +449,7 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                     | RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. })
                     | RuntimeCall::Network(pallet_network::Call::transfer_delegate_stake { .. })
                     | RuntimeCall::Network(
-                        pallet_network::Call::transfer_node_delegate_stake { .. }
+                        pallet_network::Call::transfer_validator_delegate_stake { .. }
                     )
             ),
             ProxyType::Governance => matches!(
@@ -458,8 +458,8 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
             ),
             ProxyType::SubNetworkStaking => matches!(
                 c,
-                RuntimeCall::Network(pallet_network::Call::add_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::remove_stake { .. })
+                RuntimeCall::Network(pallet_network::Call::add_node_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::remove_node_stake { .. })
             ),
             // In-network management of current delegate staking funds
             ProxyType::SubNetworkDelegateStaking => matches!(
@@ -471,11 +471,11 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                     // | RuntimeCall::Network(pallet_network::Call::donate_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::add_node_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::swap_validator_delegate_stake { .. })
-                    // | RuntimeCall::Network(pallet_network::Call::transfer_node_delegate_stake { .. })
-                    // | RuntimeCall::Network(pallet_network::Call::remove_node_delegate_stake { .. })
-                    // | RuntimeCall::Network(pallet_network::Call::donate_node_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_from_node_to_subnet { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_from_subnet_to_node { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::transfer_validator_delegate_stake { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::remove_validator_delegate_stake { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::donate_validator_delegate_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::swap_from_validator_to_subnet { .. })
+                    | RuntimeCall::Network(pallet_network::Call::swap_from_subnet_to_validator { .. })
                     | RuntimeCall::Network(pallet_network::Call::update_swap_queue { .. })
             ),
             ProxyType::CancelProxy => {

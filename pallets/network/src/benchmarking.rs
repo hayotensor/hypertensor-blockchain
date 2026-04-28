@@ -245,17 +245,16 @@ fn build_activated_subnet<T: Config>(
     let owner_hotkey =
         get_account::<T>("subnet_owner", subnets * max_subnets * max_subnet_nodes + 1);
 
-    let register_subnet_data =
-        default_registration_subnet_data::<T>(
-            subnets,
-            max_subnet_nodes,
-            name.clone().into(),
-            start,
-            end,
-        );
+    let register_subnet_data = default_registration_subnet_data::<T>(
+        subnets,
+        max_subnet_nodes,
+        name.clone().into(),
+        start,
+        end,
+    );
 
     // --- Register subnet for activation
-    assert_ok!(Network::<T>::register_subnet_v2(
+    assert_ok!(Network::<T>::register_subnet(
         RawOrigin::Signed(owner_coldkey.clone()).into(),
         100000000000000000000000,
         register_subnet_data,
@@ -425,17 +424,16 @@ fn build_registered_subnet<T: Config>(
     let owner_hotkey =
         get_account::<T>("subnet_owner", subnets * max_subnets * max_subnet_nodes + 1);
 
-    let register_subnet_data =
-        default_registration_subnet_data::<T>(
-            subnets,
-            max_subnet_nodes,
-            name.clone().into(),
-            start,
-            end,
-        );
+    let register_subnet_data = default_registration_subnet_data::<T>(
+        subnets,
+        max_subnet_nodes,
+        name.clone().into(),
+        start,
+        end,
+    );
 
     // --- Register subnet for activation
-    assert_ok!(Network::<T>::register_subnet_v2(
+    assert_ok!(Network::<T>::register_subnet(
         RawOrigin::Signed(owner_coldkey.clone()).into(),
         100000000000000000000000,
         register_subnet_data,
@@ -489,7 +487,6 @@ fn build_registered_subnet<T: Config>(
 
         let validator_id = ColdkeyValidatorId::<Test>::get(coldkey.clone()).unwrap();
 
-
         let hotkey = get_hotkey::<T>(subnets, max_subnet_nodes, max_subnets, _n);
         let peer_id = get_peer_id::<T>(subnets, max_subnet_nodes, max_subnets, _n);
         let bootnode_peer_id =
@@ -522,7 +519,7 @@ fn build_registered_subnet<T: Config>(
             Some(bytes.try_into().expect("non_unique too long"))
         };
 
-        assert_ok!(Network::<T>::register_subnet_node_v2(
+        assert_ok!(Network::<T>::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -547,8 +544,7 @@ fn build_registered_subnet<T: Config>(
 
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-        let subnet_node_data =
-            SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id).unwrap();
+        let subnet_node_data = SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id).unwrap();
         assert_eq!(subnet_node_data.hotkey, hotkey.clone());
         assert_eq!(subnet_node_data.delegate_reward_rate, 0);
 
@@ -719,7 +715,7 @@ fn build_registered_subnet_nodes<T: Config>(
             Some(bytes.try_into().expect("non_unique too long"))
         };
 
-        assert_ok!(Network::<T>::register_subnet_node_v2(
+        assert_ok!(Network::<T>::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -819,9 +815,9 @@ pub fn default_registration_subnet_data<T: Config>(
     name: Vec<u8>,
     start: u32,
     end: u32,
-) -> RegistrationSubnetDataV2 {
+) -> RegistrationSubnetData {
     let seed_bytes: &[u8] = &name;
-    let add_subnet_data = RegistrationSubnetDataV2 {
+    let add_subnet_data = RegistrationSubnetData {
         name: name.clone(),
         repo: blake2_128(seed_bytes).to_vec(), // must be unique
         description: Vec::new(),
@@ -836,7 +832,6 @@ pub fn default_registration_subnet_data<T: Config>(
         )]),
     };
     add_subnet_data
-
 }
 
 pub fn insert_overwatch_node<T: Config>(coldkey_n: u32, hotkey_n: u32) -> u32 {
@@ -1121,10 +1116,7 @@ pub fn get_initial_validator_ids(
     whitelist
 }
 
-pub fn get_simulated_consensus_data<T: Config>(
-    subnet_id: u32,
-    node_count: u32,
-) -> ConsensusData {
+pub fn get_simulated_consensus_data<T: Config>(subnet_id: u32, node_count: u32) -> ConsensusData {
     let mut attests = BTreeMap::new();
     let mut data = Vec::new();
 
@@ -1347,19 +1339,18 @@ mod benchmarks {
         let min_nodes = MinSubnetNodes::<T>::get();
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let subnets = TotalActiveSubnets::<T>::get() + 1;
-        let register_subnet_data =
-            default_registration_subnet_data::<T>(
-                subnets,
-                max_subnet_nodes,
-                DEFAULT_SUBNET_NAME.into(),
-                0,
-                min_nodes + 1,
-            );
+        let register_subnet_data = default_registration_subnet_data::<T>(
+            subnets,
+            max_subnet_nodes,
+            DEFAULT_SUBNET_NAME.into(),
+            0,
+            min_nodes + 1,
+        );
 
         let current_block_number = get_current_block_as_u32::<T>();
 
         #[extrinsic_call]
-        register_subnet_v2(
+        register_subnet(
             RawOrigin::Signed(funded_initializer.clone()),
             100000000000000000000000,
             register_subnet_data,
@@ -1390,14 +1381,13 @@ mod benchmarks {
             get_account::<T>("subnet_owner", subnets * max_subnets * max_subnet_nodes + 1);
 
         let name = DEFAULT_SUBNET_NAME;
-        let register_subnet_data =
-            default_registration_subnet_data::<T>(
-                subnets,
-                max_subnet_nodes,
-                name.clone().into(),
-                start,
-                end,
-            );
+        let register_subnet_data = default_registration_subnet_data::<T>(
+            subnets,
+            max_subnet_nodes,
+            name.clone().into(),
+            start,
+            end,
+        );
 
         // --- Register subnet for activation
         assert_ok!(Network::<T>::register_subnet(
@@ -1421,33 +1411,33 @@ mod benchmarks {
         for n in start..end {
             let _n = n + 1;
             let expected_validator_id = _n;
-            let coldkey = if let Some(v_coldkey) = ValidatorColdkey::<Test>::get(expected_validator_id)
-            {
-                v_coldkey
-            } else {
-                let coldkey = get_coldkey(
-                    subnet_id_key_offset,
-                    max_subnet_nodes,
-                    expected_validator_id,
-                );
-                let hotkey = get_hotkey(
-                    subnet_id_key_offset,
-                    max_subnet_nodes,
-                    max_subnets,
-                    expected_validator_id,
-                );
-                let v_reward_rate = 50000000000000000; // 5%
+            let coldkey =
+                if let Some(v_coldkey) = ValidatorColdkey::<Test>::get(expected_validator_id) {
+                    v_coldkey
+                } else {
+                    let coldkey = get_coldkey(
+                        subnet_id_key_offset,
+                        max_subnet_nodes,
+                        expected_validator_id,
+                    );
+                    let hotkey = get_hotkey(
+                        subnet_id_key_offset,
+                        max_subnet_nodes,
+                        max_subnets,
+                        expected_validator_id,
+                    );
+                    let v_reward_rate = 50000000000000000; // 5%
 
-                assert_ok!(Network::register_validator(
-                    RuntimeOrigin::signed(coldkey.clone()),
-                    hotkey.clone(),
-                    v_reward_rate,
-                    None,
-                    None
-                ));
+                    assert_ok!(Network::register_validator(
+                        RuntimeOrigin::signed(coldkey.clone()),
+                        hotkey.clone(),
+                        v_reward_rate,
+                        None,
+                        None
+                    ));
 
-                coldkey
-            };
+                    coldkey
+                };
 
             let validator_id = ColdkeyValidatorId::<Test>::get(coldkey.clone()).unwrap();
 
@@ -1471,7 +1461,7 @@ mod benchmarks {
                 DEFAULT_STAKE_TO_BE_ADDED.try_into().ok().expect("REASON"),
             );
             amount_staked += amount;
-            assert_ok!(Network::<T>::register_subnet_node_v2(
+            assert_ok!(Network::<T>::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1943,14 +1933,13 @@ mod benchmarks {
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let max_subnets = MaxSubnets::<T>::get();
         let subnets = TotalActiveSubnets::<T>::get() + 1;
-        let mut register_subnet_data =
-            default_registration_subnet_data::<T>(
-                subnets,
-                max_subnet_nodes,
-                DEFAULT_SUBNET_NAME.into(),
-                0,
-                min_nodes + 1,
-            );
+        let mut register_subnet_data = default_registration_subnet_data::<T>(
+            subnets,
+            max_subnet_nodes,
+            DEFAULT_SUBNET_NAME.into(),
+            0,
+            min_nodes + 1,
+        );
 
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
 
@@ -2007,14 +1996,13 @@ mod benchmarks {
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let max_subnets = MaxSubnets::<T>::get();
         let subnets = TotalActiveSubnets::<T>::get() + 1;
-        let mut register_subnet_data =
-            default_registration_subnet_data::<T>(
-                subnets,
-                max_subnet_nodes,
-                DEFAULT_SUBNET_NAME.into(),
-                0,
-                min_nodes + 1,
-            );
+        let mut register_subnet_data = default_registration_subnet_data::<T>(
+            subnets,
+            max_subnet_nodes,
+            DEFAULT_SUBNET_NAME.into(),
+            0,
+            min_nodes + 1,
+        );
 
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
 
@@ -3304,15 +3292,15 @@ mod benchmarks {
         assert_eq!(call_queue.clone().unwrap().id, prev_next_id);
         match &call_queue.clone().unwrap().call {
             QueuedSwapCall::SwapToSubnetDelegateStake { .. } => assert!(false),
-            QueuedSwapCall::SwapToValidatorDelegateStake { 
+            QueuedSwapCall::SwapToValidatorDelegateStake {
                 account_id,
                 to_validator_id,
                 balance,
-             } => {
+            } => {
                 assert_eq!(*account_id, delegate_node_account.clone());
                 assert_eq!(*to_validator_id, starting_to_validator_id);
                 assert_ne!(*balance, 0);
-             },
+            }
         };
 
         let next_id = NextSwapQueueId::<T>::get();
@@ -3651,7 +3639,7 @@ mod benchmarks {
         assert_eq!(call_queue.clone().unwrap().id, prev_next_id);
         match &call_queue.clone().unwrap().call {
             QueuedSwapCall::SwapToSubnetDelegateStake { .. } => assert!(false),
-            QueuedSwapCall::SwapToValidatorDelegateStake { 
+            QueuedSwapCall::SwapToValidatorDelegateStake {
                 account_id,
                 to_validator_id,
                 balance,
@@ -3659,7 +3647,7 @@ mod benchmarks {
                 assert_eq!(*account_id, delegate_account.clone());
                 assert_eq!(*to_validator_id, starting_to_validator_id);
                 assert_ne!(*balance, 0);
-            },
+            }
         };
 
         let next_id = NextSwapQueueId::<T>::get();
@@ -5908,7 +5896,8 @@ mod benchmarks {
         let subnet_node_id = SubnetNodesData::<T>::try_get(subnet_id, hotkey_subnet_node_id);
         assert_eq!(subnet_node_id, Err(()));
 
-        let subnet_node_id = RegisteredSubnetNodesData::<T>::try_get(subnet_id, hotkey_subnet_node_id);
+        let subnet_node_id =
+            RegisteredSubnetNodesData::<T>::try_get(subnet_id, hotkey_subnet_node_id);
         assert_eq!(subnet_node_id, Err(()));
     }
 
@@ -5980,7 +5969,8 @@ mod benchmarks {
         let subnet_node_id = SubnetNodesData::<T>::try_get(subnet_id, hotkey_subnet_node_id);
         assert_eq!(subnet_node_id, Err(()));
 
-        let subnet_node_id = RegisteredSubnetNodesData::<T>::try_get(subnet_id, hotkey_subnet_node_id);
+        let subnet_node_id =
+            RegisteredSubnetNodesData::<T>::try_get(subnet_id, hotkey_subnet_node_id);
         assert_eq!(subnet_node_id, Err(()));
 
         // Verify node was removed from EmergencySubnetNodeElectionData

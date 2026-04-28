@@ -19,7 +19,7 @@ use super::*;
 use sp_runtime::Saturating;
 
 impl<T: Config> Pallet<T> {
-    pub fn do_remove_delegate_balance(
+    pub fn do_remove_delegate_account_balance(
         origin: T::RuntimeOrigin,
         amount_to_remove: u128,
     ) -> DispatchResult {

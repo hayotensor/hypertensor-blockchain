@@ -3,9 +3,9 @@ use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
     ChurnLimit, ColdkeyValidatorId, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, PeerInfo,
-    RegisteredSubnetNodesData, SubnetName, SubnetNodeClass, SubnetNodeQueueEpochs,
-    SubnetNodeQueue, SubnetNodesData, TotalActiveSubnetNodes, TotalActiveSubnets,
-    TotalSubnetNodeUids, TotalSubnetNodes, ValidatorColdkey,
+    RegisteredSubnetNodesData, SubnetName, SubnetNodeClass, SubnetNodeQueue, SubnetNodeQueueEpochs,
+    SubnetNodesData, TotalActiveSubnetNodes, TotalActiveSubnets, TotalSubnetNodeUids,
+    TotalSubnetNodes, ValidatorColdkey,
 };
 use frame_support::assert_ok;
 use frame_support::traits::Currency;
@@ -72,7 +72,7 @@ fn test_register_subnet_node_v2() {
         ));
         let validator_id = ColdkeyValidatorId::<Test>::get(coldkey.clone()).unwrap();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -165,7 +165,7 @@ fn test_register_subnet_node_v2_and_activate() {
         ));
         let validator_id = ColdkeyValidatorId::<Test>::get(coldkey.clone()).unwrap();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -311,7 +311,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
             ));
             let validator_id = ColdkeyValidatorId::<Test>::get(coldkey.clone()).unwrap();
 
-            assert_ok!(Network::register_subnet_node_v2(
+            assert_ok!(Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -499,7 +499,7 @@ fn test_register_subnet_node_v2_with_max_nodes() {
             let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
             let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-            assert_ok!(Network::register_subnet_node_v2(
+            assert_ok!(Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -664,7 +664,7 @@ fn test_register_subnet_node_v2_activate_up_to_max_nodes() {
             ));
             let validator_id = ColdkeyValidatorId::<Test>::get(coldkey.clone()).unwrap();
 
-            assert_ok!(Network::register_subnet_node_v2(
+            assert_ok!(Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,

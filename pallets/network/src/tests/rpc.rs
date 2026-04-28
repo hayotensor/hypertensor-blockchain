@@ -157,7 +157,7 @@ fn test_proof_of_stake_all_peer_id_types() {
         ));
         let validator_id = ColdkeyValidatorId::<Test>::get(coldkey.clone()).unwrap();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,

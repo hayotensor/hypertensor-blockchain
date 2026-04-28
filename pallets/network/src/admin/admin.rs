@@ -901,4 +901,12 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
+
+    pub fn do_set_overwatch_validator_whitelist(validator_id: u32, value: bool) -> DispatchResult {
+        OverwatchValidatorWhitelist::<T>::insert(validator_id, value);
+
+        Self::deposit_event(Event::SetOverwatchValidatorWhitelist(validator_id, value));
+
+        Ok(())
+    }
 }

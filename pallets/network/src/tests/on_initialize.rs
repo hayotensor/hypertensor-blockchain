@@ -1,11 +1,11 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    AccountOverwatchStake, NodeSubnetStake, FinalSubnetEmissionWeights,
-    MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetNodes, NewRegistrationCostMultiplier,
-    OverwatchCommit, OverwatchCommits, OverwatchEpochLengthMultiplier, OverwatchReveal,
-    OverwatchReveals, SlotAssignment, SubnetElectedValidator,
-    SubnetName, SubnetReputation, TotalSubnetDelegateStakeBalance,
+    OverwatchNodeStakeBalance, FinalSubnetEmissionWeights, MaxOverwatchNodes, MaxSubnetNodes,
+    MaxSubnets, MinSubnetNodes, NewRegistrationCostMultiplier, NodeSubnetStake, OverwatchCommit,
+    OverwatchCommits, OverwatchEpochLengthMultiplier, OverwatchReveal, OverwatchReveals,
+    SlotAssignment, SubnetElectedValidator, SubnetName, SubnetReputation,
+    TotalSubnetDelegateStakeBalance,
 };
 use frame_support::assert_ok;
 use frame_support::traits::OnInitialize;
@@ -144,7 +144,7 @@ fn get_commit(num: u32) -> (u128, Vec<u8>, sp_core::H256) {
 //                             get_overwatch_coldkey(max_subnet_nodes, max_subnets, max_onodes, o_n);
 //                         let hotkey =
 //                             get_overwatch_hotkey(max_subnet_nodes, max_subnets, max_onodes, _n);
-//                         let overwatch_stake = AccountOverwatchStake::<Test>::get(hotkey.clone());
+//                         let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(hotkey.clone());
 
 //                         assert_ne!(overwatch_stake, 0);
 //                         ostake_snapshot.insert(hotkey.clone(), overwatch_stake);
@@ -166,7 +166,7 @@ fn get_commit(num: u32) -> (u128, Vec<u8>, sp_core::H256) {
 //                             get_overwatch_coldkey(max_subnet_nodes, max_subnets, max_onodes, o_n);
 //                         let hotkey =
 //                             get_overwatch_hotkey(max_subnet_nodes, max_subnets, max_onodes, _n);
-//                         let overwatch_stake = AccountOverwatchStake::<Test>::get(hotkey.clone());
+//                         let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(hotkey.clone());
 
 //                         if let Some(old_stake) = ostake_snapshot.get(&hotkey) {
 //                             assert!(overwatch_stake > *old_stake);

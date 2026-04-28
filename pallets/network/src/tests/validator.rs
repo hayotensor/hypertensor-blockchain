@@ -2,22 +2,20 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId,
-    ColdkeyValidatorId, CurrentNodeBurnRate, DefaultMaxVectorLength, Error,
-    HotkeyValidatorId, MaxDelegateStakePercentage,
-    MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
-    MinSubnetNodes, MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex,
-    NodeSubnetStake, PeerIdSubnetNodeId, PeerInfo,
-    RegisteredSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName,
-    SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
-    SubnetNodeIdHotkey, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeV2,
-    SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
-    SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, TotalActiveNodes,
-    TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake,
-    TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
-    TotalSubnetUids, TotalValidatorIds, UniqueParamSubnetNodeId, ValidatorColdkey,
-    ValidatorColdkeyHotkey, ValidatorIdHotkey, ValidatorsData, IdentityData,
-    DefaultMaxUrlLength, DefaultMaxSocialIdLength
+    BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ColdkeyValidatorId, CurrentNodeBurnRate,
+    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength, Error,
+    HotkeyValidatorId, IdentityData, MaxDelegateStakePercentage, MaxRegisteredNodes,
+    MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes,
+    MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex, NodeSubnetStake,
+    PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData, SubnetElectedValidator,
+    SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification,
+    SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueueEpochs, SubnetNodeReputation,
+    SubnetNodeV2, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
+    SubnetRegistrationEpochs, SubnetState, TotalActiveNodes, TotalActiveSubnetNodes,
+    TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake, TotalSubnetElectableNodes,
+    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorIds,
+    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey, ValidatorIdHotkey,
+    ValidatorsData,
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
@@ -162,7 +160,7 @@ fn test_register_validator_subnet_node() {
 
         // Wrong coldkey
         assert_err!(
-            Network::do_register_subnet_node_v2(
+            Network::do_register_subnet_node(
                 RuntimeOrigin::signed(account(999)),
                 current_id,
                 subnet_id,
@@ -183,7 +181,7 @@ fn test_register_validator_subnet_node() {
 
         // Wrong validator_id
         assert_err!(
-            Network::do_register_subnet_node_v2(
+            Network::do_register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 999,
                 subnet_id,
@@ -204,7 +202,7 @@ fn test_register_validator_subnet_node() {
 
         // Wrong validator_id
         assert_err!(
-            Network::do_register_subnet_node_v2(
+            Network::do_register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 current_id,
                 subnet_id,
@@ -223,7 +221,7 @@ fn test_register_validator_subnet_node() {
             Error::<Test>::MaxBurnAmountExceeded
         );
 
-        assert_ok!(Network::do_register_subnet_node_v2(
+        assert_ok!(Network::do_register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             current_id,
             subnet_id,
@@ -597,10 +595,15 @@ fn test_update_validator_identity() {
         assert_eq!(v_identity.clone().unwrap().x, Some(x.clone()));
         assert_eq!(v_identity.clone().unwrap().telegram, Some(telegram.clone()));
         assert_eq!(v_identity.clone().unwrap().github, Some(github.clone()));
-        assert_eq!(v_identity.clone().unwrap().hugging_face, Some(hugging_face.clone()));
-        assert_eq!(v_identity.clone().unwrap().description, Some(description.clone()));
+        assert_eq!(
+            v_identity.clone().unwrap().hugging_face,
+            Some(hugging_face.clone())
+        );
+        assert_eq!(
+            v_identity.clone().unwrap().description,
+            Some(description.clone())
+        );
         assert_eq!(v_identity.clone().unwrap().misc, Some(misc.clone()));
-
 
         // Remove one identity parameter
         let identity: IdentityData = IdentityData {
@@ -633,10 +636,15 @@ fn test_update_validator_identity() {
         assert_eq!(v_identity.clone().unwrap().x, None);
         assert_eq!(v_identity.clone().unwrap().telegram, Some(telegram.clone()));
         assert_eq!(v_identity.clone().unwrap().github, Some(github.clone()));
-        assert_eq!(v_identity.clone().unwrap().hugging_face, Some(hugging_face.clone()));
-        assert_eq!(v_identity.clone().unwrap().description, Some(description.clone()));
+        assert_eq!(
+            v_identity.clone().unwrap().hugging_face,
+            Some(hugging_face.clone())
+        );
+        assert_eq!(
+            v_identity.clone().unwrap().description,
+            Some(description.clone())
+        );
         assert_eq!(v_identity.clone().unwrap().misc, Some(misc.clone()));
-
 
         // Remove the identity
         assert_ok!(Network::update_validator_identity(

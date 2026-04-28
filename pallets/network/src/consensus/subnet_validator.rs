@@ -70,7 +70,7 @@ impl<T: Config> Pallet<T> {
     /// # Returns
     ///
     /// Returns `Ok(Pays::No.into())` on success, indicating the transaction fee is waived.
-    pub fn do_propose_attestation_v2(
+    pub fn do_propose_attestation(
         hotkey: T::AccountId,
         subnet_id: u32,
         subnet_node_id: u32,
@@ -278,7 +278,7 @@ impl<T: Config> Pallet<T> {
         Ok(Pays::No.into())
     }
 
-    pub fn do_attest_v2(
+    pub fn do_attest(
         hotkey: T::AccountId,
         subnet_id: u32,
         subnet_node_id: u32,

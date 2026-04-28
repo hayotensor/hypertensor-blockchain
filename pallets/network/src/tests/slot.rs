@@ -3,9 +3,9 @@ use crate::tests::test_utils::*;
 use crate::{
     FinalSubnetEmissionWeights, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     NewRegistrationCostMultiplier, OverwatchNodeStakeBalance, OverwatchNodeValidatorId,
-    OverwatchReveals, QueueImmunityEpochs, RegisteredSubnetNodesData,
-    SubnetConsensusSubmission, SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator,
-    SubnetName, SubnetNodeQueue, TotalActiveSubnets,
+    OverwatchReveals, QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetConsensusSubmission,
+    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName, SubnetNodeQueue,
+    TotalActiveSubnets,
 };
 use sp_std::collections::btree_map::BTreeMap;
 

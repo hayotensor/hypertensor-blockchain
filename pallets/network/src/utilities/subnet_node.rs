@@ -904,12 +904,12 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn remove_registered_subnet_node(subnet_id: u32, subnet_node_id: u32) {
-        let subnet_node =
-            if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
-                RegisteredSubnetNodesData::<T>::take(subnet_id, subnet_node_id)
-            } else {
-                return;
-            };
+        let subnet_node = if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id)
+        {
+            RegisteredSubnetNodesData::<T>::take(subnet_id, subnet_node_id)
+        } else {
+            return;
+        };
 
         Self::common_remove_subnet_node_v2(subnet_id, subnet_node_id, subnet_node.clone());
 
@@ -1004,10 +1004,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    pub fn get_subnet_node_v2(
-        subnet_id: u32,
-        subnet_node_id: u32,
-    ) -> Option<SubnetNodeV2> {
+    pub fn get_subnet_node_v2(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNodeV2> {
         if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             Some(SubnetNodesData::<T>::get(subnet_id, subnet_node_id))
         } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
@@ -1090,7 +1087,8 @@ impl<T: Config> Pallet<T> {
                     subnet_id: subnet_id,
                     subnet_node_id: subnet_node_id,
                     coldkey: coldkey,
-                    hotkey: Self::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id).unwrap(),
+                    hotkey: Self::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id)
+                        .unwrap(),
                     peer_info: subnet_node.peer_info,
                     bootnode_peer_info: subnet_node.bootnode_peer_info,
                     client_peer_info: subnet_node.client_peer_info,
@@ -1098,7 +1096,10 @@ impl<T: Config> Pallet<T> {
                     unique: subnet_node.unique,
                     non_unique: subnet_node.non_unique,
                     stake_balance: NodeSubnetStake::<T>::get(subnet_node_id, subnet_id),
-                    subnet_node_reputation: SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id),
+                    subnet_node_reputation: SubnetNodeReputation::<T>::get(
+                        subnet_id,
+                        subnet_node_id,
+                    ),
                     node_slot_index: NodeSlotIndex::<T>::get(subnet_id, subnet_node_id),
                     consecutive_idle_epochs: SubnetNodeIdleConsecutiveEpochs::<T>::get(
                         subnet_id,

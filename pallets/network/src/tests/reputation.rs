@@ -1,6 +1,6 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
-use crate::{ValidatorReputation, Reputation};
+use crate::{Reputation, ValidatorReputation};
 
 #[test]
 fn test_increase_coldkey_reputation_with_weight_factor() {

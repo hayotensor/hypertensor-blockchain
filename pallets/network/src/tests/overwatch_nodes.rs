@@ -1,14 +1,13 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    Error, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets,
-    MinSubnetMinStake, MinSubnetNodes, OverwatchEpochLengthMultiplier, OverwatchMinAge,
-    OverwatchMinStakeBalance, OverwatchNodeBlacklist, OverwatchNodeIdHotkey, OverwatchNodeIndex,
-    OverwatchNodeStakeBalance, OverwatchNodeWeights, OverwatchNodes, OverwatchStakeWeightFactor,
-    OverwatchSubnetWeights, OverwatchValidatorWhitelist, PeerId, PeerIdOverwatchNodeId,
-    StakeCooldownEpochs, StakeUnbondingLedger, SubnetName, SubnetNodesData,
-    SubnetState, TotalOverwatchNodeStakeBalance, TotalOverwatchNodeUids, TotalOverwatchNodes,
-    TotalValidatorIds,
+    Error, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes,
+    OverwatchEpochLengthMultiplier, OverwatchMinAge, OverwatchMinStakeBalance,
+    OverwatchNodeBlacklist, OverwatchNodeIdHotkey, OverwatchNodeIndex, OverwatchNodeStakeBalance,
+    OverwatchNodeWeights, OverwatchNodes, OverwatchStakeWeightFactor, OverwatchSubnetWeights,
+    OverwatchValidatorWhitelist, PeerId, PeerIdOverwatchNodeId, StakeCooldownEpochs,
+    StakeUnbondingLedger, SubnetName, SubnetNodesData, SubnetState, TotalOverwatchNodeStakeBalance,
+    TotalOverwatchNodeUids, TotalOverwatchNodes, TotalValidatorIds,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
@@ -275,7 +274,7 @@ fn test_set_overwatch_peer_id_v2() {
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get();
         let peer_id = peer(1);
 
-        assert_ok!(Network::set_overwatch_node_peer_id_v2(
+        assert_ok!(Network::set_overwatch_node_peer_id(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             overwatch_node_id,
@@ -335,7 +334,7 @@ fn test_set_overwatch_peer_id_errors() {
         let subnet_id = 999;
 
         assert_err!(
-            Network::set_overwatch_node_peer_id_v2(
+            Network::set_overwatch_node_peer_id(
                 RuntimeOrigin::signed(coldkey.clone()),
                 999,
                 overwatch_node_id,
@@ -347,7 +346,7 @@ fn test_set_overwatch_peer_id_errors() {
         insert_subnet(subnet_id, SubnetState::Active, 0);
 
         assert_err!(
-            Network::set_overwatch_node_peer_id_v2(
+            Network::set_overwatch_node_peer_id(
                 RuntimeOrigin::signed(account(999)),
                 subnet_id,
                 overwatch_node_id,
@@ -360,7 +359,7 @@ fn test_set_overwatch_peer_id_errors() {
         let bad_peer: PeerId = PeerId(bad_peer_id.clone().into());
 
         assert_err!(
-            Network::set_overwatch_node_peer_id_v2(
+            Network::set_overwatch_node_peer_id(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 overwatch_node_id,
@@ -388,7 +387,7 @@ fn test_set_overwatch_peer_id_errors() {
         let snn_peer_id = subnet_node_data.peer_info.peer_id;
 
         assert_err!(
-            Network::set_overwatch_node_peer_id_v2(
+            Network::set_overwatch_node_peer_id(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 overwatch_node_id,
@@ -453,7 +452,7 @@ fn test_remove_overwatch_node() {
 
         let peer_id = peer(1);
 
-        assert_ok!(Network::set_overwatch_node_peer_id_v2(
+        assert_ok!(Network::set_overwatch_node_peer_id(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             overwatch_node_id,

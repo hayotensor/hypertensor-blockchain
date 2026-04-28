@@ -2,19 +2,19 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    NodeSubnetStake, BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, CurrentNodeBurnRate,
-    DefaultMaxVectorLength, Error, MaxDelegateStakePercentage,
-    MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
-    MinSubnetNodes, MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex,
-    PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData,
-    SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
-    SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeQueueEpochs,
-    SubnetNodeReputation, SubnetNodeV2, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
-    SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, TotalActiveNodes,
-    TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake,
-    TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
-    TotalSubnetUids, TotalValidatorIds, UniqueParamSubnetNodeId, ValidatorColdkey,
-    ValidatorIdHotkey, ValidatorReputation, ValidatorSubnetNodes,
+    BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, CurrentNodeBurnRate,
+    DefaultMaxVectorLength, Error, MaxDelegateStakePercentage, MaxRegisteredNodes,
+    MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes,
+    MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex, NodeSubnetStake,
+    PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData, SubnetElectedValidator,
+    SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification,
+    SubnetNodeElectionSlots, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeV2,
+    SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
+    SubnetRegistrationEpochs, SubnetState, TotalActiveNodes, TotalActiveSubnetNodes,
+    TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake, TotalSubnetElectableNodes,
+    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorIds,
+    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorIdHotkey, ValidatorReputation,
+    ValidatorSubnetNodes,
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
@@ -79,7 +79,7 @@ fn test_activate_subnet_then_register_subnet_node_then_activate_v2() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -193,8 +193,9 @@ fn test_register_subnet_subnet_is_paused_error() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_err!(Network::register_subnet_node_v2(
-            RuntimeOrigin::signed(coldkey.clone()),
+        assert_err!(
+            Network::register_subnet_node(
+                RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
                 None,
@@ -263,7 +264,7 @@ fn test_register_subnet_subnet_must_be_registering_or_active_v2() {
         let validator_id = TotalValidatorIds::<Test>::get();
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -328,7 +329,7 @@ fn test_register_subnet_coldkey_registration_whitelist_error_v2() {
         let validator_id = TotalValidatorIds::<Test>::get();
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -423,7 +424,7 @@ fn test_register_subnet_max_registered_nodes_error_v2() {
             if _n - end > max_registered_nodes + 1 {
                 touched = true;
                 assert_err!(
-                    Network::register_subnet_node_v2(
+                    Network::register_subnet_node(
                         RuntimeOrigin::signed(coldkey.clone()),
                         validator_id,
                         subnet_id,
@@ -442,7 +443,7 @@ fn test_register_subnet_max_registered_nodes_error_v2() {
                     Error::<Test>::MaxQueuedNodes
                 );
             } else {
-                assert_ok!(Network::register_subnet_node_v2(
+                assert_ok!(Network::register_subnet_node(
                     RuntimeOrigin::signed(coldkey.clone()),
                     validator_id,
                     subnet_id,
@@ -509,7 +510,7 @@ fn test_register_subnet_node_and_then_update_a_param_v2() {
         let bounded_unique: BoundedVec<u8, DefaultMaxVectorLength> =
             unique.try_into().expect("String too long");
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -557,7 +558,7 @@ fn test_register_subnet_node_and_then_update_a_param_v2() {
         let validator_id = TotalValidatorIds::<Test>::get();
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -617,7 +618,7 @@ fn test_register_subnet_node_post_subnet_activation_v2() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -709,7 +710,7 @@ fn test_activate_subnet_node_post_subnet_activation_v2() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -840,7 +841,7 @@ fn test_remove_subnet_node_registered_v2() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -876,7 +877,7 @@ fn test_remove_subnet_node_registered_v2() {
 
         let prev_slot_list_len = SubnetNodeElectionSlots::<Test>::get(subnet_id).len();
 
-        assert_ok!(Network::remove_subnet_node_v2(
+        assert_ok!(Network::remove_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -949,7 +950,7 @@ fn test_remove_subnet_node_registered_v2() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -1024,7 +1025,7 @@ fn test_remove_subnet_node_registered_v2() {
 
         let prev_slot_list_len = SubnetNodeElectionSlots::<Test>::get(subnet_id).len();
 
-        assert_ok!(Network::remove_subnet_node_v2(
+        assert_ok!(Network::remove_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -1089,7 +1090,7 @@ fn test_remove_subnet_node_registered_v2() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -1165,7 +1166,7 @@ fn test_remove_subnet_node_registered_v2() {
 
         let prev_slot_list_len = SubnetNodeElectionSlots::<Test>::get(subnet_id).len();
 
-        assert_ok!(Network::remove_subnet_node_v2(
+        assert_ok!(Network::remove_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -1230,7 +1231,7 @@ fn test_remove_subnet_node_registered_v2() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -1312,7 +1313,7 @@ fn test_remove_subnet_node_registered_v2() {
         let rep = ValidatorReputation::<Test>::get(validator_id);
         let rep_total_active_nodes = rep.total_active_nodes;
 
-        assert_ok!(Network::remove_subnet_node_v2(
+        assert_ok!(Network::remove_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -1395,7 +1396,7 @@ fn test_register_subnet_node_subnet_err_v2() {
 
         let amount: u128 = 1000;
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1420,7 +1421,7 @@ fn test_register_subnet_node_subnet_err_v2() {
         let subnet_id = 1;
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1518,7 +1519,7 @@ fn test_register_subnet_node_not_exists_err() {
         let validator_id = TotalValidatorIds::<Test>::get();
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1544,7 +1545,7 @@ fn test_register_subnet_node_not_exists_err() {
             get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end);
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1572,7 +1573,7 @@ fn test_register_subnet_node_not_exists_err() {
         let bad_client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end);
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1640,7 +1641,7 @@ fn test_add_subnet_node_stake_err_v2() {
         let validator_id = TotalValidatorIds::<Test>::get();
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1701,7 +1702,7 @@ fn test_add_subnet_node_stake_not_enough_balance_err_v2() {
         let validator_id = TotalValidatorIds::<Test>::get();
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1763,7 +1764,7 @@ fn test_register_subnet_node_invalid_peer_id_err_v2() {
         let validator_id = TotalValidatorIds::<Test>::get();
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1787,7 +1788,7 @@ fn test_register_subnet_node_invalid_peer_id_err_v2() {
         let valid_client_peer_id = peer(subnets * max_subnet_nodes + end + 3);
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1813,7 +1814,7 @@ fn test_register_subnet_node_invalid_peer_id_err_v2() {
         );
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -1878,7 +1879,7 @@ fn test_remove_subnet_node_not_key_owner_v2() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -1898,7 +1899,7 @@ fn test_remove_subnet_node_not_key_owner_v2() {
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         assert_err!(
-            Network::remove_subnet_node_v2(
+            Network::remove_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 subnet_node_id + 1
@@ -1934,7 +1935,7 @@ fn test_remove_subnet_nodes_v2() {
         for n in 0..remove_n_peers {
             let _n = n + 1;
             let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, _n).unwrap();
-            assert_ok!(Network::remove_subnet_node_v2(
+            assert_ok!(Network::remove_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet_id,
                 _n,
@@ -3227,7 +3228,7 @@ fn test_insert_node_into_election_slot() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -3610,7 +3611,7 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
 
         let validator_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_id,
             subnet_id,
@@ -3634,7 +3635,7 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
             get_client_peer_id(subnet_id_key_offset, max_subnet_nodes, max_subnets, end + 2);
 
         assert_err!(
-            Network::register_subnet_node_v2(
+            Network::register_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 validator_id,
                 subnet_id,
@@ -4015,7 +4016,7 @@ fn test_slash_validator() {
 // //         let starting_total_subnet_stake = TotalSubnetStake::<Test>::get(subnet_id);
 // //         let starting_total_stake = TotalStake::<Test>::get();
 
-// //         assert_ok!(Network::remove_subnet_node_v2(
+// //         assert_ok!(Network::remove_subnet_node(
 // //             RuntimeOrigin::signed(coldkey.clone()),
 // //             subnet_id,
 // //             subnet_node_id,

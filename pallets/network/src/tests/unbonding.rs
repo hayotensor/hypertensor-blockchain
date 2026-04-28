@@ -2,11 +2,11 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     AccountNodeDelegateStakeShares, AccountSubnetDelegateStakeShares,
-    AccountValidatorDelegateStakeShares, DelegateStakeCooldownEpochs, Error,
-    MaxSubnetNodes, MaxSubnets, MaxUnbondings, MinSubnetMinStake, NodeDelegateStakeCooldownEpochs,
-    NodeSubnetStake, PeerInfo, RegisteredSubnetNodesData,
-    StakeCooldownEpochs, StakeUnbondingLedger, SubnetName, SubnetNodeQueueEpochs,
-    TotalActiveSubnets, TotalSubnetNodeUids, TotalSubnetNodes, TotalValidatorIds,
+    AccountValidatorDelegateStakeShares, DelegateStakeCooldownEpochs, Error, MaxSubnetNodes,
+    MaxSubnets, MaxUnbondings, MinSubnetMinStake, NodeDelegateStakeCooldownEpochs, NodeSubnetStake,
+    PeerInfo, RegisteredSubnetNodesData, StakeCooldownEpochs, StakeUnbondingLedger, SubnetName,
+    SubnetNodeQueueEpochs, TotalActiveSubnets, TotalSubnetNodeUids, TotalSubnetNodes,
+    TotalValidatorIds,
 };
 use frame_support::traits::Currency;
 use frame_support::weights::WeightMeter;
@@ -71,7 +71,7 @@ fn test_register_remove_claim_stake_unbondings() {
 
         let current_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             current_id,
             subnet_id,
@@ -96,7 +96,7 @@ fn test_register_remove_claim_stake_unbondings() {
         let after_stake_balance = Balances::free_balance(&coldkey.clone());
         assert_eq!(after_stake_balance, starting_balance - amount - burn_amount);
 
-        assert_ok!(Network::remove_subnet_node_v2(
+        assert_ok!(Network::remove_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -365,7 +365,7 @@ fn test_register_activate_remove_claim_stake_unbondings() {
 
         let current_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             current_id,
             subnet_id,
@@ -422,7 +422,7 @@ fn test_register_activate_remove_claim_stake_unbondings() {
             Err(())
         );
 
-        assert_ok!(Network::remove_subnet_node_v2(
+        assert_ok!(Network::remove_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
@@ -522,7 +522,7 @@ fn test_remove_stake_twice_in_epoch() {
 
         let current_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             current_id,
             subnet_id,
@@ -703,7 +703,7 @@ fn test_claim_stake_unbondings_no_unbondings_err() {
 
         let current_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             current_id,
             subnet_id,
@@ -805,7 +805,7 @@ fn test_remove_to_stake_max_unlockings_reached_err() {
 
         let current_id = TotalValidatorIds::<Test>::get();
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             current_id,
             subnet_id,

@@ -2,23 +2,21 @@ use super::mock::*;
 use super::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountSubnetDelegateStakeShares, BaseValidatorReward,
-    ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor, ColdkeyValidatorId,
+    AccountSubnetDelegateStakeShares, BaseValidatorReward, ColdkeyValidatorId,
     DelegateAccountStake, EmergencySubnetNodeElectionData, Error, FinalSubnetEmissionWeights,
-    IdleClassificationEpochs, IncludedClassificationEpochs,
-    IncludedIncreaseReputationFactor, MaxSubnetNodes, MaxSubnets, MinAttestationPercentage,
-    MinSubnetMinStake, MinSubnetNodeReputation, MinSubnetReputation, NodeSubnetStake, PeerInfo,
-    QueueImmunityEpochs, RegisteredSubnetNodesData, RewardsCapacitor,
-    SubnetConsensusSubmission, SubnetElectedValidator, SubnetName, SubnetNodeClass,
-    SubnetNodeConsecutiveIncludedEpochs, SubnetNodeConsensusData,
+    IdleClassificationEpochs, IncludedClassificationEpochs, IncludedIncreaseReputationFactor,
+    MaxSubnetNodes, MaxSubnets, MinAttestationPercentage, MinSubnetMinStake,
+    MinSubnetNodeReputation, MinSubnetReputation, NodeSubnetStake, PeerInfo, QueueImmunityEpochs,
+    RegisteredSubnetNodesData, RewardsCapacitor, SubnetConsensusSubmission, SubnetElectedValidator,
+    SubnetName, SubnetNodeClass, SubnetNodeConsecutiveIncludedEpochs, SubnetNodeConsensusData,
     SubnetNodeIdleConsecutiveEpochs, SubnetNodeMinWeightDecreaseReputationThreshold,
-    SubnetNodeQueueEpochs, SubnetNodeQueue, SubnetNodeReputation,
-    SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs, SubnetRemovalReason,
-    SubnetReputation, SubnetState, SubnetsData, SuperMajorityAttestationRatio, TotalActiveSubnets,
-    TotalNodeDelegateStakeBalance, TotalNodeDelegateStakeShares, TotalSubnetDelegateStakeBalance,
-    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetUids,
-    ValidatorAbsentDecreaseReputationFactor, ValidatorAbsentSubnetReputationFactor,
-    ValidatorColdkey, ValidatorDelegateStakeBalance, ValidatorsData,
+    SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodesData, SubnetOwner,
+    SubnetPauseCooldownEpochs, SubnetRemovalReason, SubnetReputation, SubnetState, SubnetsData,
+    SuperMajorityAttestationRatio, TotalActiveSubnets, TotalNodeDelegateStakeBalance,
+    TotalNodeDelegateStakeShares, TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids,
+    TotalSubnetNodes, TotalSubnetUids, ValidatorAbsentDecreaseReputationFactor,
+    ValidatorAbsentSubnetReputationFactor, ValidatorColdkey, ValidatorDelegateStakeBalance,
+    ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor, ValidatorsData,
 };
 use frame_support::pallet_prelude::DispatchResult;
 use frame_support::traits::Currency;
@@ -94,7 +92,7 @@ fn test_propose_attestation() {
             Network::get_subnet_node_associated_hotkey(subnet_id, elected_node_id.unwrap())
                 .unwrap();
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(hotkey.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -151,7 +149,7 @@ fn test_propose_attestation() {
         }
 
         assert_err!(
-            Network::propose_attestation_v2(
+            Network::propose_attestation(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 elected_node_id.unwrap(),
@@ -335,7 +333,7 @@ fn test_propose_attestation_no_validator_elected_error() {
         let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, 1).unwrap();
 
         assert_err!(
-            Network::propose_attestation_v2(
+            Network::propose_attestation(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 1,
@@ -387,7 +385,7 @@ fn test_propose_attestation_after_slot_error() {
                 .unwrap();
 
         assert_err!(
-            Network::propose_attestation_v2(
+            Network::propose_attestation(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 elected_node_id.unwrap() + 1,
@@ -444,7 +442,7 @@ fn test_propose_attestation_score_overflow_error() {
                 .unwrap();
 
         assert_err!(
-            Network::propose_attestation_v2(
+            Network::propose_attestation(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 elected_node_id.unwrap(),
@@ -499,7 +497,7 @@ fn test_propose_attestation_invalid_validator() {
         }
 
         assert_err!(
-            Network::propose_attestation_v2(
+            Network::propose_attestation(
                 RuntimeOrigin::signed(account(1)),
                 subnet_id,
                 elected_node_id.unwrap(),
@@ -553,7 +551,7 @@ fn test_attest() {
             Network::get_subnet_node_associated_hotkey(subnet_id, elected_node_id.unwrap())
                 .unwrap();
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -575,7 +573,7 @@ fn test_attest() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -651,7 +649,7 @@ fn test_attest_invalid_hotkey_subnet_node_id() {
             Network::get_subnet_node_associated_hotkey(subnet_id, elected_node_id.unwrap())
                 .unwrap();
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -675,7 +673,7 @@ fn test_attest_invalid_hotkey_subnet_node_id() {
         );
 
         assert_err!(
-            Network::attest_v2(
+            Network::attest(
                 RuntimeOrigin::signed(attestor.clone()),
                 subnet_id,
                 total_subnet_nodes + 1,
@@ -725,7 +723,7 @@ fn test_attest_invalid_subnet_node_classification() {
             Network::get_subnet_node_associated_hotkey(subnet_id, elected_node_id.unwrap())
                 .unwrap();
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -756,7 +754,7 @@ fn test_attest_invalid_subnet_node_classification() {
             Network::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id).unwrap();
 
         assert_err!(
-            Network::attest_v2(
+            Network::attest(
                 RuntimeOrigin::signed(attestor.clone()),
                 subnet_id,
                 subnet_node_id,
@@ -782,7 +780,7 @@ fn test_attest_invalid_subnet_node_classification() {
             Network::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id).unwrap();
 
         assert_err!(
-            Network::attest_v2(
+            Network::attest(
                 RuntimeOrigin::signed(attestor.clone()),
                 subnet_id,
                 subnet_node_id,
@@ -833,7 +831,7 @@ fn test_attest_invalid_subnet_node_id() {
             Network::get_subnet_node_associated_hotkey(subnet_id, elected_node_id.unwrap())
                 .unwrap();
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -864,7 +862,7 @@ fn test_attest_invalid_subnet_node_id() {
         assert!(RegisteredSubnetNodesData::<Test>::try_get(subnet_id, end + 1).is_ok());
 
         assert_err!(
-            Network::attest_v2(
+            Network::attest(
                 RuntimeOrigin::signed(attestor.clone()),
                 subnet_id,
                 end + 1,
@@ -949,7 +947,7 @@ fn test_attest_invalid_emergency_subnet_node_id() {
             Network::get_subnet_node_associated_hotkey(subnet_id, elected_node_id.unwrap())
                 .unwrap();
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -968,7 +966,7 @@ fn test_attest_invalid_emergency_subnet_node_id() {
         let attestor = Network::get_subnet_node_associated_hotkey(subnet_id, end).unwrap();
 
         assert_err!(
-            Network::attest_v2(
+            Network::attest(
                 RuntimeOrigin::signed(attestor.clone()),
                 subnet_id,
                 end,
@@ -1022,7 +1020,7 @@ fn test_attest_last_block_error() {
             Network::get_subnet_node_associated_hotkey(subnet_id, elected_node_id.unwrap())
                 .unwrap();
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -1046,14 +1044,14 @@ fn test_attest_last_block_error() {
             let _n = submission.validator_id - 1;
             let attestor = Network::get_subnet_node_associated_hotkey(subnet_id, _n).unwrap();
             assert_err!(
-                Network::attest_v2(RuntimeOrigin::signed(attestor), subnet_id, _n, None),
+                Network::attest(RuntimeOrigin::signed(attestor), subnet_id, _n, None),
                 Error::<Test>::InvalidSubnetConsensusSubmission
             );
         } else {
             let _n = submission.validator_id + 1;
             let attestor = Network::get_subnet_node_associated_hotkey(subnet_id, _n).unwrap();
             assert_err!(
-                Network::attest_v2(RuntimeOrigin::signed(attestor), subnet_id, _n, None),
+                Network::attest(RuntimeOrigin::signed(attestor), subnet_id, _n, None),
                 Error::<Test>::InvalidSubnetConsensusSubmission
             );
         }
@@ -1098,7 +1096,7 @@ fn test_attest_no_submission_err() {
                 .unwrap();
 
         assert_err!(
-            Network::attest_v2(
+            Network::attest(
                 RuntimeOrigin::signed(validator),
                 subnet_id,
                 elected_node_id.unwrap(),
@@ -1146,7 +1144,7 @@ fn test_attest_already_attested_err() {
             Network::get_subnet_node_associated_hotkey(subnet_id, elected_node_id.unwrap())
                 .unwrap();
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -1164,7 +1162,7 @@ fn test_attest_already_attested_err() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, _n).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 _n,
@@ -1199,7 +1197,7 @@ fn test_attest_already_attested_err() {
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, _n).unwrap();
             assert_err!(
-                Network::attest_v2(RuntimeOrigin::signed(hotkey.clone()), subnet_id, _n, None),
+                Network::attest(RuntimeOrigin::signed(hotkey.clone()), subnet_id, _n, None),
                 Error::<Test>::AlreadyAttested
             );
         }
@@ -1269,7 +1267,7 @@ fn test_distribute_rewards() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -1285,7 +1283,7 @@ fn test_distribute_rewards() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -1496,7 +1494,7 @@ fn test_distribute_rewards_node_gets_reward_after_removal() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -1512,7 +1510,7 @@ fn test_distribute_rewards_node_gets_reward_after_removal() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -1628,7 +1626,7 @@ fn test_distribute_rewards_node_gets_reward_after_removal() {
             remove_subnet_node.classification.node_class,
             SubnetNodeClass::Validator
         );
-        assert_ok!(Network::remove_subnet_node_v2(
+        assert_ok!(Network::remove_subnet_node(
             RuntimeOrigin::signed(remove_coldkey.clone()),
             subnet_id,
             remove_node_id,
@@ -1773,7 +1771,7 @@ fn test_distribute_rewards_delegate_account_50_percent() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -1789,7 +1787,7 @@ fn test_distribute_rewards_delegate_account_50_percent() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -2007,7 +2005,7 @@ fn test_distribute_rewards_fork() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -2023,7 +2021,7 @@ fn test_distribute_rewards_fork() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -2596,7 +2594,7 @@ fn test_distribute_rewards_non_consensus_reputation() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -2612,7 +2610,7 @@ fn test_distribute_rewards_non_consensus_reputation() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -2774,7 +2772,7 @@ fn test_distribute_rewards_absent_consensus_reputation() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes - 1);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -2790,7 +2788,7 @@ fn test_distribute_rewards_absent_consensus_reputation() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -2910,7 +2908,7 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes - 1);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -2926,7 +2924,7 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -3022,7 +3020,7 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -3038,7 +3036,7 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -3162,7 +3160,7 @@ fn test_distribute_rewards_below_min_weight_reputation() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes - 1);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -3178,7 +3176,7 @@ fn test_distribute_rewards_below_min_weight_reputation() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -3316,7 +3314,7 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -3332,7 +3330,7 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -3495,7 +3493,7 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation_remove_node() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -3511,7 +3509,7 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation_remove_node() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -3682,7 +3680,7 @@ fn test_distribute_rewards_under_min_attest_slash_validator() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -3831,7 +3829,7 @@ fn test_distribute_rewards_fork_under_min_attest_slash_validator() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -3980,7 +3978,7 @@ fn test_distribute_rewards_fork_remove_node_at_min_reputation() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -4008,7 +4006,7 @@ fn test_distribute_rewards_fork_remove_node_at_min_reputation() {
                     min_rep - 1,
                 );
             }
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -4121,7 +4119,7 @@ fn test_distribute_rewards_fork_no_score_submitted_decrease_reputation() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, end - 1);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -4137,7 +4135,7 @@ fn test_distribute_rewards_fork_no_score_submitted_decrease_reputation() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -4270,7 +4268,7 @@ fn test_distribute_rewards_late_validator_and_attestors() {
 
         System::set_block_number(System::block_number() + epoch_length / 2);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -4288,7 +4286,7 @@ fn test_distribute_rewards_late_validator_and_attestors() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -4465,7 +4463,7 @@ fn test_distribute_rewards_fork_late_validator_and_attestors() {
 
         System::set_block_number(System::block_number() + epoch_length / 2);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -4483,7 +4481,7 @@ fn test_distribute_rewards_fork_late_validator_and_attestors() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -4646,7 +4644,7 @@ fn test_distribute_rewards_fork_graduate_idle_to_included() {
         let burn_amount = Network::calculate_burn_amount(subnet_id);
         let _ = Balances::deposit_creating(&idle_coldkey.clone(), deposit_amount + burn_amount);
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(idle_coldkey.clone()),
             validator_id,
             subnet_id,
@@ -4726,7 +4724,7 @@ fn test_distribute_rewards_fork_graduate_idle_to_included() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, end);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -4742,7 +4740,7 @@ fn test_distribute_rewards_fork_graduate_idle_to_included() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -4875,7 +4873,7 @@ fn test_distribute_rewards_graduate_included_to_validator() {
         let burn_amount = Network::calculate_burn_amount(subnet_id);
         let _ = Balances::deposit_creating(&idle_coldkey.clone(), deposit_amount + burn_amount);
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(idle_coldkey.clone()),
             validator_id,
             subnet_id,
@@ -5063,7 +5061,7 @@ fn test_distribute_rewards_graduate_included_to_validator_v2() {
         let burn_amount = Network::calculate_burn_amount(subnet_id);
         let _ = Balances::deposit_creating(&idle_coldkey.clone(), deposit_amount + burn_amount);
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(idle_coldkey.clone()),
             validator_id,
             subnet_id,
@@ -5249,7 +5247,7 @@ fn test_distribute_rewards_reset_included_consecutive_epochs() {
         let burn_amount = Network::calculate_burn_amount(subnet_id);
         let _ = Balances::deposit_creating(&idle_coldkey.clone(), deposit_amount + burn_amount);
 
-        assert_ok!(Network::register_subnet_node_v2(
+        assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(idle_coldkey.clone()),
             validator_id,
             subnet_id,
@@ -5346,7 +5344,7 @@ fn test_distribute_rewards_reset_included_consecutive_epochs() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, end);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -5362,7 +5360,7 @@ fn test_distribute_rewards_reset_included_consecutive_epochs() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -5564,7 +5562,7 @@ fn test_attest_increase_reputation_when_included() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -5585,7 +5583,7 @@ fn test_attest_increase_reputation_when_included() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -5742,7 +5740,7 @@ fn test_distribute_rewards_node_delegate_stake() {
             total_subnet_nodes,
         );
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -5758,7 +5756,7 @@ fn test_distribute_rewards_node_delegate_stake() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -5917,7 +5915,7 @@ fn test_distribute_rewards_fork_node_delegate_stake() {
             total_subnet_nodes,
         );
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -5933,7 +5931,7 @@ fn test_distribute_rewards_fork_node_delegate_stake() {
                 continue;
             }
             let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-            assert_ok!(Network::attest_v2(
+            assert_ok!(Network::attest(
                 RuntimeOrigin::signed(hotkey.clone()),
                 subnet_id,
                 n + 1,
@@ -6168,7 +6166,7 @@ fn test_propose_attestation_epoch_progression_0() {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnet_id, max_subnet_nodes, 0, total_subnet_nodes);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -6258,7 +6256,7 @@ fn test_propose_attestation_epoch_progression_50() {
 
         System::set_block_number(System::block_number() + epoch_length / 2);
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -6351,7 +6349,7 @@ fn test_propose_attestation_epoch_progression_99() {
                 + (Network::percent_mul(epoch_length as u128, 990000000000000000) as u32),
         );
 
-        assert_ok!(Network::propose_attestation_v2(
+        assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(validator.clone()),
             subnet_id,
             elected_node_id.unwrap(),
@@ -6442,7 +6440,7 @@ fn test_propose_attestation_epoch_progression_100() {
         System::set_block_number(System::block_number() + epoch_length);
 
         assert_err!(
-            Network::propose_attestation_v2(
+            Network::propose_attestation(
                 RuntimeOrigin::signed(validator.clone()),
                 subnet_id,
                 elected_node_id.unwrap(),
@@ -6591,7 +6589,7 @@ fn test_emergency_validator_subnet_rewards() {
             let subnet_node_data_vec =
                 get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, max - 1);
 
-            assert_ok!(Network::propose_attestation_v2(
+            assert_ok!(Network::propose_attestation(
                 RuntimeOrigin::signed(validator.clone()),
                 subnet_id,
                 elected_node_id.unwrap(),
@@ -6613,7 +6611,7 @@ fn test_emergency_validator_subnet_rewards() {
                     continue;
                 }
                 let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-                assert_ok!(Network::attest_v2(
+                assert_ok!(Network::attest(
                     RuntimeOrigin::signed(hotkey.clone()),
                     subnet_id,
                     n + 1,
@@ -6760,7 +6758,7 @@ fn test_rewards_capacitor() {
                 get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes)
             };
 
-            assert_ok!(Network::propose_attestation_v2(
+            assert_ok!(Network::propose_attestation(
                 RuntimeOrigin::signed(validator.clone()),
                 subnet_id,
                 elected_node_id.unwrap(),
@@ -6776,7 +6774,7 @@ fn test_rewards_capacitor() {
                     continue;
                 }
                 let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-                assert_ok!(Network::attest_v2(
+                assert_ok!(Network::attest(
                     RuntimeOrigin::signed(hotkey.clone()),
                     subnet_id,
                     n + 1,
@@ -6865,8 +6863,10 @@ fn test_rewards_capacitor() {
             }
 
             let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
-            let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
-            let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
+            let coldkey_reputation_increase_factor =
+                ValidatorReputationIncreaseFactor::<Test>::get();
+            let coldkey_reputation_decrease_factor =
+                ValidatorReputationDecreaseFactor::<Test>::get();
             let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
 
             let epoch = Network::get_current_epoch_as_u32();
@@ -6986,7 +6986,7 @@ fn test_rewards_capacitor() {
         //     subnet_node_data_vec.push(peer_subnet_node_data);
         // }
 
-        // assert_ok!(Network::propose_attestation_v2(
+        // assert_ok!(Network::propose_attestation(
         //     RuntimeOrigin::signed(validator.clone()),
         //     subnet_id,
         //             elected_node_id.unwrap(),
@@ -7003,7 +7003,7 @@ fn test_rewards_capacitor() {
         //     if n + 1 == elected_node_id.unwrap() {
         //         continue;
         //     }
-        //     assert_ok!(Network::attest_v2(
+        //     assert_ok!(Network::attest(
         //         RuntimeOrigin::signed(hotkey.clone()),
         //         subnet_id,
         //         n + 1,

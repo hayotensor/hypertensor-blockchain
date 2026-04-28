@@ -49,8 +49,7 @@ pub trait NetworkCustomApi<BlockHash> {
         at: Option<BlockHash>,
     ) -> RpcResult<Vec<u8>>;
     #[method(name = "network_getValidatorStakes")]
-    fn get_validator_stakes(&self, validator_id: u32, at: Option<BlockHash>)
-        -> RpcResult<Vec<u8>>;
+    fn get_validator_stakes(&self, validator_id: u32, at: Option<BlockHash>) -> RpcResult<Vec<u8>>;
     #[method(name = "network_getDelegateStakes")]
     fn get_delegate_stakes(
         &self,
@@ -231,9 +230,14 @@ where
     ) -> RpcResult<Vec<u8>> {
         let api = self.client.runtime_api();
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
-        api.get_validator_subnet_nodes_info(at, validator_id).map_err(|e| {
-            Error::RuntimeError(format!("Unable to get validator subnet nodes info: {:?}", e)).into()
-        })
+        api.get_validator_subnet_nodes_info(at, validator_id)
+            .map_err(|e| {
+                Error::RuntimeError(format!(
+                    "Unable to get validator subnet nodes info: {:?}",
+                    e
+                ))
+                .into()
+            })
     }
 
     fn get_validator_stakes(

@@ -168,8 +168,7 @@ impl<T: Config> Pallet<T> {
         let mut infos: Vec<SubnetNodeInfoV2<T::AccountId>> = Vec::new();
 
         for (subnet_node_id, _) in SubnetNodeReputation::<T>::iter_prefix(subnet_id) {
-            if let Some(subnet_node_info) = Self::get_subnet_node_info(subnet_id, subnet_node_id)
-            {
+            if let Some(subnet_node_info) = Self::get_subnet_node_info(subnet_id, subnet_node_id) {
                 infos.push(subnet_node_info);
             }
         }
