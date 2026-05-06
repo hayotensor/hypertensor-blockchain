@@ -247,163 +247,143 @@ where
         Ok(())
     }
 
-    // #[precompile::public("addToNodeDelegateStake(uint256,uint256,uint256)")]
-    // #[precompile::payable]
-    // fn add_node_delegate_stake(
-    //     handle: &mut impl PrecompileHandle,
-    //     subnet_id: U256,
-    //     subnet_node_id: U256,
-    //     node_delegate_stake_to_be_added: U256,
-    // ) -> EvmResult<()> {
-    //     let node_delegate_stake_to_be_added =
-    //         node_delegate_stake_to_be_added.unique_saturated_into();
-    //     let subnet_id = try_u256_to_u32(subnet_id)?;
-    //     let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
+    #[precompile::public("addValidatorDelegateStake(uint256,uint256)")]
+    #[precompile::payable]
+    fn add_validator_delegate_stake(
+        handle: &mut impl PrecompileHandle,
+        validator_id: U256,
+        delegate_stake_to_be_added: U256,
+    ) -> EvmResult<()> {
+        let delegate_stake_to_be_added = delegate_stake_to_be_added.unique_saturated_into();
+        let validator_id = try_u256_to_u32(validator_id)?;
 
-    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
-    //     let call = pallet_network::Call::<R>::add_node_delegate_stake {
-    //         subnet_id,
-    //         subnet_node_id,
-    //         node_delegate_stake_to_be_added,
-    //     };
+        let origin = R::AddressMapping::into_account_id(handle.context().caller);
+        let call = pallet_network::Call::<R>::add_validator_delegate_stake {
+            validator_id,
+            delegate_stake_to_be_added,
+        };
 
-    //     RuntimeHelper::<R>::try_dispatch(
-    //         handle,
-    //         RawOrigin::Signed(origin.clone()).into(),
-    //         call,
-    //         0,
-    //     )?;
+        RuntimeHelper::<R>::try_dispatch(
+            handle,
+            RawOrigin::Signed(origin.clone()).into(),
+            call,
+            0,
+        )?;
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
-    // #[precompile::public("swapNodeDelegateStake(uint256,uint256,uint256,uint256,uint256)")]
-    // #[precompile::payable]
-    // fn swap_node_delegate_stake(
-    //     handle: &mut impl PrecompileHandle,
-    //     from_subnet_id: U256,
-    //     from_subnet_node_id: U256,
-    //     to_subnet_id: U256,
-    //     to_subnet_node_id: U256,
-    //     node_delegate_stake_shares_to_swap: U256,
-    // ) -> EvmResult<()> {
-    //     let node_delegate_stake_shares_to_swap =
-    //         node_delegate_stake_shares_to_swap.unique_saturated_into();
-    //     let from_subnet_id = try_u256_to_u32(from_subnet_id)?;
-    //     let from_subnet_node_id = try_u256_to_u32(from_subnet_node_id)?;
-    //     let to_subnet_id = try_u256_to_u32(to_subnet_id)?;
-    //     let to_subnet_node_id = try_u256_to_u32(to_subnet_node_id)?;
+    #[precompile::public("swapNodeDelegateStake(uint256,uint256,uint256)")]
+    #[precompile::payable]
+    fn swap_validator_delegate_stake(
+        handle: &mut impl PrecompileHandle,
+        from_validator_id: U256,
+        to_validator_id: U256,
+        stake_to_be_removed: U256,
+    ) -> EvmResult<()> {
+        let stake_to_be_removed = stake_to_be_removed.unique_saturated_into();
+        let from_validator_id = try_u256_to_u32(from_validator_id)?;
+        let to_validator_id = try_u256_to_u32(to_validator_id)?;
 
-    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
-    //     let call = pallet_network::Call::<R>::swap_node_delegate_stake {
-    //         from_subnet_id,
-    //         from_subnet_node_id,
-    //         to_subnet_id,
-    //         to_subnet_node_id,
-    //         node_delegate_stake_shares_to_swap,
-    //     };
+        let origin = R::AddressMapping::into_account_id(handle.context().caller);
+        let call = pallet_network::Call::<R>::swap_validator_delegate_stake {
+            from_validator_id,
+            to_validator_id,
+            stake_to_be_removed,
+        };
 
-    //     RuntimeHelper::<R>::try_dispatch(
-    //         handle,
-    //         RawOrigin::Signed(origin.clone()).into(),
-    //         call,
-    //         0,
-    //     )?;
+        RuntimeHelper::<R>::try_dispatch(
+            handle,
+            RawOrigin::Signed(origin.clone()).into(),
+            call,
+            0,
+        )?;
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
-    // #[precompile::public("transferNodeDelegateStake(uint256,uint256,address,uint256)")]
-    // #[precompile::payable]
-    // fn transfer_node_delegate_stake(
-    //     handle: &mut impl PrecompileHandle,
-    //     subnet_id: U256,
-    //     subnet_node_id: U256,
-    //     to_account_id: Address,
-    //     node_delegate_stake_shares_to_transfer: U256,
-    // ) -> EvmResult<()> {
-    //     let node_delegate_stake_shares_to_transfer =
-    //         node_delegate_stake_shares_to_transfer.unique_saturated_into();
-    //     let subnet_id = try_u256_to_u32(subnet_id)?;
-    //     let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-    //     let to_account_id = R::AddressMapping::into_account_id(to_account_id.into());
+    #[precompile::public("transferValidatorDelegateStake(uint256,address,uint256)")]
+    #[precompile::payable]
+    fn transfer_validator_delegate_stake(
+        handle: &mut impl PrecompileHandle,
+        validator_id: U256,
+        to_account_id: Address,
+        validator_delegate_stake_shares_to_transfer: U256,
+    ) -> EvmResult<()> {
+        let validator_delegate_stake_shares_to_transfer =
+            validator_delegate_stake_shares_to_transfer.unique_saturated_into();
+        let validator_id = try_u256_to_u32(validator_id)?;
+        let to_account_id = R::AddressMapping::into_account_id(to_account_id.into());
 
-    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
-    //     let call = pallet_network::Call::<R>::transfer_node_delegate_stake {
-    //         subnet_id,
-    //         subnet_node_id,
-    //         to_account_id,
-    //         node_delegate_stake_shares_to_transfer,
-    //     };
+        let origin = R::AddressMapping::into_account_id(handle.context().caller);
+        let call = pallet_network::Call::<R>::transfer_validator_delegate_stake {
+            validator_id,
+            to_account_id,
+            validator_delegate_stake_shares_to_transfer,
+        };
 
-    //     RuntimeHelper::<R>::try_dispatch(
-    //         handle,
-    //         RawOrigin::Signed(origin.clone()).into(),
-    //         call,
-    //         0,
-    //     )?;
+        RuntimeHelper::<R>::try_dispatch(
+            handle,
+            RawOrigin::Signed(origin.clone()).into(),
+            call,
+            0,
+        )?;
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
-    // #[precompile::public("removeNodeDelegateStake(uint256,uint256,uint256)")]
-    // #[precompile::payable]
-    // fn remove_node_delegate_stake(
-    //     handle: &mut impl PrecompileHandle,
-    //     subnet_id: U256,
-    //     subnet_node_id: U256,
-    //     node_delegate_stake_shares_to_be_removed: U256,
-    // ) -> EvmResult<()> {
-    //     let node_delegate_stake_shares_to_be_removed =
-    //         node_delegate_stake_shares_to_be_removed.unique_saturated_into();
-    //     let subnet_id = try_u256_to_u32(subnet_id)?;
-    //     let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
+    #[precompile::public("removeValidatorDelegateStake(uint256,uint256)")]
+    #[precompile::payable]
+    fn remove_validator_delegate_stake(
+        handle: &mut impl PrecompileHandle,
+        validator_id: U256,
+        validator_delegate_stake_shares_to_be_removed: U256,
+    ) -> EvmResult<()> {
+        let validator_delegate_stake_shares_to_be_removed =
+            validator_delegate_stake_shares_to_be_removed.unique_saturated_into();
+        let validator_id = try_u256_to_u32(validator_id)?;
 
-    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
-    //     let call = pallet_network::Call::<R>::remove_node_delegate_stake {
-    //         subnet_id,
-    //         subnet_node_id,
-    //         node_delegate_stake_shares_to_be_removed,
-    //     };
+        let origin = R::AddressMapping::into_account_id(handle.context().caller);
+        let call = pallet_network::Call::<R>::remove_validator_delegate_stake {
+            validator_id,
+            validator_delegate_stake_shares_to_be_removed,
+        };
 
-    //     RuntimeHelper::<R>::try_dispatch(
-    //         handle,
-    //         RawOrigin::Signed(origin.clone()).into(),
-    //         call,
-    //         0,
-    //     )?;
+        RuntimeHelper::<R>::try_dispatch(
+            handle,
+            RawOrigin::Signed(origin.clone()).into(),
+            call,
+            0,
+        )?;
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
-    // #[precompile::public("increaseNodeDelegateStake(uint256,uint256,uint256)")]
-    // #[precompile::payable]
-    // fn donate_node_delegate_stake(
-    //     handle: &mut impl PrecompileHandle,
-    //     subnet_id: U256,
-    //     subnet_node_id: U256,
-    //     amount: U256,
-    // ) -> EvmResult<()> {
-    //     let amount = amount.unique_saturated_into();
-    //     let subnet_id = try_u256_to_u32(subnet_id)?;
-    //     let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
+    #[precompile::public("donateValidatorDelegateStake(uint256,uint256)")]
+    #[precompile::payable]
+    fn donate_validator_delegate_stake(
+        handle: &mut impl PrecompileHandle,
+        validator_id: U256,
+        amount: U256,
+    ) -> EvmResult<()> {
+        let amount = amount.unique_saturated_into();
+        let validator_id = try_u256_to_u32(validator_id)?;
 
-    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
-    //     let call = pallet_network::Call::<R>::donate_node_delegate_stake {
-    //         subnet_id,
-    //         subnet_node_id,
-    //         amount,
-    //     };
+        let origin = R::AddressMapping::into_account_id(handle.context().caller);
+        let call = pallet_network::Call::<R>::donate_validator_delegate_stake {
+            validator_id,
+            amount,
+        };
 
-    //     RuntimeHelper::<R>::try_dispatch(
-    //         handle,
-    //         RawOrigin::Signed(origin.clone()).into(),
-    //         call,
-    //         0,
-    //     )?;
+        RuntimeHelper::<R>::try_dispatch(
+            handle,
+            RawOrigin::Signed(origin.clone()).into(),
+            call,
+            0,
+        )?;
 
-    //     Ok(())
-    // }
+        Ok(())
+    }
 
     #[precompile::public("transferFromValidatorToSubnet(uint256,uint256,uint256)")]
     #[precompile::payable]
@@ -443,7 +423,8 @@ where
         to_validator_id: U256,
         subnet_delegate_stake_shares_to_swap: U256,
     ) -> EvmResult<()> {
-        let subnet_delegate_stake_shares_to_swap = subnet_delegate_stake_shares_to_swap.unique_saturated_into();
+        let subnet_delegate_stake_shares_to_swap =
+            subnet_delegate_stake_shares_to_swap.unique_saturated_into();
         let from_subnet_id = try_u256_to_u32(from_subnet_id)?;
         let to_validator_id = try_u256_to_u32(to_validator_id)?;
 
@@ -511,6 +492,27 @@ where
         Ok(())
     }
 
+    #[precompile::public("removeDelegateAccountBalance(uint256)")]
+    #[precompile::payable]
+    fn remove_delegate_account_balance(
+        handle: &mut impl PrecompileHandle,
+        amount_to_remove: U256,
+    ) -> EvmResult<()> {
+        let amount_to_remove = amount_to_remove.unique_saturated_into();
+
+        let origin = R::AddressMapping::into_account_id(handle.context().caller);
+        let call = pallet_network::Call::<R>::remove_delegate_account_balance { amount_to_remove };
+
+        RuntimeHelper::<R>::try_dispatch(
+            handle,
+            RawOrigin::Signed(origin.clone()).into(),
+            call,
+            0,
+        )?;
+
+        Ok(())
+    }
+
     #[precompile::public("getQueuedSwapCall(uint256)")]
     #[precompile::view]
     fn get_queued_swap_call(
@@ -567,22 +569,22 @@ where
         Ok(total_subnet_stake)
     }
 
-    // #[precompile::public("accountSubnetStake(address,uint256)")]
-    // #[precompile::view]
-    // fn account_subnet_stake(
-    //     handle: &mut impl PrecompileHandle,
-    //     hotkey: Address,
-    //     subnet_id: U256,
-    // ) -> EvmResult<u128> {
-    //     let hotkey = R::AddressMapping::into_account_id(hotkey.into());
-    //     let subnet_id = try_u256_to_u32(subnet_id)?;
+    #[precompile::public("nodeSubnetStake(uint256,uint256)")]
+    #[precompile::view]
+    fn node_subnet_stake(
+        handle: &mut impl PrecompileHandle,
+        subnet_node_id: U256,
+        subnet_id: U256,
+    ) -> EvmResult<u128> {
+        let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
+        let subnet_id = try_u256_to_u32(subnet_id)?;
 
-    //     handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-    //     let account_subnet_stake: u128 =
-    //         pallet_network::NodeSubnetStake::<R>::get(&hotkey, subnet_id);
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
+        let account_subnet_stake: u128 =
+            pallet_network::NodeSubnetStake::<R>::get(subnet_node_id, subnet_id);
 
-    //     Ok(account_subnet_stake)
-    // }
+        Ok(account_subnet_stake)
+    }
 
     #[precompile::public("totalSubnetDelegateStakeBalance(uint256)")]
     #[precompile::view]

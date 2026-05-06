@@ -86,6 +86,37 @@ where
         Ok(())
     }
 
+    #[precompile::public("updateOverwatchHotkey(uint256,bool,address)")]
+    fn update_overwatch_hotkey(
+        handle: &mut impl PrecompileHandle,
+        overwatch_node_id: U256,
+        has_new_hotkey: bool,
+        new_hotkey: Address,
+    ) -> EvmResult<()> {
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
+        let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
+        let new_hotkey = if has_new_hotkey {
+            Some(R::AddressMapping::into_account_id(new_hotkey.into()))
+        } else {
+            None
+        };
+
+        let origin = R::AddressMapping::into_account_id(handle.context().caller);
+        let call = pallet_network::Call::<R>::update_overwatch_hotkey {
+            overwatch_node_id,
+            new_hotkey,
+        };
+
+        RuntimeHelper::<R>::try_dispatch(
+            handle,
+            RawOrigin::Signed(origin.clone()).into(),
+            call,
+            0,
+        )?;
+
+        Ok(())
+    }
+
     #[precompile::public("setOverwatchNodePeerId(uint256,uint256,string)")]
     fn set_overwatch_node_peer_id(
         handle: &mut impl PrecompileHandle,
@@ -114,51 +145,6 @@ where
 
         Ok(())
     }
-
-    // #[precompile::public("commitOverwatchSubnetWeights(uint256,uint256[],bytes32[])")]
-    // fn commit_overwatch_subnet_weights(
-    //     handle: &mut impl PrecompileHandle,
-    //     overwatch_node_id: U256,
-    //     subnet_ids: Vec<U256>,
-    //     weight_hashes: Vec<H256>,
-    // ) -> EvmResult<()> {
-    //     handle.record_cost(RuntimeHelper::<R>::db_write_gas_cost())?;
-
-    //     let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
-
-    //     // Validate arrays have same length
-    //     if subnet_ids.len() != weight_hashes.len() {
-    //         return Err(revert("subnet_ids and weight_hashes length mismatch"));
-    //     }
-
-    //     let mut commit_weights: Vec<OverwatchCommit<R::Hash>> = Vec::new();
-    //     for (subnet_id_u256, weight_hash) in subnet_ids.iter().zip(weight_hashes.iter()) {
-    //         let subnet_id = try_u256_to_u32(*subnet_id_u256)?;
-    //         commit_weights.push(OverwatchCommit {
-    //             subnet_id,
-    //             weight: *weight_hash,
-    //         });
-    //     }
-
-    //     // Get the caller
-    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
-
-    //     // Create the pallet call
-    //     let call = pallet_network::Call::<R>::commit_overwatch_subnet_weights {
-    //         overwatch_node_id,
-    //         commit_weights,
-    //     };
-
-    //     // Dispatch the call
-    //     RuntimeHelper::<R>::try_dispatch(
-    //         handle,
-    //         RawOrigin::Signed(origin.clone()).into(),
-    //         call,
-    //         0,
-    //     )?;
-
-    //     Ok(())
-    // }
 
     #[precompile::public("commitOverwatchSubnetWeights(uint256,(uint256,bytes32)[])")]
     fn commit_overwatch_subnet_weights(
@@ -296,7 +282,8 @@ where
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
 
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let account_stake: u128 = pallet_network::OverwatchNodeStakeBalance::<R>::get(overwatch_node_id);
+        let account_stake: u128 =
+            pallet_network::OverwatchNodeStakeBalance::<R>::get(overwatch_node_id);
 
         Ok(account_stake)
     }

@@ -12,15 +12,15 @@ use crate::{
     MinDelegateStakePercentage, MinIdleClassificationEpochs, MinIncludedClassificationEpochs,
     MinMaxRegisteredNodes, MinNodeReputationFactor, MinQueueEpochs, MinSubnetMinStake,
     MinSubnetNodeReputation, NetworkMaxStakeBalance, NodeBurnRateAlpha,
-    NonAttestorDecreaseReputationFactor, NonConsensusAttestorDecreaseReputationFactor, PeerInfo,
-    PendingSubnetOwner, QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess,
-    SubnetData, SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod,
+    NodeRegistrationInitialValidatorIds, NonAttestorDecreaseReputationFactor,
+    NonConsensusAttestorDecreaseReputationFactor, PeerInfo, PendingSubnetOwner,
+    QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess, SubnetData,
+    SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod,
     SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeMinWeightDecreaseReputationThreshold,
     SubnetNodeQueueEpochs, SubnetNodeV2, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
-    SubnetRegistrationInitialColdkeys, SubnetRemovalReason, SubnetRepo, SubnetState, SubnetsData,
-    TargetNodeRegistrationsPerEpoch, ValidatorAbsentDecreaseReputationFactor,
-    ValidatorNonConsensusSubnetNodeReputationFactor,
+    SubnetRemovalReason, SubnetRepo, SubnetState, SubnetsData, TargetNodeRegistrationsPerEpoch,
+    ValidatorAbsentDecreaseReputationFactor, ValidatorNonConsensusSubnetNodeReputationFactor,
 };
 use codec::Decode;
 use frame_support::{assert_err, assert_ok};
@@ -55,8 +55,8 @@ use sp_std::collections::btree_set::BTreeSet;
 // do_owner_update_registration_queue_epochs
 // do_owner_update_idle_classification_epochs
 // do_owner_update_included_classification_epochs
-// do_owner_add_or_update_initial_coldkeys -
-// do_owner_remove_initial_coldkeys
+// do_owner_add_or_update_initial_validators -
+// do_owner_remove_initial_validators
 // do_owner_update_min_max_stake
 // do_owner_update_delegate_stake_percentage
 // do_owner_update_max_registered_nodes
@@ -1732,7 +1732,7 @@ fn test_owner_update_included_classification_epochs_invalid_included_classificat
 }
 
 #[test]
-fn test_owner_add_or_update_initial_coldkeys() {
+fn test_owner_add_or_update_initial_validators() {
     new_test_ext().execute_with(|| {
         increase_epochs(1);
         let subnet_name: Vec<u8> = "subnet-name".into();
@@ -1760,39 +1760,39 @@ fn test_owner_add_or_update_initial_coldkeys() {
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
-        let new_coldkeys = BTreeMap::from([(account(0), 1)]);
-        assert_ok!(Network::owner_add_or_update_initial_coldkeys(
+        let new_validators = BTreeMap::from([(1, 1)]);
+        assert_ok!(Network::owner_add_or_update_initial_validators(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
-            new_coldkeys.clone()
+            new_validators.clone()
         ));
 
-        let coldkeys = SubnetRegistrationInitialColdkeys::<Test>::get(subnet_id).unwrap();
-        assert_eq!(coldkeys.clone(), new_coldkeys.clone());
+        let validators = NodeRegistrationInitialValidatorIds::<Test>::get(subnet_id).unwrap();
+        assert_eq!(validators.clone(), new_validators.clone());
 
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::AddSubnetRegistrationInitialColdkeys {
+            Event::AddSubnetRegistrationInitialValidators {
                 subnet_id: subnet_id,
                 owner: original_owner.clone(),
-                coldkeys: coldkeys.clone()
+                validators: validators.clone()
             }
         );
 
-        let new_coldkeys = BTreeMap::from([(account(0), 2)]);
-        assert_ok!(Network::owner_add_or_update_initial_coldkeys(
+        let new_validators = BTreeMap::from([(1, 2)]);
+        assert_ok!(Network::owner_add_or_update_initial_validators(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
-            new_coldkeys.clone()
+            new_validators.clone()
         ));
 
-        let coldkeys = SubnetRegistrationInitialColdkeys::<Test>::get(subnet_id).unwrap();
-        assert_eq!(coldkeys.clone(), new_coldkeys.clone());
+        let validators = NodeRegistrationInitialValidatorIds::<Test>::get(subnet_id).unwrap();
+        assert_eq!(validators.clone(), new_validators.clone());
     });
 }
 
 #[test]
-fn test_owner_add_initial_coldkeys_must_be_registering() {
+fn test_owner_add_initial_validators_must_be_registering() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -1807,12 +1807,12 @@ fn test_owner_add_initial_coldkeys_must_be_registering() {
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
-        let new_coldkeys = BTreeMap::from([(account(0), 1)]);
+        let new_validators = BTreeMap::from([(1, 1)]);
         assert_err!(
-            Network::owner_add_or_update_initial_coldkeys(
+            Network::owner_add_or_update_initial_validators(
                 RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
-                new_coldkeys.clone()
+                new_validators.clone()
             ),
             Error::<Test>::SubnetMustBeRegistering
         );
@@ -1820,7 +1820,42 @@ fn test_owner_add_initial_coldkeys_must_be_registering() {
 }
 
 #[test]
-fn test_owner_remove_initial_coldkeys() {
+fn test_owner_add_initial_validators_invalid_registration_slots() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let subnet_id = 1;
+        let subnet_data = SubnetData {
+            id: subnet_id,
+            friendly_id: subnet_id,
+            name: subnet_name.clone(),
+            repo: subnet_name.clone(),
+            description: subnet_name.clone(),
+            misc: subnet_name.clone(),
+            state: SubnetState::Registered,
+            start_epoch: u32::MAX,
+        };
+
+        SubnetsData::<Test>::insert(subnet_id, &subnet_data);
+
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        let new_validators = BTreeMap::from([(1, 0)]);
+        assert_err!(
+            Network::owner_add_or_update_initial_validators(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                new_validators
+            ),
+            Error::<Test>::InvalidSubnetRegistrationInitialColdkeys
+        );
+
+        assert!(NodeRegistrationInitialValidatorIds::<Test>::get(subnet_id).is_none());
+    });
+}
+
+#[test]
+fn test_owner_remove_initial_validators() {
     new_test_ext().execute_with(|| {
         increase_epochs(1);
 
@@ -1849,42 +1884,79 @@ fn test_owner_remove_initial_coldkeys() {
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
-        let new_coldkeys = BTreeMap::from([(account(0), 1), (account(1), 1)]);
-        assert_ok!(Network::owner_add_or_update_initial_coldkeys(
+        let new_validators = BTreeMap::from([(1, 1), (2, 1)]);
+        assert_ok!(Network::owner_add_or_update_initial_validators(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
-            new_coldkeys.clone()
+            new_validators.clone()
         ));
 
-        let coldkeys = SubnetRegistrationInitialColdkeys::<Test>::get(subnet_id).unwrap();
-        assert_eq!(coldkeys, new_coldkeys.clone());
+        let validators = NodeRegistrationInitialValidatorIds::<Test>::get(subnet_id).unwrap();
+        assert_eq!(validators, new_validators.clone());
 
-        let remove_coldkeys = BTreeSet::from([account(1)]);
-        assert_ok!(Network::owner_remove_initial_coldkeys(
+        let remove_validators = BTreeSet::from([1]);
+        assert_ok!(Network::owner_remove_initial_validators(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
-            remove_coldkeys.clone()
+            remove_validators.clone()
         ));
-
-        let mut test_vec: Vec<<Test as frame_system::Config>::AccountId> = Vec::new();
 
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::RemoveSubnetRegistrationInitialColdkeys {
+            Event::RemoveSubnetRegistrationInitialValidators {
                 subnet_id: subnet_id,
                 owner: original_owner.clone(),
-                coldkeys: remove_coldkeys.clone()
+                validators: remove_validators.clone()
             }
         );
 
-        let expected_coldkeys = BTreeMap::from([(account(0), 1)]);
-        let coldkeys = SubnetRegistrationInitialColdkeys::<Test>::get(subnet_id).unwrap();
-        assert_eq!(coldkeys, expected_coldkeys.clone());
+        let expected_validators = BTreeMap::from([(2, 1)]);
+        let validators = NodeRegistrationInitialValidatorIds::<Test>::get(subnet_id).unwrap();
+        assert_eq!(validators, expected_validators.clone());
     });
 }
 
 #[test]
-fn test_owner_remove_initial_coldkeys_must_be_registering() {
+fn test_owner_remove_initial_validators_cleans_empty_storage() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let subnet_id = 1;
+        let subnet_data = SubnetData {
+            id: subnet_id,
+            friendly_id: subnet_id,
+            name: subnet_name.clone(),
+            repo: subnet_name.clone(),
+            description: subnet_name.clone(),
+            misc: subnet_name.clone(),
+            state: SubnetState::Registered,
+            start_epoch: u32::MAX,
+        };
+
+        SubnetsData::<Test>::insert(subnet_id, &subnet_data);
+
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        let new_validators = BTreeMap::from([(1, 1)]);
+        assert_ok!(Network::owner_add_or_update_initial_validators(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            new_validators
+        ));
+
+        let remove_validators = BTreeSet::from([1]);
+        assert_ok!(Network::owner_remove_initial_validators(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            remove_validators
+        ));
+
+        assert!(NodeRegistrationInitialValidatorIds::<Test>::get(subnet_id).is_none());
+    });
+}
+
+#[test]
+fn test_owner_remove_initial_validators_must_be_registering() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -1899,12 +1971,12 @@ fn test_owner_remove_initial_coldkeys_must_be_registering() {
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
-        let new_coldkeys = BTreeSet::from([account(0)]);
+        let new_validators = BTreeSet::from([1]);
         assert_err!(
-            Network::owner_remove_initial_coldkeys(
+            Network::owner_remove_initial_validators(
                 RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
-                new_coldkeys.clone()
+                new_validators
             ),
             Error::<Test>::SubnetMustBeRegistering
         );
@@ -2921,9 +2993,9 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
             Error::<Test>::NotSubnetOwner
         );
 
-        let new_coldkeys = BTreeMap::from([(account(0), 1)]);
+        let new_coldkeys = BTreeMap::from([(1, 1)]);
         assert_err!(
-            Network::owner_add_or_update_initial_coldkeys(
+            Network::owner_add_or_update_initial_validators(
                 RuntimeOrigin::signed(fake_owner),
                 subnet_id,
                 new_coldkeys.clone()
@@ -2931,9 +3003,9 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
             Error::<Test>::NotSubnetOwner
         );
 
-        let remove_coldkeys = BTreeSet::from([account(0)]);
+        let remove_coldkeys = BTreeSet::from([1]);
         assert_err!(
-            Network::owner_remove_initial_coldkeys(
+            Network::owner_remove_initial_validators(
                 RuntimeOrigin::signed(fake_owner),
                 subnet_id,
                 remove_coldkeys.clone()

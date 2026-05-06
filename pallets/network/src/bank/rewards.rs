@@ -69,9 +69,6 @@ impl<T: Config> Pallet<T> {
             // In consensus: Increase validators stake
             //
 
-            // In case the hotkey was updated since the consensus data was submitted we
-            // get the current hotkey for the subnet node id (elected validator) above.
-
             Self::handle_validator_reward(
                 weight_meter,
                 validator_id,
@@ -540,10 +537,8 @@ impl<T: Config> Pallet<T> {
         // --- Decrease reputation of attestors
         for (subnet_node_id, attest_data) in consensus_submission_data.attests {
             if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id) {
-                // We read the hotkey for 2 reasons:
+                // We read the sn reputation for 1 reason:
                 // 1. Make sure the node currently is active
-                // 2. Get the latest hotkey for the node in case it was updated between when
-                //    the validator submitted consensus data, and rewards distribution (now)
                 //
                 // Note: It's possible for the node to had been removed in this step
                 // if the node was the elecated validator and was removed in the ``slash_validator`` step, or
@@ -562,11 +557,11 @@ impl<T: Config> Pallet<T> {
                 if new_reputation < min_validator_reputation {
                     weight_meter.consume(db_weight.reads(1));
                     weight_meter.consume(db_weight.reads(1));
-                    let coldkey_subnet_nodes = ValidatorSubnetNodes::<T>::get(subnet_node_id);
+                    let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(subnet_node_id);
                     // x = number of subnets (outer BTreeMap size)
-                    let x = coldkey_subnet_nodes.len() as u32;
+                    let x = validator_subnet_nodes.len() as u32;
                     // c = number of nodes in the specific subnet (inner BTreeSet size)
-                    let c = coldkey_subnet_nodes
+                    let c = validator_subnet_nodes
                         .get(&subnet_id)
                         .map(|nodes| nodes.len() as u32)
                         .unwrap_or(0);
@@ -716,36 +711,42 @@ impl<T: Config> Pallet<T> {
             // Handle remove node - remove from queue entirely
             // These are not yet activated nodes so this does not impact the emissions distribution
             if let Some(remove_queue_node_id) = consensus_submission_data.remove_queue_node_id {
-                weight_meter.consume(db_weight.reads(1));
-                // We read the hotkey for 2 reasons:
-                // 1. Make sure the node currently is active
-                // 2. Get the latest hotkey for the node in case it was updated between when
-                //    the validator submitted consensus data, and rewards distribution (now)
-                weight_meter.consume(db_weight.reads(1));
-                let coldkey_subnet_nodes = ValidatorSubnetNodes::<T>::get(remove_queue_node_id);
-                // x = number of subnets (outer BTreeMap size)
-                let x = coldkey_subnet_nodes.len() as u32;
-                // c = number of nodes in the specific subnet (inner BTreeSet size)
-                let c = coldkey_subnet_nodes
-                    .get(&subnet_id)
-                    .map(|nodes| nodes.len() as u32)
-                    .unwrap_or(0);
+                log::error!("remove_queue_node_id id: {:?}", remove_queue_node_id);
+                if let Some(index) = queue
+                    .iter()
+                    .position(|node| node.id == remove_queue_node_id)
+                {
+                    log::error!("remove_queue_node_id is_some");
+                    weight_meter.consume(db_weight.reads(1));
+                    let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(remove_queue_node_id);
+                    // x = number of subnets (outer BTreeMap size)
+                    let x = validator_subnet_nodes.len() as u32;
+                    // c = number of nodes in the specific subnet (inner BTreeSet size)
+                    let c = validator_subnet_nodes
+                        .get(&subnet_id)
+                        .map(|nodes| nodes.len() as u32)
+                        .unwrap_or(0);
 
-                if weight_meter.can_consume(T::WeightInfo::remove_registered_subnet_node(
-                    x,
-                    electable_nodes_count,
-                    c,
-                )) {
-                    Self::remove_registered_subnet_node(subnet_id, remove_queue_node_id);
-                    weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(
+                    if weight_meter.can_consume(T::WeightInfo::remove_registered_subnet_node(
                         x,
                         electable_nodes_count,
                         c,
-                    ));
-                    Self::deposit_event(Event::QueuedNodeRemoved {
-                        subnet_id,
-                        subnet_node_id: remove_queue_node_id,
-                    });
+                    )) {
+                        log::error!("remove_queue_node_id removing");
+
+                        Self::remove_registered_subnet_node(subnet_id, remove_queue_node_id);
+                        weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(
+                            x,
+                            electable_nodes_count,
+                            c,
+                        ));
+
+                        log::error!("remove_queue_node_id event");
+                        Self::deposit_event(Event::QueuedNodeRemoved {
+                            subnet_id,
+                            subnet_node_id: remove_queue_node_id,
+                        });
+                    }
                 }
             }
         }
@@ -758,18 +759,12 @@ impl<T: Config> Pallet<T> {
         electable_nodes_count: u32,
     ) {
         let db_weight = T::DbWeight::get();
-        // Remove node if they haven't already been removed
         weight_meter.consume(db_weight.reads(1));
-        // We read the hotkey for 2 reasons:
-        // 1. Make sure the node currently is active
-        // 2. Get the latest hotkey for the node in case it was updated between when
-        //    the validator submitted consensus data, and rewards distribution (now)
-        weight_meter.consume(db_weight.reads(1));
-        let coldkey_subnet_nodes = ValidatorSubnetNodes::<T>::get(subnet_node_id);
+        let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(subnet_node_id);
         // x = number of subnets (outer BTreeMap size)
-        let x = coldkey_subnet_nodes.len() as u32;
+        let x = validator_subnet_nodes.len() as u32;
         // c = number of nodes in the specific subnet (inner BTreeSet size)
-        let c = coldkey_subnet_nodes
+        let c = validator_subnet_nodes
             .get(&subnet_id)
             .map(|nodes| nodes.len() as u32)
             .unwrap_or(0);

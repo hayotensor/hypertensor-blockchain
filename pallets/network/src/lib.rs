@@ -538,15 +538,15 @@ pub mod pallet {
             subnet_id: u32,
             owner: T::AccountId,
         },
-        AddSubnetRegistrationInitialColdkeys {
+        AddSubnetRegistrationInitialValidators {
             subnet_id: u32,
             owner: T::AccountId,
-            coldkeys: BTreeMap<T::AccountId, u32>,
+            validators: BTreeMap<u32, u32>,
         },
-        RemoveSubnetRegistrationInitialColdkeys {
+        RemoveSubnetRegistrationInitialValidators {
             subnet_id: u32,
             owner: T::AccountId,
-            coldkeys: BTreeSet<T::AccountId>,
+            validators: BTreeSet<u32>,
         },
         SubnetMinMaxStakeBalanceUpdate {
             subnet_id: u32,
@@ -3466,17 +3466,6 @@ pub mod pallet {
     pub type QueueImmunityEpochs<T: Config> =
         StorageMap<_, Identity, u32, u32, ValueQuery, DefaultMinRegistrationQueueEpochs>;
 
-    /// Whitelist of coldkeys that nodes can register to a subnet during its registration period
-    /// Afterwards on subnet activation, this list is deleted and the subnet is now public
-    /// Because all subnets are expected to be P2P, each subnet starts as a blockchain would with
-    /// trusting nodes to ensure no malicious nodes can enter at the start.
-    /// u32 is the number of nodes the coldkey can register while subnet is in registration
-    /// Verified via InitialColdkeyData
-    /// subnet_id => { AccountId, max registrations}
-    #[pallet::storage]
-    pub type SubnetRegistrationInitialColdkeys<T: Config> =
-        StorageMap<_, Identity, u32, BTreeMap<T::AccountId, u32>>;
-
     /// Min required stake balance for a Subnet Node in a specified subnet
     #[pallet::storage]
     pub type SubnetMinStakeBalance<T> =
@@ -3496,12 +3485,6 @@ pub mod pallet {
     #[pallet::storage]
     pub type LastSubnetDelegateStakeRewardsUpdate<T> =
         StorageMap<_, Identity, u32, u32, ValueQuery, DefaultZeroU32>;
-
-    /// Count of registrations per coldkey in SubnetRegistrationInitialColdkeys
-    /// Removed when subnet is activated
-    #[pallet::storage]
-    pub type InitialColdkeyData<T: Config> =
-        StorageMap<_, Identity, u32, BTreeMap<T::AccountId, u32>>;
 
     /// Maximum registered nodes in a subnet set by the subnet
     #[pallet::storage] // subnet_uid --> u32
@@ -3648,7 +3631,7 @@ pub mod pallet {
     /// Because all subnets are expected to be P2P, each subnet starts as a blockchain would with
     /// trusting nodes to ensure no malicious nodes can enter at the start.
     /// u32 is the number of nodes the coldkey can register while subnet is in registration
-    /// Verified via InitialColdkeyData
+    /// Verified via InitialValidatorData
     /// subnet_id => { AccountId, max registrations}
     #[pallet::storage]
     pub type NodeRegistrationInitialValidatorIds<T: Config> =
@@ -4867,24 +4850,24 @@ pub mod pallet {
 
         #[pallet::call_index(29)]
         #[pallet::weight({0})]
-        pub fn owner_add_or_update_initial_coldkeys(
+        pub fn owner_add_or_update_initial_validators(
             origin: OriginFor<T>,
             subnet_id: u32,
-            coldkeys: BTreeMap<T::AccountId, u32>,
+            validators: BTreeMap<u32, u32>,
         ) -> DispatchResult {
             Self::is_paused()?;
-            Self::do_owner_add_or_update_initial_coldkeys(origin, subnet_id, coldkeys)
+            Self::do_owner_add_or_update_initial_validators(origin, subnet_id, validators)
         }
 
         #[pallet::call_index(30)]
         #[pallet::weight({0})]
-        pub fn owner_remove_initial_coldkeys(
+        pub fn owner_remove_initial_validators(
             origin: OriginFor<T>,
             subnet_id: u32,
-            coldkeys: BTreeSet<T::AccountId>,
+            validators: BTreeSet<u32>,
         ) -> DispatchResult {
             Self::is_paused()?;
-            Self::do_owner_remove_initial_coldkeys(origin, subnet_id, coldkeys)
+            Self::do_owner_remove_initial_validators(origin, subnet_id, validators)
         }
 
         #[pallet::call_index(31)]
@@ -5512,7 +5495,7 @@ pub mod pallet {
         pub fn add_validator_delegate_stake(
             origin: OriginFor<T>,
             validator_id: u32,
-            node_delegate_stake_to_be_added: u128,
+            delegate_stake_to_be_added: u128,
         ) -> DispatchResult {
             Self::is_paused()?;
 
@@ -5521,11 +5504,7 @@ pub mod pallet {
                 Error::<T>::InvalidValidatorId
             );
 
-            Self::do_add_validator_delegate_stake(
-                origin,
-                validator_id,
-                node_delegate_stake_to_be_added,
-            )
+            Self::do_add_validator_delegate_stake(origin, validator_id, delegate_stake_to_be_added)
         }
 
         #[pallet::call_index(60)]
@@ -6840,7 +6819,7 @@ pub mod pallet {
         /// - `SubnetOwner` - Owner account
         /// - `SubnetMinStakeBalance` / `SubnetMaxStakeBalance` - Stake limits
         /// - `SubnetDelegateStakeRewardsPercentage` - Reward split configuration
-        /// - `SubnetRegistrationInitialColdkeys` - Whitelisted node operators (temporary)
+        /// - `NodeRegistrationInitialValidatorIds` - Whitelisted node operators (temporary)
         /// - `SubnetBootnodes` - P2P network entry points
         /// - `SubnetName` / `SubnetRepo` - Reverse lookups for uniqueness
         /// - `SubnetRegistrationEpoch` - Registration timestamp (temporary, removed on activation)
@@ -7197,7 +7176,7 @@ pub mod pallet {
             PrevSubnetActivationEpoch::<T>::set(epoch);
 
             // SubnetsData | TotalActiveSubnets | SubnetRegistrationEpoch |
-            // SubnetRegistrationInitialColdkeys | LastSubnetDelegateStakeRewardsUpdate
+            // NodeRegistrationInitialValidatorIds | LastSubnetDelegateStakeRewardsUpdate
             // PreviousSubnetPauseEpoch | PrevSubnetActivationEpoch
             weight = weight.saturating_add(db_weight.writes(7));
             // SubnetsData | TotalActiveSubnets
@@ -7298,8 +7277,8 @@ pub mod pallet {
         /// - `LastSubnetDelegateStakeRewardsUpdate` - Last reward distribution timestamp
         ///
         /// ### Registration Data (Temporary)
-        /// - `SubnetRegistrationInitialColdkeys` - Whitelisted node operators
-        /// - `InitialColdkeyData` - Registration tracking data
+        /// - `NodeRegistrationInitialValidatorIds` - Whitelisted node operators
+        /// - `InitialValidatorData` - Registration tracking data
         ///
         /// ### Network Configuration
         /// - `SubnetBootnodes` - P2P network entry points
@@ -7581,8 +7560,7 @@ pub mod pallet {
             SubnetMaxStakeBalance::<T>::remove(subnet_id);
             SubnetDelegateStakeRewardsPercentage::<T>::remove(subnet_id);
             LastSubnetDelegateStakeRewardsUpdate::<T>::remove(subnet_id);
-            SubnetRegistrationInitialColdkeys::<T>::remove(subnet_id);
-            InitialColdkeyData::<T>::remove(subnet_id);
+            InitialValidatorData::<T>::remove(subnet_id);
             MaxRegisteredNodes::<T>::remove(subnet_id);
             TargetNodeRegistrationsPerEpoch::<T>::remove(subnet_id);
             NodeBurnRateAlpha::<T>::remove(subnet_id);
@@ -7754,7 +7732,7 @@ pub mod pallet {
         }
 
         pub fn do_remove_subnet_node_v2(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
-            Self::perform_remove_subnet_node_v2(subnet_id, subnet_node_id);
+            Self::perform_remove_subnet_node(subnet_id, subnet_node_id);
             Ok(())
         }
 
@@ -8638,7 +8616,7 @@ pub mod pallet {
             // MinSubnetNodeReputation::<T>::insert(subnet_id, 100000000000000000);
 
             // // Store whitelisted coldkeys for registration period
-            // // SubnetRegistrationInitialColdkeys::<T>::insert(
+            // // NodeRegistrationInitialValidatorIds::<T>::insert(
             // // 	subnet_id,
             // // 	BTreeSet::new()
             // // );

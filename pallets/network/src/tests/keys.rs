@@ -2,10 +2,10 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength,
-    Error, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake,
-    NodeSubnetStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodes,
-    StakeUnbondingLedger, SubnetName, TotalActiveSubnets, TotalSubnetNodes,
+    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength, Error, MaxSubnetNodes,
+    MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake, NodeSubnetStake,
+    OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodes, StakeUnbondingLedger,
+    SubnetName, TotalActiveSubnets, TotalSubnetNodes,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};

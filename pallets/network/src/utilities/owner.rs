@@ -663,10 +663,10 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn do_owner_add_or_update_initial_coldkeys(
+    pub fn do_owner_add_or_update_initial_validators(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
-        coldkeys: BTreeMap<T::AccountId, u32>,
+        validators: BTreeMap<u32, u32>,
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
@@ -681,28 +681,32 @@ impl<T: Config> Pallet<T> {
         );
 
         ensure!(
-            coldkeys.values().all(|&value| value >= 1),
+            validators.values().all(|&value| value >= 1),
             Error::<T>::InvalidSubnetRegistrationInitialColdkeys
         );
 
-        SubnetRegistrationInitialColdkeys::<T>::mutate(subnet_id, |accounts| {
-            let accounts_set = accounts.get_or_insert_with(BTreeMap::new);
-            accounts_set.extend(coldkeys.iter().map(|(k, v)| (k.clone(), *v)));
+        NodeRegistrationInitialValidatorIds::<T>::mutate(subnet_id, |maybe_validators| {
+            let validators_set = maybe_validators.get_or_insert_with(BTreeMap::new);
+            validators_set.extend(
+                validators
+                    .iter()
+                    .map(|(&validator_id, &max_registrations)| (validator_id, max_registrations)),
+            );
         });
 
-        Self::deposit_event(Event::AddSubnetRegistrationInitialColdkeys {
+        Self::deposit_event(Event::AddSubnetRegistrationInitialValidators {
             subnet_id: subnet_id,
             owner: coldkey,
-            coldkeys: coldkeys,
+            validators: validators,
         });
 
         Ok(())
     }
 
-    pub fn do_owner_remove_initial_coldkeys(
+    pub fn do_owner_remove_initial_validators(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
-        coldkeys: BTreeSet<T::AccountId>,
+        validators: BTreeSet<u32>,
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
@@ -716,24 +720,24 @@ impl<T: Config> Pallet<T> {
             Error::<T>::SubnetMustBeRegistering
         );
 
-        SubnetRegistrationInitialColdkeys::<T>::mutate(subnet_id, |maybe_accounts| {
-            if let Some(existing_accounts) = maybe_accounts {
-                // Remove all accounts that exist in coldkeys
-                for account in &coldkeys {
-                    existing_accounts.remove(account);
+        NodeRegistrationInitialValidatorIds::<T>::mutate(subnet_id, |maybe_validators| {
+            if let Some(existing_validators) = maybe_validators {
+                // Remove the requested validators from storage.
+                for validator_id in &validators {
+                    existing_validators.remove(validator_id);
                 }
 
                 // Clean up if the set becomes empty
-                if existing_accounts.is_empty() {
-                    *maybe_accounts = None;
+                if existing_validators.is_empty() {
+                    *maybe_validators = None;
                 }
             }
         });
 
-        Self::deposit_event(Event::RemoveSubnetRegistrationInitialColdkeys {
+        Self::deposit_event(Event::RemoveSubnetRegistrationInitialValidators {
             subnet_id: subnet_id,
             owner: coldkey,
-            coldkeys: coldkeys,
+            validators: validators,
         });
 
         Ok(())

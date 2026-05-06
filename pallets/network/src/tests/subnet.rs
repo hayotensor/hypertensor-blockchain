@@ -11,11 +11,11 @@ use crate::{
     MinMaxRegisteredNodes, MinQueueEpochs, MinRegistrationCost, MinSubnetMinStake, MinSubnetNodes,
     MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
     NetworkMaxStakeBalance, PeerInfo, PrevSubnetActivationEpoch, RegistrationCostDecayBlocks,
-    RegistrationSubnetData, SlotAssignment, SubnetBootnodeAccess,
-    SubnetBootnodes, SubnetData, SubnetElectedValidator, SubnetEnactmentEpochs, SubnetName,
-    SubnetOwner, SubnetRegistrationEpoch, SubnetRegistrationEpochs, SubnetRemovalReason,
-    SubnetReputation, SubnetSlot, SubnetState, SubnetsData, TotalActiveSubnets,
-    TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids, TotalSubnetNodes, TotalValidatorIds,
+    RegistrationSubnetData, SlotAssignment, SubnetBootnodeAccess, SubnetBootnodes, SubnetData,
+    SubnetElectedValidator, SubnetEnactmentEpochs, SubnetName, SubnetOwner,
+    SubnetRegistrationEpoch, SubnetRegistrationEpochs, SubnetRemovalReason, SubnetReputation,
+    SubnetSlot, SubnetState, SubnetsData, TotalActiveSubnets, TotalSubnetDelegateStakeBalance,
+    TotalSubnetNodeUids, TotalSubnetNodes, TotalValidatorIds,
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
@@ -596,6 +596,19 @@ fn test_register_subnet_errors() {
         );
 
         add_subnet_data.delegate_stake_percentage = MinDelegateStakePercentage::<Test>::get(); // reset                                                                                     // add_subnet_data.initial_validators = BTreeSet::new();
+        add_subnet_data.initial_validators =
+            get_initial_validator_ids(subnets, max_subnet_nodes, start, end);
+        *add_subnet_data.initial_validators.get_mut(&1).unwrap() = 0;
+
+        assert_err!(
+            Network::register_subnet(
+                RuntimeOrigin::signed(account(0)),
+                100000000000000000000000,
+                add_subnet_data.clone(),
+            ),
+            Error::<Test>::InvalidSubnetRegistrationInitialColdkeys
+        );
+
         add_subnet_data.initial_validators = BTreeMap::new();
 
         assert_err!(

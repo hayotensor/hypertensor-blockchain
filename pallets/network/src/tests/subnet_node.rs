@@ -2,19 +2,20 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, CurrentNodeBurnRate,
-    DefaultMaxVectorLength, Error, MaxDelegateStakePercentage, MaxRegisteredNodes,
-    MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes,
-    MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex, NodeSubnetStake,
-    PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData, SubnetElectedValidator,
-    SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification,
-    SubnetNodeElectionSlots, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeV2,
-    SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
-    SubnetRegistrationEpochs, SubnetState, TotalActiveNodes, TotalActiveSubnetNodes,
-    TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake, TotalSubnetElectableNodes,
-    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorIds,
-    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorIdHotkey, ValidatorReputation,
-    ValidatorSubnetNodes,
+    BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ConsensusSubmissionDataV2,
+    CurrentNodeBurnRate, DefaultMaxVectorLength, Error, InitialValidatorData,
+    MaxDelegateStakePercentage, MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes,
+    MaxSubnets, MinSubnetMinStake, MinSubnetNodes, MultiaddrSubnetNodeId,
+    NodeRegistrationInitialValidatorIds, NodeRewardRateUpdatePeriod, NodeSlotIndex,
+    NodeSubnetStake, PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData,
+    SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
+    SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeQueue, SubnetNodeQueueEpochs,
+    SubnetNodeReputation, SubnetNodeV2, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
+    SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, TotalActiveNodes,
+    TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake,
+    TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
+    TotalSubnetUids, TotalValidatorIds, UniqueParamSubnetNodeId, ValidatorColdkey,
+    ValidatorIdHotkey, ValidatorReputation, ValidatorSubnetNodes,
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
@@ -347,6 +348,106 @@ fn test_register_subnet_coldkey_registration_whitelist_error_v2() {
             ),
             Error::<Test>::ValidatorIdNotInWhitelist
         );
+    });
+}
+
+#[test]
+fn test_owner_added_initial_validator_can_register_during_registration() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        let max_subnets = MaxSubnets::<Test>::get();
+        let subnets = TotalSubnetUids::<Test>::get() + 1;
+        let subnet_id_key_offset = get_subnet_id_key_offset(subnets);
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let end = 4;
+
+        let add_subnet_data = default_registration_subnet_data_v2(
+            subnet_id_key_offset,
+            max_subnet_nodes,
+            subnet_name.clone().into(),
+            0,
+            end,
+        );
+
+        build_registered_subnet_v2(
+            subnet_name.clone(),
+            0,
+            end,
+            deposit_amount,
+            stake_amount,
+            true,
+            Some(add_subnet_data),
+        );
+
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let owner = SubnetOwner::<Test>::get(subnet_id).unwrap();
+        let new_validator_id = end + 1;
+
+        assert_ok!(Network::owner_add_or_update_initial_validators(
+            RuntimeOrigin::signed(owner),
+            subnet_id,
+            BTreeMap::from([(new_validator_id, 1)])
+        ));
+
+        assert_eq!(
+            NodeRegistrationInitialValidatorIds::<Test>::get(subnet_id)
+                .unwrap()
+                .get(&new_validator_id),
+            Some(&1)
+        );
+
+        let coldkey = get_coldkey(subnet_id_key_offset, max_subnet_nodes, new_validator_id);
+        let hotkey = get_hotkey(
+            subnet_id_key_offset,
+            max_subnet_nodes,
+            max_subnets,
+            new_validator_id,
+        );
+        let peer_id = get_peer_id(
+            subnet_id_key_offset,
+            max_subnet_nodes,
+            max_subnets,
+            new_validator_id,
+        );
+        let burn_amount = Network::calculate_burn_amount(subnet_id);
+
+        let _ = Balances::deposit_creating(
+            &coldkey.clone(),
+            deposit_amount + stake_amount + burn_amount,
+        );
+
+        assert_ok!(Network::register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            50000000000,
+            None,
+            None,
+        ));
+
+        assert_eq!(TotalValidatorIds::<Test>::get(), new_validator_id);
+
+        assert_ok!(Network::register_subnet_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            new_validator_id,
+            subnet_id,
+            None,
+            PeerInfo {
+                peer_id: peer_id.clone(),
+                multiaddr: None,
+            },
+            None,
+            None,
+            stake_amount,
+            None,
+            None,
+            u128::MAX,
+        ));
+
+        let initial_validator_data = InitialValidatorData::<Test>::get(subnet_id).unwrap();
+        assert_eq!(initial_validator_data.get(&new_validator_id), Some(&1));
     });
 }
 
@@ -3652,6 +3753,87 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
                 u128::MAX,
             ),
             Error::<Test>::MaxRegisteredNodes
+        );
+    });
+}
+
+#[test]
+fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
+    new_test_ext().execute_with(|| {
+        increase_blocks(1);
+        let subnet_id = 1;
+        let validator_id = 1;
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+        insert_subnet_node_v2(
+            validator_id,
+            subnet_id,
+            1,
+            1,
+            1,
+            SubnetNodeClass::Registered,
+            0,
+        );
+
+        let queued_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
+        let missing_queue_node_id = queued_node_id + 1;
+        let super_majority_threshold = Network::percentage_factor_as_u128();
+
+        let missing_node_consensus = ConsensusSubmissionDataV2 {
+            attestation_ratio: super_majority_threshold,
+            remove_queue_node_id: Some(missing_queue_node_id),
+            ..Default::default()
+        };
+
+        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id).len(), 1);
+
+        // Should not work to remove a node
+        Network::handle_node_queue_consensus(
+            &mut WeightMeter::new(),
+            subnet_id,
+            &missing_node_consensus,
+            super_majority_threshold,
+            0,
+        );
+
+        assert!(RegisteredSubnetNodesData::<Test>::contains_key(
+            subnet_id,
+            queued_node_id
+        ));
+        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id).len(), 1);
+        assert!(network_events().iter().all(|event| !matches!(
+            event,
+            Event::QueuedNodeRemoved {
+                subnet_id: event_subnet_id,
+                subnet_node_id
+            } if *event_subnet_id == subnet_id && *subnet_node_id == missing_queue_node_id
+        )));
+
+        let queued_node_consensus = ConsensusSubmissionDataV2 {
+            attestation_ratio: super_majority_threshold,
+            remove_queue_node_id: Some(queued_node_id),
+            ..Default::default()
+        };
+
+        // Should work to remove a node
+        Network::handle_node_queue_consensus(
+            &mut WeightMeter::new(),
+            subnet_id,
+            &queued_node_consensus,
+            super_majority_threshold,
+            0,
+        );
+
+        assert!(!RegisteredSubnetNodesData::<Test>::contains_key(
+            subnet_id,
+            queued_node_id
+        ));
+        assert!(SubnetNodeQueue::<Test>::get(subnet_id).is_empty());
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::QueuedNodeRemoved {
+                subnet_id,
+                subnet_node_id: queued_node_id
+            }
         );
     });
 }

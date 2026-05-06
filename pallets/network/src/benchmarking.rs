@@ -1925,7 +1925,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn owner_add_or_update_initial_coldkeys() {
+    fn owner_add_or_update_initial_validators() {
         let block_number = get_current_block_as_u32::<T>();
         let cost = Network::<T>::get_current_registration_cost(block_number) + 1000;
 
@@ -1943,15 +1943,15 @@ mod benchmarks {
 
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
 
-        let rand_account = funded_initializer::<T>("0", 0);
-        let rand_account_2 = funded_initializer::<T>("2", 2);
-        let rand_account_3 = funded_initializer::<T>("3", 3);
-        let initial_coldkeys = BTreeMap::from([
+        let rand_account = 1;
+        let rand_account_2 = 2;
+        let rand_account_3 = 3;
+        let initial_validators = BTreeMap::from([
             (rand_account.clone(), 1),
             (rand_account_2.clone(), 1),
             (rand_account_3.clone(), 1),
         ]);
-        register_subnet_data.initial_coldkeys = initial_coldkeys;
+        register_subnet_data.initial_validators = initial_validators;
 
         let owner_coldkey =
             funded_initializer::<T>("subnet_owner", subnets * max_subnets * max_subnet_nodes);
@@ -1966,25 +1966,25 @@ mod benchmarks {
 
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
 
-        let rand_account_4 = funded_initializer::<T>("4", 4);
+        let rand_account_4 = 4;
 
-        let new_value = BTreeMap::from([(rand_account_4.clone(), 1)]);
+        let new_value = BTreeMap::from([(rand_account_4, 1)]);
 
         #[extrinsic_call]
-        owner_add_or_update_initial_coldkeys(
+        owner_add_or_update_initial_validators(
             RawOrigin::Signed(owner_coldkey.clone()),
             subnet_id,
             new_value.clone(),
         );
 
-        let expected_coldkeys = BTreeMap::from([
-            (rand_account.clone(), 1),
-            (rand_account_2.clone(), 1),
-            (rand_account_3.clone(), 1),
-            (rand_account_4.clone(), 1),
+        let expected_validators = BTreeMap::from([
+            (rand_account, 1),
+            (rand_account_2, 1),
+            (rand_account_3, 1),
+            (rand_account_4, 1),
         ]);
-        let coldkeys = SubnetRegistrationInitialColdkeys::<T>::get(subnet_id).unwrap();
-        assert_eq!(coldkeys, expected_coldkeys.clone());
+        let validators = NodeRegistrationInitialValidatorIds::<T>::get(subnet_id).unwrap();
+        assert_eq!(validators, expected_validators.clone());
     }
 
     #[benchmark]
@@ -2040,7 +2040,7 @@ mod benchmarks {
 
         let expected_coldkeys =
             BTreeMap::from([(rand_account.clone(), 1), (rand_account_2.clone(), 1)]);
-        let coldkeys = SubnetRegistrationInitialColdkeys::<T>::get(subnet_id).unwrap();
+        let coldkeys = NodeRegistrationInitialValidatorIds::<T>::get(subnet_id).unwrap();
         assert_eq!(coldkeys, expected_coldkeys.clone());
     }
 

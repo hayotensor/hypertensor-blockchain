@@ -881,7 +881,7 @@ impl<T: Config> Pallet<T> {
             return;
         };
 
-        Self::common_remove_subnet_node_v2(subnet_id, subnet_node_id, subnet_node.clone());
+        Self::common_remove_subnet_node(subnet_id, subnet_node_id, subnet_node.clone());
 
         if subnet_node.classification.node_class == SubnetNodeClass::Validator {
             // --- Try removing node from election slots (only happens if Validator classification)
@@ -911,14 +911,14 @@ impl<T: Config> Pallet<T> {
             return;
         };
 
-        Self::common_remove_subnet_node_v2(subnet_id, subnet_node_id, subnet_node.clone());
+        Self::common_remove_subnet_node(subnet_id, subnet_node_id, subnet_node.clone());
 
         SubnetNodeQueue::<T>::mutate(subnet_id, |nodes| {
             nodes.retain(|node| node.id != subnet_node_id);
         });
     }
 
-    pub fn common_remove_subnet_node_v2(
+    pub fn common_remove_subnet_node(
         subnet_id: u32,
         subnet_node_id: u32,
         subnet_node: SubnetNodeV2,
@@ -981,7 +981,7 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    pub fn perform_remove_subnet_node_v2(subnet_id: u32, subnet_node_id: u32) {
+    pub fn perform_remove_subnet_node(subnet_id: u32, subnet_node_id: u32) {
         let mut is_active = false;
         let mut is_registered = false;
         let subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
@@ -1004,18 +1004,18 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    pub fn get_subnet_node_v2(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNodeV2> {
-        if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
-            Some(SubnetNodesData::<T>::get(subnet_id, subnet_node_id))
-        } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
-            Some(RegisteredSubnetNodesData::<T>::get(
-                subnet_id,
-                subnet_node_id,
-            ))
-        } else {
-            None
-        }
-    }
+    // pub fn get_subnet_node(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNodeV2> {
+    //     if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
+    //         Some(SubnetNodesData::<T>::get(subnet_id, subnet_node_id))
+    //     } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
+    //         Some(RegisteredSubnetNodesData::<T>::get(
+    //             subnet_id,
+    //             subnet_node_id,
+    //         ))
+    //     } else {
+    //         None
+    //     }
+    // }
 
     pub fn get_validator_classified_subnet_node(
         subnet_id: u32,
