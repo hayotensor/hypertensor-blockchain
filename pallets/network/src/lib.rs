@@ -209,7 +209,7 @@ pub mod pallet {
             subnet_node_id: u32,
             coldkey: T::AccountId,
             hotkey: T::AccountId,
-            data: SubnetNode<T::AccountId>,
+            data: SubnetNodeV2,
         },
         SubnetNodeActivated {
             subnet_id: u32,
@@ -1256,31 +1256,31 @@ pub mod pallet {
     ///   information. Limited to `DefaultMaxVectorLength` bytes.
     /// * `delegate_account` - An optional delegate account that receives a portion of the node's rewards.
     ///   being account_id and rate.
-    #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebug,
-        PartialOrd,
-        Ord,
-        scale_info::TypeInfo,
-    )]
-    pub struct SubnetNode<AccountId> {
-        pub id: u32,
-        pub hotkey: AccountId,
-        pub peer_info: PeerInfo,
-        pub bootnode_peer_info: Option<PeerInfo>,
-        pub client_peer_info: Option<PeerInfo>,
-        pub classification: SubnetNodeClassification,
-        pub delegate_reward_rate: u128,
-        pub last_delegate_reward_rate_update: u32,
-        pub unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-        pub non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-        pub delegate_account: Option<DelegateAccount<AccountId>>,
-    }
+    // #[derive(
+    //     Default,
+    //     Encode,
+    //     Decode,
+    //     Clone,
+    //     PartialEq,
+    //     Eq,
+    //     RuntimeDebug,
+    //     PartialOrd,
+    //     Ord,
+    //     scale_info::TypeInfo,
+    // )]
+    // pub struct SubnetNode<AccountId> {
+    //     pub id: u32,
+    //     pub hotkey: AccountId,
+    //     pub peer_info: PeerInfo,
+    //     pub bootnode_peer_info: Option<PeerInfo>,
+    //     pub client_peer_info: Option<PeerInfo>,
+    //     pub classification: SubnetNodeClassification,
+    //     pub delegate_reward_rate: u128,
+    //     pub last_delegate_reward_rate_update: u32,
+    //     pub unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+    //     pub non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+    //     pub delegate_account: Option<DelegateAccount<AccountId>>,
+    // }
 
     #[derive(
         Default,
@@ -1538,12 +1538,12 @@ pub mod pallet {
         pub start_epoch: u32,
     }
 
-    impl<AccountId> SubnetNode<AccountId> {
-        pub fn has_classification(&self, required: &SubnetNodeClass, subnet_epoch: u32) -> bool {
-            self.classification.node_class >= *required
-                && self.classification.start_epoch <= subnet_epoch
-        }
-    }
+    // impl<AccountId> SubnetNode<AccountId> {
+    //     pub fn has_classification(&self, required: &SubnetNodeClass, subnet_epoch: u32) -> bool {
+    //         self.classification.node_class >= *required
+    //             && self.classification.start_epoch <= subnet_epoch
+    //     }
+    // }
 
     impl SubnetNodeV2 {
         pub fn has_classification(&self, required: &SubnetNodeClass, subnet_epoch: u32) -> bool {
@@ -1699,20 +1699,20 @@ pub mod pallet {
     /// * `remove_queue_node_id` - Optional node ID from the registration queue to remove.
     ///   This is set by the proposing validator and executed during consensus finalization
     ///   if the submission is accepted and the node has passed its immunity period.
-    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
-    pub struct ConsensusSubmissionData<AccountId> {
-        pub validator_subnet_node_id: u32,
-        pub validator_epoch_progress: u128,
-        pub validator_reward_factor: u128,
-        pub attestation_ratio: u128,
-        pub weight_sum: u128,
-        pub data_length: u32,
-        pub data: Vec<SubnetNodeConsensusData>,
-        pub attests: BTreeMap<u32, AttestEntry>, // subnet_node_id: AttestEntry
-        pub subnet_nodes: Vec<SubnetNode<AccountId>>,
-        pub prioritize_queue_node_id: Option<u32>,
-        pub remove_queue_node_id: Option<u32>,
-    }
+    // #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+    // pub struct ConsensusSubmissionData<AccountId> {
+    //     pub validator_subnet_node_id: u32,
+    //     pub validator_epoch_progress: u128,
+    //     pub validator_reward_factor: u128,
+    //     pub attestation_ratio: u128,
+    //     pub weight_sum: u128,
+    //     pub data_length: u32,
+    //     pub data: Vec<SubnetNodeConsensusData>,
+    //     pub attests: BTreeMap<u32, AttestEntry>, // subnet_node_id: AttestEntry
+    //     pub subnet_nodes: Vec<SubnetNode<AccountId>>,
+    //     pub prioritize_queue_node_id: Option<u32>,
+    //     pub remove_queue_node_id: Option<u32>,
+    // }
 
     #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
     pub struct ConsensusSubmissionDataV2 {
@@ -2111,25 +2111,25 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - SubnetNodesData
     /// - RegisteredSubnetNodesData
-    #[pallet::type_value]
-    pub fn DefaultSubnetNode<T: Config>() -> SubnetNode<T::AccountId> {
-        return SubnetNode {
-            id: 0,
-            hotkey: T::AccountId::decode(&mut TrailingZeroInput::zeroes()).unwrap(),
-            peer_info: PeerInfo::default(),
-            bootnode_peer_info: None,
-            client_peer_info: None,
-            classification: SubnetNodeClassification {
-                node_class: SubnetNodeClass::Registered,
-                start_epoch: 0,
-            },
-            delegate_reward_rate: 0,
-            last_delegate_reward_rate_update: 0,
-            unique: None,
-            non_unique: None,
-            delegate_account: None,
-        };
-    }
+    // #[pallet::type_value]
+    // pub fn DefaultSubnetNode<T: Config>() -> SubnetNode<T::AccountId> {
+    //     return SubnetNode {
+    //         id: 0,
+    //         hotkey: T::AccountId::decode(&mut TrailingZeroInput::zeroes()).unwrap(),
+    //         peer_info: PeerInfo::default(),
+    //         bootnode_peer_info: None,
+    //         client_peer_info: None,
+    //         classification: SubnetNodeClassification {
+    //             node_class: SubnetNodeClass::Registered,
+    //             start_epoch: 0,
+    //         },
+    //         delegate_reward_rate: 0,
+    //         last_delegate_reward_rate_update: 0,
+    //         unique: None,
+    //         non_unique: None,
+    //         delegate_account: None,
+    //     };
+    // }
     #[pallet::type_value]
     pub fn DefaultSubnetNodeV2<T: Config>() -> SubnetNodeV2 {
         return SubnetNodeV2 {

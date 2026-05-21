@@ -42,7 +42,7 @@ fn test_calculate_overwatch_rewards() {
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
         }
 
         set_overwatch_epoch(1);
@@ -144,7 +144,7 @@ fn test_handle_subnet_emission_weights() {
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
         }
         increase_epochs(1);
 
@@ -179,7 +179,7 @@ fn test_calculate_subnet_weights() {
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
         }
         increase_epochs(1);
 
@@ -213,13 +213,13 @@ fn test_calculate_subnet_weights_active_live_only() {
 
         for s in 0..max_subnets - 1 {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
-            build_activated_subnet_v2(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+            build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
         }
 
         // add a registering subnet
         let registering_n = max_subnets - 1;
         let registering_subnet_name: Vec<u8> = format!("subnet-name-{registering_n}").into();
-        build_registered_subnet_v2(
+        build_registered_subnet(
             registering_subnet_name.clone(),
             0,
             4,
@@ -265,13 +265,13 @@ fn test_precheck_subnet_consensus_submission() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let new_start = end;
         let new_end = new_start + 4;
-        build_registered_nodes_in_queue_v2(subnet_id, new_start, new_end, deposit_amount, amount);
+        build_registered_nodes_in_queue(subnet_id, new_start, new_end, deposit_amount, amount);
 
         QueueImmunityEpochs::<Test>::insert(subnet_id, 1);
 
@@ -383,7 +383,7 @@ fn test_calculate_rewards() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         increase_epochs(1);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 

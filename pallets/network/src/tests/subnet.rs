@@ -59,7 +59,7 @@ fn test_register_subnet() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -119,7 +119,7 @@ fn test_register_subnet_exists_error() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -172,7 +172,7 @@ fn test_register_subnet_repo_error() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -224,7 +224,7 @@ fn test_register_subnet_repo_error() {
 
 //         let subnets = TotalActiveSubnets::<Test>::get() + 1;
 //         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-// let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+// let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
 //     subnets,
 //     max_subnet_nodes,
 //     subnet_name.clone().into(),
@@ -498,7 +498,7 @@ fn test_register_subnet_errors() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -657,7 +657,7 @@ fn test_register_subnet_not_enough_balance_err() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -700,7 +700,7 @@ fn test_activate_subnet() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -828,7 +828,7 @@ fn test_activate_subnet_anytime() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -951,7 +951,7 @@ fn test_activate_subnet_conditions_not_met_in_registration_period() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1017,7 +1017,7 @@ fn test_activate_subnet_invalid_subnet_id_error() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1117,7 +1117,7 @@ fn test_activate_subnet_already_activated_err() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1240,7 +1240,7 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1359,7 +1359,7 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1491,7 +1491,7 @@ fn test_activate_subnet_min_subnet_nodes_remove_subnet() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1565,7 +1565,7 @@ fn test_activate_subnet_min_delegate_balance_remove_subnet() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1981,7 +1981,7 @@ fn test_update_bootnode_owner_updates() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let owner = SubnetOwner::<Test>::get(subnet_id).unwrap();
@@ -2253,7 +2253,7 @@ fn test_excess_subnet_removal_lowest_delegate_stake_fail2() {
 //         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
 //         let end = 4;
 
-//         build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+//         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 //         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
 //         let min_subnet_delegate_stake_balance =
@@ -2313,7 +2313,7 @@ fn test_excess_subnet_removal_lowest_delegate_stake_fail2() {
 
 //         let min_nodes = MinSubnetNodes::<Test>::get();
 
-// let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+// let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
 //     subnets,
 //     max_subnet_nodes,
 //     subnet_name.clone().into(),
@@ -2378,7 +2378,7 @@ fn test_do_epoch_preliminaries_remove_subnet_not_activated() {
         let amount: u128 = 1000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_registered_subnet_v2(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             4,
@@ -2447,7 +2447,7 @@ fn test_do_epoch_preliminaries_remove_subnet_min_stake_balance() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
 
-        build_registered_subnet_v2(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             min_subnet_nodes - 1,
@@ -2519,7 +2519,7 @@ fn test_do_epoch_preliminaries_remove_subnet_min_stake_balance() {
 //         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
 //         let end = 4;
 
-//         build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+//         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 //         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
 //         assert_err!(
@@ -2543,7 +2543,7 @@ fn test_do_epoch_preliminaries_remove_subnet_min_stake_balance() {
 //         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
 //         let end = 4;
 
-//         build_registered_subnet_v2(
+//         build_registered_subnet(
 //             subnet_name.clone(),
 //             0,
 //             end,
@@ -2575,7 +2575,7 @@ fn test_do_epoch_preliminaries_remove_subnet_min_stake_balance() {
 //         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
 //         let end = 4;
 
-//         build_registered_subnet_v2(
+//         build_registered_subnet(
 //             subnet_name.clone(),
 //             0,
 //             end,
@@ -2607,7 +2607,7 @@ fn test_get_min_subnet_delegate_stake_balance_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let total_network_issuance = Network::get_total_network_issuance();
@@ -2653,7 +2653,7 @@ fn test_get_total_network_issuance() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 3;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id_1 = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         log::error!(" ");
@@ -2664,7 +2664,7 @@ fn test_get_total_network_issuance() {
             starting_total_network_issuance
         );
 
-        build_activated_subnet_v2(subnet_name_2.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name_2.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id_2 = SubnetName::<Test>::get(subnet_name_2.clone()).unwrap();
 
         let post_total_network_issuance = Network::get_total_network_issuance();
@@ -2693,7 +2693,7 @@ fn test_emergency_validator_subnet() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 3;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
     });
 }

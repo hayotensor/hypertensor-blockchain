@@ -1033,18 +1033,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Get subnet nodes by classification
     pub fn get_active_classified_subnet_nodes(
-        subnet_id: u32,
-        classification: &SubnetNodeClass,
-        subnet_epoch: u32,
-    ) -> Vec<SubnetNodeV2> {
-        SubnetNodesData::<T>::iter_prefix_values(subnet_id)
-            .filter(|subnet_node| subnet_node.has_classification(classification, subnet_epoch))
-            .collect()
-    }
-
-    pub fn get_active_classified_subnet_nodes_v2(
         subnet_id: u32,
         classification: &SubnetNodeClass,
         subnet_epoch: u32,

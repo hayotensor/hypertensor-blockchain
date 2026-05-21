@@ -35,7 +35,7 @@ fn test_add_to_node_delegate_stake() {
         let amount: u128 = 100e+18 as u128;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards_v2(
+        build_activated_subnet_with_delegator_rewards(
             subnet_name.clone(),
             0,
             16,
@@ -137,7 +137,7 @@ fn test_add_to_node_delegate_stake_min_node_delegate_stake_deposit_not_reached_e
         let amount: u128 = 100e+18 as u128;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards_v2(
+        build_activated_subnet_with_delegator_rewards(
             subnet_name.clone(),
             0,
             16,
@@ -193,7 +193,7 @@ fn test_add_to_node_delegate_stake_not_enough_balance_to_stake_error() {
         let amount: u128 = 100e+18 as u128;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards_v2(
+        build_activated_subnet_with_delegator_rewards(
             subnet_name.clone(),
             0,
             16,
@@ -249,7 +249,7 @@ fn test_add_to_node_delegate_stake_balance_withdraw_error() {
         let amount: u128 = 100e+18 as u128;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards_v2(
+        build_activated_subnet_with_delegator_rewards(
             subnet_name.clone(),
             0,
             16,
@@ -306,7 +306,7 @@ fn test_remove_validator_delegate_stake() {
 
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards_v2(
+        build_activated_subnet_with_delegator_rewards(
             subnet_name.clone(),
             0,
             16,
@@ -452,7 +452,7 @@ fn test_remove_validator_delegate_stake_not_enough_stake_to_withdraw() {
 
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_with_delegator_rewards_v2(
+        build_activated_subnet_with_delegator_rewards(
             subnet_name.clone(),
             0,
             16,
@@ -512,7 +512,7 @@ fn test_swap_validator_delegate_stake() {
 
         let from_account_n = max_subnet_nodes + 1 * subnets;
 
-        build_activated_subnet_with_delegator_rewards_v2(
+        build_activated_subnet_with_delegator_rewards(
             subnet_name.clone(),
             0,
             16,
@@ -534,7 +534,7 @@ fn test_swap_validator_delegate_stake() {
 
         let to_account_n = max_subnet_nodes + 1 * subnets;
 
-        build_activated_subnet_with_delegator_rewards_v2(
+        build_activated_subnet_with_delegator_rewards(
             to_subnet_name.clone(),
             0,
             16,
@@ -674,7 +674,7 @@ fn test_transfer_validator_delegate_stake() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
         let subnet_name: Vec<u8> = "subnet-name".into();
-        build_activated_subnet_v2(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_node_id = 1;
         let validator_id = 1;
@@ -777,7 +777,7 @@ fn test_transfer_validator_delegate_stake_partial_balance() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
         let subnet_name: Vec<u8> = "subnet-name".into();
-        build_activated_subnet_v2(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_node_id = 1;
         let validator_id = 1;
@@ -1144,7 +1144,7 @@ fn test_donate_validator_delegate_stake() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let validator_id = 1;
@@ -1241,7 +1241,7 @@ fn test_swap_from_validator_to_subnet() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         log::error!("subnets count {:?}", subnets);
-        build_activated_subnet_with_delegator_rewards_v2(
+        build_activated_subnet_with_delegator_rewards(
             subnet_name.clone(),
             0,
             16,
@@ -1261,7 +1261,7 @@ fn test_swap_from_validator_to_subnet() {
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         log::error!("subnets count {:?}", subnets);
 
-        build_activated_subnet_with_delegator_rewards_v2(
+        build_activated_subnet_with_delegator_rewards(
             to_subnet_name.clone(),
             0,
             16,

@@ -55,7 +55,7 @@ fn test_register_subnet_node_v2() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
@@ -149,7 +149,7 @@ fn test_register_subnet_node_v2_and_activate() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
@@ -278,7 +278,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);

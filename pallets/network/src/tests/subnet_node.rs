@@ -8,7 +8,7 @@ use crate::{
     MaxSubnets, MinSubnetMinStake, MinSubnetNodes, MultiaddrSubnetNodeId,
     NodeRegistrationInitialValidatorIds, NodeRewardRateUpdatePeriod, NodeSlotIndex,
     NodeSubnetStake, PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData,
-    SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
+    SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeQueue, SubnetNodeQueueEpochs,
     SubnetNodeReputation, SubnetNodeV2, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
     SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, TotalActiveNodes,
@@ -56,7 +56,7 @@ fn test_activate_subnet_then_register_subnet_node_then_activate_v2() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
@@ -156,7 +156,7 @@ fn test_register_subnet_subnet_is_paused_error() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let pause_cooldown_epochs = SubnetPauseCooldownEpochs::<Test>::get();
@@ -229,7 +229,7 @@ fn test_register_subnet_subnet_must_be_registering_or_active_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_registered_subnet_v2(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             4,
@@ -299,7 +299,7 @@ fn test_register_subnet_coldkey_registration_whitelist_error_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_registered_subnet_v2(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             4,
@@ -364,7 +364,7 @@ fn test_owner_added_initial_validator_can_register_during_registration() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        let add_subnet_data = default_registration_subnet_data_v2(
+        let add_subnet_data = default_registration_subnet_data(
             subnet_id_key_offset,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -372,7 +372,7 @@ fn test_owner_added_initial_validator_can_register_during_registration() {
             end,
         );
 
-        build_registered_subnet_v2(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             end,
@@ -464,7 +464,7 @@ fn test_register_subnet_max_registered_nodes_error_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let max_registered_nodes = 4;
@@ -579,7 +579,7 @@ fn test_register_subnet_node_and_then_update_a_param_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
@@ -694,7 +694,7 @@ fn test_register_subnet_node_post_subnet_activation_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
@@ -787,7 +787,7 @@ fn test_activate_subnet_node_post_subnet_activation_v2() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
@@ -911,7 +911,7 @@ fn test_remove_subnet_node_registered_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 12;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
@@ -1557,7 +1557,7 @@ fn test_register_subnet_node_subnet_err_v2() {
 //         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 //         let end = 4;
 
-//         build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+//         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
 //         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 //         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -1600,7 +1600,7 @@ fn test_register_subnet_node_not_exists_err() {
             get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
         let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -1715,7 +1715,7 @@ fn test_add_subnet_node_stake_err_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 12;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let deposit_amount: u128 = 100000;
         let amount: u128 = 1;
@@ -1777,7 +1777,7 @@ fn test_add_subnet_node_stake_not_enough_balance_err_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let deposit_amount: u128 = 999999999999999999999;
 
@@ -1838,7 +1838,7 @@ fn test_register_subnet_node_invalid_peer_id_err_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
@@ -1955,7 +1955,7 @@ fn test_remove_subnet_node_not_key_owner_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
@@ -2022,7 +2022,7 @@ fn test_remove_subnet_nodes_v2() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -2045,7 +2045,7 @@ fn test_remove_subnet_nodes_v2() {
             assert_eq!(subnet_node_data, Err(()));
         }
 
-        let node_set = Network::get_active_classified_subnet_nodes_v2(
+        let node_set = Network::get_active_classified_subnet_nodes(
             subnet_id,
             &SubnetNodeClass::Idle,
             subnet_epoch,
@@ -2103,7 +2103,7 @@ fn test_update_peer_id_v2() {
         let bootnode_peer_id = get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end);
         let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_node_id = end;
@@ -2205,7 +2205,7 @@ fn test_update_peer_id_exists_v2() {
 
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -2265,7 +2265,7 @@ fn test_update_peer_id_not_key_owner_v2() {
 
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -2304,7 +2304,7 @@ fn test_update_peer_id_invalid_peer_id_v2() {
 
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -2350,7 +2350,7 @@ fn test_update_bootnode_peer_id_v2() {
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
         let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -2485,7 +2485,7 @@ fn test_update_bootnode_peer_id_exists_v2() {
 
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -2550,7 +2550,7 @@ fn test_update_bootnode_peer_id_not_key_owner_v2() {
 
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -2591,7 +2591,7 @@ fn test_update_bootnode_peer_id_invalid_peer_id_v2() {
 
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -2637,7 +2637,7 @@ fn test_update_client_peer_id_v2() {
 
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_node_id = end;
@@ -2741,7 +2741,7 @@ fn test_update_client_peer_id_exists_v2() {
 
         let end = 3;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -2799,7 +2799,7 @@ fn test_update_client_peer_id_not_key_owner() {
 
         let end = 3;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -2839,7 +2839,7 @@ fn test_update_client_peer_id_invalid_peer_id() {
 
         let end = 3;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -3001,7 +3001,7 @@ fn test_update_node_unique() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
@@ -3123,7 +3123,7 @@ fn test_update_unique_to_none() {
 
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -3197,7 +3197,7 @@ fn test_update_node_non_unique() {
 
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -3259,7 +3259,7 @@ fn test_update_node_non_unique_to_none() {
 
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, end).unwrap();
@@ -3306,7 +3306,7 @@ fn test_insert_node_into_election_slot() {
 
         let end = MinSubnetNodes::<Test>::get();
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let coldkey = get_coldkey(subnet_id, max_subnet_nodes, end + 1);
@@ -3673,7 +3673,7 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let end = 4;
 
-        let add_subnet_data = default_registration_subnet_data_v2(
+        let add_subnet_data = default_registration_subnet_data(
             subnet_id_key_offset,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -3681,7 +3681,7 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
             end + 1,
         );
 
-        build_registered_subnet_v2(
+        build_registered_subnet(
             subnet_name.clone(),
             0,
             4,
@@ -3764,7 +3764,7 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
         let subnet_id = 1;
         let validator_id = 1;
         insert_subnet(subnet_id, SubnetState::Active, 0);
-        insert_subnet_node_v2(
+        insert_subnet_node(
             validator_id,
             subnet_id,
             1,
@@ -4124,7 +4124,7 @@ fn test_slash_validator() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
@@ -4181,7 +4181,7 @@ fn test_slash_validator() {
 // //         let max_subnets = MaxSubnets::<Test>::get();
 // //         let end = 4;
 
-// //         build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+// //         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 // //         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
 // //         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
@@ -4239,6 +4239,6 @@ fn test_slash_validator() {
 //         let max_subnets = MaxSubnets::<Test>::get();
 //         let end = 4;
 
-//         build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+//         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 //     })
 // }

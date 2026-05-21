@@ -242,7 +242,7 @@ fn test_set_overwatch_peer_id_v2() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
         let end = min_subnet_nodes;
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         // overwatch
@@ -375,7 +375,7 @@ fn test_set_overwatch_peer_id_errors() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
         let end = min_subnet_nodes;
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_id_key_offset = get_subnet_id_key_offset(subnet_id);
 
@@ -407,7 +407,7 @@ fn test_remove_overwatch_node() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
         let end = min_subnet_nodes;
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         // overwatch
@@ -490,9 +490,15 @@ fn test_equal_stake_equal_weights_v3() {
         let subnet_id = 1;
         let epoch = Network::get_current_overwatch_epoch_as_u32();
 
+        let validator_id_1 = 1;
+        let validator_id_2 = 2;
+
         // Setup
-        let node_id_1 = insert_overwatch_node(1, 1);
-        let node_id_2 = insert_overwatch_node(2, 2);
+        manual_insert_validator(validator_id_1, validator_id_1, validator_id_1);
+        manual_insert_validator(validator_id_2, validator_id_2, validator_id_2);
+
+        let node_id_1 = insert_overwatch_node_v2(validator_id_1);
+        let node_id_2 = insert_overwatch_node_v2(validator_id_2);
         set_overwatch_node_stake(1, 100);
         set_overwatch_node_stake(2, 100);
 
@@ -548,8 +554,15 @@ fn test_stake_no_dampening_effect() {
         let subnet_id = 1;
         let epoch = Network::get_current_overwatch_epoch_as_u32();
 
-        let node_id_1 = insert_overwatch_node(1, 1);
-        let node_id_2 = insert_overwatch_node(2, 2);
+        let validator_id_1 = 1;
+        let validator_id_2 = 2;
+
+        // Setup
+        manual_insert_validator(validator_id_1, validator_id_1, validator_id_1);
+        manual_insert_validator(validator_id_2, validator_id_2, validator_id_2);
+
+        let node_id_1 = insert_overwatch_node_v2(validator_id_1);
+        let node_id_2 = insert_overwatch_node_v2(validator_id_2);
         set_overwatch_node_stake(1, 90);
         set_overwatch_node_stake(2, 10);
 
@@ -602,8 +615,15 @@ fn test_two_noces_same_stake_dif_weights_v3() {
         let subnet_id = 1;
         let epoch = Network::get_current_overwatch_epoch_as_u32();
 
-        let node_id_1 = insert_overwatch_node(1, 1);
-        let node_id_2 = insert_overwatch_node(2, 2);
+        let validator_id_1 = 1;
+        let validator_id_2 = 2;
+
+        // Setup
+        manual_insert_validator(validator_id_1, validator_id_1, validator_id_1);
+        manual_insert_validator(validator_id_2, validator_id_2, validator_id_2);
+
+        let node_id_1 = insert_overwatch_node_v2(validator_id_1);
+        let node_id_2 = insert_overwatch_node_v2(validator_id_2);
         set_overwatch_node_stake(1, 50);
         set_overwatch_node_stake(2, 50);
 
@@ -657,8 +677,15 @@ fn test_multiple_subnets_score_accumulation_v3() {
         let subnet_id_2 = 2;
         let epoch = Network::get_current_overwatch_epoch_as_u32();
 
-        let node_id_1 = insert_overwatch_node(1, 1);
-        let node_id_2 = insert_overwatch_node(2, 2);
+        let validator_id_1 = 1;
+        let validator_id_2 = 2;
+
+        // Setup
+        manual_insert_validator(validator_id_1, validator_id_1, validator_id_1);
+        manual_insert_validator(validator_id_2, validator_id_2, validator_id_2);
+
+        let node_id_1 = insert_overwatch_node_v2(validator_id_1);
+        let node_id_2 = insert_overwatch_node_v2(validator_id_2);
         set_overwatch_node_stake(1, 50);
         set_overwatch_node_stake(2, 100);
 
@@ -720,8 +747,15 @@ fn test_multiple_subnets_score_accumulation_v3_2() {
         let subnet_id_2 = 2;
         let epoch = Network::get_current_overwatch_epoch_as_u32();
 
-        let node_id_1 = insert_overwatch_node(1, 1);
-        let node_id_2 = insert_overwatch_node(2, 2);
+        let validator_id_1 = 1;
+        let validator_id_2 = 2;
+
+        // Setup
+        manual_insert_validator(validator_id_1, validator_id_1, validator_id_1);
+        manual_insert_validator(validator_id_2, validator_id_2, validator_id_2);
+
+        let node_id_1 = insert_overwatch_node_v2(validator_id_1);
+        let node_id_2 = insert_overwatch_node_v2(validator_id_2);
         set_overwatch_node_stake(1, 100);
         set_overwatch_node_stake(2, 50);
 
@@ -777,8 +811,15 @@ fn test_multiple_subnets_score_accumulation_v3_2_v2() {
         let subnet_id_2 = 2;
         let epoch = Network::get_current_overwatch_epoch_as_u32();
 
-        let node_id_1 = insert_overwatch_node(1, 1);
-        let node_id_2 = insert_overwatch_node(2, 2);
+        let validator_id_1 = 1;
+        let validator_id_2 = 2;
+
+        // Setup
+        manual_insert_validator(validator_id_1, validator_id_1, validator_id_1);
+        manual_insert_validator(validator_id_2, validator_id_2, validator_id_2);
+
+        let node_id_1 = insert_overwatch_node_v2(validator_id_1);
+        let node_id_2 = insert_overwatch_node_v2(validator_id_2);
         set_overwatch_node_stake(1, 100);
         set_overwatch_node_stake(2, 50);
 
@@ -837,15 +878,34 @@ fn test_multiple_subnets_check_percent_acccuracy() {
         let subnet_id_5 = 5;
         let epoch = Network::get_current_overwatch_epoch_as_u32();
 
+        let validator_id_1 = 1;
+        let validator_id_2 = 2;
+        let validator_id_3 = 3;
+        let validator_id_4 = 4;
+        let validator_id_5 = 5;
+        let validator_id_6 = 6;
+        let validator_id_7 = 7;
+        let validator_id_8 = 8;
+
+        // Setup
+        manual_insert_validator(validator_id_1, validator_id_1, validator_id_1);
+        manual_insert_validator(validator_id_2, validator_id_2, validator_id_2);
+        manual_insert_validator(validator_id_3, validator_id_3, validator_id_3);
+        manual_insert_validator(validator_id_4, validator_id_4, validator_id_4);
+        manual_insert_validator(validator_id_5, validator_id_5, validator_id_5);
+        manual_insert_validator(validator_id_6, validator_id_6, validator_id_6);
+        manual_insert_validator(validator_id_7, validator_id_7, validator_id_7);
+        manual_insert_validator(validator_id_8, validator_id_8, validator_id_8);
+
         // --- Generate a bunch of subnets, nodes, and entries and ensure ~1.0
-        let node_id_1 = insert_overwatch_node(1, 1);
-        let node_id_2 = insert_overwatch_node(2, 2);
-        let node_id_3 = insert_overwatch_node(3, 3);
-        let node_id_4 = insert_overwatch_node(4, 4);
-        let node_id_5 = insert_overwatch_node(5, 5);
-        let node_id_6 = insert_overwatch_node(6, 6);
-        let node_id_7 = insert_overwatch_node(7, 7);
-        let node_id_8 = insert_overwatch_node(8, 8);
+        let node_id_1 = insert_overwatch_node_v2(validator_id_1);
+        let node_id_2 = insert_overwatch_node_v2(validator_id_2);
+        let node_id_3 = insert_overwatch_node_v2(validator_id_3);
+        let node_id_4 = insert_overwatch_node_v2(validator_id_4);
+        let node_id_5 = insert_overwatch_node_v2(validator_id_5);
+        let node_id_6 = insert_overwatch_node_v2(validator_id_6);
+        let node_id_7 = insert_overwatch_node_v2(validator_id_7);
+        let node_id_8 = insert_overwatch_node_v2(validator_id_8);
 
         set_overwatch_node_stake(1, 100);
         set_overwatch_node_stake(2, 50);

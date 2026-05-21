@@ -46,7 +46,7 @@ fn test_add_to_stake_not_key_owner() {
 
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -89,7 +89,7 @@ fn test_remove_stake_not_key_owner() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -134,7 +134,7 @@ fn test_add_to_stake() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -187,7 +187,7 @@ fn test_add_to_stake_invalid_amount_error() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -233,7 +233,7 @@ fn test_add_to_stake_max_stake_error() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -278,7 +278,7 @@ fn test_add_to_stake_not_enough_balance_to_stake_error() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(
+        build_activated_subnet(
             subnet_name.clone(),
             0,
             end,
@@ -318,7 +318,7 @@ fn test_add_to_stake_balance_withdraw_error() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(
+        build_activated_subnet(
             subnet_name.clone(),
             0,
             end,
@@ -355,7 +355,7 @@ fn test_remove_stake_not_enough_stake_error() {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_id_key_offset = get_subnet_id_key_offset(subnet_id);
@@ -397,7 +397,7 @@ fn test_remove_stake_min_stake_not_reached_error() {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let end = 4;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_id_key_offset = get_subnet_id_key_offset(subnet_id);
@@ -444,7 +444,7 @@ fn test_remove_stake() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -517,7 +517,7 @@ fn test_remove_stake() {
 
 //         let end = 11;
 
-//         build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+//         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
 //         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 //         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -646,7 +646,7 @@ fn test_remove_stake_after_remove_subnet_node() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 11;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
@@ -693,7 +693,7 @@ fn test_remove_stake_after_remove_subnet() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 11;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
@@ -754,7 +754,7 @@ fn test_remove_stake_after_remove_subnet_twice() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = 11;
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
@@ -812,7 +812,7 @@ fn test_subnet_node_try_removing_all_stake_error() {
         let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
         let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
@@ -848,7 +848,7 @@ fn test_register_try_removing_all_stake_error() {
         let max_subnets = MaxSubnets::<Test>::get();
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
 
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);

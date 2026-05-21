@@ -419,7 +419,7 @@ fn test_commit_and_reveal_extrinsics() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
         let end = min_subnet_nodes;
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let validator_id = 1;
@@ -506,7 +506,7 @@ fn test_reveal_overwatch_subnet_weights_not_key_owner_error() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
         let end = min_subnet_nodes;
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let validator_id = 1;
@@ -601,7 +601,7 @@ fn test_reveal_overwatch_subnet_weights_blacklisted_error() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
         let end = min_subnet_nodes;
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let validator_id = 1;
@@ -686,7 +686,7 @@ fn test_reveal_overwatch_subnet_weights_no_commit_found_error() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
         let end = min_subnet_nodes;
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let validator_id = 1;
@@ -753,7 +753,7 @@ fn test_reveal_overwatch_subnet_weights_reveal_mismatch_error() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
         let end = min_subnet_nodes;
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let validator_id = 1;
@@ -1004,7 +1004,7 @@ fn test_commit_and_reveal_phase_errors() {
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
         let min_subnet_nodes = MinSubnetNodes::<Test>::get();
         let end = min_subnet_nodes;
-        build_activated_subnet_v2(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
         let validator_id = 1;

@@ -11,7 +11,7 @@ use crate::{
     OverwatchNodeValidatorId, OverwatchNodes, OverwatchReveals, PeerIdSubnetNodeId, PeerInfo,
     RegisteredSubnetNodesData, RegistrationSubnetData, Reputation, StakeCooldownEpochs,
     StakeUnbondingLedger, SubnetConsensusSubmission, SubnetData, SubnetElectedValidator,
-    SubnetIdFriendlyUid, SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode,
+    SubnetIdFriendlyUid, SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName,
     SubnetNodeClass, SubnetNodeClassification, SubnetNodeConsensusData, SubnetNodeElectionSlots,
     SubnetNodeIdHotkey, SubnetNodeQueue, SubnetNodeReputation, SubnetNodeV2, SubnetNodeValidatorId,
     SubnetNodesData, SubnetOwner, SubnetRegistrationEpoch, SubnetRegistrationEpochs,
@@ -179,7 +179,7 @@ pub fn get_multiaddr(
     Some(bytes.try_into().expect("bootnode too long"))
 }
 
-pub fn build_activated_subnet_v2(
+pub fn build_activated_subnet(
     subnet_name: Vec<u8>,
     start: u32,
     mut end: u32,
@@ -221,7 +221,7 @@ pub fn build_activated_subnet_v2(
         end = min_nodes;
     }
 
-    let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+    let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
         subnet_id_key_offset,
         max_subnet_nodes,
         subnet_name.clone().into(),
@@ -475,7 +475,7 @@ pub fn build_activated_subnet_v2(
     assert_eq!(subnet.state, SubnetState::Active);
 }
 
-pub fn build_activated_subnet_new_excess_subnets_v2(
+pub fn build_activated_subnet_new_excess_subnets(
     subnet_name: Vec<u8>,
     start: u32,
     mut end: u32,
@@ -519,7 +519,7 @@ pub fn build_activated_subnet_new_excess_subnets_v2(
         end = min_nodes;
     }
 
-    let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+    let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
         subnet_id_key_offset,
         max_subnet_nodes,
         subnet_name.clone().into(),
@@ -723,7 +723,7 @@ pub fn build_activated_subnet_new_excess_subnets_v2(
     assert_eq!(subnet.state, SubnetState::Active);
 }
 
-pub fn build_registered_subnet_v2(
+pub fn build_registered_subnet(
     subnet_name: Vec<u8>,
     start: u32,
     mut end: u32,
@@ -771,7 +771,7 @@ pub fn build_registered_subnet_v2(
     }
 
     let add_subnet_data = if add_subnet_data.is_none() {
-        default_registration_subnet_data_v2(
+        default_registration_subnet_data(
             subnet_id_key_offset,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -968,7 +968,7 @@ pub fn build_registered_subnet_v2(
     assert_eq!(subnet.state, SubnetState::Registered);
 }
 
-pub fn insert_subnet_node_v2(
+pub fn insert_subnet_node(
     validator_id: u32,
     subnet_id: u32,
     coldkey_n: u32,
@@ -1055,7 +1055,7 @@ pub fn insert_subnet_node_v2(
     }
 }
 
-pub fn build_registered_subnet_nodes_v2(
+pub fn build_registered_subnet_nodes(
     subnet_id: u32,
     start: u32,
     mut end: u32,
@@ -1213,7 +1213,7 @@ pub fn build_registered_subnet_nodes_v2(
     }
 }
 
-pub fn build_registered_nodes_in_queue_v2(
+pub fn build_registered_nodes_in_queue(
     subnet_id: u32,
     start: u32,
     mut end: u32,
@@ -1328,7 +1328,7 @@ pub fn build_registered_nodes_in_queue_v2(
     }
 }
 
-pub fn build_activated_subnet_with_delegator_rewards_v2(
+pub fn build_activated_subnet_with_delegator_rewards(
     subnet_name: Vec<u8>,
     start: u32,
     mut end: u32,
@@ -1356,7 +1356,7 @@ pub fn build_activated_subnet_with_delegator_rewards_v2(
         end = min_nodes;
     }
 
-    let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data_v2(
+    let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
         subnets,
         max_subnet_nodes,
         subnet_name.clone().into(),
@@ -1584,7 +1584,7 @@ pub fn get_initial_coldkeys_with_onodes(
     whitelist
 }
 
-pub fn default_registration_subnet_data_v2(
+pub fn default_registration_subnet_data(
     subnets: u32,
     max_subnet_nodes: u32,
     name: Vec<u8>,
@@ -1776,7 +1776,7 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
         });
     }
 
-    let included_subnet_nodes: Vec<SubnetNodeV2> = Network::get_active_classified_subnet_nodes_v2(
+    let included_subnet_nodes: Vec<SubnetNodeV2> = Network::get_active_classified_subnet_nodes(
         subnet_id,
         &SubnetNodeClass::Included,
         epoch,
@@ -1808,26 +1808,6 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
     }
 }
 
-// pub fn subnet_node_data_invalid_scores(start: u32, end: u32) -> Vec<SubnetNodeConsensusData> {
-//   // initialize peer consensus data array
-//   // let mut subnet_node_data: Vec<SubnetNodeConsensusData<<Test as frame_system::Config>::AccountId>> = Vec::new();
-//   let mut subnet_node_data: Vec<SubnetNodeConsensusData> = Vec::new();
-//   for n in start+1..end+1 {
-//     // let peer_subnet_node_data: SubnetNodeConsensusData<<Test as frame_system::Config>::AccountId> = SubnetNodeConsensusData {
-//     //   // account_id: account(n),
-//     //   peer_id: peer(n),
-//     //   score: 10000000000,
-//     // };
-//     let peer_subnet_node_data: SubnetNodeConsensusData = SubnetNodeConsensusData {
-//       // peer_id: peer(n),
-//       subnet_node_id: subnets*max_subnet_nodes+n,
-//       score: 10000000000,
-//     };
-//     subnet_node_data.push(peer_subnet_node_data);
-//   }
-//   subnet_node_data
-// }
-
 // check data after adding multiple peers
 // each peer must have equal staking amount per subnet
 pub fn post_successful_add_subnet_nodes_asserts(
@@ -1840,29 +1820,6 @@ pub fn post_successful_add_subnet_nodes_asserts(
 }
 
 pub fn post_remove_unstake_ensures(n: u32, subnet_id: u32) {}
-
-// pub fn add_subnet_node(
-//     account_id: u32,
-//     subnet_id: u32,
-//     peer_id: u32,
-//     ip: String,
-//     port: u16,
-//     amount: u128,
-// ) -> Result<(), sp_runtime::DispatchError> {
-//     Network::add_subnet_node(
-//         RuntimeOrigin::signed(account(account_id)),
-//         subnet_id,
-//         account(account_id),
-//         peer(peer_id),
-//         peer(peer_id),
-//         peer(peer_id),
-//         None,
-//         0,
-//         amount,
-//         None,
-//         None,
-//     )
-// }
 
 pub fn to_bounded<Len: frame_support::traits::Get<u32>>(s: &str) -> BoundedVec<u8, Len> {
     BoundedVec::try_from(s.as_bytes().to_vec()).expect("String too long")
