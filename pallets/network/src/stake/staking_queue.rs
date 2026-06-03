@@ -100,23 +100,21 @@ impl<T: Config> Pallet<T> {
                         call: item.call.clone(),
                     });
                 }
-                QueuedSwapCall::SwapToNodeDelegateStake {
+                QueuedSwapCall::SwapToValidatorDelegateStake {
                     account_id,
-                    to_subnet_id,
-                    to_subnet_node_id,
+                    to_validator_id,
                     balance: _,
                 } => {
                     ensure!(&account_id == &key, Error::<T>::NotKeyOwner);
                     ensure!(
-                        Self::get_subnet_node(to_subnet_id, to_subnet_node_id,).is_some(),
-                        Error::<T>::InvalidSubnetNodeId
+                        ValidatorsData::<T>::contains_key(to_validator_id),
+                        Error::<T>::InvalidValidatorId
                     );
 
                     // Update queue balance "to" subnet node
-                    item.call = QueuedSwapCall::SwapToNodeDelegateStake {
+                    item.call = QueuedSwapCall::SwapToValidatorDelegateStake {
                         account_id,
-                        to_subnet_id,
-                        to_subnet_node_id,
+                        to_validator_id,
                         balance: call_balance,
                     };
 

@@ -43,22 +43,17 @@ where
     <R as pallet_evm::Config>::AddressMapping: AddressMapping<R::AccountId>,
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
-    #[precompile::public("registerOverwatchNode(address,uint256)")]
+    #[precompile::public("registerOverwatchNode(uint256)")]
     #[precompile::payable]
     fn register_overwatch_node(
         handle: &mut impl PrecompileHandle,
-        hotkey: Address,
         stake_to_be_added: U256,
     ) -> EvmResult<()> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
         let stake_to_be_added = stake_to_be_added.unique_saturated_into();
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::register_overwatch_node {
-            hotkey,
-            stake_to_be_added,
-        };
+        let call = pallet_network::Call::<R>::register_overwatch_node { stake_to_be_added };
 
         RuntimeHelper::<R>::try_dispatch(
             handle,
@@ -91,16 +86,26 @@ where
         Ok(())
     }
 
-    #[precompile::public("anyoneRemoveOverwatchNode(uint256)")]
-    fn anyone_remove_overwatch_node(
+    #[precompile::public("updateOverwatchHotkey(uint256,bool,address)")]
+    fn update_overwatch_hotkey(
         handle: &mut impl PrecompileHandle,
         overwatch_node_id: U256,
+        has_new_hotkey: bool,
+        new_hotkey: Address,
     ) -> EvmResult<()> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
+        let new_hotkey = if has_new_hotkey {
+            Some(R::AddressMapping::into_account_id(new_hotkey.into()))
+        } else {
+            None
+        };
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::anyone_remove_overwatch_node { overwatch_node_id };
+        let call = pallet_network::Call::<R>::update_overwatch_hotkey {
+            overwatch_node_id,
+            new_hotkey,
+        };
 
         RuntimeHelper::<R>::try_dispatch(
             handle,
@@ -140,51 +145,6 @@ where
 
         Ok(())
     }
-
-    // #[precompile::public("commitOverwatchSubnetWeights(uint256,uint256[],bytes32[])")]
-    // fn commit_overwatch_subnet_weights(
-    //     handle: &mut impl PrecompileHandle,
-    //     overwatch_node_id: U256,
-    //     subnet_ids: Vec<U256>,
-    //     weight_hashes: Vec<H256>,
-    // ) -> EvmResult<()> {
-    //     handle.record_cost(RuntimeHelper::<R>::db_write_gas_cost())?;
-
-    //     let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
-
-    //     // Validate arrays have same length
-    //     if subnet_ids.len() != weight_hashes.len() {
-    //         return Err(revert("subnet_ids and weight_hashes length mismatch"));
-    //     }
-
-    //     let mut commit_weights: Vec<OverwatchCommit<R::Hash>> = Vec::new();
-    //     for (subnet_id_u256, weight_hash) in subnet_ids.iter().zip(weight_hashes.iter()) {
-    //         let subnet_id = try_u256_to_u32(*subnet_id_u256)?;
-    //         commit_weights.push(OverwatchCommit {
-    //             subnet_id,
-    //             weight: *weight_hash,
-    //         });
-    //     }
-
-    //     // Get the caller
-    //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
-
-    //     // Create the pallet call
-    //     let call = pallet_network::Call::<R>::commit_overwatch_subnet_weights {
-    //         overwatch_node_id,
-    //         commit_weights,
-    //     };
-
-    //     // Dispatch the call
-    //     RuntimeHelper::<R>::try_dispatch(
-    //         handle,
-    //         RawOrigin::Signed(origin.clone()).into(),
-    //         call,
-    //         0,
-    //     )?;
-
-    //     Ok(())
-    // }
 
     #[precompile::public("commitOverwatchSubnetWeights(uint256,(uint256,bytes32)[])")]
     fn commit_overwatch_subnet_weights(
@@ -260,23 +220,20 @@ where
         Ok(())
     }
 
-    #[precompile::public("addToOverwatchStake(uint256,address,uint256)")]
+    #[precompile::public("addOverwatchStake(uint256,uint256)")]
     #[precompile::payable]
-    fn add_to_overwatch_stake(
+    fn add_overwatch_node_stake(
         handle: &mut impl PrecompileHandle,
         overwatch_node_id: U256,
-        hotkey: Address,
         stake_to_be_added: U256,
     ) -> EvmResult<()> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
         let stake_to_be_added = stake_to_be_added.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::add_to_overwatch_stake {
+        let call = pallet_network::Call::<R>::add_overwatch_node_stake {
             overwatch_node_id,
-            hotkey,
             stake_to_be_added,
         };
 
@@ -290,19 +247,19 @@ where
         Ok(())
     }
 
-    #[precompile::public("removeOverwatchStake(address,uint256)")]
-    fn remove_overwatch_stake(
+    #[precompile::public("removeOverwatchStake(uint256,uint256)")]
+    fn remove_overwatch_node_stake(
         handle: &mut impl PrecompileHandle,
-        hotkey: Address,
+        overwatch_node_id: U256,
         stake_to_be_removed: U256,
     ) -> EvmResult<()> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
+        let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
         let stake_to_be_removed = stake_to_be_removed.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::remove_overwatch_stake {
-            hotkey,
+        let call = pallet_network::Call::<R>::remove_overwatch_node_stake {
+            overwatch_node_id,
             stake_to_be_removed,
         };
 
@@ -316,16 +273,17 @@ where
         Ok(())
     }
 
-    #[precompile::public("accountOverwatchStake(address)")]
+    #[precompile::public("accountOverwatchStake(uint256)")]
     #[precompile::view]
-    fn account_overwatch_stake(
+    fn overwatch_node_stake_balance(
         handle: &mut impl PrecompileHandle,
-        hotkey: Address,
+        overwatch_node_id: U256,
     ) -> EvmResult<u128> {
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
+        let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
 
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let account_stake: u128 = pallet_network::AccountOverwatchStake::<R>::get(hotkey);
+        let account_stake: u128 =
+            pallet_network::OverwatchNodeStakeBalance::<R>::get(overwatch_node_id);
 
         Ok(account_stake)
     }
@@ -334,7 +292,7 @@ where
     #[precompile::view]
     fn total_overwatch_stake(handle: &mut impl PrecompileHandle) -> EvmResult<u128> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let total_stake: u128 = pallet_network::TotalOverwatchStake::<R>::get();
+        let total_stake: u128 = pallet_network::TotalOverwatchNodeStakeBalance::<R>::get();
 
         Ok(total_stake)
     }
@@ -434,23 +392,6 @@ where
         let hotkey = Address(sp_core::H160::from(overwatch_node_hotkey.into()));
 
         Ok(hotkey)
-    }
-
-    #[precompile::public("hotkeyOverwatchNodeId(address)")]
-    #[precompile::view]
-    fn hotkey_overwatch_node_id(
-        handle: &mut impl PrecompileHandle,
-        hotkey: Address,
-    ) -> EvmResult<U256> {
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
-
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let overwatch_node_id = pallet_network::HotkeyOverwatchNodeId::<R>::get(hotkey)
-            .ok_or(revert("Hotkey overwatch node ID not found"))?;
-
-        let overwatch_node_id_u256 = try_u32_to_u256(overwatch_node_id)?;
-
-        Ok(overwatch_node_id_u256)
     }
 
     #[precompile::public("peerIdOverwatchNode(uint256,string)")]

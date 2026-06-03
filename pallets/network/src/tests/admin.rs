@@ -3,9 +3,9 @@ use super::test_utils::*;
 use crate::Event;
 use crate::{
     AttestorMinRewardFactor, AttestorRewardExponent, BaseNodeBurnAmount, BaseSlashPercentage,
-    BaseValidatorReward, ColdkeyReputationDecreaseFactor, ColdkeyReputationIncreaseFactor,
-    DelegateStakeCooldownEpochs, DelegateStakeSubnetRemovalInterval, DelegateStakeWeightFactor,
-    Error, InConsensusSubnetReputationFactor, InflationSigmoidMidpoint, InflationSigmoidSteepness,
+    BaseValidatorReward, DefaultOverwatchSubnetWeight, DelegateStakeCooldownEpochs,
+    DelegateStakeSubnetRemovalInterval, DelegateStakeWeightFactor, Error,
+    InConsensusSubnetReputationFactor, InflationSigmoidMidpoint, InflationSigmoidSteepness,
     LessThanMinNodesSubnetReputationFactor, MaxBootnodes, MaxChurnLimit, MaxChurnLimitMultiplier,
     MaxDelegateStakePercentage, MaxEmergencySubnetNodes, MaxEmergencyValidatorEpochsMultiplier,
     MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes,
@@ -25,12 +25,14 @@ use crate::{
     NodeRewardRateUpdatePeriod, NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
     OverwatchEpochLengthMultiplier, OverwatchMinAge, OverwatchMinAvgAttestationRatio,
     OverwatchMinDiversificationRatio, OverwatchMinRepScore, OverwatchMinStakeBalance,
-    OverwatchNodeBlacklist, OverwatchStakeWeightFactor, OverwatchWeightFactor, QueueImmunityEpochs,
-    RegistrationCostAlpha, RegistrationCostDecayBlocks, StakeCooldownEpochs,
-    SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower, SubnetEnactmentEpochs,
-    SubnetName, SubnetOwnerPercentage, SubnetPauseCooldownEpochs, SubnetRegistrationEpochs,
-    SubnetWeightFactors, SubnetWeightFactorsData, SuperMajorityAttestationRatio, TxRateLimit,
-    ValidatorAbsentSubnetReputationFactor, ValidatorRewardK, ValidatorRewardMidpoint,
+    OverwatchNodeBlacklist, OverwatchStakeWeightFactor, OverwatchValidatorWhitelist,
+    OverwatchWeightFactor, QueueImmunityEpochs, RegistrationCostAlpha, RegistrationCostDecayBlocks,
+    StakeCooldownEpochs, SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower,
+    SubnetEnactmentEpochs, SubnetName, SubnetOwnerPercentage, SubnetPauseCooldownEpochs,
+    SubnetRegistrationEpochs, SubnetWeightFactors, SubnetWeightFactorsData,
+    SuperMajorityAttestationRatio, TxRateLimit, ValidatorAbsentSubnetReputationFactor,
+    ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor, ValidatorRewardK,
+    ValidatorRewardMidpoint,
 };
 use frame_support::{assert_err, assert_ok};
 
@@ -861,10 +863,10 @@ fn test_set_reputation_increase_factor() {
             new_value
         ));
 
-        assert_eq!(ColdkeyReputationIncreaseFactor::<Test>::get(), new_value);
+        assert_eq!(ValidatorReputationIncreaseFactor::<Test>::get(), new_value);
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::SetColdkeyReputationIncreaseFactor(new_value)
+            Event::SetValidatorReputationIncreaseFactor(new_value)
         );
     });
 }
@@ -881,10 +883,10 @@ fn test_set_reputation_decrease_factor() {
             new_value
         ));
 
-        assert_eq!(ColdkeyReputationDecreaseFactor::<Test>::get(), new_value);
+        assert_eq!(ValidatorReputationDecreaseFactor::<Test>::get(), new_value);
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::SetColdkeyReputationDecreaseFactor(new_value)
+            Event::SetValidatorReputationDecreaseFactor(new_value)
         );
     });
 }
@@ -1916,6 +1918,67 @@ fn test_set_subnet_weight_factors() {
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SetSubnetWeightFactors(value)
+        );
+    });
+}
+
+#[test]
+fn test_set_default_overwatch_subnet_weight() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(System::block_number() + 1);
+
+        let value = Network::percentage_factor_as_u128() / 2;
+
+        assert_ok!(Network::set_default_overwatch_subnet_weight(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+            value
+        ));
+
+        assert_eq!(DefaultOverwatchSubnetWeight::<Test>::get(), value);
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::SetDefaultOverwatchSubnetWeight(value)
+        );
+
+        assert_err!(
+            Network::set_default_overwatch_subnet_weight(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+                Network::percentage_factor_as_u128() + 1
+            ),
+            Error::<Test>::InvalidPercent
+        );
+    });
+}
+
+#[test]
+fn test_set_overwatch_validator_whitelist() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(System::block_number() + 1);
+
+        let validator_id = 7;
+
+        assert_ok!(Network::set_overwatch_validator_whitelist(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+            validator_id,
+            true
+        ));
+
+        assert!(OverwatchValidatorWhitelist::<Test>::get(validator_id));
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::SetOverwatchValidatorWhitelist(validator_id, true)
+        );
+
+        assert_ok!(Network::set_overwatch_validator_whitelist(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+            validator_id,
+            false
+        ));
+
+        assert!(!OverwatchValidatorWhitelist::<Test>::get(validator_id));
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::SetOverwatchValidatorWhitelist(validator_id, false)
         );
     });
 }

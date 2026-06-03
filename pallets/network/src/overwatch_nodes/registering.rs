@@ -20,13 +20,14 @@ use frame_support::pallet_prelude::Pays;
 impl<T: Config> Pallet<T> {
     pub fn do_register_overwatch_node(
         origin: T::RuntimeOrigin,
-        hotkey: T::AccountId,
         stake_to_be_added: u128,
     ) -> DispatchResult {
-        let coldkey: T::AccountId = ensure_signed(origin)?;
+        let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+        let validator_id = ColdkeyValidatorId::<T>::get(&coldkey).ok_or(Error::<T>::NotKeyOwner)?;
 
         ensure!(
-            !OverwatchNodeBlacklist::<T>::get(coldkey.clone()),
+            OverwatchValidatorWhitelist::<T>::get(validator_id),
             Error::<T>::ColdkeyBlacklisted
         );
 
@@ -42,53 +43,54 @@ impl<T: Config> Pallet<T> {
             Error::<T>::MaxOverwatchNodes
         );
 
-        ensure!(&hotkey != &coldkey, Error::<T>::ColdkeyMatchesHotkey);
-
-        // ⸺ Register fresh hotkey
-        ensure!(
-            !Self::hotkey_has_owner(hotkey.clone()),
-            Error::<T>::HotkeyHasOwner
-        );
-
-        let mut hotkeys = ColdkeyHotkeys::<T>::get(&coldkey);
-        // Redundant
-        ensure!(
-            !hotkeys.contains(&hotkey),
-            Error::<T>::HotkeyAlreadyRegisteredToColdkey
-        );
-
-        // Insert coldkey -> hotkeys
-        hotkeys.insert(hotkey.clone());
-        ColdkeyHotkeys::<T>::insert(&coldkey, hotkeys);
-
         // ⸺ Ensure qualifies via reputation
-        let reputation = ColdkeyReputation::<T>::get(&coldkey);
+        let reputation = ValidatorReputation::<T>::get(validator_id);
 
         ensure!(
-            Self::is_overwatch_node_qualified(&coldkey),
+            Self::is_validator_overwatch_qualified(validator_id),
             Error::<T>::ColdkeyNotOverwatchQualified
         );
-
-        // ⸺ Stake
-        Self::do_add_overwatch_stake(coldkey.clone(), hotkey.clone(), stake_to_be_added)
-            .map_err(|e| e)?;
 
         // ⸺ Register
         TotalOverwatchNodeUids::<T>::mutate(|n: &mut u32| *n += 1);
         let current_uid = TotalOverwatchNodeUids::<T>::get();
 
-        HotkeyOwner::<T>::insert(&hotkey, &coldkey);
-        HotkeyOverwatchNodeId::<T>::insert(&hotkey, current_uid);
+        OverwatchNodeValidatorId::<T>::insert(current_uid, validator_id);
+
+        // ⸺ Stake
+        Self::do_add_overwatch_node_stake(origin.clone(), current_uid, stake_to_be_added)
+            .map_err(|e| e)?;
 
         let overwatch_node: OverwatchNode<T::AccountId> = OverwatchNode {
             id: current_uid,
-            hotkey: hotkey.clone(),
+            hotkey: coldkey.clone(),
         };
 
-        OverwatchNodeIdHotkey::<T>::insert(current_uid, hotkey.clone());
         OverwatchNodes::<T>::insert(current_uid, overwatch_node);
 
         TotalOverwatchNodes::<T>::mutate(|n: &mut u32| *n += 1);
+
+        Ok(())
+    }
+
+    pub fn do_update_overwatch_hotkey(
+        origin: T::RuntimeOrigin,
+        overwatch_node_id: u32,
+        new_hotkey: Option<T::AccountId>,
+    ) -> DispatchResult {
+        let coldkey: T::AccountId = ensure_signed(origin)?;
+
+        let validator_coldkey = Self::get_overwatch_node_associated_coldkey(overwatch_node_id)?;
+
+        ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+
+        if let Some(new_hotkey) = new_hotkey {
+            OverwatchNodeIdHotkey::<T>::insert(overwatch_node_id, new_hotkey);
+        } else {
+            // Remove overwatch hotkey if None, the node will use the
+            // validator hotkey for all hotkey features
+            OverwatchNodeIdHotkey::<T>::remove(overwatch_node_id);
+        }
 
         Ok(())
     }
@@ -106,10 +108,10 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidSubnetId
         );
 
-        ensure!(
-            Self::is_overwatch_node_keys_owner(overwatch_node_id, key),
-            Error::<T>::NotKeyOwner
-        );
+        let (colkey, hotkey) =
+            Self::get_overwatch_associated_coldkey_and_hotkey(overwatch_node_id)?;
+
+        ensure!(key == colkey || key == hotkey, Error::<T>::NotKeyOwner);
 
         ensure!(Self::validate_peer_id(&peer_id), Error::<T>::InvalidPeerId);
 
@@ -129,8 +131,12 @@ impl<T: Config> Pallet<T> {
         Ok(Pays::No.into())
     }
 
-    pub fn is_overwatch_node_qualified(coldkey: &T::AccountId) -> bool {
-        let reputation = match ColdkeyReputation::<T>::try_get(coldkey) {
+    pub fn is_council_qualified(validator_id: u32) -> bool {
+        false
+    }
+
+    pub fn is_validator_overwatch_qualified(validator_id: u32) -> bool {
+        let reputation = match ValidatorReputation::<T>::try_get(validator_id) {
             Ok(value) => value,
             Err(_) => return false,
         };
@@ -156,19 +162,24 @@ impl<T: Config> Pallet<T> {
             return false;
         }
 
-        Self::clean_coldkey_subnet_nodes(coldkey.clone());
+        Self::clean_validator_subnet_nodes(validator_id);
 
         // Get number of nodes under coldkey
         let mut active_unique_node_count = 0;
-        ColdkeySubnetNodes::<T>::mutate(coldkey, |colkey_map| {
-            for (subnet_id, nodes) in colkey_map.iter_mut() {
+        ValidatorSubnetNodes::<T>::mutate(validator_id, |node_map| {
+            for (subnet_id, nodes) in node_map.iter_mut() {
                 let subnet_epoch = Self::get_current_subnet_epoch_as_u32(*subnet_id);
 
                 let node_ids: Vec<u32> = nodes.iter().copied().collect();
 
                 // Process each node_id one by one
                 for node_id in node_ids {
-                    if !Self::get_validator_subnet_node(*subnet_id, node_id, subnet_epoch).is_none()
+                    if !Self::get_validator_classified_subnet_node(
+                        *subnet_id,
+                        node_id,
+                        subnet_epoch,
+                    )
+                    .is_none()
                     {
                         active_unique_node_count += 1;
                         // `break` to next subnet

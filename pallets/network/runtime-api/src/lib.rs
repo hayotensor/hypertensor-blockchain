@@ -30,8 +30,8 @@ sp_api::decl_runtime_apis! {
     fn get_all_subnet_nodes_info() -> Vec<u8>;
     fn proof_of_stake(subnet_id: u32, peer_id: Vec<u8>, min_class: u8, min_stake: Option<u128>) -> bool;
     fn get_bootnodes(subnet_id: u32) -> Vec<u8>;
-    fn get_coldkey_subnet_nodes_info(coldkey: AccountId20) -> Vec<u8>;
-    fn get_coldkey_stakes(coldkey: AccountId20) -> Vec<u8>;
+    fn get_validator_subnet_nodes_info(validator_id: u32) -> Vec<u8>;
+    fn get_validator_stakes(validator_id: u32) -> Vec<u8>;
     fn get_delegate_stakes(account_id: AccountId20) -> Vec<u8>;
     fn get_node_delegate_stakes(account_id: AccountId20) -> Vec<u8>;
     fn get_overwatch_commits_for_epoch_and_node(epoch: u32,overwatch_node_id: u32) -> Vec<u8>;

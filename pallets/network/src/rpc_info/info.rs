@@ -46,8 +46,8 @@ impl<T: Config> Pallet<T> {
             ),
             node_burn_rate_alpha: NodeBurnRateAlpha::<T>::get(subnet_id),
             current_node_burn_rate: CurrentNodeBurnRate::<T>::get(subnet_id),
-            initial_coldkeys: SubnetRegistrationInitialColdkeys::<T>::get(subnet_id),
-            initial_coldkey_data: InitialColdkeyData::<T>::get(subnet_id),
+            initial_validators: NodeRegistrationInitialValidatorIds::<T>::get(subnet_id),
+            initial_validator_data: InitialValidatorData::<T>::get(subnet_id),
             max_registered_nodes: MaxRegisteredNodes::<T>::get(subnet_id),
             owner: SubnetOwner::<T>::get(subnet_id),
             pending_owner: PendingSubnetOwner::<T>::get(subnet_id),
@@ -104,7 +104,7 @@ impl<T: Config> Pallet<T> {
     pub fn get_subnet_node_info(
         subnet_id: u32,
         subnet_node_id: u32,
-    ) -> Option<SubnetNodeInfo<T::AccountId>> {
+    ) -> Option<SubnetNodeInfoV2<T::AccountId>> {
         let subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::get(subnet_id, subnet_node_id)
         } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
@@ -113,32 +113,21 @@ impl<T: Config> Pallet<T> {
             return None;
         };
 
-        let coldkey = HotkeyOwner::<T>::get(&subnet_node.hotkey);
-        let info = SubnetNodeInfo {
+        let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id);
+        let coldkey = ValidatorColdkey::<T>::get(validator_id.unwrap()).unwrap();
+        let info = SubnetNodeInfoV2 {
+            validator_id: validator_id,
             subnet_id: subnet_id,
             subnet_node_id: subnet_node_id,
-            coldkey: coldkey.clone(),
-            hotkey: subnet_node.hotkey.clone(),
+            coldkey: coldkey,
+            hotkey: Self::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id).unwrap(),
             peer_info: subnet_node.peer_info,
             bootnode_peer_info: subnet_node.bootnode_peer_info,
             client_peer_info: subnet_node.client_peer_info,
-            delegate_account: subnet_node.delegate_account,
-            identity: ColdkeyIdentity::<T>::get(&coldkey),
             classification: subnet_node.classification,
-            delegate_reward_rate: subnet_node.delegate_reward_rate,
-            last_delegate_reward_rate_update: subnet_node.last_delegate_reward_rate_update,
             unique: subnet_node.unique,
             non_unique: subnet_node.non_unique,
-            stake_balance: AccountSubnetStake::<T>::get(subnet_node.hotkey, subnet_id),
-            total_node_delegate_stake_shares: TotalNodeDelegateStakeShares::<T>::get(
-                subnet_id,
-                subnet_node_id,
-            ),
-            node_delegate_stake_balance: TotalNodeDelegateStakeBalance::<T>::get(
-                subnet_id,
-                subnet_node_id,
-            ),
-            coldkey_reputation: ColdkeyReputation::<T>::get(coldkey.clone()),
+            stake_balance: NodeSubnetStake::<T>::get(subnet_node_id, subnet_id),
             subnet_node_reputation: SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id),
             node_slot_index: NodeSlotIndex::<T>::get(subnet_id, subnet_node_id),
             consecutive_idle_epochs: SubnetNodeIdleConsecutiveEpochs::<T>::get(
@@ -154,11 +143,31 @@ impl<T: Config> Pallet<T> {
         return Some(info);
     }
 
-    /// Get subnet ID nodes info
-    pub fn get_subnet_nodes_info(subnet_id: u32) -> Vec<SubnetNodeInfo<T::AccountId>> {
-        let mut infos: Vec<SubnetNodeInfo<T::AccountId>> = Vec::new();
+    pub fn get_validator_info(validator_id: u32) -> Option<ValidatorInfo<T::AccountId>> {
+        let validator = if ValidatorsData::<T>::contains_key(validator_id) {
+            ValidatorsData::<T>::get(validator_id)
+        } else {
+            return None;
+        };
 
-        for (_, subnet_node_id) in HotkeySubnetNodeId::<T>::iter_prefix(subnet_id) {
+        let info = ValidatorInfo {
+            id: validator_id,
+            coldkey: ValidatorColdkey::<T>::get(validator_id),
+            hotkey: validator.hotkey,
+            delegate_reward_rate: validator.delegate_reward_rate,
+            last_delegate_reward_rate_update: validator.last_delegate_reward_rate_update,
+            delegate_account: validator.delegate_account,
+            identity: validator.identity,
+        };
+
+        return Some(info);
+    }
+
+    /// Get subnet ID nodes info
+    pub fn get_subnet_nodes_info(subnet_id: u32) -> Vec<SubnetNodeInfoV2<T::AccountId>> {
+        let mut infos: Vec<SubnetNodeInfoV2<T::AccountId>> = Vec::new();
+
+        for (subnet_node_id, _) in SubnetNodeReputation::<T>::iter_prefix(subnet_id) {
             if let Some(subnet_node_info) = Self::get_subnet_node_info(subnet_id, subnet_node_id) {
                 infos.push(subnet_node_info);
             }
@@ -168,11 +177,11 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Get all subnet ID nodes info
-    pub fn get_all_subnet_nodes_info() -> Vec<SubnetNodeInfo<T::AccountId>> {
-        let mut infos: Vec<SubnetNodeInfo<T::AccountId>> = Vec::new();
+    pub fn get_all_subnet_nodes_info() -> Vec<SubnetNodeInfoV2<T::AccountId>> {
+        let mut infos: Vec<SubnetNodeInfoV2<T::AccountId>> = Vec::new();
 
-        for (subnet_id, subnet_data) in SubnetsData::<T>::iter() {
-            for (_, subnet_node_id) in HotkeySubnetNodeId::<T>::iter_prefix(subnet_id) {
+        for (subnet_id, _) in SubnetsData::<T>::iter() {
+            for (subnet_node_id, _) in SubnetNodeReputation::<T>::iter_prefix(subnet_id) {
                 if let Some(subnet_node_info) =
                     Self::get_subnet_node_info(subnet_id, subnet_node_id)
                 {
@@ -188,15 +197,15 @@ impl<T: Config> Pallet<T> {
     pub fn get_elected_validator_info(
         subnet_id: u32,
         subnet_epoch: u32,
-    ) -> Option<SubnetNodeInfo<T::AccountId>> {
+    ) -> Option<SubnetNodeInfoV2<T::AccountId>> {
         match SubnetElectedValidator::<T>::try_get(subnet_id, subnet_epoch) {
             Ok(subnet_node_id) => Self::get_subnet_node_info(subnet_id, subnet_node_id),
             Err(()) => None,
         }
     }
 
-    pub fn get_validators_and_attestors(subnet_id: u32) -> Vec<SubnetNodeInfo<T::AccountId>> {
-        let mut infos: Vec<SubnetNodeInfo<T::AccountId>> = Vec::new();
+    pub fn get_validators_and_attestors(subnet_id: u32) -> Vec<SubnetNodeInfoV2<T::AccountId>> {
+        let mut infos: Vec<SubnetNodeInfoV2<T::AccountId>> = Vec::new();
         if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
         {
             for subnet_node_id in emergency_validator_data.subnet_node_ids {
@@ -287,7 +296,7 @@ impl<T: Config> Pallet<T> {
                 })
                 .map(|subnet_node| {
                     subnet_node.has_classification(&class, current_subnet_epoch)
-                        && AccountSubnetStake::<T>::get(subnet_node.hotkey, subnet_id) >= min_stake
+                        && NodeSubnetStake::<T>::get(subnet_node.id, subnet_id) >= min_stake
                 })
                 .unwrap_or(false)
         };
@@ -345,61 +354,39 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Get all nodes from a coldkey
-    pub fn get_coldkey_subnet_nodes_info(
-        coldkey: T::AccountId,
-    ) -> Vec<SubnetNodeInfo<T::AccountId>> {
-        ColdkeyHotkeys::<T>::get(coldkey.clone())
-            .iter()
-            .filter_map(|hotkey| {
-                HotkeySubnetId::<T>::get(hotkey).and_then(|subnet_id| {
-                    HotkeySubnetNodeId::<T>::get(subnet_id, hotkey).and_then(|subnet_node_id| {
-                        Self::get_subnet_node_info(subnet_id, subnet_node_id)
-                    })
-                })
-            })
-            .collect()
+    /// Get all nodes from a validator
+    pub fn get_validator_subnet_nodes_info(
+        validator_id: u32,
+    ) -> Vec<SubnetNodeInfoV2<T::AccountId>> {
+        let mut infos: Vec<SubnetNodeInfoV2<T::AccountId>> = Vec::new();
+
+        for (subnet_id, nodes) in ValidatorSubnetNodes::<T>::get(validator_id).iter() {
+            for subnet_node_id in nodes {
+                if let Some(subnet_node_info) =
+                    Self::get_subnet_node_info(*subnet_id, *subnet_node_id)
+                {
+                    infos.push(subnet_node_info);
+                }
+            }
+        }
+
+        infos
     }
 
-    // pub fn get_coldkey_stakes2(coldkey: T::AccountId) -> Vec<SubnetNodeStakeInfo<T::AccountId>> {
-    //     let mut coldkey_stake: Vec<SubnetNodeStakeInfo<T::AccountId>> = Vec::new();
+    pub fn get_validator_stakes(validator_id: u32) -> Vec<NodeStakeInfo> {
+        let mut validator_id_stake: Vec<NodeStakeInfo> = Vec::new();
 
-    //     for hotkey in ColdkeyHotkeys::<T>::get(coldkey.clone()).iter() {
-    //         // Check if the subnet ID still exists
-    //         if let Some(subnet_id) = HotkeySubnetId::<T>::get(hotkey) {
-    //             coldkey_stake.push(SubnetNodeStakeInfo {
-    //                 subnet_id: Some(subnet_id),
-    //                 subnet_node_id: HotkeySubnetNodeId::<T>::get(subnet_id, hotkey),
-    //                 hotkey: hotkey.clone(),
-    //                 balance: AccountSubnetStake::<T>::get(hotkey, subnet_id),
-    //             })
-    //         }
-    //     }
-
-    //     coldkey_stake
-    // }
-
-    pub fn get_coldkey_stakes(coldkey: T::AccountId) -> Vec<SubnetNodeStakeInfo<T::AccountId>> {
-        let mut coldkey_stake: Vec<SubnetNodeStakeInfo<T::AccountId>> = Vec::new();
-
-        for (subnet_id, nodes) in ColdkeySubnetNodes::<T>::get(&coldkey).iter() {
+        for (subnet_id, nodes) in ValidatorSubnetNodes::<T>::get(validator_id).iter() {
             for subnet_node_id in nodes {
-                let hotkey: T::AccountId =
-                    match SubnetNodeIdHotkey::<T>::try_get(subnet_id, subnet_node_id) {
-                        Ok(hotkey) => hotkey,
-                        Err(()) => continue,
-                    };
-
-                coldkey_stake.push(SubnetNodeStakeInfo {
+                validator_id_stake.push(NodeStakeInfo {
                     subnet_id: Some(*subnet_id),
                     subnet_node_id: Some(*subnet_node_id),
-                    hotkey: hotkey.clone(),
-                    balance: AccountSubnetStake::<T>::get(&hotkey, subnet_id),
+                    balance: NodeSubnetStake::<T>::get(subnet_node_id, subnet_id),
                 })
             }
         }
 
-        coldkey_stake
+        validator_id_stake
     }
 
     /// Get an accounts delegate stake across the entire network
@@ -446,18 +433,39 @@ impl<T: Config> Pallet<T> {
         node_delegate_stake
     }
 
+    pub fn get_validator_delegate_stakes(
+        account_id: T::AccountId,
+    ) -> Vec<ValidatorDelegateStakeInfo> {
+        let mut validator_delegate_stake: Vec<ValidatorDelegateStakeInfo> = Vec::new();
+
+        for (validator_id, shares) in
+            AccountValidatorDelegateStakeShares::<T>::iter_prefix(&account_id)
+        {
+            let balance = Self::convert_to_balance(
+                shares,
+                ValidatorDelegateStakeShares::<T>::get(validator_id),
+                ValidatorDelegateStakeBalance::<T>::get(validator_id),
+            );
+
+            validator_delegate_stake.push(ValidatorDelegateStakeInfo {
+                validator_id,
+                shares,
+                balance,
+            })
+        }
+        validator_delegate_stake
+    }
+
     pub fn get_overwatch_node_info(
         overwatch_node_id: u32,
     ) -> Option<OverwatchNodeInfo<T::AccountId>> {
-        if let Some(hotkey) = OverwatchNodeIdHotkey::<T>::get(overwatch_node_id) {
-            let coldkey = HotkeyOwner::<T>::get(&hotkey);
+        if let Some(validator_id) = OverwatchNodeValidatorId::<T>::get(overwatch_node_id) {
             return Some(OverwatchNodeInfo {
                 overwatch_node_id,
-                coldkey: coldkey.clone(),
-                hotkey: Some(hotkey.clone()),
+                hotkey: Some(Self::get_overwatch_node_associated_hotkey(overwatch_node_id).ok()?),
                 peer_ids: OverwatchNodeIndex::<T>::get(overwatch_node_id),
-                reputation: ColdkeyReputation::<T>::get(&coldkey),
-                account_overwatch_stake: AccountOverwatchStake::<T>::get(&hotkey),
+                reputation: ValidatorReputation::<T>::get(validator_id),
+                account_overwatch_stake: OverwatchNodeStakeBalance::<T>::get(overwatch_node_id),
             });
         }
         None

@@ -71,8 +71,9 @@ impl<T: Config> Pallet<T> {
     ///
     /// Returns `Ok(Pays::No.into())` on success, indicating the transaction fee is waived.
     pub fn do_propose_attestation(
-        subnet_id: u32,
         hotkey: T::AccountId,
+        subnet_id: u32,
+        subnet_node_id: u32,
         mut data: Vec<SubnetNodeConsensusData>,
         mut prioritize_queue_node_id: Option<u32>,
         mut remove_queue_node_id: Option<u32>,
@@ -84,6 +85,17 @@ impl<T: Config> Pallet<T> {
         // 2 on subnet epoch 1 (if after slot) or 2 (if before slot).
         // If a subnet is on slot 3 of 5 slots, we make sure it can submit on the current blockchains epoch.
 
+        // 1. Ensure caller owns the hotkey of the subnet node ID entered
+        // 2. Ensure the subnet node Id owned by the caller is the elected validator
+
+        // Ensure caller (hotkey) is the hotkey for the subnet node ID
+        ensure!(
+            Self::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id,)? == hotkey,
+            Error::<T>::InvalidValidator
+        );
+
+        // Ensure the subnet node ID is the elected validator
+
         // Get the current subnet epoch and subnet epoch progression for this specific subnet
         let subnet_epoch_data = Self::get_current_subnet_epoch_data(subnet_id)
             .ok_or(Error::<T>::SubnetEpochDataIsNone)?;
@@ -92,14 +104,25 @@ impl<T: Config> Pallet<T> {
         let subnet_epoch_progression = subnet_epoch_data.subnet_epoch_progression;
 
         // --- Ensure validator was elected
-        let validator_id = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
+        let validator_subnet_node_id = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
             .ok_or(Error::<T>::NoElectedValidator)?;
 
-        // --- Ensure caller hotkey matches validator
         ensure!(
-            SubnetNodeIdHotkey::<T>::get(subnet_id, validator_id) == Some(hotkey.clone()),
-            Error::<T>::InvalidValidator
+            subnet_node_id == validator_subnet_node_id,
+            Error::<T>::InvalidSubnetNodeId
         );
+
+        // // The elected validator can act with its node-specific override hotkey, or with the
+        // // validator hotkey when no node-specific override exists.
+        // ensure!(
+        //     Self::get_hotkey_associated_subnet_node(
+        //         subnet_id,
+        //         subnet_node_id,
+        //         validator_id,
+        //         hotkey.clone(),
+        //     )? == subnet_node_id,
+        //     Error::<T>::InvalidValidator
+        // );
 
         // - Note: we don't check stake balance here. It's up to subnets to come to a consensus
         // to remove nodes that are not meeting the subnet's requirements. Stake balance only matters
@@ -138,9 +161,9 @@ impl<T: Config> Pallet<T> {
 
         // --- Validator auto-attests the epoch
         // let attests: BTreeMap<u32, (u32, Option<BoundedVec<u8, DefaultValidatorArgsLimit>>)> =
-        //     BTreeMap::from([(validator_id, (block, attest_data))]);
+        //     BTreeMap::from([(validator_subnet_node_id, (block, attest_data))]);
         let attests: BTreeMap<u32, AttestEntry> = BTreeMap::from([(
-            validator_id,
+            validator_subnet_node_id,
             AttestEntry {
                 block: block,
                 attestor_progress: 0,
@@ -156,7 +179,7 @@ impl<T: Config> Pallet<T> {
         // when the validator submit their data, this will enable the node to still get rewarded for contributing
         // to the subnet's consensus even if they leave -- versus calling this in the rewards distribution
         // where the node would have already been removed even if they contributed to the subnet's consensus.
-        let subnet_nodes: Vec<SubnetNode<T::AccountId>> = Self::get_active_classified_subnet_nodes(
+        let subnet_nodes: Vec<SubnetNodeV2> = Self::get_active_classified_subnet_nodes(
             subnet_id,
             &SubnetNodeClass::Idle,
             subnet_epoch,
@@ -222,9 +245,12 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        log::error!("prioritize_queue_node_id {:?}", prioritize_queue_node_id);
+        log::error!("remove_queue_node_id     {:?}", remove_queue_node_id);
+
         // Organize all of the data into a ConsensusData struct to be used later for emissions business logic.
-        let consensus_data: ConsensusData<T::AccountId> = ConsensusData {
-            validator_id: validator_id,
+        let consensus_data: ConsensusData = ConsensusData {
+            validator_id: validator_subnet_node_id,
             block,
             validator_epoch_progress: subnet_epoch_progression,
             validator_reward_factor: Self::get_validator_reward_multiplier(
@@ -253,17 +279,26 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn do_attest(
-        subnet_id: u32,
         hotkey: T::AccountId,
+        subnet_id: u32,
+        subnet_node_id: u32,
         data: Option<BoundedVec<u8, DefaultValidatorArgsLimit>>,
     ) -> DispatchResultWithPostInfo {
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
-        // --- Ensure subnet node exists under hotkey
-        let subnet_node_id = match HotkeySubnetNodeId::<T>::try_get(subnet_id, &hotkey) {
-            Ok(subnet_node_id) => subnet_node_id,
-            Err(()) => return Err(Error::<T>::InvalidHotkeySubnetNodeId.into()),
-        };
+        // --- Ensure subnet node is authorized under either its override hotkey or the
+        //     validator hotkey when no override exists.
+        ensure!(
+            Self::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id,)? == hotkey,
+            Error::<T>::InvalidValidator
+        );
+
+        // let subnet_node_id = Self::get_hotkey_associated_subnet_node(
+        //     subnet_id,
+        //     subnet_node_id,
+        //     validator_id,
+        //     hotkey.clone(),
+        // )?;
 
         // --- Ensure node classified to attest
         // This is redundant because we check this later.
@@ -391,7 +426,7 @@ impl<T: Config> Pallet<T> {
     /// * `subnet_node_id` - Subnet node ID
     /// * `attestation_percentage` - The attestation ratio of the validator nodes consensus
     /// * `min_attestation_percentage` - Blockchains minimum attestation percentage (66%)
-    /// * `coldkey_reputation_decrease_factor`: `ColdkeyReputationDecreaseFactor`
+    /// * `coldkey_reputation_decrease_factor`: `ValidatorReputationDecreaseFactor`
     /// * `epoch`: The blockchains general epoch
     pub fn slash_validator(
         subnet_id: u32,
@@ -411,23 +446,13 @@ impl<T: Config> Pallet<T> {
             return weight;
         }
 
-        // Redundantly use try_get (elected validators can't exit, see `remove_subnet_node`, 
-        // therefore it should always exist)
-        let hotkey = match SubnetNodeIdHotkey::<T>::try_get(subnet_id, subnet_node_id) {
-            Ok(hotkey) => hotkey,
-            // If they exited, ignore slash and return
-            Err(()) => return weight.saturating_add(db_weight.reads(1)),
-        };
-
-        weight = weight.saturating_add(db_weight.reads(1));
-
         // --- Get percent difference between attestation ratio and min attestation ratio
         // 1.0 - attestation ratio / min attestation ratio
         let attestation_delta = Self::percentage_factor_as_u128().saturating_sub(
             Self::percent_div(attestation_percentage, min_attestation_percentage),
         );
 
-        let account_subnet_stake: u128 = AccountSubnetStake::<T>::get(&hotkey, subnet_id);
+        let account_subnet_stake: u128 = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
         let slash_amount = Self::get_slash_amount(
             account_subnet_stake,
             attestation_percentage,
@@ -437,9 +462,9 @@ impl<T: Config> Pallet<T> {
 
         if slash_amount > 0 {
             // --- Decrease account stake
-            Self::decrease_account_stake(&hotkey, subnet_id, slash_amount);
+            Self::decrease_node_stake(subnet_node_id, subnet_id, slash_amount);
 
-            // AccountSubnetStake | TotalSubnetStake | TotalStake
+            // NodeSubnetStake | TotalSubnetStake | TotalStake
             weight = weight.saturating_add(db_weight.writes(3));
             weight = weight.saturating_add(db_weight.reads(3));
         }
@@ -447,35 +472,42 @@ impl<T: Config> Pallet<T> {
         // --- Decrease validator reputation
         let reputation_decrease_factor =
             ValidatorNonConsensusSubnetNodeReputationFactor::<T>::get(subnet_id);
-        // let decrease_factor = Self::percent_mul(reputation_decrease_factor, attestation_delta);
-        let reputation = Self::decrease_and_return_node_reputation(
-            subnet_id,
-            subnet_node_id,
-            SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id),
-            reputation_decrease_factor,
-            Some(attestation_delta),
-        );
+
+        let reputation = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id).map(|rep| {
+            Self::decrease_and_return_node_reputation(
+                subnet_id,
+                subnet_node_id,
+                rep,
+                reputation_decrease_factor,
+                Some(attestation_delta),
+            )
+        });
         weight = weight.saturating_add(db_weight.reads_writes(2, 1));
 
         weight = weight.saturating_add(db_weight.reads(1));
-        if let Ok(coldkey) = HotkeyOwner::<T>::try_get(&hotkey) {
-            // Decrease coldkey reputation
-            Self::decrease_coldkey_reputation(
-                coldkey.clone(),
-                attestation_percentage,
-                min_attestation_percentage,
-                coldkey_reputation_decrease_factor,
-                epoch,
-            );
+        let validator_id =
+            SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id).map(|validator_id| {
+                // Decrease validator reputation
+                Self::decrease_validator_reputation(
+                    validator_id,
+                    attestation_percentage,
+                    min_attestation_percentage,
+                    coldkey_reputation_decrease_factor,
+                    epoch,
+                );
 
-            // Remove validator if below min node reputation
+                validator_id
+            });
+
+        // Remove validator if below min node reputation
+        if let (Some(reputation), Some(validator_id)) = (reputation, validator_id) {
             if reputation < min_validator_reputation {
                 weight = weight.saturating_add(db_weight.reads(1));
-                let coldkey_subnet_nodes = ColdkeySubnetNodes::<T>::get(&coldkey);
+                let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
                 // x = number of subnets (outer BTreeMap size)
-                let x = coldkey_subnet_nodes.len() as u32;
+                let x = validator_subnet_nodes.len() as u32;
                 // c = number of nodes in the specific subnet (inner BTreeSet size)
-                let c = coldkey_subnet_nodes
+                let c = validator_subnet_nodes
                     .get(&subnet_id)
                     .map(|nodes| nodes.len() as u32)
                     .unwrap_or(0);
@@ -489,11 +521,11 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        Self::deposit_event(Event::Slashing {
-            subnet_id: subnet_id,
-            account_id: hotkey,
-            amount: slash_amount,
-        });
+        // Self::deposit_event(Event::Slashing {
+        //     subnet_id: subnet_id,
+        //     account_id: hotkey,
+        //     amount: slash_amount,
+        // });
 
         weight
     }

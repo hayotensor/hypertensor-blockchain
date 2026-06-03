@@ -79,7 +79,7 @@ fn test_do_epoch_preliminaries_remove_expired_pause() {
                     );
                 }
 
-                assert_ok!(Network::add_to_delegate_stake(
+                assert_ok!(Network::add_delegate_stake(
                     RuntimeOrigin::signed(account(0)),
                     subnet_id,
                     total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -141,7 +141,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake() {
             TotalSubnetDelegateStakeBalance::<Test>::get(first_subnet_id);
         let min_subnet_delegate_stake =
             Network::get_min_subnet_delegate_stake_balance(first_subnet_id);
-        assert_ok!(Network::add_to_delegate_stake(
+        assert_ok!(Network::add_delegate_stake(
             RuntimeOrigin::signed(account(0)),
             first_subnet_id,
             total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -209,7 +209,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake_fail() {
             TotalSubnetDelegateStakeBalance::<Test>::get(first_subnet_id);
         let min_subnet_delegate_stake =
             Network::get_min_subnet_delegate_stake_balance(first_subnet_id);
-        assert_ok!(Network::add_to_delegate_stake(
+        assert_ok!(Network::add_delegate_stake(
             RuntimeOrigin::signed(account(0)),
             first_subnet_id,
             total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -270,7 +270,7 @@ fn test_do_epoch_preliminaries_remove_under_min_reputation() {
                 TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
             let min_subnet_delegate_stake =
                 Network::get_min_subnet_delegate_stake_balance(subnet_id);
-            assert_ok!(Network::add_to_delegate_stake(
+            assert_ok!(Network::add_delegate_stake(
                 RuntimeOrigin::signed(account(0)),
                 subnet_id,
                 total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -364,7 +364,7 @@ fn test_do_epoch_preliminaries_remove_max_subnets() {
                     } else {
                         total_delegate_stake_balance - min_subnet_delegate_stake + 100
                     };
-                    assert_ok!(Network::add_to_delegate_stake(
+                    assert_ok!(Network::add_delegate_stake(
                         RuntimeOrigin::signed(account(0)),
                         subnet_id,
                         add,

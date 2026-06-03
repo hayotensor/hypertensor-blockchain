@@ -17,17 +17,31 @@ use super::*;
 use sp_runtime::Saturating;
 
 impl<T: Config> Pallet<T> {
-    pub fn do_add_overwatch_stake(
-        coldkey: T::AccountId,
-        hotkey: T::AccountId,
+    pub fn do_add_overwatch_node_stake(
+        origin: T::RuntimeOrigin,
+        overwatch_node_id: u32,
         stake_to_be_added: u128,
     ) -> DispatchResult {
+        let coldkey: T::AccountId = ensure_signed(origin)?;
+
+        // Resolve the validator that owns this subnet node, then ensure the caller is that
+        // validator's coldkey. Only the owner is allowed to add stake.
+        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
+            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
+
+        let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
+            .map_err(|_| Error::<T>::InvalidValidatorId)?;
+
+        ensure!(coldkey == validator_coldkey, Error::<T>::NotKeyOwner);
+
+        ensure!(stake_to_be_added != 0, Error::<T>::InvalidAmount);
+
         let balance = match Self::u128_to_balance(stake_to_be_added) {
             Some(b) => b,
             None => return Err(Error::<T>::CouldNotConvertToBalance.into()),
         };
 
-        let account_stake_balance: u128 = AccountOverwatchStake::<T>::get(&hotkey);
+        let account_stake_balance: u128 = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
 
         ensure!(
             account_stake_balance.saturating_add(stake_to_be_added)
@@ -47,25 +61,35 @@ impl<T: Config> Pallet<T> {
             Error::<T>::BalanceWithdrawalError
         );
 
-        Self::increase_account_overwatch_stake(&hotkey, stake_to_be_added);
+        Self::increase_overwatch_node_stake(overwatch_node_id, stake_to_be_added);
 
         // Self::deposit_event(Event::StakeAdded(subnet_id, coldkey, hotkey, stake_to_be_added));
 
         Ok(())
     }
 
-    pub fn do_remove_overwatch_stake(
+    pub fn do_remove_overwatch_node_stake(
         origin: T::RuntimeOrigin,
-        hotkey: T::AccountId,
+        overwatch_node_id: u32,
         is_overwatch_node: bool,
         stake_to_be_removed: u128,
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
+        // Resolve the validator that owns this subnet node, then ensure the caller is that
+        // validator's coldkey. Only the owner is allowed to add stake.
+        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
+            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
+
+        let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
+            .map_err(|_| Error::<T>::InvalidValidatorId)?;
+
+        ensure!(coldkey == validator_coldkey, Error::<T>::NotKeyOwner);
+
         // --- Ensure that the stake amount to be removed is above zero.
         ensure!(stake_to_be_removed > 0, Error::<T>::AmountZero);
 
-        let account_stake_balance: u128 = AccountOverwatchStake::<T>::get(&hotkey);
+        let account_stake_balance: u128 = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
 
         // --- Ensure that the account has enough stake to withdraw.
         ensure!(
@@ -91,7 +115,7 @@ impl<T: Config> Pallet<T> {
         let block: u32 = Self::get_current_block_as_u32();
 
         // --- 7. We remove the balance from the hotkey.
-        Self::decrease_account_overwatch_stake(&hotkey, stake_to_be_removed);
+        Self::decrease_overwatch_node_stake(overwatch_node_id, stake_to_be_removed);
 
         // --- 9. We add the balancer to the coldkey.  If the above fails we will not credit this coldkey.
         Self::add_balance_to_unbonding_ledger(
@@ -107,35 +131,23 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn do_swap_overwatch_hotkey_balance(old_hotkey: &T::AccountId, new_hotkey: &T::AccountId) {
-        Self::swap_account_overwatch_stake(old_hotkey, new_hotkey)
-    }
-
-    pub fn increase_account_overwatch_stake(hotkey: &T::AccountId, amount: u128) {
+    pub fn increase_overwatch_node_stake(overwatch_node_id: u32, amount: u128) {
         // -- increase account overwatch staking balance
-        AccountOverwatchStake::<T>::mutate(hotkey, |mut n| n.saturating_accrue(amount));
+        OverwatchNodeStakeBalance::<T>::mutate(overwatch_node_id, |mut n| {
+            n.saturating_accrue(amount)
+        });
 
         // -- increase total overwatch stake
-        TotalOverwatchStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
+        TotalOverwatchNodeStakeBalance::<T>::mutate(|mut n| n.saturating_accrue(amount));
     }
 
-    pub fn decrease_account_overwatch_stake(hotkey: &T::AccountId, amount: u128) {
+    pub fn decrease_overwatch_node_stake(overwatch_node_id: u32, amount: u128) {
         // -- decrease account overwatch staking balance
-        AccountOverwatchStake::<T>::mutate(hotkey, |mut n| n.saturating_reduce(amount));
+        OverwatchNodeStakeBalance::<T>::mutate(overwatch_node_id, |mut n| {
+            n.saturating_reduce(amount)
+        });
 
         // -- decrease total overwatch stake
-        TotalOverwatchStake::<T>::mutate(|mut n| n.saturating_reduce(amount));
-    }
-
-    fn swap_account_overwatch_stake(old_hotkey: &T::AccountId, new_hotkey: &T::AccountId) {
-        // --- swap old_hotkey overwatch staking balance
-        let old_hotkey_stake_balance = AccountOverwatchStake::<T>::take(old_hotkey);
-        // --- Redundant take of new hotkeys stake balance
-        // --- New hotkey is always checked before updating
-        let new_hotkey_stake_balance = AccountOverwatchStake::<T>::take(new_hotkey);
-        AccountOverwatchStake::<T>::insert(
-            new_hotkey,
-            old_hotkey_stake_balance.saturating_add(new_hotkey_stake_balance),
-        );
+        TotalOverwatchNodeStakeBalance::<T>::mutate(|mut n| n.saturating_reduce(amount));
     }
 }

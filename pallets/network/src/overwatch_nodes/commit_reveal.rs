@@ -9,17 +9,18 @@ impl<T: Config> Pallet<T> {
         overwatch_node_id: u32,
         mut commit_weights: Vec<OverwatchCommit<T::Hash>>,
     ) -> DispatchResultWithPostInfo {
-        let key: T::AccountId = ensure_signed(origin)?;
+        let hotkey: T::AccountId = ensure_signed(origin)?;
 
-        let (hotkey, coldkey) = match Self::get_overwatch_node_hotkey_coldkey(overwatch_node_id) {
-            Some((hotkey, coldkey)) => (hotkey, coldkey),
-            None => return Err(Error::<T>::NotKeyOwner.into()),
-        };
+        // Ensure the caller is coming from the overwatch hotkey or validator hotkey
+        let overwatch_hotkey = Self::get_overwatch_node_associated_hotkey(overwatch_node_id)?;
 
-        ensure!(key == hotkey || key == coldkey, Error::<T>::NotKeyOwner);
+        ensure!(overwatch_hotkey == hotkey, Error::<T>::NotKeyOwner);
+
+        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
+            .map_err(|_| Error::<T>::InvalidValidatorId)?;
 
         ensure!(
-            !OverwatchNodeBlacklist::<T>::get(coldkey.clone()),
+            OverwatchValidatorWhitelist::<T>::get(validator_id),
             Error::<T>::ColdkeyBlacklisted
         );
 
@@ -83,17 +84,17 @@ impl<T: Config> Pallet<T> {
         overwatch_node_id: u32,
         reveals: Vec<OverwatchReveal>,
     ) -> DispatchResultWithPostInfo {
-        let key: T::AccountId = ensure_signed(origin)?;
+        let hotkey: T::AccountId = ensure_signed(origin)?;
 
-        let (hotkey, coldkey) = match Self::get_overwatch_node_hotkey_coldkey(overwatch_node_id) {
-            Some((hotkey, coldkey)) => (hotkey, coldkey),
-            None => return Err(Error::<T>::NotKeyOwner.into()),
-        };
+        let overwatch_hotkey = Self::get_overwatch_node_associated_hotkey(overwatch_node_id)?;
 
-        ensure!(key == hotkey || key == coldkey, Error::<T>::NotKeyOwner);
+        ensure!(overwatch_hotkey == hotkey, Error::<T>::NotKeyOwner);
+
+        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
+            .map_err(|_| Error::<T>::InvalidValidatorId)?;
 
         ensure!(
-            !OverwatchNodeBlacklist::<T>::get(coldkey.clone()),
+            OverwatchValidatorWhitelist::<T>::get(validator_id),
             Error::<T>::ColdkeyBlacklisted
         );
 

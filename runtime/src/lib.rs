@@ -426,20 +426,20 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
             ProxyType::NonTransfer => !matches!(
                 c,
                 RuntimeCall::Balances(..)
-                    | RuntimeCall::Network(pallet_network::Call::add_to_delegate_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::add_delegate_stake { .. })
                     | RuntimeCall::Network(pallet_network::Call::swap_delegate_stake { .. })
                     | RuntimeCall::Network(pallet_network::Call::transfer_delegate_stake { .. })
                     | RuntimeCall::Network(pallet_network::Call::remove_delegate_stake { .. })
                     | RuntimeCall::Network(pallet_network::Call::donate_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::add_to_node_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_node_delegate_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::add_validator_delegate_stake { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::swap_validator_delegate_stake { .. })
                     | RuntimeCall::Network(
-                        pallet_network::Call::transfer_node_delegate_stake { .. }
+                        pallet_network::Call::transfer_validator_delegate_stake { .. }
                     )
-                    | RuntimeCall::Network(pallet_network::Call::remove_node_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::donate_node_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_from_node_to_subnet { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_from_subnet_to_node { .. })
+                    | RuntimeCall::Network(pallet_network::Call::remove_validator_delegate_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::donate_validator_delegate_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::swap_from_validator_to_subnet { .. })
+                    | RuntimeCall::Network(pallet_network::Call::swap_from_subnet_to_validator { .. })
                     | RuntimeCall::Network(pallet_network::Call::update_swap_queue { .. })
             ),
             ProxyType::Transfer => matches!(
@@ -449,7 +449,7 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
                     | RuntimeCall::Balances(pallet_balances::Call::transfer_all { .. })
                     | RuntimeCall::Network(pallet_network::Call::transfer_delegate_stake { .. })
                     | RuntimeCall::Network(
-                        pallet_network::Call::transfer_node_delegate_stake { .. }
+                        pallet_network::Call::transfer_validator_delegate_stake { .. }
                     )
             ),
             ProxyType::Governance => matches!(
@@ -458,24 +458,24 @@ impl InstanceFilter<RuntimeCall> for ProxyType {
             ),
             ProxyType::SubNetworkStaking => matches!(
                 c,
-                RuntimeCall::Network(pallet_network::Call::add_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::remove_stake { .. })
+                RuntimeCall::Network(pallet_network::Call::add_node_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::remove_node_stake { .. })
             ),
             // In-network management of current delegate staking funds
             ProxyType::SubNetworkDelegateStaking => matches!(
                 c,
-                // RuntimeCall::Network(pallet_network::Call::add_to_delegate_stake { .. })
+                // RuntimeCall::Network(pallet_network::Call::add_delegate_stake { .. })
                 RuntimeCall::Network(pallet_network::Call::swap_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::transfer_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::remove_delegate_stake { .. })
                     // | RuntimeCall::Network(pallet_network::Call::donate_delegate_stake { .. })
-                    // | RuntimeCall::Network(pallet_network::Call::add_to_node_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_node_delegate_stake { .. })
-                    // | RuntimeCall::Network(pallet_network::Call::transfer_node_delegate_stake { .. })
-                    // | RuntimeCall::Network(pallet_network::Call::remove_node_delegate_stake { .. })
-                    // | RuntimeCall::Network(pallet_network::Call::donate_node_delegate_stake { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_from_node_to_subnet { .. })
-                    | RuntimeCall::Network(pallet_network::Call::swap_from_subnet_to_node { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::add_node_delegate_stake { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::swap_validator_delegate_stake { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::transfer_validator_delegate_stake { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::remove_validator_delegate_stake { .. })
+                    // | RuntimeCall::Network(pallet_network::Call::donate_validator_delegate_stake { .. })
+                    | RuntimeCall::Network(pallet_network::Call::swap_from_validator_to_subnet { .. })
+                    | RuntimeCall::Network(pallet_network::Call::swap_from_subnet_to_validator { .. })
                     | RuntimeCall::Network(pallet_network::Call::update_swap_queue { .. })
             ),
             ProxyType::CancelProxy => {
@@ -1458,12 +1458,12 @@ impl_runtime_apis! {
         fn proof_of_stake(subnet_id: u32, peer_id: Vec<u8>, min_class: u8, min_stake: Option<u128>) -> bool {
             Network::proof_of_stake(subnet_id, peer_id, min_class, min_stake)
         }
-        fn get_coldkey_subnet_nodes_info(coldkey: AccountId) -> Vec<u8> {
-            let result = Network::get_coldkey_subnet_nodes_info(coldkey);
+        fn get_validator_subnet_nodes_info(validator_id: u32) -> Vec<u8> {
+            let result = Network::get_validator_subnet_nodes_info(validator_id);
             result.encode()
         }
-        fn get_coldkey_stakes(coldkey: AccountId) -> Vec<u8> {
-            let result = Network::get_coldkey_stakes(coldkey);
+        fn get_validator_stakes(validator_id: u32) -> Vec<u8> {
+            let result = Network::get_validator_stakes(validator_id);
             result.encode()
         }
         fn get_delegate_stakes(account_id: AccountId) -> Vec<u8> {

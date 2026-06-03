@@ -1,9 +1,9 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    AccountOverwatchStake, FinalSubnetEmissionWeights, HotkeySubnetNodeId, MaxSubnetNodes,
-    MaxSubnets, MinSubnetMinStake, NewRegistrationCostMultiplier, OverwatchReveals,
-    QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetConsensusSubmission,
+    FinalSubnetEmissionWeights, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
+    NewRegistrationCostMultiplier, OverwatchNodeStakeBalance, OverwatchNodeValidatorId,
+    OverwatchReveals, QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetConsensusSubmission,
     SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName, SubnetNodeQueue,
     TotalActiveSubnets,
 };
@@ -52,18 +52,18 @@ fn test_calculate_overwatch_rewards() {
 
         let overwatch_nodes = 4;
         for o in 0..overwatch_nodes {
-            insert_overwatch_node(o, o);
-            set_overwatch_stake(o, 100);
+            let o_node_id = o + 1;
+            insert_overwatch_node_v2(o_node_id);
+            set_overwatch_node_stake(o_node_id, 100);
         }
 
-        let mut ostake_snapshot: BTreeMap<<Test as frame_system::Config>::AccountId, u128> =
-            BTreeMap::new();
+        let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..overwatch_nodes {
-            let hotkey = account(n);
-            let overwatch_stake = AccountOverwatchStake::<Test>::get(hotkey.clone());
+            let o_node_id = n + 1;
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(o_node_id);
 
             assert_ne!(overwatch_stake, 0);
-            ostake_snapshot.insert(hotkey.clone(), overwatch_stake);
+            ostake_snapshot.insert(o_node_id, overwatch_stake);
         }
 
         for s in 0..max_subnets {
@@ -107,10 +107,10 @@ fn test_calculate_overwatch_rewards() {
         Network::calculate_overwatch_rewards();
 
         for n in 0..overwatch_nodes {
-            let hotkey = account(n);
-            let overwatch_stake = AccountOverwatchStake::<Test>::get(hotkey.clone());
+            let o_node_id = n + 1;
+            let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(o_node_id);
 
-            if let Some(old_stake) = ostake_snapshot.get(&hotkey) {
+            if let Some(old_stake) = ostake_snapshot.get(&o_node_id) {
                 assert!(overwatch_stake > *old_stake);
             } else {
                 assert!(false); // auto-fail
@@ -228,7 +228,8 @@ fn test_calculate_subnet_weights_active_live_only() {
             true,
             None,
         );
-        let registering_subnet_id = SubnetName::<Test>::get(registering_subnet_name.clone()).unwrap();
+        let registering_subnet_id =
+            SubnetName::<Test>::get(registering_subnet_name.clone()).unwrap();
 
         increase_epochs(1);
 
@@ -268,7 +269,7 @@ fn test_precheck_subnet_consensus_submission() {
 
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let new_start = end + 1;
+        let new_start = end;
         let new_end = new_start + 4;
         build_registered_nodes_in_queue(subnet_id, new_start, new_end, deposit_amount, amount);
 
@@ -283,8 +284,7 @@ fn test_precheck_subnet_consensus_submission() {
         for n in new_start..new_end {
             let _n = n + 1;
             let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, _n);
-            let hotkey_subnet_node_id =
-                HotkeySubnetNodeId::<Test>::get(subnet_id, hotkey.clone()).unwrap();
+            let hotkey_subnet_node_id = _n;
             let subnet_node_data =
                 RegisteredSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id)
                     .unwrap();
@@ -311,7 +311,7 @@ fn test_precheck_subnet_consensus_submission() {
         assert!(validator_id != None, "Validator is None");
         assert!(validator_id != Some(0), "Validator is 0");
 
-        run_subnet_consensus_step(subnet_id, Some(last.id), Some(first.id));
+        run_subnet_consensus_step_v2(subnet_id, Some(last.id), Some(first.id));
 
         let submission = SubnetConsensusSubmission::<Test>::get(
             subnet_id,

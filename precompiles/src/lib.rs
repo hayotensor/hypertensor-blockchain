@@ -13,11 +13,13 @@ use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripe
 use sp_core::{H160, H256, U256, crypto::ByteArray};
 use sp_runtime::traits::{Dispatchable, StaticLookup};
 
+use crate::admin::*;
 use crate::balance::*;
 use crate::overwatch_nodes::*;
 use crate::staking::*;
 use crate::subnet::*;
 
+mod admin;
 mod balance;
 mod overwatch_nodes;
 mod staking;
@@ -63,7 +65,7 @@ where
     pub fn new() -> Self {
         Self(Default::default())
     }
-    pub fn used_addresses() -> [H160; 10] {
+    pub fn used_addresses() -> [H160; 11] {
         [
             hash(1),
             hash(2),
@@ -75,6 +77,7 @@ where
             hash(StakingPrecompile::<R>::HASH_N),
             hash(SubnetPrecompile::<R>::HASH_N),
             hash(OverwatchNodePrecompile::<R>::HASH_N),
+            hash(AdminPrecompile::<R>::HASH_N),
             // hash(ERC20BalancePrecompile::<R>::HASH_N),
         ]
     }
@@ -114,6 +117,9 @@ where
             }
             a if a == hash(OverwatchNodePrecompile::<R>::HASH_N) => {
                 Some(OverwatchNodePrecompile::<R>::execute(handle))
+            }
+            a if a == hash(AdminPrecompile::<R>::HASH_N) => {
+                Some(AdminPrecompile::<R>::execute(handle))
             }
             _ => None,
         }

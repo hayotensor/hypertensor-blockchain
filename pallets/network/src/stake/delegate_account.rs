@@ -12,18 +12,20 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+// Delegate account business logic
+// Delegate accounts are the accounts nodes can allocate emissions to
 
 use super::*;
 use sp_runtime::Saturating;
 
 impl<T: Config> Pallet<T> {
-    pub fn do_remove_delegate_balance(
+    pub fn do_remove_delegate_account_balance(
         origin: T::RuntimeOrigin,
         amount_to_remove: u128,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
-        let account_delegate_balance: u128 = AccountDelegateStake::<T>::get(&account_id);
+        let account_delegate_balance: u128 = DelegateAccountStake::<T>::get(&account_id);
 
         ensure!(amount_to_remove > 0, Error::<T>::AmountZero);
 
@@ -63,7 +65,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn increase_delegate_account_balance(account_id: &T::AccountId, amount: u128) {
         // -- increase delegate account balance
-        AccountDelegateStake::<T>::mutate(account_id, |mut n| n.saturating_accrue(amount));
+        DelegateAccountStake::<T>::mutate(account_id, |mut n| n.saturating_accrue(amount));
 
         // -- increase total account delegate stake
         TotalAccountDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
@@ -71,7 +73,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn decrease_delegate_account_balance(account_id: &T::AccountId, amount: u128) {
         // -- decrease delegate account balance
-        AccountDelegateStake::<T>::mutate(account_id, |mut n| n.saturating_reduce(amount));
+        DelegateAccountStake::<T>::mutate(account_id, |mut n| n.saturating_reduce(amount));
 
         // -- decrease total account delegate stake
         TotalAccountDelegateStake::<T>::mutate(|mut n| n.saturating_reduce(amount));

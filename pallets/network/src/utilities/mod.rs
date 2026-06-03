@@ -1,7 +1,6 @@
 use super::*;
 pub mod delegate_staking;
 pub mod era;
-pub mod identity;
 pub mod keys;
 pub mod math;
 pub mod misc;
@@ -13,3 +12,4 @@ pub mod reputation;
 pub mod slot;
 pub mod subnet;
 pub mod subnet_node;
+pub mod validator;

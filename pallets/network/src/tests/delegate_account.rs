@@ -2,14 +2,12 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountDelegateStake, AccountOverwatchStake, AccountSubnetStake, ColdkeyHotkeys,
-    ColdkeyIdentity, ColdkeyIdentityNameOwner, ColdkeyReputation, DefaultMaxSocialIdLength,
-    DefaultMaxUrlLength, DefaultMaxVectorLength, DelegateAccount, Error, HotkeyOverwatchNodeId,
-    HotkeyOwner, HotkeySubnetId, HotkeySubnetNodeId, MaxSubnetNodes, MaxSubnets,
-    MinActiveNodeStakeEpochs, MinSubnetMinStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey,
-    OverwatchNodes, PeerInfo, StakeCooldownEpochs, StakeUnbondingLedger, SubnetName,
-    SubnetNodeClass, SubnetNodeIdHotkey, SubnetNodesData, SubnetState, TotalAccountDelegateStake,
-    TotalActiveSubnets, TotalSubnetNodes,
+    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength, DelegateAccount,
+    DelegateAccountStake, Error, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs,
+    MinSubnetMinStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodes, PeerInfo,
+    StakeCooldownEpochs, StakeUnbondingLedger, SubnetName, SubnetNodeClass, SubnetState,
+    TotalAccountDelegateStake, TotalActiveSubnets, TotalSubnetNodes, TotalValidatorIds,
+    ValidatorsData,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
@@ -18,82 +16,63 @@ use sp_std::collections::btree_map::BTreeMap;
 #[test]
 fn test_update_delegate_account() {
     new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
             None,
-        );
+            None,
+        ));
 
-        // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.delegate_account, None);
+        let current_id = TotalValidatorIds::<Test>::get();
 
         let new_delegate_account_id = account(100);
         let delegate_rate = 400000000000000000; // 40%
-        assert_ok!(Network::update_delegate_account(
+        assert_ok!(Network::update_validator_delegate_account(
             RuntimeOrigin::signed(coldkey.clone()),
-            subnet_id,
-            subnet_node_id,
+            current_id,
             Some(new_delegate_account_id),
             Some(delegate_rate),
         ));
 
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
+        let data = ValidatorsData::<Test>::get(current_id);
         assert_eq!(
-            subnet_node.delegate_account.clone().unwrap().account_id,
+            data.delegate_account.clone().unwrap().account_id,
             new_delegate_account_id
         );
-        assert_eq!(
-            subnet_node.delegate_account.clone().unwrap().rate,
-            delegate_rate
-        );
+        assert_eq!(data.delegate_account.clone().unwrap().rate, delegate_rate);
     })
 }
 
 #[test]
 fn test_update_delegate_account_not_key_owner_error() {
     new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
             None,
-        );
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
 
         // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.delegate_account, None);
+        let validator = ValidatorsData::<Test>::get(current_id);
+        assert_eq!(validator.delegate_account, None);
 
         let new_delegate_account_id = account(100);
         let delegate_rate = 400000000000000000; // 40%
         assert_err!(
-            Network::update_delegate_account(
+            Network::update_validator_delegate_account(
                 RuntimeOrigin::signed(account(100)),
-                subnet_id,
-                subnet_node_id,
+                current_id,
                 Some(new_delegate_account_id),
                 Some(delegate_rate),
             ),
@@ -105,33 +84,27 @@ fn test_update_delegate_account_not_key_owner_error() {
 #[test]
 fn test_update_delegate_account_invalid_delegate_account_parameters_error() {
     new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
             None,
-        );
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
 
         // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.delegate_account, None);
+        let validator = ValidatorsData::<Test>::get(current_id);
+        assert_eq!(validator.delegate_account, None);
 
         assert_err!(
-            Network::update_delegate_account(
+            Network::update_validator_delegate_account(
                 RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                subnet_node_id,
+                current_id,
                 None,
                 None,
             ),
@@ -143,33 +116,27 @@ fn test_update_delegate_account_invalid_delegate_account_parameters_error() {
 #[test]
 fn test_update_delegate_account_delegate_account_id_none_error() {
     new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
             None,
-        );
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
 
         // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.delegate_account, None);
+        let validator = ValidatorsData::<Test>::get(current_id);
+        assert_eq!(validator.delegate_account, None);
 
         assert_err!(
-            Network::update_delegate_account(
+            Network::update_validator_delegate_account(
                 RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                subnet_node_id,
+                current_id,
                 None,
                 Some(1),
             ),
@@ -181,33 +148,27 @@ fn test_update_delegate_account_delegate_account_id_none_error() {
 #[test]
 fn test_update_delegate_account_delegate_account_rate_none_error() {
     new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
             None,
-        );
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
 
         // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.delegate_account, None);
+        let validator = ValidatorsData::<Test>::get(current_id);
+        assert_eq!(validator.delegate_account, None);
 
         assert_err!(
-            Network::update_delegate_account(
+            Network::update_validator_delegate_account(
                 RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                subnet_node_id,
+                current_id,
                 Some(account(100)),
                 None,
             ),
@@ -219,34 +180,28 @@ fn test_update_delegate_account_delegate_account_rate_none_error() {
 #[test]
 fn test_update_delegate_account_delegate_account_cannot_be_hotkey_error() {
     new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
             None,
-        );
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
 
         // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.delegate_account, None);
+        let validator = ValidatorsData::<Test>::get(current_id);
+        assert_eq!(validator.delegate_account, None);
 
         assert_err!(
-            Network::update_delegate_account(
+            Network::update_validator_delegate_account(
                 RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                subnet_node_id,
-                Some(account(hotkey_n)),
+                current_id,
+                Some(hotkey),
                 Some(1),
             ),
             Error::<Test>::DelegateAccountCannotBeHotkey
@@ -257,53 +212,22 @@ fn test_update_delegate_account_delegate_account_cannot_be_hotkey_error() {
 #[test]
 fn test_register_subnet_node_delegate_account_cannot_be_hotkey_error() {
     new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let max_subnets = MaxSubnets::<Test>::get();
-        let end = 0;
-        let subnet_name: Vec<u8> = "subnet-name".into();
-
-        let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
-
-        insert_subnet(subnet_id, SubnetState::Active, 0);
-
-        let coldkey = get_coldkey(subnet_id, max_subnet_nodes, end + 1);
-        let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let peer_id = get_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let bootnode_peer_id =
-            get_bootnode_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let client_peer_id = get_client_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-
-        let burn_amount = Network::calculate_burn_amount(subnet_id);
-        let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount);
+        let coldkey = account(0);
+        let hotkey = account(1);
 
         let delegate_account = DelegateAccount {
-            account_id: hotkey.clone(),
-            rate: 1,
+            account_id: hotkey,
+            rate: 0,
         };
+
+        let reward_rate = 50000000000000000; // 5%
         assert_err!(
-            Network::register_subnet_node(
+            Network::do_register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                hotkey.clone(),
-                PeerInfo {
-                    peer_id: peer_id.clone(),
-                    multiaddr: None,
-                },
-                None,
-                None,
-                0,
-                amount,
-                None,
-                None,
+                hotkey,
+                reward_rate,
                 Some(delegate_account),
-                u128::MAX
+                None,
             ),
             Error::<Test>::DelegateAccountCannotBeHotkey
         );
@@ -313,34 +237,28 @@ fn test_register_subnet_node_delegate_account_cannot_be_hotkey_error() {
 #[test]
 fn test_update_delegate_account_delegate_account_cannot_be_coldkey_error() {
     new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
             None,
-        );
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
 
         // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.delegate_account, None);
+        let validator = ValidatorsData::<Test>::get(current_id);
+        assert_eq!(validator.delegate_account, None);
 
         assert_err!(
-            Network::update_delegate_account(
+            Network::update_validator_delegate_account(
                 RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                subnet_node_id,
-                Some(account(coldkey_n)),
+                current_id,
+                Some(coldkey),
                 Some(1),
             ),
             Error::<Test>::DelegateAccountCannotBeColdkey
@@ -351,53 +269,22 @@ fn test_update_delegate_account_delegate_account_cannot_be_coldkey_error() {
 #[test]
 fn test_register_subnet_node_delegate_account_cannot_be_coldkey_error() {
     new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let max_subnets = MaxSubnets::<Test>::get();
-        let end = 0;
-        let subnet_name: Vec<u8> = "subnet-name".into();
-
-        let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
-
-        insert_subnet(subnet_id, SubnetState::Active, 0);
-
-        let coldkey = get_coldkey(subnet_id, max_subnet_nodes, end + 1);
-        let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let peer_id = get_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let bootnode_peer_id =
-            get_bootnode_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let client_peer_id = get_client_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-
-        let burn_amount = Network::calculate_burn_amount(subnet_id);
-        let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount);
+        let coldkey = account(0);
 
         let delegate_account = DelegateAccount {
-            account_id: coldkey.clone(),
-            rate: 1,
+            account_id: coldkey,
+            rate: 0,
         };
+
+        let hotkey = account(1);
+        let reward_rate = 50000000000000000; // 5%
         assert_err!(
-            Network::register_subnet_node(
+            Network::do_register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                hotkey.clone(),
-                PeerInfo {
-                    peer_id: peer_id.clone(),
-                    multiaddr: None,
-                },
-                None,
-                None,
-                0,
-                amount,
-                None,
-                None,
+                hotkey,
+                reward_rate,
                 Some(delegate_account),
-                u128::MAX
+                None,
             ),
             Error::<Test>::DelegateAccountCannotBeColdkey
         );
@@ -407,33 +294,27 @@ fn test_register_subnet_node_delegate_account_cannot_be_coldkey_error() {
 #[test]
 fn test_update_delegate_account_invalid_delegate_account_rate_error() {
     new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = 50000000000000000; // 5%
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
             None,
-        );
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
 
         // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.delegate_account, None);
+        let validator = ValidatorsData::<Test>::get(current_id);
+        assert_eq!(validator.delegate_account, None);
 
         assert_err!(
-            Network::update_delegate_account(
+            Network::update_validator_delegate_account(
                 RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                subnet_node_id,
+                current_id,
                 Some(account(100)),
                 Some(0),
             ),
@@ -441,10 +322,9 @@ fn test_update_delegate_account_invalid_delegate_account_rate_error() {
         );
 
         assert_err!(
-            Network::update_delegate_account(
+            Network::update_validator_delegate_account(
                 RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                subnet_node_id,
+                current_id,
                 Some(account(100)),
                 Some(1000000000000000001),
             ),
@@ -454,55 +334,23 @@ fn test_update_delegate_account_invalid_delegate_account_rate_error() {
 }
 
 #[test]
-fn test_register_subnet_node_delegate_account_invalid_delegate_accountrate_error() {
+fn test_register_subnet_node_delegate_account_invalid_delegate_account_rate_error() {
     new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let max_subnets = MaxSubnets::<Test>::get();
-        let end = 0;
-        let subnet_name: Vec<u8> = "subnet-name".into();
-
-        let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
-
-        insert_subnet(subnet_id, SubnetState::Active, 0);
-
-        let coldkey = get_coldkey(subnet_id, max_subnet_nodes, end + 1);
-        let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let peer_id = get_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let bootnode_peer_id =
-            get_bootnode_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-        let client_peer_id = get_client_peer_id(subnet_id, max_subnet_nodes, max_subnets, end + 1);
-
-        let burn_amount = Network::calculate_burn_amount(subnet_id);
-        let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount);
-
         let delegate_account = DelegateAccount {
             account_id: account(99),
             rate: 0,
         };
+
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = 50000000000000000; // 5%
         assert_err!(
-            Network::register_subnet_node(
+            Network::do_register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                hotkey.clone(),
-                PeerInfo {
-                    peer_id: peer_id.clone(),
-                    multiaddr: None,
-                },
-                None,
-                None,
-                0,
-                amount,
-                None,
-                None,
+                hotkey,
+                reward_rate,
                 Some(delegate_account),
-                u128::MAX
+                None,
             ),
             Error::<Test>::InvalidDelegateAccountRate
         );
@@ -513,22 +361,12 @@ fn test_register_subnet_node_delegate_account_invalid_delegate_accountrate_error
         };
 
         assert_err!(
-            Network::register_subnet_node(
+            Network::do_register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
-                subnet_id,
-                hotkey.clone(),
-                PeerInfo {
-                    peer_id: peer_id.clone(),
-                    multiaddr: None,
-                },
-                None,
-                None,
-                0,
-                amount,
-                None,
-                None,
+                hotkey,
+                reward_rate,
                 Some(delegate_account),
-                u128::MAX
+                None,
             ),
             Error::<Test>::InvalidDelegateAccountRate
         );
@@ -536,208 +374,23 @@ fn test_register_subnet_node_delegate_account_invalid_delegate_accountrate_error
 }
 
 #[test]
-fn test_transfer_delegate_account() {
-    new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
-            Some(DelegateAccount {
-                account_id: account(100),
-                rate: 300000000000000000, // 30%
-            }),
-        );
-
-        // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(
-            subnet_node.delegate_account.clone().unwrap().account_id,
-            account(100)
-        );
-        assert_eq!(
-            subnet_node.delegate_account.clone().unwrap().rate,
-            300000000000000000
-        );
-
-        assert_ok!(Network::transfer_delegate_account(
-            RuntimeOrigin::signed(account(100)),
-            subnet_id,
-            subnet_node_id,
-            account(200),
-        ));
-
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(
-            subnet_node.delegate_account.clone().unwrap().account_id,
-            account(200)
-        );
-        assert_eq!(
-            subnet_node.delegate_account.clone().unwrap().rate,
-            300000000000000000
-        );
-    })
-}
-
-#[test]
-fn test_transfer_delegate_account_not_delegate_account_owner_error() {
-    new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
-            Some(DelegateAccount {
-                account_id: account(100),
-                rate: 300000000000000000, // 30%
-            }),
-        );
-
-        // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(
-            subnet_node.delegate_account.clone().unwrap().account_id,
-            account(100)
-        );
-        assert_eq!(
-            subnet_node.delegate_account.clone().unwrap().rate,
-            300000000000000000
-        );
-
-        assert_err!(
-            Network::transfer_delegate_account(
-                RuntimeOrigin::signed(account(200)),
-                subnet_id,
-                subnet_node_id,
-                account(300),
-            ),
-            Error::<Test>::NotDelegateAccountOwner
-        );
-    })
-}
-
-#[test]
-fn test_transfer_delegate_account_delegate_account_not_set_error() {
-    new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
-            None,
-        );
-
-        // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.delegate_account, None);
-
-        assert_err!(
-            Network::transfer_delegate_account(
-                RuntimeOrigin::signed(account(200)),
-                subnet_id,
-                subnet_node_id,
-                account(300),
-            ),
-            Error::<Test>::NoDelegateAccountSet
-        );
-    })
-}
-
-#[test]
-fn test_transfer_delegate_account_invalid_subnet_node_id_error() {
-    new_test_ext().execute_with(|| {
-        let coldkey_n = 1;
-        let hotkey_n = 2;
-        let coldkey = account(coldkey_n);
-        let hotkey = account(hotkey_n);
-        let subnet_id = 1;
-        let subnet_node_id = 100;
-
-        manual_insert_subnet_node(
-            subnet_id,
-            subnet_node_id,
-            coldkey_n,
-            hotkey_n,
-            2, // peer
-            SubnetNodeClass::Validator,
-            0, // start epoch,
-            Some(DelegateAccount {
-                account_id: account(100),
-                rate: 300000000000000000, // 30%
-            }),
-        );
-
-        // sanity check
-        let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(
-            subnet_node.delegate_account.clone().unwrap().account_id,
-            account(100)
-        );
-        assert_eq!(
-            subnet_node.delegate_account.clone().unwrap().rate,
-            300000000000000000
-        );
-
-        assert_err!(
-            Network::transfer_delegate_account(
-                RuntimeOrigin::signed(account(200)),
-                0,
-                0,
-                account(300),
-            ),
-            Error::<Test>::InvalidSubnetNodeId
-        );
-    })
-}
-
-#[test]
-fn test_remove_delegate_balance() {
+fn test_remove_delegate_account_balance() {
     new_test_ext().execute_with(|| {
         System::set_block_number(System::block_number() + 1);
 
         let account_id = account(100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
         Network::increase_delegate_account_balance(&account_id, 100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
 
         let block = System::block_number();
 
-        assert_ok!(Network::remove_delegate_balance(
+        assert_ok!(Network::remove_delegate_account_balance(
             RuntimeOrigin::signed(account_id.clone()),
             100,
         ));
@@ -750,7 +403,7 @@ fn test_remove_delegate_balance() {
             }
         );
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
         let unbondings: BTreeMap<u32, u128> = StakeUnbondingLedger::<Test>::get(&account_id);
@@ -765,47 +418,50 @@ fn test_remove_delegate_balance() {
 }
 
 #[test]
-fn test_remove_delegate_balance_amount_zero_error() {
+fn test_remove_delegate_account_balance_amount_zero_error() {
     new_test_ext().execute_with(|| {
         let account_id = account(100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
         Network::increase_delegate_account_balance(&account_id, 100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
 
         assert_err!(
-            Network::remove_delegate_balance(RuntimeOrigin::signed(account_id.clone()), 0,),
+            Network::remove_delegate_account_balance(RuntimeOrigin::signed(account_id.clone()), 0,),
             Error::<Test>::AmountZero
         );
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
     })
 }
 
 #[test]
-fn test_remove_delegate_balance_not_enough_stake_error() {
+fn test_remove_delegate_account_balance_not_enough_stake_error() {
     new_test_ext().execute_with(|| {
         let account_id = account(100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 0);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
         Network::increase_delegate_account_balance(&account_id, 100);
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
 
         assert_err!(
-            Network::remove_delegate_balance(RuntimeOrigin::signed(account_id.clone()), 101,),
+            Network::remove_delegate_account_balance(
+                RuntimeOrigin::signed(account_id.clone()),
+                101,
+            ),
             Error::<Test>::NotEnoughStakeToWithdraw
         );
 
-        assert_eq!(AccountDelegateStake::<Test>::get(&account_id), 100);
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
     })
 }
