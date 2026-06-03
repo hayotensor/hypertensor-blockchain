@@ -2,7 +2,7 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ConsensusSubmissionDataV2,
+    BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ConsensusSubmissionData,
     CurrentNodeBurnRate, DefaultMaxVectorLength, Error, InitialValidatorData,
     MaxDelegateStakePercentage, MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes,
     MaxSubnets, MinSubnetMinStake, MinSubnetNodes, MultiaddrSubnetNodeId,
@@ -10,7 +10,7 @@ use crate::{
     NodeSubnetStake, PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData,
     SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeQueue, SubnetNodeQueueEpochs,
-    SubnetNodeReputation, SubnetNodeV2, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
+    SubnetNodeReputation, SubnetNode, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
     SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, TotalActiveNodes,
     TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake,
     TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
@@ -3778,7 +3778,7 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
         let missing_queue_node_id = queued_node_id + 1;
         let super_majority_threshold = Network::percentage_factor_as_u128();
 
-        let missing_node_consensus = ConsensusSubmissionDataV2 {
+        let missing_node_consensus = ConsensusSubmissionData {
             attestation_ratio: super_majority_threshold,
             remove_queue_node_id: Some(missing_queue_node_id),
             ..Default::default()
@@ -3808,7 +3808,7 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             } if *event_subnet_id == subnet_id && *subnet_node_id == missing_queue_node_id
         )));
 
-        let queued_node_consensus = ConsensusSubmissionDataV2 {
+        let queued_node_consensus = ConsensusSubmissionData {
             attestation_ratio: super_majority_threshold,
             remove_queue_node_id: Some(queued_node_id),
             ..Default::default()
@@ -3858,7 +3858,7 @@ fn test_do_activate_subnet_node_subnet_active_node_queued() {
             start_epoch: 0,
         };
 
-        let subnet_node = SubnetNodeV2 {
+        let subnet_node = SubnetNode {
             id: subnet_node_id,
             validator_id: validator_id,
             peer_info: PeerInfo {
@@ -3941,7 +3941,7 @@ fn test_do_activate_subnet_node_failures() {
             start_epoch: 0,
         };
 
-        let subnet_node = SubnetNodeV2 {
+        let subnet_node = SubnetNode {
             id: subnet_node_id,
             validator_id: validator_id,
             peer_info: PeerInfo {
@@ -4049,7 +4049,7 @@ fn test_do_activate_subnet_node_registered_subnet() {
             start_epoch: 0,
         };
 
-        let subnet_node = SubnetNodeV2 {
+        let subnet_node = SubnetNode {
             id: subnet_node_id,
             validator_id: validator_id,
             peer_info: PeerInfo {

@@ -23,7 +23,7 @@ impl<T: Config> Pallet<T> {
         block: u32,
         current_epoch: u32,
         current_subnet_epoch: u32,
-        consensus_submission_data: ConsensusSubmissionDataV2,
+        consensus_submission_data: ConsensusSubmissionData,
         rewards_data: RewardsData,
         min_attestation_percentage: u128,
         coldkey_reputation_increase_factor: u128,
@@ -482,7 +482,7 @@ impl<T: Config> Pallet<T> {
     /// Subnet is not in consensus
     pub fn handle_non_consensus(
         subnet_id: u32,
-        consensus_submission_data: ConsensusSubmissionDataV2,
+        consensus_submission_data: ConsensusSubmissionData,
         min_attestation_percentage: u128,
         coldkey_reputation_decrease_factor: u128,
         min_validator_reputation: u128,
@@ -589,7 +589,7 @@ impl<T: Config> Pallet<T> {
         validator_id: u32,
         subnet_id: u32,
         subnet_node_id: u32,
-        consensus_submission_data: &ConsensusSubmissionDataV2,
+        consensus_submission_data: &ConsensusSubmissionData,
         min_attestation_percentage: u128,
         coldkey_reputation_increase_factor: u128,
         current_epoch: u32,
@@ -670,7 +670,7 @@ impl<T: Config> Pallet<T> {
     pub fn handle_node_queue_consensus(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
-        consensus_submission_data: &ConsensusSubmissionDataV2,
+        consensus_submission_data: &ConsensusSubmissionData,
         super_majority_threshold: u128,
         electable_nodes_count: u32,
     ) {

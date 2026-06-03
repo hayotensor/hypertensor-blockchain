@@ -179,7 +179,7 @@ impl<T: Config> Pallet<T> {
         // when the validator submit their data, this will enable the node to still get rewarded for contributing
         // to the subnet's consensus even if they leave -- versus calling this in the rewards distribution
         // where the node would have already been removed even if they contributed to the subnet's consensus.
-        let subnet_nodes: Vec<SubnetNodeV2> = Self::get_active_classified_subnet_nodes(
+        let subnet_nodes: Vec<SubnetNode> = Self::get_active_classified_subnet_nodes(
             subnet_id,
             &SubnetNodeClass::Idle,
             subnet_epoch,

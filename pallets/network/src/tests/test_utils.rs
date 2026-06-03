@@ -13,7 +13,7 @@ use crate::{
     StakeUnbondingLedger, SubnetConsensusSubmission, SubnetData, SubnetElectedValidator,
     SubnetIdFriendlyUid, SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName,
     SubnetNodeClass, SubnetNodeClassification, SubnetNodeConsensusData, SubnetNodeElectionSlots,
-    SubnetNodeIdHotkey, SubnetNodeQueue, SubnetNodeReputation, SubnetNodeV2, SubnetNodeValidatorId,
+    SubnetNodeIdHotkey, SubnetNodeQueue, SubnetNodeReputation, SubnetNode, SubnetNodeValidatorId,
     SubnetNodesData, SubnetOwner, SubnetRegistrationEpoch, SubnetRegistrationEpochs,
     SubnetReputation, SubnetSlot, SubnetState, SubnetsData, TotalActiveNodes,
     TotalActiveSubnetNodes, TotalActiveSubnets, TotalNodes, TotalOverwatchNodeStakeBalance,
@@ -1008,7 +1008,7 @@ pub fn insert_subnet_node(
         start_epoch: start_epoch,
     };
 
-    let subnet_node: SubnetNodeV2 = SubnetNodeV2 {
+    let subnet_node: SubnetNode = SubnetNode {
         id: subnet_node_id,
         validator_id: validator_id,
         peer_info: PeerInfo {
@@ -1776,7 +1776,7 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
         });
     }
 
-    let included_subnet_nodes: Vec<SubnetNodeV2> = Network::get_active_classified_subnet_nodes(
+    let included_subnet_nodes: Vec<SubnetNode> = Network::get_active_classified_subnet_nodes(
         subnet_id,
         &SubnetNodeClass::Included,
         epoch,
@@ -1936,7 +1936,7 @@ pub fn manual_insert_subnet_node_v2(
     SubnetNodesData::<Test>::insert(
         subnet_id,
         node_id,
-        SubnetNodeV2 {
+        SubnetNode {
             id: node_id,
             validator_id: validator_id,
             peer_info: PeerInfo {

@@ -104,7 +104,7 @@ impl<T: Config> Pallet<T> {
     pub fn get_subnet_node_info(
         subnet_id: u32,
         subnet_node_id: u32,
-    ) -> Option<SubnetNodeInfoV2<T::AccountId>> {
+    ) -> Option<SubnetNodeInfo<T::AccountId>> {
         let subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::get(subnet_id, subnet_node_id)
         } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
@@ -115,7 +115,7 @@ impl<T: Config> Pallet<T> {
 
         let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id);
         let coldkey = ValidatorColdkey::<T>::get(validator_id.unwrap()).unwrap();
-        let info = SubnetNodeInfoV2 {
+        let info = SubnetNodeInfo {
             validator_id: validator_id,
             subnet_id: subnet_id,
             subnet_node_id: subnet_node_id,
@@ -164,8 +164,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Get subnet ID nodes info
-    pub fn get_subnet_nodes_info(subnet_id: u32) -> Vec<SubnetNodeInfoV2<T::AccountId>> {
-        let mut infos: Vec<SubnetNodeInfoV2<T::AccountId>> = Vec::new();
+    pub fn get_subnet_nodes_info(subnet_id: u32) -> Vec<SubnetNodeInfo<T::AccountId>> {
+        let mut infos: Vec<SubnetNodeInfo<T::AccountId>> = Vec::new();
 
         for (subnet_node_id, _) in SubnetNodeReputation::<T>::iter_prefix(subnet_id) {
             if let Some(subnet_node_info) = Self::get_subnet_node_info(subnet_id, subnet_node_id) {
@@ -177,8 +177,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Get all subnet ID nodes info
-    pub fn get_all_subnet_nodes_info() -> Vec<SubnetNodeInfoV2<T::AccountId>> {
-        let mut infos: Vec<SubnetNodeInfoV2<T::AccountId>> = Vec::new();
+    pub fn get_all_subnet_nodes_info() -> Vec<SubnetNodeInfo<T::AccountId>> {
+        let mut infos: Vec<SubnetNodeInfo<T::AccountId>> = Vec::new();
 
         for (subnet_id, _) in SubnetsData::<T>::iter() {
             for (subnet_node_id, _) in SubnetNodeReputation::<T>::iter_prefix(subnet_id) {
@@ -197,15 +197,15 @@ impl<T: Config> Pallet<T> {
     pub fn get_elected_validator_info(
         subnet_id: u32,
         subnet_epoch: u32,
-    ) -> Option<SubnetNodeInfoV2<T::AccountId>> {
+    ) -> Option<SubnetNodeInfo<T::AccountId>> {
         match SubnetElectedValidator::<T>::try_get(subnet_id, subnet_epoch) {
             Ok(subnet_node_id) => Self::get_subnet_node_info(subnet_id, subnet_node_id),
             Err(()) => None,
         }
     }
 
-    pub fn get_validators_and_attestors(subnet_id: u32) -> Vec<SubnetNodeInfoV2<T::AccountId>> {
-        let mut infos: Vec<SubnetNodeInfoV2<T::AccountId>> = Vec::new();
+    pub fn get_validators_and_attestors(subnet_id: u32) -> Vec<SubnetNodeInfo<T::AccountId>> {
+        let mut infos: Vec<SubnetNodeInfo<T::AccountId>> = Vec::new();
         if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
         {
             for subnet_node_id in emergency_validator_data.subnet_node_ids {
@@ -357,8 +357,8 @@ impl<T: Config> Pallet<T> {
     /// Get all nodes from a validator
     pub fn get_validator_subnet_nodes_info(
         validator_id: u32,
-    ) -> Vec<SubnetNodeInfoV2<T::AccountId>> {
-        let mut infos: Vec<SubnetNodeInfoV2<T::AccountId>> = Vec::new();
+    ) -> Vec<SubnetNodeInfo<T::AccountId>> {
+        let mut infos: Vec<SubnetNodeInfo<T::AccountId>> = Vec::new();
 
         for (subnet_id, nodes) in ValidatorSubnetNodes::<T>::get(validator_id).iter() {
             for subnet_node_id in nodes {

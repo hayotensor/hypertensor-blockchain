@@ -18,7 +18,7 @@ use crate::{
     SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod,
     SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeMinWeightDecreaseReputationThreshold,
-    SubnetNodeQueueEpochs, SubnetNodeV2, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
+    SubnetNodeQueueEpochs, SubnetNode, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
     SubnetRemovalReason, SubnetRepo, SubnetState, SubnetsData, TargetNodeRegistrationsPerEpoch,
     ValidatorAbsentDecreaseReputationFactor, ValidatorNonConsensusSubnetNodeReputationFactor,
 };
@@ -541,7 +541,7 @@ fn test_owner_unpause_subnet() {
         RegisteredSubnetNodesData::<Test>::insert(
             subnet_id,
             hotkey_subnet_node_id,
-            SubnetNodeV2 {
+            SubnetNode {
                 id: hotkey_subnet_node_id,
                 validator_id: validator_id,
                 peer_info: PeerInfo {
@@ -629,7 +629,7 @@ fn test_owner_unpause_subnet_repause_cooldown_error() {
         RegisteredSubnetNodesData::<Test>::insert(
             subnet_id,
             hotkey_subnet_node_id,
-            SubnetNodeV2 {
+            SubnetNode {
                 id: hotkey_subnet_node_id,
                 validator_id: validator_id,
                 peer_info: PeerInfo {

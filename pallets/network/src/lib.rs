@@ -209,7 +209,7 @@ pub mod pallet {
             subnet_node_id: u32,
             coldkey: T::AccountId,
             hotkey: T::AccountId,
-            data: SubnetNodeV2,
+            data: SubnetNode,
         },
         SubnetNodeActivated {
             subnet_id: u32,
@@ -1229,59 +1229,23 @@ pub mod pallet {
     ///   This ID is used throughout consensus operations to reference the node.
     /// * `hotkey` - The unique hotkey account associated with this node. The hotkey is used
     ///   for signing transactions and identifying the node operator.
-    /// * `peer_id` - The libp2p peer ID used for subnet communication and peer-to-peer
+    /// * `validator_id` - The validator identity ID that owns this subnet node.
+    /// * `peer_info` - The peer ID and multiaddress used for subnet communication and peer-to-peer
     ///   networking. This identifier is used during proof-of-stake operations and network
     ///   consensus.
-    /// * `bootnode_peer_id` - The libp2p peer ID used when this node operates as a bootnode,
+    /// * `bootnode_peer_info` - The peer ID and multiaddress used when this node operates as a bootnode,
     ///   helping new nodes discover and connect to the subnet network.
-    /// * `client_peer_id` - The libp2p peer ID used when this node operates in client-only
+    /// * `client_peer_info` - The peer ID and multiaddress used when this node operates in client-only
     ///   mode, allowing it to participate in the network without full consensus responsibilities.
-    /// * `bootnode` - Optional multiaddress or connection information for the bootnode.
-    ///   Contains network addressing details needed for other nodes to connect to this
-    ///   bootnode. Limited to `DefaultMaxVectorLength` bytes.
     /// * `classification` - The current classification status of the node, tracking its
     ///   progression through registration, activation, and validator eligibility stages.
     ///   See `SubnetNodeClassification` for details on lifecycle stages.
-    /// * `delegate_reward_rate` - The percentage of rewards that delegate stakers receive
-    ///   from this node's earnings, represented as a fixed-point number (where 1e18 = 100%).
-    ///   This rate determines how rewards are split between the node operator and their delegates.
-    /// * `last_delegate_reward_rate_update` - The block number when the delegate reward rate
-    ///   was last modified. This prevents frequent rate changes and provides transparency
-    ///   about rate stability.
     /// * `unique` - Optional field for storing unique, node-specific data that must be distinct
     ///   across all nodes in the subnet. Can be used for custom node identifiers or properties.
     ///   Limited to `DefaultMaxVectorLength` bytes.
     /// * `non_unique` - Optional field for storing miscellaneous data that doesn't need to be
     ///   unique across nodes. Can be used for metadata, configuration, or other supplementary
     ///   information. Limited to `DefaultMaxVectorLength` bytes.
-    /// * `delegate_account` - An optional delegate account that receives a portion of the node's rewards.
-    ///   being account_id and rate.
-    // #[derive(
-    //     Default,
-    //     Encode,
-    //     Decode,
-    //     Clone,
-    //     PartialEq,
-    //     Eq,
-    //     RuntimeDebug,
-    //     PartialOrd,
-    //     Ord,
-    //     scale_info::TypeInfo,
-    // )]
-    // pub struct SubnetNode<AccountId> {
-    //     pub id: u32,
-    //     pub hotkey: AccountId,
-    //     pub peer_info: PeerInfo,
-    //     pub bootnode_peer_info: Option<PeerInfo>,
-    //     pub client_peer_info: Option<PeerInfo>,
-    //     pub classification: SubnetNodeClassification,
-    //     pub delegate_reward_rate: u128,
-    //     pub last_delegate_reward_rate_update: u32,
-    //     pub unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-    //     pub non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-    //     pub delegate_account: Option<DelegateAccount<AccountId>>,
-    // }
-
     #[derive(
         Default,
         Encode,
@@ -1294,7 +1258,7 @@ pub mod pallet {
         Ord,
         scale_info::TypeInfo,
     )]
-    pub struct SubnetNodeV2 {
+    pub struct SubnetNode {
         pub id: u32,
         pub validator_id: u32,
         pub peer_info: PeerInfo,
@@ -1309,32 +1273,6 @@ pub mod pallet {
     /// RPC helper
     #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
     pub struct SubnetNodeInfo<AccountId> {
-        pub subnet_id: u32,
-        pub subnet_node_id: u32,
-        pub coldkey: AccountId,
-        pub hotkey: AccountId,
-        pub peer_info: PeerInfo,
-        pub bootnode_peer_info: Option<PeerInfo>,
-        pub client_peer_info: Option<PeerInfo>,
-        pub delegate_account: Option<DelegateAccount<AccountId>>,
-        pub identity: ColdkeyIdentityData,
-        pub classification: SubnetNodeClassification,
-        pub delegate_reward_rate: u128,
-        pub last_delegate_reward_rate_update: u32,
-        pub unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-        pub non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
-        pub stake_balance: u128,
-        pub total_node_delegate_stake_shares: u128,
-        pub node_delegate_stake_balance: u128,
-        pub coldkey_reputation: Reputation,
-        pub subnet_node_reputation: Option<u128>,
-        pub node_slot_index: Option<u32>,
-        pub consecutive_idle_epochs: u32,
-        pub consecutive_included_epochs: u32,
-    }
-
-    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
-    pub struct SubnetNodeInfoV2<AccountId> {
         pub validator_id: Option<u32>,
         pub subnet_id: u32,
         pub subnet_node_id: u32,
@@ -1538,14 +1476,7 @@ pub mod pallet {
         pub start_epoch: u32,
     }
 
-    // impl<AccountId> SubnetNode<AccountId> {
-    //     pub fn has_classification(&self, required: &SubnetNodeClass, subnet_epoch: u32) -> bool {
-    //         self.classification.node_class >= *required
-    //             && self.classification.start_epoch <= subnet_epoch
-    //     }
-    // }
-
-    impl SubnetNodeV2 {
+    impl SubnetNode {
         pub fn has_classification(&self, required: &SubnetNodeClass, subnet_epoch: u32) -> bool {
             self.classification.node_class >= *required
                 && self.classification.start_epoch <= subnet_epoch
@@ -1677,6 +1608,7 @@ pub mod pallet {
     ///   proposed this consensus data.
     /// * `validator_epoch_progress` - The percent process of the epoch when the validator submitted
     ///   consensus data, represented as 1e18.
+    /// * `validator_reward_factor` - The reward factor of the validator.
     /// * `attestation_ratio` - The ratio of validators who have attested to this consensus
     ///   submission, represented as a fixed-point number (where 1e18 = 100%). This indicates
     ///   the level of agreement among validators for this submission.
@@ -1699,23 +1631,8 @@ pub mod pallet {
     /// * `remove_queue_node_id` - Optional node ID from the registration queue to remove.
     ///   This is set by the proposing validator and executed during consensus finalization
     ///   if the submission is accepted and the node has passed its immunity period.
-    // #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
-    // pub struct ConsensusSubmissionData<AccountId> {
-    //     pub validator_subnet_node_id: u32,
-    //     pub validator_epoch_progress: u128,
-    //     pub validator_reward_factor: u128,
-    //     pub attestation_ratio: u128,
-    //     pub weight_sum: u128,
-    //     pub data_length: u32,
-    //     pub data: Vec<SubnetNodeConsensusData>,
-    //     pub attests: BTreeMap<u32, AttestEntry>, // subnet_node_id: AttestEntry
-    //     pub subnet_nodes: Vec<SubnetNode<AccountId>>,
-    //     pub prioritize_queue_node_id: Option<u32>,
-    //     pub remove_queue_node_id: Option<u32>,
-    // }
-
     #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
-    pub struct ConsensusSubmissionDataV2 {
+    pub struct ConsensusSubmissionData {
         pub validator_subnet_node_id: u32,
         pub validator_epoch_progress: u128,
         pub validator_reward_factor: u128,
@@ -1724,7 +1641,7 @@ pub mod pallet {
         pub data_length: u32,
         pub data: Vec<SubnetNodeConsensusData>,
         pub attests: BTreeMap<u32, AttestEntry>, // subnet_node_id: AttestEntry
-        pub subnet_nodes: Vec<SubnetNodeV2>,
+        pub subnet_nodes: Vec<SubnetNode>,
         pub prioritize_queue_node_id: Option<u32>,
         pub remove_queue_node_id: Option<u32>,
     }
@@ -1810,7 +1727,7 @@ pub mod pallet {
         pub validator_reward_factor: u128,
         pub validator_ids: Vec<u32>, // All validators of the epoch
         pub attests: BTreeMap<u32, AttestEntry>, // Count of attestations of the submitted data (node ID, (block, data))
-        pub subnet_nodes: Vec<SubnetNodeV2>,
+        pub subnet_nodes: Vec<SubnetNode>,
         pub prioritize_queue_node_id: Option<u32>,
         pub remove_queue_node_id: Option<u32>,
         pub data: Vec<SubnetNodeConsensusData>, // Data submitted by chosen validator
@@ -2111,28 +2028,9 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - SubnetNodesData
     /// - RegisteredSubnetNodesData
-    // #[pallet::type_value]
-    // pub fn DefaultSubnetNode<T: Config>() -> SubnetNode<T::AccountId> {
-    //     return SubnetNode {
-    //         id: 0,
-    //         hotkey: T::AccountId::decode(&mut TrailingZeroInput::zeroes()).unwrap(),
-    //         peer_info: PeerInfo::default(),
-    //         bootnode_peer_info: None,
-    //         client_peer_info: None,
-    //         classification: SubnetNodeClassification {
-    //             node_class: SubnetNodeClass::Registered,
-    //             start_epoch: 0,
-    //         },
-    //         delegate_reward_rate: 0,
-    //         last_delegate_reward_rate_update: 0,
-    //         unique: None,
-    //         non_unique: None,
-    //         delegate_account: None,
-    //     };
-    // }
     #[pallet::type_value]
-    pub fn DefaultSubnetNodeV2<T: Config>() -> SubnetNodeV2 {
-        return SubnetNodeV2 {
+    pub fn DefaultSubnetNode<T: Config>() -> SubnetNode {
+        return SubnetNode {
             id: 0,
             validator_id: 0,
             peer_info: PeerInfo::default(),
@@ -3522,9 +3420,9 @@ pub mod pallet {
         u32,
         Identity,
         u32,
-        SubnetNodeV2,
+        SubnetNode,
         ValueQuery,
-        DefaultSubnetNodeV2<T>,
+        DefaultSubnetNode<T>,
     >;
 
     #[pallet::storage]
@@ -3534,14 +3432,14 @@ pub mod pallet {
         u32,
         Identity,
         u32,
-        SubnetNodeV2,
+        SubnetNode,
         ValueQuery,
-        DefaultSubnetNodeV2<T>,
+        DefaultSubnetNode<T>,
     >;
 
     #[pallet::storage]
     pub type SubnetNodeQueue<T: Config> =
-        StorageMap<_, Identity, u32, Vec<SubnetNodeV2>, ValueQuery>;
+        StorageMap<_, Identity, u32, Vec<SubnetNode>, ValueQuery>;
 
     /// Each subnet nodes peer_id, conditions uniqueness
     /// subnet_id --> peer_id --> subnet_node_id
@@ -7973,7 +7871,7 @@ pub mod pallet {
                 start_epoch: subnet_epoch + 1,
             };
 
-            let subnet_node: SubnetNodeV2 = SubnetNodeV2 {
+            let subnet_node: SubnetNode = SubnetNode {
                 id: subnet_node_id,
                 validator_id: validator_id,
                 peer_info: peer_info.clone(),
@@ -8042,7 +7940,7 @@ pub mod pallet {
             validator_id: u32,
             subnet_id: u32,
             subnet_state: SubnetState,
-            mut subnet_node: SubnetNodeV2,
+            mut subnet_node: SubnetNode,
             subnet_epoch: u32,
         ) -> DispatchResult {
             // We're about to call `insert_node_into_election_slot`. We must always check
@@ -8107,7 +8005,7 @@ pub mod pallet {
             validator_id: u32,
             subnet_id: u32,
             subnet_state: SubnetState,
-            mut subnet_node: SubnetNodeV2,
+            mut subnet_node: SubnetNode,
             subnet_epoch: u32,
             queue: bool,
         ) -> bool {
@@ -8697,7 +8595,7 @@ pub mod pallet {
             //     // Insert Subnet Node ID -> hotkey
             //     SubnetNodeIdHotkey::<T>::insert(subnet_id, current_uid, account_id.clone());
 
-            //     let subnet_node: SubnetNode<T::AccountId> = SubnetNode {
+            //     let subnet_node: SubnetNode = SubnetNode {
             //         id: current_uid,
             //         hotkey: account_id.clone(),
             //         peer_id: peer_id.clone(),

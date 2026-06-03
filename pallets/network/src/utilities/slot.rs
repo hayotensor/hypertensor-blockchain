@@ -437,7 +437,7 @@ impl<T: Config> Pallet<T> {
 
         // Store weights and handle foundation
         if !subnet_weights.is_empty() {
-            let (subnets_emissions, foundation_emissions_as_u128) = Self::get_epoch_emissions_v2();
+            let (subnets_emissions, foundation_emissions_as_u128) = Self::get_epoch_emissions();
 
             if let Some(foundation_emissions) = Self::u128_to_balance(foundation_emissions_as_u128)
             {
@@ -658,7 +658,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         prev_subnet_epoch: u32,
         current_epoch: u32,
-    ) -> (Option<ConsensusSubmissionDataV2>, Weight) {
+    ) -> (Option<ConsensusSubmissionData>, Weight) {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
@@ -726,7 +726,7 @@ impl<T: Config> Pallet<T> {
 
         weight = weight.saturating_add(db_weight.reads(1));
 
-        let consensus_data = ConsensusSubmissionDataV2 {
+        let consensus_data = ConsensusSubmissionData {
             validator_subnet_node_id: submission.validator_id,
             validator_epoch_progress: submission.validator_epoch_progress,
             validator_reward_factor: submission.validator_reward_factor,

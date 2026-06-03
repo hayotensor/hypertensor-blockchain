@@ -61,7 +61,7 @@ impl<T: Config> Pallet<T> {
     fn perform_update_node_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNodeV2>,
+        maybe_params: &mut Option<SubnetNode>,
         new_peer_info: PeerInfo,
     ) -> DispatchResult {
         let params = maybe_params
@@ -136,7 +136,7 @@ impl<T: Config> Pallet<T> {
     fn perform_update_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNodeV2>,
+        maybe_params: &mut Option<SubnetNode>,
         new_peer_info: PeerInfo,
     ) -> DispatchResult {
         let params = maybe_params
@@ -211,7 +211,7 @@ impl<T: Config> Pallet<T> {
     fn perform_update_bootnode_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNodeV2>,
+        maybe_params: &mut Option<SubnetNode>,
         new_peer_info: Option<PeerInfo>,
     ) -> DispatchResult {
         let params = maybe_params
@@ -298,7 +298,7 @@ impl<T: Config> Pallet<T> {
     fn perform_update_node_bootnode_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNodeV2>,
+        maybe_params: &mut Option<SubnetNode>,
         new_peer_info: Option<PeerInfo>,
     ) -> DispatchResult {
         let params = maybe_params
@@ -385,7 +385,7 @@ impl<T: Config> Pallet<T> {
     fn perform_update_client_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNodeV2>,
+        maybe_params: &mut Option<SubnetNode>,
         new_peer_info: Option<PeerInfo>,
     ) -> DispatchResult {
         let params = maybe_params
@@ -471,7 +471,7 @@ impl<T: Config> Pallet<T> {
     fn perform_update_node_client_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNodeV2>,
+        maybe_params: &mut Option<SubnetNode>,
         new_peer_info: Option<PeerInfo>,
     ) -> DispatchResult {
         let params = maybe_params
@@ -547,7 +547,7 @@ impl<T: Config> Pallet<T> {
     fn perform_update_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNodeV2>,
+        maybe_params: &mut Option<SubnetNode>,
         unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
     ) -> DispatchResult {
         let params = maybe_params
@@ -626,7 +626,7 @@ impl<T: Config> Pallet<T> {
     fn perform_update_node_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNodeV2>,
+        maybe_params: &mut Option<SubnetNode>,
         unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
     ) -> DispatchResult {
         let params = maybe_params
@@ -705,7 +705,7 @@ impl<T: Config> Pallet<T> {
     fn perform_update_non_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNodeV2>,
+        maybe_params: &mut Option<SubnetNode>,
         non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
     ) -> DispatchResult {
         let params = maybe_params
@@ -766,7 +766,7 @@ impl<T: Config> Pallet<T> {
     fn perform_update_node_non_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNodeV2>,
+        maybe_params: &mut Option<SubnetNode>,
         non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
     ) -> DispatchResult {
         let params = maybe_params
@@ -921,7 +921,7 @@ impl<T: Config> Pallet<T> {
     pub fn common_remove_subnet_node(
         subnet_id: u32,
         subnet_node_id: u32,
-        subnet_node: SubnetNodeV2,
+        subnet_node: SubnetNode,
     ) {
         let peer_id = subnet_node.peer_info.peer_id.clone();
 
@@ -1004,7 +1004,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    // pub fn get_subnet_node(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNodeV2> {
+    // pub fn get_subnet_node(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNode> {
     //     if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
     //         Some(SubnetNodesData::<T>::get(subnet_id, subnet_node_id))
     //     } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
@@ -1021,7 +1021,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         subnet_node_id: u32,
         subnet_epoch: u32,
-    ) -> Option<SubnetNodeV2> {
+    ) -> Option<SubnetNode> {
         if let Ok(subnet_node) = SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id) {
             if subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch) {
                 Some(subnet_node)
@@ -1037,7 +1037,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         classification: &SubnetNodeClass,
         subnet_epoch: u32,
-    ) -> Vec<SubnetNodeV2> {
+    ) -> Vec<SubnetNode> {
         SubnetNodesData::<T>::iter_prefix_values(subnet_id)
             .filter(|subnet_node| subnet_node.has_classification(classification, subnet_epoch))
             .collect()
@@ -1047,7 +1047,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         classification: &SubnetNodeClass,
         subnet_epoch: u32,
-    ) -> BTreeMap<u32, SubnetNodeV2> {
+    ) -> BTreeMap<u32, SubnetNode> {
         SubnetNodesData::<T>::iter_prefix(subnet_id)
             .filter_map(|(subnet_node_id, subnet_node)| {
                 if subnet_node.has_classification(classification, subnet_epoch) {
@@ -1063,7 +1063,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         classification: &SubnetNodeClass,
         subnet_epoch: u32,
-    ) -> Vec<SubnetNodeInfoV2<T::AccountId>> {
+    ) -> Vec<SubnetNodeInfo<T::AccountId>> {
         SubnetNodesData::<T>::iter_prefix(subnet_id)
             .filter(|(_subnet_node_id, subnet_node)| {
                 subnet_node.has_classification(classification, subnet_epoch)
@@ -1071,7 +1071,7 @@ impl<T: Config> Pallet<T> {
             .map(|(subnet_node_id, subnet_node)| {
                 let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id);
                 let coldkey = ValidatorColdkey::<T>::get(validator_id.unwrap()).unwrap();
-                SubnetNodeInfoV2 {
+                SubnetNodeInfo {
                     validator_id: validator_id,
                     subnet_id: subnet_id,
                     subnet_node_id: subnet_node_id,

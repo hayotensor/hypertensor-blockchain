@@ -10,7 +10,7 @@ use crate::{
     PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData, SubnetElectedValidator,
     SubnetMinStakeBalance, SubnetName, SubnetNodeClass, SubnetNodeClassification,
     SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueueEpochs, SubnetNodeReputation,
-    SubnetNodeV2, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
+    SubnetNode, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
     SubnetRegistrationEpochs, SubnetState, TotalActiveNodes, TotalActiveSubnetNodes,
     TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake, TotalSubnetElectableNodes,
     TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorIds,
@@ -282,7 +282,7 @@ fn test_get_hotkey_associated_subnet_node_prefers_subnet_node_hotkey_override() 
         SubnetNodesData::<Test>::insert(
             subnet_id,
             subnet_node_id,
-            SubnetNodeV2 {
+            SubnetNode {
                 id: subnet_node_id,
                 validator_id,
                 peer_info: PeerInfo {
@@ -332,7 +332,7 @@ fn test_get_hotkey_associated_subnet_node_uses_validator_hotkey_without_override
         SubnetNodesData::<Test>::insert(
             subnet_id,
             subnet_node_id,
-            SubnetNodeV2 {
+            SubnetNode {
                 id: subnet_node_id,
                 validator_id,
                 peer_info: PeerInfo {

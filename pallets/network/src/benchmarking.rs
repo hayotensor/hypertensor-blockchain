@@ -803,7 +803,7 @@ pub fn insert_subnet_node<T: Config>(
     SubnetNodesData::<T>::insert(
         subnet_id,
         node_id,
-        SubnetNodeV2 {
+        SubnetNode {
             id: node_id,
             validator_id,
             peer_info,
@@ -1074,7 +1074,7 @@ pub fn get_simulated_consensus_data<T: Config>(subnet_id: u32, node_count: u32) 
         });
     }
 
-    let included_subnet_nodes: Vec<SubnetNode<T::AccountId>> =
+    let included_subnet_nodes: Vec<SubnetNode> =
         Network::<T>::get_active_classified_subnet_nodes(
             subnet_id,
             &SubnetNodeClass::Included,
@@ -6492,7 +6492,7 @@ mod benchmarks {
         assert!(subnet_weight.is_some());
 
         // ⸺ Submit consnesus data
-        let subnet_nodes: Vec<SubnetNode<T::AccountId>> =
+        let subnet_nodes: Vec<SubnetNode> =
             Network::<T>::get_active_classified_subnet_nodes(
                 subnet_id,
                 &SubnetNodeClass::Included,
