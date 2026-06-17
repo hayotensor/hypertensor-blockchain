@@ -113,18 +113,25 @@ impl<T: Config> Pallet<T> {
         };
 
         let block: u32 = Self::get_current_block_as_u32();
+        let cooldown_blocks = StakeCooldownEpochs::<T>::get() * T::EpochLength::get();
+
+        Self::prepare_unbonding_ledger_entry(
+            &coldkey,
+            stake_to_be_removed,
+            cooldown_blocks,
+            block,
+        )?;
 
         // --- 7. We remove the balance from the hotkey.
         Self::decrease_overwatch_node_stake(overwatch_node_id, stake_to_be_removed);
 
         // --- 9. We add the balancer to the coldkey.  If the above fails we will not credit this coldkey.
-        Self::add_balance_to_unbonding_ledger(
+        Self::insert_balance_to_unbonding_ledger(
             &coldkey,
             stake_to_be_removed,
-            StakeCooldownEpochs::<T>::get() * T::EpochLength::get(),
+            cooldown_blocks,
             block,
-        )
-        .map_err(|e| e)?;
+        );
 
         // Self::deposit_event(Event::StakeRemoved(subnet_id, coldkey, hotkey, stake_to_be_removed));
 

@@ -21,7 +21,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_node_peer_info(
         subnet_id: u32,
         subnet_node_id: u32,
-        new_peer_info: PeerInfo,
+        new_peer_info: PeerInfo<T>,
     ) -> DispatchResult {
         if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::try_mutate_exists(
@@ -61,8 +61,8 @@ impl<T: Config> Pallet<T> {
     fn perform_update_node_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNode>,
-        new_peer_info: PeerInfo,
+        maybe_params: &mut Option<SubnetNode<T>>,
+        new_peer_info: PeerInfo<T>,
     ) -> DispatchResult {
         let params = maybe_params
             .as_mut()
@@ -96,7 +96,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_peer_info(
         subnet_id: u32,
         subnet_node_id: u32,
-        new_peer_info: PeerInfo,
+        new_peer_info: PeerInfo<T>,
     ) -> DispatchResult {
         if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::try_mutate_exists(
@@ -136,8 +136,8 @@ impl<T: Config> Pallet<T> {
     fn perform_update_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNode>,
-        new_peer_info: PeerInfo,
+        maybe_params: &mut Option<SubnetNode<T>>,
+        new_peer_info: PeerInfo<T>,
     ) -> DispatchResult {
         let params = maybe_params
             .as_mut()
@@ -171,7 +171,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_bootnode_peer_info(
         subnet_id: u32,
         subnet_node_id: u32,
-        new_bootnode_peer_info: Option<PeerInfo>,
+        new_bootnode_peer_info: Option<PeerInfo<T>>,
     ) -> DispatchResult {
         if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::try_mutate_exists(
@@ -211,8 +211,8 @@ impl<T: Config> Pallet<T> {
     fn perform_update_bootnode_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNode>,
-        new_peer_info: Option<PeerInfo>,
+        maybe_params: &mut Option<SubnetNode<T>>,
+        new_peer_info: Option<PeerInfo<T>>,
     ) -> DispatchResult {
         let params = maybe_params
             .as_mut()
@@ -258,7 +258,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_node_bootnode_peer_info(
         subnet_id: u32,
         subnet_node_id: u32,
-        new_bootnode_peer_info: Option<PeerInfo>,
+        new_bootnode_peer_info: Option<PeerInfo<T>>,
     ) -> DispatchResult {
         if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::try_mutate_exists(
@@ -298,8 +298,8 @@ impl<T: Config> Pallet<T> {
     fn perform_update_node_bootnode_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNode>,
-        new_peer_info: Option<PeerInfo>,
+        maybe_params: &mut Option<SubnetNode<T>>,
+        new_peer_info: Option<PeerInfo<T>>,
     ) -> DispatchResult {
         let params = maybe_params
             .as_mut()
@@ -345,7 +345,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_client_peer_info(
         subnet_id: u32,
         subnet_node_id: u32,
-        new_peer_info: Option<PeerInfo>,
+        new_peer_info: Option<PeerInfo<T>>,
     ) -> DispatchResult {
         if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::try_mutate_exists(
@@ -385,8 +385,8 @@ impl<T: Config> Pallet<T> {
     fn perform_update_client_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNode>,
-        new_peer_info: Option<PeerInfo>,
+        maybe_params: &mut Option<SubnetNode<T>>,
+        new_peer_info: Option<PeerInfo<T>>,
     ) -> DispatchResult {
         let params = maybe_params
             .as_mut()
@@ -431,7 +431,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_node_client_peer_info(
         subnet_id: u32,
         subnet_node_id: u32,
-        new_peer_info: Option<PeerInfo>,
+        new_peer_info: Option<PeerInfo<T>>,
     ) -> DispatchResult {
         if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::try_mutate_exists(
@@ -471,8 +471,8 @@ impl<T: Config> Pallet<T> {
     fn perform_update_node_client_peer_id(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNode>,
-        new_peer_info: Option<PeerInfo>,
+        maybe_params: &mut Option<SubnetNode<T>>,
+        new_peer_info: Option<PeerInfo<T>>,
     ) -> DispatchResult {
         let params = maybe_params
             .as_mut()
@@ -517,7 +517,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        unique: Option<NetworkBytes<T>>,
     ) -> DispatchResult {
         if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::try_mutate_exists(
@@ -547,8 +547,8 @@ impl<T: Config> Pallet<T> {
     fn perform_update_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNode>,
-        unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        maybe_params: &mut Option<SubnetNode<T>>,
+        unique: Option<NetworkBytes<T>>,
     ) -> DispatchResult {
         let params = maybe_params
             .as_mut()
@@ -586,7 +586,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_node_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        unique: Option<NetworkBytes<T>>,
     ) -> DispatchResult {
         if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::try_mutate_exists(
@@ -626,8 +626,8 @@ impl<T: Config> Pallet<T> {
     fn perform_update_node_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNode>,
-        unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        maybe_params: &mut Option<SubnetNode<T>>,
+        unique: Option<NetworkBytes<T>>,
     ) -> DispatchResult {
         let params = maybe_params
             .as_mut()
@@ -665,7 +665,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_non_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        non_unique: Option<NetworkBytes<T>>,
     ) -> DispatchResult {
         if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::try_mutate_exists(
@@ -705,8 +705,8 @@ impl<T: Config> Pallet<T> {
     fn perform_update_non_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNode>,
-        non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        maybe_params: &mut Option<SubnetNode<T>>,
+        non_unique: Option<NetworkBytes<T>>,
     ) -> DispatchResult {
         let params = maybe_params
             .as_mut()
@@ -726,7 +726,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_node_non_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        non_unique: Option<NetworkBytes<T>>,
     ) -> DispatchResult {
         if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::try_mutate_exists(
@@ -766,8 +766,8 @@ impl<T: Config> Pallet<T> {
     fn perform_update_node_non_unique(
         subnet_id: u32,
         subnet_node_id: u32,
-        maybe_params: &mut Option<SubnetNode>,
-        non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>>,
+        maybe_params: &mut Option<SubnetNode<T>>,
+        non_unique: Option<NetworkBytes<T>>,
     ) -> DispatchResult {
         let params = maybe_params
             .as_mut()
@@ -788,7 +788,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         subnet_node_id: u32,
         overwatch_node_id: u32,
-        peer_info: &PeerInfo,
+        peer_info: &PeerInfo<T>,
     ) -> DispatchResult {
         ensure!(
             Self::validate_peer_id(&peer_info.peer_id),
@@ -823,6 +823,69 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    pub fn validate_registration_peer_infos(
+        subnet_id: u32,
+        peer_info: &PeerInfo<T>,
+        bootnode_peer_info: &Option<PeerInfo<T>>,
+        client_peer_info: &Option<PeerInfo<T>>,
+    ) -> DispatchResult {
+        Self::validate_peer_info(subnet_id, 0, 0, peer_info)?;
+
+        if let Some(bootnode_peer_info) = bootnode_peer_info {
+            Self::validate_peer_info(subnet_id, 0, 0, bootnode_peer_info)?;
+            ensure!(
+                bootnode_peer_info.peer_id != peer_info.peer_id,
+                Error::<T>::PeerIdExist
+            );
+
+            if let (Some(bootnode_multiaddr), Some(peer_multiaddr)) =
+                (&bootnode_peer_info.multiaddr, &peer_info.multiaddr)
+            {
+                ensure!(
+                    bootnode_multiaddr != peer_multiaddr,
+                    Error::<T>::MultiaddrExist
+                );
+            }
+        }
+
+        if let Some(client_peer_info) = client_peer_info {
+            Self::validate_peer_info(subnet_id, 0, 0, client_peer_info)?;
+            ensure!(
+                client_peer_info.peer_id != peer_info.peer_id,
+                Error::<T>::PeerIdExist
+            );
+
+            if let Some(bootnode_peer_info) = bootnode_peer_info {
+                ensure!(
+                    client_peer_info.peer_id != bootnode_peer_info.peer_id,
+                    Error::<T>::PeerIdExist
+                );
+            }
+
+            if let (Some(client_multiaddr), Some(peer_multiaddr)) =
+                (&client_peer_info.multiaddr, &peer_info.multiaddr)
+            {
+                ensure!(
+                    client_multiaddr != peer_multiaddr,
+                    Error::<T>::MultiaddrExist
+                );
+            }
+
+            if let Some(bootnode_peer_info) = bootnode_peer_info {
+                if let (Some(client_multiaddr), Some(bootnode_multiaddr)) =
+                    (&client_peer_info.multiaddr, &bootnode_peer_info.multiaddr)
+                {
+                    ensure!(
+                        client_multiaddr != bootnode_multiaddr,
+                        Error::<T>::MultiaddrExist
+                    );
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     pub fn do_verify_multiaddr(multiaddr: &[u8]) -> DispatchResult {
         multiaddr::Multiaddr::verify(multiaddr).map_err(|e| match e {
             multiaddr::MultiaddrError::InvalidVarint => Error::<T>::MultiaddrInvalidVarint,
@@ -836,6 +899,10 @@ impl<T: Config> Pallet<T> {
 
     /// Inserts a node into the election slots, the list of nodes available to be chosen as validator
     /// Note: ONLY CALL THIS FUNCTION IF MAX NODES IS CHECKED
+    pub fn can_insert_node_into_election_slot(subnet_id: u32, subnet_node_id: u32) -> bool {
+        !SubnetNodeElectionSlots::<T>::get(subnet_id).contains(&subnet_node_id)
+    }
+
     pub fn insert_node_into_election_slot(subnet_id: u32, subnet_node_id: u32) -> bool {
         SubnetNodeElectionSlots::<T>::try_mutate(subnet_id, |slot_list| -> Result<bool, ()> {
             if !slot_list.contains(&subnet_node_id) {
@@ -918,11 +985,7 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    pub fn common_remove_subnet_node(
-        subnet_id: u32,
-        subnet_node_id: u32,
-        subnet_node: SubnetNode,
-    ) {
+    pub fn common_remove_subnet_node(subnet_id: u32, subnet_node_id: u32, subnet_node: SubnetNode<T>) {
         let peer_id = subnet_node.peer_info.peer_id.clone();
 
         if let Some(unique) = subnet_node.unique {
@@ -1004,7 +1067,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    // pub fn get_subnet_node(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNode> {
+    // pub fn get_subnet_node(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNode<T>> {
     //     if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
     //         Some(SubnetNodesData::<T>::get(subnet_id, subnet_node_id))
     //     } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
@@ -1021,7 +1084,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         subnet_node_id: u32,
         subnet_epoch: u32,
-    ) -> Option<SubnetNode> {
+    ) -> Option<SubnetNode<T>> {
         if let Ok(subnet_node) = SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id) {
             if subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch) {
                 Some(subnet_node)
@@ -1037,7 +1100,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         classification: &SubnetNodeClass,
         subnet_epoch: u32,
-    ) -> Vec<SubnetNode> {
+    ) -> Vec<SubnetNode<T>> {
         SubnetNodesData::<T>::iter_prefix_values(subnet_id)
             .filter(|subnet_node| subnet_node.has_classification(classification, subnet_epoch))
             .collect()
@@ -1047,7 +1110,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         classification: &SubnetNodeClass,
         subnet_epoch: u32,
-    ) -> BTreeMap<u32, SubnetNode> {
+    ) -> BTreeMap<u32, SubnetNode<T>> {
         SubnetNodesData::<T>::iter_prefix(subnet_id)
             .filter_map(|(subnet_node_id, subnet_node)| {
                 if subnet_node.has_classification(classification, subnet_epoch) {
@@ -1063,7 +1126,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         classification: &SubnetNodeClass,
         subnet_epoch: u32,
-    ) -> Vec<SubnetNodeInfo<T::AccountId>> {
+    ) -> Vec<SubnetNodeInfo<T>> {
         SubnetNodesData::<T>::iter_prefix(subnet_id)
             .filter(|(_subnet_node_id, subnet_node)| {
                 subnet_node.has_classification(classification, subnet_epoch)
@@ -1244,7 +1307,7 @@ impl<T: Config> Pallet<T> {
     pub fn is_owner_of_multiaddr_or_ownerless(
         subnet_id: u32,
         subnet_node_id: u32,
-        multiaddr: BoundedVec<u8, DefaultMaxVectorLength>,
+        multiaddr: NetworkBytes<T>,
     ) -> bool {
         match MultiaddrSubnetNodeId::<T>::try_get(subnet_id, multiaddr) {
             Ok(node_id) => {
@@ -1473,7 +1536,7 @@ impl<T: Config> Pallet<T> {
     pub fn get_subnet_node_associated_validator_info(
         subnet_id: u32,
         subnet_node_id: u32,
-    ) -> Result<ValidatorInfo<T::AccountId>, DispatchError> {
+    ) -> Result<ValidatorInfo<T>, DispatchError> {
         let validator_id = SubnetNodeValidatorId::<T>::try_get(subnet_id, subnet_node_id)
             .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
 
@@ -1483,7 +1546,7 @@ impl<T: Config> Pallet<T> {
         let data = ValidatorsData::<T>::try_get(validator_id)
             .map_err(|_| Error::<T>::InvalidValidatorId)?;
 
-        let validator: ValidatorInfo<T::AccountId> = ValidatorInfo {
+        let validator: ValidatorInfo<T> = ValidatorInfo {
             id: validator_id,
             hotkey: data.hotkey,
             delegate_reward_rate: data.delegate_reward_rate,

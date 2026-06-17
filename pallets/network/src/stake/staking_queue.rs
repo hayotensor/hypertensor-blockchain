@@ -47,13 +47,14 @@ impl<T: Config> Pallet<T> {
             execute_after_blocks: T::EpochLength::get(),
         };
 
-        // Add to data storage
-        SwapCallQueue::<T>::insert(&id, &queued_item);
+        SwapQueueOrder::<T>::try_mutate(|queue| -> DispatchResult {
+            queue
+                .try_push(id)
+                .map_err(|_| Error::<T>::SwapQueueFull)?;
+            Ok(())
+        })?;
 
-        // Add ID to the end of the queue
-        SwapQueueOrder::<T>::mutate(|queue| {
-            let _ = queue.try_push(id); // Handle error if queue is full
-        });
+        SwapCallQueue::<T>::insert(&id, &queued_item);
 
         NextSwapQueueId::<T>::mutate(|next_id| *next_id = next_id.saturating_add(1));
 

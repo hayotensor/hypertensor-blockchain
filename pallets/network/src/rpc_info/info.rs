@@ -16,8 +16,13 @@
 use super::*;
 
 impl<T: Config> Pallet<T> {
-    pub fn get_subnet_info(subnet_id: u32) -> Option<SubnetInfo<T::AccountId>> {
+    pub fn get_subnet_info(subnet_id: u32) -> Option<SubnetInfo<T>> {
         let subnet_data = SubnetsData::<T>::try_get(subnet_id).ok()?;
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        let reputation_factor_schedule = SubnetReputationFactorSchedules::<T>::get(subnet_id);
+        let reputation_factors = reputation_factor_schedule.factors_for_epoch(current_subnet_epoch);
+        let pending_reputation_factors =
+            reputation_factor_schedule.pending_after(current_subnet_epoch);
 
         Some(SubnetInfo {
             id: subnet_data.id,
@@ -59,22 +64,18 @@ impl<T: Config> Pallet<T> {
                 SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
             reputation: SubnetReputation::<T>::get(subnet_id),
             min_subnet_node_reputation: MinSubnetNodeReputation::<T>::get(subnet_id),
-            absent_decrease_reputation_factor: AbsentDecreaseReputationFactor::<T>::get(subnet_id),
-            included_increase_reputation_factor: IncludedIncreaseReputationFactor::<T>::get(
-                subnet_id,
-            ),
-            below_min_weight_decrease_reputation_factor:
-                BelowMinWeightDecreaseReputationFactor::<T>::get(subnet_id),
-            non_attestor_decrease_reputation_factor: NonAttestorDecreaseReputationFactor::<T>::get(
-                subnet_id,
-            ),
-            non_consensus_attestor_decrease_reputation_factor:
-                NonConsensusAttestorDecreaseReputationFactor::<T>::get(subnet_id),
-            validator_absent_subnet_node_reputation_factor: ValidatorAbsentDecreaseReputationFactor::<
-                T,
-            >::get(subnet_id),
-            validator_non_consensus_subnet_node_reputation_factor:
-                ValidatorNonConsensusSubnetNodeReputationFactor::<T>::get(subnet_id),
+            absent_decrease_reputation_factor: reputation_factors.absent_decrease,
+            included_increase_reputation_factor: reputation_factors.included_increase,
+            below_min_weight_decrease_reputation_factor: reputation_factors
+                .below_min_weight_decrease,
+            non_attestor_decrease_reputation_factor: reputation_factors.non_attestor_decrease,
+            non_consensus_attestor_decrease_reputation_factor: reputation_factors
+                .non_consensus_attestor_decrease,
+            validator_absent_subnet_node_reputation_factor: reputation_factors
+                .validator_absent_decrease,
+            validator_non_consensus_subnet_node_reputation_factor: reputation_factors
+                .validator_non_consensus_decrease,
+            pending_reputation_factors,
             bootnode_access: SubnetBootnodeAccess::<T>::get(subnet_id),
             bootnodes: SubnetBootnodes::<T>::get(subnet_id),
             total_nodes: TotalSubnetNodes::<T>::get(subnet_id),
@@ -89,8 +90,8 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    pub fn get_all_subnets_info() -> Vec<SubnetInfo<T::AccountId>> {
-        let mut infos: Vec<SubnetInfo<T::AccountId>> = Vec::new();
+    pub fn get_all_subnets_info() -> Vec<SubnetInfo<T>> {
+        let mut infos: Vec<SubnetInfo<T>> = Vec::new();
 
         for (subnet_id, subnet_data) in SubnetsData::<T>::iter() {
             if let Some(subnet_info) = Self::get_subnet_info(subnet_id) {
@@ -104,7 +105,7 @@ impl<T: Config> Pallet<T> {
     pub fn get_subnet_node_info(
         subnet_id: u32,
         subnet_node_id: u32,
-    ) -> Option<SubnetNodeInfo<T::AccountId>> {
+    ) -> Option<SubnetNodeInfo<T>> {
         let subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::get(subnet_id, subnet_node_id)
         } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
@@ -143,7 +144,7 @@ impl<T: Config> Pallet<T> {
         return Some(info);
     }
 
-    pub fn get_validator_info(validator_id: u32) -> Option<ValidatorInfo<T::AccountId>> {
+    pub fn get_validator_info(validator_id: u32) -> Option<ValidatorInfo<T>> {
         let validator = if ValidatorsData::<T>::contains_key(validator_id) {
             ValidatorsData::<T>::get(validator_id)
         } else {
@@ -164,8 +165,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Get subnet ID nodes info
-    pub fn get_subnet_nodes_info(subnet_id: u32) -> Vec<SubnetNodeInfo<T::AccountId>> {
-        let mut infos: Vec<SubnetNodeInfo<T::AccountId>> = Vec::new();
+    pub fn get_subnet_nodes_info(subnet_id: u32) -> Vec<SubnetNodeInfo<T>> {
+        let mut infos: Vec<SubnetNodeInfo<T>> = Vec::new();
 
         for (subnet_node_id, _) in SubnetNodeReputation::<T>::iter_prefix(subnet_id) {
             if let Some(subnet_node_info) = Self::get_subnet_node_info(subnet_id, subnet_node_id) {
@@ -177,8 +178,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Get all subnet ID nodes info
-    pub fn get_all_subnet_nodes_info() -> Vec<SubnetNodeInfo<T::AccountId>> {
-        let mut infos: Vec<SubnetNodeInfo<T::AccountId>> = Vec::new();
+    pub fn get_all_subnet_nodes_info() -> Vec<SubnetNodeInfo<T>> {
+        let mut infos: Vec<SubnetNodeInfo<T>> = Vec::new();
 
         for (subnet_id, _) in SubnetsData::<T>::iter() {
             for (subnet_node_id, _) in SubnetNodeReputation::<T>::iter_prefix(subnet_id) {
@@ -197,15 +198,15 @@ impl<T: Config> Pallet<T> {
     pub fn get_elected_validator_info(
         subnet_id: u32,
         subnet_epoch: u32,
-    ) -> Option<SubnetNodeInfo<T::AccountId>> {
+    ) -> Option<SubnetNodeInfo<T>> {
         match SubnetElectedValidator::<T>::try_get(subnet_id, subnet_epoch) {
             Ok(subnet_node_id) => Self::get_subnet_node_info(subnet_id, subnet_node_id),
             Err(()) => None,
         }
     }
 
-    pub fn get_validators_and_attestors(subnet_id: u32) -> Vec<SubnetNodeInfo<T::AccountId>> {
-        let mut infos: Vec<SubnetNodeInfo<T::AccountId>> = Vec::new();
+    pub fn get_validators_and_attestors(subnet_id: u32) -> Vec<SubnetNodeInfo<T>> {
+        let mut infos: Vec<SubnetNodeInfo<T>> = Vec::new();
         if let Some(emergency_validator_data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
         {
             for subnet_node_id in emergency_validator_data.subnet_node_ids {
@@ -319,11 +320,11 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Get all bootnodes organized by the official bootnodes, node bootnodes, and registered bootnodes
-    pub fn get_bootnodes(subnet_id: u32) -> AllSubnetBootnodes {
-        let subnet_bootnodes: BTreeMap<PeerId, BoundedVec<u8, DefaultMaxVectorLength>> =
+    pub fn get_bootnodes(subnet_id: u32) -> AllSubnetBootnodes<T> {
+        let subnet_bootnodes: BTreeMap<PeerId, NetworkBytes<T>> =
             SubnetBootnodes::<T>::get(subnet_id);
 
-        let node_bootnodes: BTreeMap<PeerId, Option<BoundedVec<u8, DefaultMaxVectorLength>>> =
+        let node_bootnodes: BTreeMap<PeerId, Option<NetworkBytes<T>>> =
             SubnetNodesData::<T>::iter_prefix(subnet_id)
                 .filter_map(|(_, node)| {
                     if let Some(peer_info) = node.bootnode_peer_info {
@@ -335,7 +336,7 @@ impl<T: Config> Pallet<T> {
                 })
                 .collect();
 
-        let registered_bootnodes: BTreeMap<PeerId, Option<BoundedVec<u8, DefaultMaxVectorLength>>> =
+        let registered_bootnodes: BTreeMap<PeerId, Option<NetworkBytes<T>>> =
             RegisteredSubnetNodesData::<T>::iter_prefix(subnet_id)
                 .filter_map(|(_, node)| {
                     if let Some(peer_info) = node.bootnode_peer_info {
@@ -347,7 +348,7 @@ impl<T: Config> Pallet<T> {
                 })
                 .collect();
 
-        AllSubnetBootnodes {
+        AllSubnetBootnodes::<T> {
             subnet_bootnodes,
             node_bootnodes,
             registered_bootnodes,
@@ -355,10 +356,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Get all nodes from a validator
-    pub fn get_validator_subnet_nodes_info(
-        validator_id: u32,
-    ) -> Vec<SubnetNodeInfo<T::AccountId>> {
-        let mut infos: Vec<SubnetNodeInfo<T::AccountId>> = Vec::new();
+    pub fn get_validator_subnet_nodes_info(validator_id: u32) -> Vec<SubnetNodeInfo<T>> {
+        let mut infos: Vec<SubnetNodeInfo<T>> = Vec::new();
 
         for (subnet_id, nodes) in ValidatorSubnetNodes::<T>::get(validator_id).iter() {
             for subnet_node_id in nodes {
@@ -495,7 +494,16 @@ impl<T: Config> Pallet<T> {
         epoch: u32,
         overwatch_node_id: u32,
     ) -> Vec<(u32, u128)> {
-        // Returns (subnet_id, commit_hash) pairs
-        OverwatchReveals::<T>::iter_prefix((epoch, overwatch_node_id)).collect()
+        // Reveals are keyed by (epoch, subnet_id, overwatch_node_id), so a node query
+        // must scan the epoch prefix and filter by overwatch node.
+        OverwatchReveals::<T>::iter_prefix((epoch,))
+            .filter_map(|((subnet_id, node_id), weight)| {
+                if node_id == overwatch_node_id {
+                    Some((subnet_id, weight))
+                } else {
+                    None
+                }
+            })
+            .collect()
     }
 }

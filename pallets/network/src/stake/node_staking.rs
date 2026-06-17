@@ -143,9 +143,10 @@ impl<T: Config> Pallet<T> {
                     >= SubnetMinStakeBalance::<T>::get(subnet_id),
                 Error::<T>::MinStakeNotReached
             );
-        } else if stake_to_be_removed >= node_stake_balance {
-            Self::clean_validator_subnet_nodes(validator_id);
         }
+
+        let should_clean_validator_subnet_nodes =
+            !is_subnet_node && stake_to_be_removed >= node_stake_balance;
 
         // --- Ensure that we can convert this u128 to a balance.
         match Self::u128_to_balance(stake_to_be_removed) {
@@ -159,17 +160,29 @@ impl<T: Config> Pallet<T> {
             Error::<T>::TxRateLimitExceeded
         );
 
+        let cooldown_blocks = StakeCooldownEpochs::<T>::get() * T::EpochLength::get();
+        Self::prepare_unbonding_ledger_entry(
+            &coldkey,
+            stake_to_be_removed,
+            cooldown_blocks,
+            block,
+        )?;
+
+        // Clean up validator subnet nodes from `ValidatorSubnetNodes`
+        if should_clean_validator_subnet_nodes {
+            Self::clean_validator_subnet_nodes(validator_id);
+        }
+
         // --- 7. We remove the balance from the subnet_node_id.
         Self::decrease_node_stake(subnet_node_id, subnet_id, stake_to_be_removed);
 
         // --- 9. We add the balancer to the coldkey.  If the above fails we will not credit this coldkey.
-        Self::add_balance_to_unbonding_ledger(
+        Self::insert_balance_to_unbonding_ledger(
             &coldkey,
             stake_to_be_removed,
-            StakeCooldownEpochs::<T>::get() * T::EpochLength::get(),
+            cooldown_blocks,
             block,
-        )
-        .map_err(|e| e)?;
+        );
 
         // Set last block for rate limiting
         Self::set_last_tx_block(&coldkey, block);

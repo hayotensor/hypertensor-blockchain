@@ -5,7 +5,7 @@ use crate::{
     NodeSubnetStake, PeerInfo, RegisteredSubnetNodesData, StakeCooldownEpochs,
     StakeUnbondingLedger, SubnetMaxStakeBalance, SubnetName, SubnetNodeQueueEpochs,
     SubnetNodesData, SubnetRemovalReason, SubnetsData, TotalActiveSubnets, TotalSubnetNodeUids,
-    TotalSubnetNodes, TotalSubnetStake, TotalValidatorIds, ValidatorSubnetNodes,
+    TotalSubnetNodes, TotalSubnetStake, TotalValidatorIds, TxRateLimit, ValidatorSubnetNodes,
 };
 use frame_support::traits::Currency;
 use frame_support::weights::WeightMeter;
@@ -166,6 +166,62 @@ fn test_add_to_stake() {
         assert_eq!(
             Network::total_subnet_stake(subnet_id),
             amount_staked + stake_amount
+        );
+    });
+}
+
+#[test]
+fn test_add_node_stake_respects_tx_rate_limit() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-rate-limit".into();
+        let deposit_amount: u128 = 1000000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let end = 3;
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let subnet_node_id = end;
+        let amount = 1000;
+        let rate_limit = 3;
+        TxRateLimit::<Test>::put(rate_limit);
+        System::set_block_number(1);
+        let _ = Balances::deposit_creating(&coldkey, deposit_amount);
+
+        assert_ok!(Network::add_node_stake(
+            RuntimeOrigin::signed(coldkey.clone()),
+            subnet_id,
+            subnet_node_id,
+            amount,
+        ));
+        let stake_after_first = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
+
+        assert_err!(
+            Network::add_node_stake(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet_id,
+                subnet_node_id,
+                amount,
+            ),
+            Error::<Test>::TxRateLimitExceeded
+        );
+        assert_eq!(
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
+            stake_after_first
+        );
+
+        System::set_block_number(System::block_number() + rate_limit + 1);
+        assert_ok!(Network::add_node_stake(
+            RuntimeOrigin::signed(coldkey),
+            subnet_id,
+            subnet_node_id,
+            amount,
+        ));
+        assert_eq!(
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
+            stake_after_first + amount
         );
     });
 }
@@ -547,7 +603,7 @@ fn test_remove_stake() {
 //             validator_id,
 //             subnet_id,
 //             None,
-//             PeerInfo {
+//             PeerInfo::<Test> {
 //                 peer_id: peer_id.clone(),
 //                 multiaddr: None,
 //             },
@@ -879,7 +935,7 @@ fn test_register_try_removing_all_stake_error() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },

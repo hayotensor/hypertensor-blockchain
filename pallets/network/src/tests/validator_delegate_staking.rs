@@ -4,7 +4,7 @@ use crate::{
     AccountSubnetDelegateStakeShares, AccountValidatorDelegateStakeShares, Error, MaxSubnetNodes,
     MinDelegateStakeDeposit, MinSubnetMinStake, NextSwapQueueId, NodeDelegateStakeCooldownEpochs,
     QueuedSwapCall, StakeUnbondingLedger, SubnetName, SwapCallQueue, SwapQueueOrder,
-    TotalActiveSubnets, TotalSubnetNodes, TotalValidatorDelegateStakeBalance,
+    TotalActiveSubnets, TotalSubnetNodes, TotalValidatorDelegateStakeBalance, TxRateLimit,
     ValidatorDelegateStakeBalance, ValidatorDelegateStakeShares,
 };
 use frame_support::traits::Currency;
@@ -125,6 +125,73 @@ fn test_add_to_node_delegate_stake() {
             (account_node_delegate_stake_balance
                 >= Network::percent_mul(amount, 990000000000000000))
                 && (account_node_delegate_stake_balance <= amount)
+        );
+    })
+}
+
+#[test]
+fn test_add_validator_delegate_stake_respects_tx_rate_limit() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "validator-delegate-rate-limit".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 100e+18 as u128;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet_with_delegator_rewards(
+            subnet_name,
+            0,
+            16,
+            deposit_amount,
+            stake_amount,
+            DEFAULT_DELEGATE_REWARD_RATE,
+        );
+
+        let validator_id = 1;
+        let delegator = account(901);
+        let rate_limit = 3;
+        TxRateLimit::<Test>::put(rate_limit);
+        System::set_block_number(1);
+        let _ = Balances::deposit_creating(&delegator, amount.saturating_mul(3) + 500);
+
+        assert_ok!(Network::add_validator_delegate_stake(
+            RuntimeOrigin::signed(delegator.clone()),
+            validator_id,
+            amount,
+        ));
+        let shares_after_first =
+            AccountValidatorDelegateStakeShares::<Test>::get(delegator.clone(), validator_id);
+        let balance_after_first = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
+
+        assert_err!(
+            Network::add_validator_delegate_stake(
+                RuntimeOrigin::signed(delegator.clone()),
+                validator_id,
+                amount,
+            ),
+            Error::<Test>::TxRateLimitExceeded
+        );
+        assert_eq!(
+            AccountValidatorDelegateStakeShares::<Test>::get(delegator.clone(), validator_id),
+            shares_after_first
+        );
+        assert_eq!(
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id),
+            balance_after_first
+        );
+
+        System::set_block_number(System::block_number() + rate_limit + 1);
+        assert_ok!(Network::add_validator_delegate_stake(
+            RuntimeOrigin::signed(delegator.clone()),
+            validator_id,
+            amount,
+        ));
+        assert!(
+            AccountValidatorDelegateStakeShares::<Test>::get(delegator, validator_id)
+                > shares_after_first
+        );
+        assert_eq!(
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id),
+            balance_after_first + amount
         );
     })
 }
@@ -385,7 +452,7 @@ fn test_remove_validator_delegate_stake() {
         );
 
         assert_err!(
-            Network::swap_validator_delegate_stake(
+            Network::swap_from_validator_to_validator(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
                 validator_id, // unstaking from validator 1
                 to_validator_id,
@@ -478,7 +545,7 @@ fn test_remove_validator_delegate_stake_not_enough_stake_to_withdraw() {
         );
 
         assert_err!(
-            Network::swap_validator_delegate_stake(
+            Network::swap_from_validator_to_validator(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
                 validator_id,
                 to_validator_id,
@@ -601,7 +668,7 @@ fn test_swap_validator_delegate_stake() {
 
         let starting_to_subnet_node_id = 2;
 
-        assert_ok!(Network::swap_validator_delegate_stake(
+        assert_ok!(Network::swap_from_validator_to_validator(
             RuntimeOrigin::signed(account(total_from_subnet_nodes + 1)),
             validator_id, // unstaking from node 1
             to_validator_id,

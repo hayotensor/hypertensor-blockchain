@@ -18,13 +18,14 @@ use frame_support::pallet_prelude::DispatchResultWithPostInfo;
 use frame_support::pallet_prelude::Pays;
 
 impl<T: Config> Pallet<T> {
+    #[frame_support::transactional]
     pub fn do_register_overwatch_node(
         origin: T::RuntimeOrigin,
         stake_to_be_added: u128,
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin.clone())?;
 
-        let validator_id = ColdkeyValidatorId::<T>::get(&coldkey).ok_or(Error::<T>::NotKeyOwner)?;
+        let validator_id = Self::get_canonical_validator_id_for_coldkey(&coldkey)?;
 
         ensure!(
             OverwatchValidatorWhitelist::<T>::get(validator_id),
@@ -44,28 +45,48 @@ impl<T: Config> Pallet<T> {
         );
 
         // ⸺ Ensure qualifies via reputation
-        let reputation = ValidatorReputation::<T>::get(validator_id);
-
         ensure!(
-            Self::is_validator_overwatch_qualified(validator_id),
+            Self::is_validator_overwatch_qualified_read_only(validator_id),
             Error::<T>::ColdkeyNotOverwatchQualified
         );
 
-        // ⸺ Register
-        TotalOverwatchNodeUids::<T>::mutate(|n: &mut u32| *n += 1);
-        let current_uid = TotalOverwatchNodeUids::<T>::get();
+        let current_uid = TotalOverwatchNodeUids::<T>::get().saturating_add(1);
 
-        OverwatchNodeValidatorId::<T>::insert(current_uid, validator_id);
+        ensure!(stake_to_be_added != 0, Error::<T>::InvalidAmount);
+
+        let balance = match Self::u128_to_balance(stake_to_be_added) {
+            Some(b) => b,
+            None => return Err(Error::<T>::CouldNotConvertToBalance.into()),
+        };
+
+        let account_stake_balance: u128 = OverwatchNodeStakeBalance::<T>::get(current_uid);
+
+        ensure!(
+            account_stake_balance.saturating_add(stake_to_be_added)
+                >= OverwatchMinStakeBalance::<T>::get(),
+            Error::<T>::MinStakeNotReached
+        );
+
+        ensure!(
+            Self::can_remove_balance_from_coldkey_account(&coldkey, balance),
+            Error::<T>::NotEnoughBalanceToStake
+        );
 
         // ⸺ Stake
-        Self::do_add_overwatch_node_stake(origin.clone(), current_uid, stake_to_be_added)
-            .map_err(|e| e)?;
+        ensure!(
+            Self::remove_balance_from_coldkey_account(&coldkey, balance) == true,
+            Error::<T>::BalanceWithdrawalError
+        );
+        Self::increase_overwatch_node_stake(current_uid, stake_to_be_added);
 
         let overwatch_node: OverwatchNode<T::AccountId> = OverwatchNode {
             id: current_uid,
             hotkey: coldkey.clone(),
         };
 
+        // ⸺ Register
+        TotalOverwatchNodeUids::<T>::put(current_uid);
+        OverwatchNodeValidatorId::<T>::insert(current_uid, validator_id);
         OverwatchNodes::<T>::insert(current_uid, overwatch_node);
 
         TotalOverwatchNodes::<T>::mutate(|n: &mut u32| *n += 1);
@@ -136,6 +157,11 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn is_validator_overwatch_qualified(validator_id: u32) -> bool {
+        Self::clean_validator_subnet_nodes(validator_id);
+        Self::is_validator_overwatch_qualified_read_only(validator_id)
+    }
+
+    pub fn is_validator_overwatch_qualified_read_only(validator_id: u32) -> bool {
         let reputation = match ValidatorReputation::<T>::try_get(validator_id) {
             Ok(value) => value,
             Err(_) => return false,
@@ -162,34 +188,27 @@ impl<T: Config> Pallet<T> {
             return false;
         }
 
-        Self::clean_validator_subnet_nodes(validator_id);
-
         // Get number of nodes under coldkey
         let mut active_unique_node_count = 0;
-        ValidatorSubnetNodes::<T>::mutate(validator_id, |node_map| {
-            for (subnet_id, nodes) in node_map.iter_mut() {
-                let subnet_epoch = Self::get_current_subnet_epoch_as_u32(*subnet_id);
+        let node_map = ValidatorSubnetNodes::<T>::get(validator_id);
+        for (subnet_id, nodes) in node_map.iter() {
+            let subnet_epoch = Self::get_current_subnet_epoch_as_u32(*subnet_id);
 
-                let node_ids: Vec<u32> = nodes.iter().copied().collect();
+            let node_ids: Vec<u32> = nodes.iter().copied().collect();
 
-                // Process each node_id one by one
-                for node_id in node_ids {
-                    if !Self::get_validator_classified_subnet_node(
-                        *subnet_id,
-                        node_id,
-                        subnet_epoch,
-                    )
+            // Process each node_id one by one
+            for node_id in node_ids {
+                if !Self::get_validator_classified_subnet_node(*subnet_id, node_id, subnet_epoch)
                     .is_none()
-                    {
-                        active_unique_node_count += 1;
-                        // `break` to next subnet
-                        // We are only checking for subnet uniqueness. We only need to verify
-                        // there is one node per subnet to get the uniquness ratio
-                        break;
-                    }
+                {
+                    active_unique_node_count += 1;
+                    // `break` to next subnet
+                    // We are only checking for subnet uniqueness. We only need to verify
+                    // there is one node per subnet to get the uniquness ratio
+                    break;
                 }
             }
-        });
+        }
 
         let diversification = match active_unique_node_count >= TotalActiveSubnets::<T>::get() {
             true => Self::percentage_factor_as_u128(),

@@ -2,25 +2,23 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AbsentDecreaseReputationFactor, BelowMinWeightDecreaseReputationFactor, ChurnLimit,
-    DefaultMaxVectorLength, EmergencySubnetNodeElectionData, EmergencySubnetValidatorData, Error,
-    IdleClassificationEpochs, IncludedClassificationEpochs, IncludedIncreaseReputationFactor,
-    LastSubnetDelegateStakeRewardsUpdate, MaxChurnLimit, MaxDelegateStakePercentage,
-    MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes,
-    MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetBootnodeAccess, MaxSubnetMinStake,
-    MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnets, MinChurnLimit,
-    MinDelegateStakePercentage, MinIdleClassificationEpochs, MinIncludedClassificationEpochs,
-    MinMaxRegisteredNodes, MinNodeReputationFactor, MinQueueEpochs, MinSubnetMinStake,
-    MinSubnetNodeReputation, NetworkMaxStakeBalance, NodeBurnRateAlpha,
-    NodeRegistrationInitialValidatorIds, NonAttestorDecreaseReputationFactor,
-    NonConsensusAttestorDecreaseReputationFactor, PeerInfo, PendingSubnetOwner,
-    QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess, SubnetData,
-    SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod,
-    SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNodeClass,
+    ChurnLimit, ChurnLimitMultiplier, EmergencySubnetNodeElectionData,
+    EmergencySubnetValidatorData, Error, IdleClassificationEpochs, IncludedClassificationEpochs,
+    LastSubnetDelegateStakeRewardsUpdate, MaxChurnLimit, MaxChurnLimitMultiplier,
+    MaxDelegateStakePercentage, MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs,
+    MaxMaxRegisteredNodes, MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetBootnodeAccess,
+    MaxSubnetMinStake, MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes,
+    MaxSubnets, MinChurnLimit, MinChurnLimitMultiplier, MinDelegateStakePercentage,
+    MinIdleClassificationEpochs, MinIncludedClassificationEpochs, MinMaxRegisteredNodes,
+    MinNodeReputationFactor, MinQueueEpochs, MinSubnetMinStake, MinSubnetNodeReputation,
+    NetworkMaxStakeBalance, NodeBurnRateAlpha, NodeRegistrationInitialValidatorIds, PeerInfo,
+    PendingSubnetOwner, QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess,
+    SubnetData, SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod,
+    SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeMinWeightDecreaseReputationThreshold,
-    SubnetNodeQueueEpochs, SubnetNode, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
-    SubnetRemovalReason, SubnetRepo, SubnetState, SubnetsData, TargetNodeRegistrationsPerEpoch,
-    ValidatorAbsentDecreaseReputationFactor, ValidatorNonConsensusSubnetNodeReputationFactor,
+    SubnetNodeQueueEpochs, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
+    SubnetRemovalReason, SubnetRepo, SubnetReputationFactorSchedules,
+    SubnetReputationFactorUpdates, SubnetState, SubnetsData, TargetNodeRegistrationsPerEpoch,
 };
 use codec::Decode;
 use frame_support::{assert_err, assert_ok};
@@ -541,10 +539,10 @@ fn test_owner_unpause_subnet() {
         RegisteredSubnetNodesData::<Test>::insert(
             subnet_id,
             hotkey_subnet_node_id,
-            SubnetNode {
+            SubnetNode::<Test> {
                 id: hotkey_subnet_node_id,
                 validator_id: validator_id,
-                peer_info: PeerInfo {
+                peer_info: PeerInfo::<Test> {
                     peer_id: peer(0),
                     multiaddr: None,
                 },
@@ -629,10 +627,10 @@ fn test_owner_unpause_subnet_repause_cooldown_error() {
         RegisteredSubnetNodesData::<Test>::insert(
             subnet_id,
             hotkey_subnet_node_id,
-            SubnetNode {
+            SubnetNode::<Test> {
                 id: hotkey_subnet_node_id,
                 validator_id: validator_id,
-                peer_info: PeerInfo {
+                peer_info: PeerInfo::<Test> {
                     peer_id: peer(0),
                     multiaddr: None,
                 },
@@ -1487,6 +1485,67 @@ fn test_owner_update_churn_limit() {
                 owner: original_owner.clone(),
                 value: new_churn_limit
             }
+        );
+    });
+}
+
+#[test]
+fn test_owner_update_churn_limit_multiplier() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-churn-multiplier".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        let min_multiplier = MinChurnLimitMultiplier::<Test>::get();
+        let max_multiplier = MaxChurnLimitMultiplier::<Test>::get();
+        let new_value = if min_multiplier < max_multiplier {
+            min_multiplier.saturating_add(1)
+        } else {
+            min_multiplier
+        };
+        assert_ok!(Network::owner_update_churn_limit_multiplier(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            new_value
+        ));
+        assert_eq!(ChurnLimitMultiplier::<Test>::get(subnet_id), new_value);
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::ChurnLimitMultiplierUpdate {
+                subnet_id,
+                owner: original_owner.clone(),
+                value: new_value
+            }
+        );
+
+        assert_err!(
+            Network::owner_update_churn_limit_multiplier(
+                RuntimeOrigin::signed(account(999)),
+                subnet_id,
+                new_value
+            ),
+            Error::<Test>::NotSubnetOwner
+        );
+        assert_err!(
+            Network::owner_update_churn_limit_multiplier(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                min_multiplier.saturating_sub(1)
+            ),
+            Error::<Test>::InvalidChurnLimitMultiplier
+        );
+        assert_err!(
+            Network::owner_update_churn_limit_multiplier(
+                RuntimeOrigin::signed(original_owner),
+                subnet_id,
+                max_multiplier.saturating_add(1)
+            ),
+            Error::<Test>::InvalidChurnLimitMultiplier
         );
     });
 }
@@ -2758,7 +2817,7 @@ fn test_owner_add_bootnode_access() {
             }
         );
 
-        // let bv = |b: u8| BoundedVec::<u8, DefaultMaxVectorLength>::try_from(vec![b]).unwrap();
+        // let bv = |b: u8| NetworkBytes::<Test>::try_from(vec![b]).unwrap();
 
         // // Add a bootnode using the added account
         // let add_set = BTreeSet::from([bv(1), bv(2)]);
@@ -2769,7 +2828,7 @@ fn test_owner_add_bootnode_access() {
         //     BTreeSet::new(),
         // ));
         // Helper to build a bounded vec from bytes
-        let bv = |b: u8| BoundedVec::<u8, DefaultMaxVectorLength>::try_from(vec![b]).unwrap();
+        let bv = |b: u8| NetworkBytes::<Test>::try_from(vec![b]).unwrap();
 
         // --- Case 1: Add bootnodes ---
         // let add_map = BTreeMap::from([(peer(1), bv(1)), (peer(2), bv(2))]);
@@ -3158,7 +3217,7 @@ fn test_owner_update_min_subnet_node_reputation() {
 }
 
 #[test]
-fn test_owner_update_absent_decrease_reputation_factor() {
+fn test_owner_update_reputation_factors_schedules_single_factor() {
     new_test_ext().execute_with(|| {
         increase_epochs(1);
         let subnet_name: Vec<u8> = "subnet-name".into();
@@ -3171,30 +3230,51 @@ fn test_owner_update_absent_decrease_reputation_factor() {
         let original_owner = account(1);
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
+        let current_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         let new_value = MinNodeReputationFactor::<Test>::get();
 
-        assert_ok!(Network::owner_update_absent_decrease_reputation_factor(
+        assert_ok!(Network::owner_update_reputation_factors(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
-            new_value
+            SubnetReputationFactorUpdates {
+                absent_decrease: Some(new_value),
+                ..Default::default()
+            }
         ));
 
-        let result_value = AbsentDecreaseReputationFactor::<Test>::get(subnet_id);
-        assert_eq!(result_value, new_value);
+        let schedule = SubnetReputationFactorSchedules::<Test>::get(subnet_id);
+        let pending = schedule.pending.unwrap();
+
+        assert_ne!(schedule.current.absent_decrease, new_value);
+        assert_eq!(pending.factors.absent_decrease, new_value);
+        assert_eq!(
+            pending.factors.included_increase,
+            schedule.current.included_increase
+        );
+        assert_eq!(pending.effective_subnet_epoch, current_epoch + 1);
+        assert_eq!(
+            Network::get_reputation_factors_for_epoch(subnet_id, current_epoch).absent_decrease,
+            schedule.current.absent_decrease
+        );
+        assert_eq!(
+            Network::get_reputation_factors_for_epoch(subnet_id, current_epoch + 1).absent_decrease,
+            new_value
+        );
 
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::AbsentDecreaseReputationFactorUpdate {
+            Event::SubnetReputationFactorsUpdateScheduled {
                 subnet_id: subnet_id,
                 owner: original_owner.clone(),
-                value: new_value
+                factors: pending.factors,
+                effective_subnet_epoch: current_epoch + 1
             }
         );
     });
 }
 
 #[test]
-fn test_owner_update_included_increase_reputation_factor() {
+fn test_owner_update_reputation_factors_schedules_multiple_factors() {
     new_test_ext().execute_with(|| {
         increase_epochs(1);
         let subnet_name: Vec<u8> = "subnet-name".into();
@@ -3207,30 +3287,33 @@ fn test_owner_update_included_increase_reputation_factor() {
         let original_owner = account(1);
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
-        let new_value = MinNodeReputationFactor::<Test>::get();
+        let min_value = MinNodeReputationFactor::<Test>::get();
+        let max_value = crate::MaxNodeReputationFactor::<Test>::get();
 
-        assert_ok!(Network::owner_update_included_increase_reputation_factor(
+        assert_ok!(Network::owner_update_reputation_factors(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
-            new_value
+            SubnetReputationFactorUpdates {
+                included_increase: Some(min_value),
+                validator_non_consensus_decrease: Some(max_value),
+                ..Default::default()
+            }
         ));
 
-        let result_value = IncludedIncreaseReputationFactor::<Test>::get(subnet_id);
-        assert_eq!(result_value, new_value);
+        let schedule = SubnetReputationFactorSchedules::<Test>::get(subnet_id);
+        let pending = schedule.pending.unwrap();
 
+        assert_eq!(pending.factors.included_increase, min_value);
+        assert_eq!(pending.factors.validator_non_consensus_decrease, max_value);
         assert_eq!(
-            *network_events().last().unwrap(),
-            Event::IncludedIncreaseReputationFactorUpdate {
-                subnet_id: subnet_id,
-                owner: original_owner.clone(),
-                value: new_value
-            }
+            pending.factors.absent_decrease,
+            schedule.current.absent_decrease
         );
     });
 }
 
 #[test]
-fn test_owner_update_below_min_weight_decrease_reputation_factor() {
+fn test_owner_update_reputation_factors_merges_and_normalizes_pending_schedule() {
     new_test_ext().execute_with(|| {
         increase_epochs(1);
         let subnet_name: Vec<u8> = "subnet-name".into();
@@ -3243,32 +3326,58 @@ fn test_owner_update_below_min_weight_decrease_reputation_factor() {
         let original_owner = account(1);
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
-        let new_value = MinNodeReputationFactor::<Test>::get();
+        let current_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        let min_value = MinNodeReputationFactor::<Test>::get();
+        let max_value = crate::MaxNodeReputationFactor::<Test>::get();
 
-        assert_ok!(
-            Network::owner_update_below_min_weight_decrease_reputation_factor(
-                RuntimeOrigin::signed(original_owner.clone()),
-                subnet_id,
-                new_value
-            )
-        );
-
-        let result_value = BelowMinWeightDecreaseReputationFactor::<Test>::get(subnet_id);
-        assert_eq!(result_value, new_value);
-
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::BelowMinWeightDecreaseReputationFactorUpdate {
-                subnet_id: subnet_id,
-                owner: original_owner.clone(),
-                value: new_value
+        assert_ok!(Network::owner_update_reputation_factors(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            SubnetReputationFactorUpdates {
+                absent_decrease: Some(min_value),
+                ..Default::default()
             }
-        );
+        ));
+
+        assert_ok!(Network::owner_update_reputation_factors(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            SubnetReputationFactorUpdates {
+                included_increase: Some(max_value),
+                ..Default::default()
+            }
+        ));
+
+        let schedule = SubnetReputationFactorSchedules::<Test>::get(subnet_id);
+        let pending = schedule.pending.unwrap();
+        assert_eq!(pending.factors.absent_decrease, min_value);
+        assert_eq!(pending.factors.included_increase, max_value);
+
+        SubnetReputationFactorSchedules::<Test>::mutate(subnet_id, |schedule| {
+            if let Some(pending) = schedule.pending.as_mut() {
+                pending.effective_subnet_epoch = current_epoch;
+            }
+        });
+
+        assert_ok!(Network::owner_update_reputation_factors(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            SubnetReputationFactorUpdates {
+                non_attestor_decrease: Some(max_value),
+                ..Default::default()
+            }
+        ));
+
+        let schedule = SubnetReputationFactorSchedules::<Test>::get(subnet_id);
+        let pending = schedule.pending.unwrap();
+        assert_eq!(schedule.current.absent_decrease, min_value);
+        assert_eq!(schedule.current.included_increase, max_value);
+        assert_eq!(pending.factors.non_attestor_decrease, max_value);
     });
 }
 
 #[test]
-fn test_owner_update_non_attestor_decrease_reputation_factor() {
+fn test_owner_update_reputation_factors_requires_at_least_one_update() {
     new_test_ext().execute_with(|| {
         increase_epochs(1);
         let subnet_name: Vec<u8> = "subnet-name".into();
@@ -3281,140 +3390,13 @@ fn test_owner_update_non_attestor_decrease_reputation_factor() {
         let original_owner = account(1);
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
-        let new_value = MinNodeReputationFactor::<Test>::get();
-
-        assert_ok!(
-            Network::owner_update_non_attestor_decrease_reputation_factor(
+        assert_err!(
+            Network::owner_update_reputation_factors(
                 RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
-                new_value
-            )
-        );
-
-        let result_value = NonAttestorDecreaseReputationFactor::<Test>::get(subnet_id);
-        assert_eq!(result_value, new_value);
-
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::NonAttestorDecreaseReputationFactorUpdate {
-                subnet_id: subnet_id,
-                owner: original_owner.clone(),
-                value: new_value
-            }
-        );
-    });
-}
-
-#[test]
-fn test_owner_update_non_consensus_attestor_decrease_reputation_factor() {
-    new_test_ext().execute_with(|| {
-        increase_epochs(1);
-        let subnet_name: Vec<u8> = "subnet-name".into();
-        let deposit_amount: u128 = 10000000000000000000000;
-        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
-
-        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
-        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-
-        let original_owner = account(1);
-        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-
-        let new_value = MinNodeReputationFactor::<Test>::get();
-
-        assert_ok!(
-            Network::owner_update_non_consensus_attestor_decrease_reputation_factor(
-                RuntimeOrigin::signed(original_owner.clone()),
-                subnet_id,
-                new_value
-            )
-        );
-
-        let result_value = NonConsensusAttestorDecreaseReputationFactor::<Test>::get(subnet_id);
-        assert_eq!(result_value, new_value);
-
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::NonConsensusAttestorDecreaseReputationFactorUpdate {
-                subnet_id: subnet_id,
-                owner: original_owner.clone(),
-                value: new_value
-            }
-        );
-    });
-}
-
-#[test]
-fn test_owner_update_validator_absent_decrease_reputation_factor() {
-    new_test_ext().execute_with(|| {
-        increase_epochs(1);
-        let subnet_name: Vec<u8> = "subnet-name".into();
-        let deposit_amount: u128 = 10000000000000000000000;
-        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
-
-        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
-        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-
-        let original_owner = account(1);
-        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-
-        let new_value = MinNodeReputationFactor::<Test>::get();
-
-        assert_ok!(
-            Network::owner_update_validator_absent_decrease_reputation_factor(
-                RuntimeOrigin::signed(original_owner.clone()),
-                subnet_id,
-                new_value
-            )
-        );
-
-        let result_value = ValidatorAbsentDecreaseReputationFactor::<Test>::get(subnet_id);
-        assert_eq!(result_value, new_value);
-
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::ValidatorAbsentDecreaseReputationFactorUpdate {
-                subnet_id: subnet_id,
-                owner: original_owner.clone(),
-                value: new_value
-            }
-        );
-    });
-}
-
-#[test]
-fn test_owner_update_validator_non_consensus_decrease_reputation_factor() {
-    new_test_ext().execute_with(|| {
-        increase_epochs(1);
-        let subnet_name: Vec<u8> = "subnet-name".into();
-        let deposit_amount: u128 = 10000000000000000000000;
-        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
-
-        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
-        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-
-        let original_owner = account(1);
-        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-
-        let new_value = MinNodeReputationFactor::<Test>::get();
-
-        assert_ok!(
-            Network::owner_update_validator_non_consensus_decrease_reputation_factor(
-                RuntimeOrigin::signed(original_owner.clone()),
-                subnet_id,
-                new_value
-            )
-        );
-
-        let result_value = ValidatorNonConsensusSubnetNodeReputationFactor::<Test>::get(subnet_id);
-        assert_eq!(result_value, new_value);
-
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::ValidatorNonConsensusSubnetNodeReputationFactorUpdate {
-                subnet_id: subnet_id,
-                owner: original_owner.clone(),
-                value: new_value
-            }
+                SubnetReputationFactorUpdates::default()
+            ),
+            Error::<Test>::InvalidValues
         );
     });
 }

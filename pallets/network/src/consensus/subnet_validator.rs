@@ -20,6 +20,63 @@ use frame_support::pallet_prelude::Weight;
 use libm::{exp, fmax, fmin};
 
 impl<T: Config> Pallet<T> {
+    pub(crate) fn canonicalize_consensus_data_entries(
+        data: Vec<SubnetNodeConsensusData>,
+    ) -> Result<(Vec<SubnetNodeConsensusData>, u128), Error<T>> {
+        let mut lowest_scores: BTreeMap<u32, u128> = BTreeMap::new();
+
+        for entry in data {
+            lowest_scores
+                .entry(entry.subnet_node_id)
+                .and_modify(|score| {
+                    if entry.score < *score {
+                        *score = entry.score;
+                    }
+                })
+                .or_insert(entry.score);
+        }
+
+        let mut weight_sum = 0u128;
+        let mut canonical_data = Vec::with_capacity(lowest_scores.len());
+
+        for (subnet_node_id, score) in lowest_scores {
+            weight_sum = weight_sum
+                .checked_add(score)
+                .ok_or(Error::<T>::ScoreOverflow)?;
+            canonical_data.push(SubnetNodeConsensusData {
+                subnet_node_id,
+                score,
+            });
+        }
+
+        Ok((canonical_data, weight_sum))
+    }
+
+    fn canonicalize_consensus_data_for_submission(
+        subnet_id: u32,
+        subnet_epoch: u32,
+        data: Vec<SubnetNodeConsensusData>,
+    ) -> Result<(Vec<SubnetNodeConsensusData>, u128), Error<T>> {
+        let filtered_data = data
+            .into_iter()
+            .filter(|entry| {
+                SubnetNodesData::<T>::try_get(subnet_id, entry.subnet_node_id)
+                    .map(|subnet_node| {
+                        subnet_node.has_classification(&SubnetNodeClass::Included, subnet_epoch)
+                    })
+                    .unwrap_or(false)
+            })
+            .collect();
+
+        Self::canonicalize_consensus_data_entries(filtered_data)
+    }
+
+    pub(crate) fn canonicalize_consensus_validator_ids(mut validator_ids: Vec<u32>) -> Vec<u32> {
+        validator_ids.sort_unstable();
+        validator_ids.dedup();
+        validator_ids
+    }
+
     /// Proposes attestation and submits consensus data for a subnet epoch.
     ///
     /// This function allows an elected validator to submit consensus data for their subnet,
@@ -32,8 +89,8 @@ impl<T: Config> Pallet<T> {
     /// * `subnet_id` - The ID of the subnet for which consensus data is being submitted.
     /// * `hotkey` - The hotkey of the elected validator submitting the consensus data.
     /// * `data` - A vector of consensus data containing scores for each peer in the subnet.
-    ///   Duplicates (based on `subnet_node_id`) are automatically removed, and only peers
-    ///   with `Included` classification are retained.
+    ///   Duplicates based on `subnet_node_id` are collapsed to the lowest submitted score,
+    ///   and only peers with `Included` classification are retained.
     /// * `prioritize_queue_node_id` - Optional node ID from the registration queue to move
     ///   to the front of the queue. The node must exist in the queue or this parameter is ignored.
     /// * `remove_queue_node_id` - Optional node ID from the registration queue to remove.
@@ -54,8 +111,8 @@ impl<T: Config> Pallet<T> {
     /// 2. Verifies the caller is the elected validator for this epoch
     /// 3. Ensures consensus has not already been submitted for this epoch
     /// 4. Qualifies the consensus data by:
-    ///    - Removing duplicates based on peer_id
     ///    - Filtering out non-Included peers
+    ///    - Collapsing duplicate subnet node IDs to the lowest submitted score
     ///    - Validating scores don't overflow when summed
     /// 5. Validates queue operations (prioritize/remove) if specified
     /// 6. Stores the consensus submission with the validator's auto-attestation
@@ -74,11 +131,11 @@ impl<T: Config> Pallet<T> {
         hotkey: T::AccountId,
         subnet_id: u32,
         subnet_node_id: u32,
-        mut data: Vec<SubnetNodeConsensusData>,
+        data: Vec<SubnetNodeConsensusData>,
         mut prioritize_queue_node_id: Option<u32>,
         mut remove_queue_node_id: Option<u32>,
-        args: Option<BoundedVec<u8, DefaultValidatorArgsLimit>>,
-        attest_data: Option<BoundedVec<u8, DefaultValidatorArgsLimit>>,
+        args: Option<ValidatorArgs<T>>,
+        attest_data: Option<ValidatorArgs<T>>,
     ) -> DispatchResultWithPostInfo {
         // The validator is elected for the next blockchain epoch where rewards will be distributed.
         // Each subnet epoch overlaps with the blockchains epochs, and can submit consensus data for epoch
@@ -138,33 +195,19 @@ impl<T: Config> Pallet<T> {
         // --- Qualify the data
         //
 
-        // Remove duplicates based on node ID
-        data.dedup_by(|a, b| a.subnet_node_id == b.subnet_node_id);
-
-        // Remove queue classified entries (nodes that are registered nodes (not active) and or in the queue).
-        // Each peer must have an inclusion classification at minimum to get a score.
-        data.retain(
-            |x| match SubnetNodesData::<T>::try_get(subnet_id, x.subnet_node_id) {
-                Ok(subnet_node) => {
-                    subnet_node.has_classification(&SubnetNodeClass::Included, subnet_epoch)
-                }
-                Err(()) => false,
-            },
-        );
-
-        // --- Ensure overflow sum fails
-        data.iter().try_fold(0u128, |acc, node| {
-            acc.checked_add(node.score).ok_or(Error::<T>::ScoreOverflow)
-        })?;
+        // Remove queue classified entries, collapse duplicate node IDs to the lowest score,
+        // and ensure the canonical score sum does not overflow.
+        let (data, _) =
+            Self::canonicalize_consensus_data_for_submission(subnet_id, subnet_epoch, data)?;
 
         let block: u32 = Self::get_current_block_as_u32();
 
         // --- Validator auto-attests the epoch
-        // let attests: BTreeMap<u32, (u32, Option<BoundedVec<u8, DefaultValidatorArgsLimit>>)> =
+        // let attests: BTreeMap<u32, (u32, Option<ValidatorArgs<T>>)> =
         //     BTreeMap::from([(validator_subnet_node_id, (block, attest_data))]);
-        let attests: BTreeMap<u32, AttestEntry> = BTreeMap::from([(
+        let attests: BTreeMap<u32, AttestEntry<T>> = BTreeMap::from([(
             validator_subnet_node_id,
-            AttestEntry {
+            AttestEntry::<T> {
                 block: block,
                 attestor_progress: 0,
                 reward_factor: Self::percentage_factor_as_u128(),
@@ -179,7 +222,7 @@ impl<T: Config> Pallet<T> {
         // when the validator submit their data, this will enable the node to still get rewarded for contributing
         // to the subnet's consensus even if they leave -- versus calling this in the rewards distribution
         // where the node would have already been removed even if they contributed to the subnet's consensus.
-        let subnet_nodes: Vec<SubnetNode> = Self::get_active_classified_subnet_nodes(
+        let subnet_nodes: Vec<SubnetNode<T>> = Self::get_active_classified_subnet_nodes(
             subnet_id,
             &SubnetNodeClass::Idle,
             subnet_epoch,
@@ -190,7 +233,7 @@ impl<T: Config> Pallet<T> {
         //
         // These are the nodes that can attest to the consensus data
         //
-        // We store `validator_ids` in `ConsensusData` because the emergency validator set can be different from
+        // We store `validator_ids` in `ConsensusData<T>` because the emergency validator set can be different from
         // the regular validator set and we need to know who to count as attestors officially. And we use the
         // call of this function as the official point of time of which nodes can attest on this epoch.
         //
@@ -205,6 +248,7 @@ impl<T: Config> Pallet<T> {
         } else {
             SubnetNodeElectionSlots::<T>::get(subnet_id)
         };
+        let validator_ids = Self::canonicalize_consensus_validator_ids(validator_ids);
 
         // Check if validator sent through queue priority or removal node IDs
         if prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some() {
@@ -245,11 +289,8 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        log::error!("prioritize_queue_node_id {:?}", prioritize_queue_node_id);
-        log::error!("remove_queue_node_id     {:?}", remove_queue_node_id);
-
-        // Organize all of the data into a ConsensusData struct to be used later for emissions business logic.
-        let consensus_data: ConsensusData = ConsensusData {
+        // Organize all of the data into a ConsensusData<T> struct to be used later for emissions business logic.
+        let consensus_data: ConsensusData<T> = ConsensusData::<T> {
             validator_id: validator_subnet_node_id,
             block,
             validator_epoch_progress: subnet_epoch_progression,
@@ -282,7 +323,7 @@ impl<T: Config> Pallet<T> {
         hotkey: T::AccountId,
         subnet_id: u32,
         subnet_node_id: u32,
-        data: Option<BoundedVec<u8, DefaultValidatorArgsLimit>>,
+        data: Option<ValidatorArgs<T>>,
     ) -> DispatchResultWithPostInfo {
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
@@ -354,7 +395,7 @@ impl<T: Config> Pallet<T> {
                 ensure!(
                     attests.insert(
                         subnet_node_id,
-                        AttestEntry {
+                        AttestEntry::<T> {
                             block,
                             attestor_progress: subnet_epoch_progression,
                             reward_factor,
@@ -428,6 +469,7 @@ impl<T: Config> Pallet<T> {
     /// * `min_attestation_percentage` - Blockchains minimum attestation percentage (66%)
     /// * `coldkey_reputation_decrease_factor`: `ValidatorReputationDecreaseFactor`
     /// * `epoch`: The blockchains general epoch
+    /// * `validator_non_consensus_reputation_factor`: Resolved subnet node factor for this epoch
     pub fn slash_validator(
         subnet_id: u32,
         subnet_node_id: u32,
@@ -437,6 +479,7 @@ impl<T: Config> Pallet<T> {
         min_validator_reputation: u128,
         electable_nodes: u32,
         epoch: u32,
+        validator_non_consensus_reputation_factor: u128,
     ) -> Weight {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
@@ -469,16 +512,12 @@ impl<T: Config> Pallet<T> {
             weight = weight.saturating_add(db_weight.reads(3));
         }
 
-        // --- Decrease validator reputation
-        let reputation_decrease_factor =
-            ValidatorNonConsensusSubnetNodeReputationFactor::<T>::get(subnet_id);
-
         let reputation = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id).map(|rep| {
             Self::decrease_and_return_node_reputation(
                 subnet_id,
                 subnet_node_id,
                 rep,
-                reputation_decrease_factor,
+                validator_non_consensus_reputation_factor,
                 Some(attestation_delta),
             )
         });

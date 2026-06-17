@@ -458,9 +458,9 @@ where
         ))
         .ok_or(revert("Peer ID overwatch node ID not found"))?;
 
-        let reveal_as_U256 = try_u128_to_u256(reveal)?;
+        let reveal_as_u256 = try_u128_to_u256(reveal)?;
 
-        Ok(reveal_as_U256)
+        Ok(reveal_as_u256)
     }
 
     #[precompile::public("overwatchSubnetWeights(uint256,uint256)")]

@@ -638,6 +638,11 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_max_swap_queue_calls_per_block(value: u32) -> DispatchResult {
+        ensure!(
+            value <= T::MaxSwapQueueLength::get(),
+            Error::<T>::InvalidValues
+        );
+
         MaxSwapQueueCallsPerBlock::<T>::put(value);
 
         Self::deposit_event(Event::SetMaxSwapQueueCallsPerBlock(value));

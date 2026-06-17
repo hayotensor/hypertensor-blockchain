@@ -4,17 +4,17 @@ use crate::Event;
 use crate::{
     AccountSubnetDelegateStakeShares, BaseValidatorReward, ColdkeyValidatorId,
     DelegateAccountStake, EmergencySubnetNodeElectionData, Error, FinalSubnetEmissionWeights,
-    IdleClassificationEpochs, IncludedClassificationEpochs, IncludedIncreaseReputationFactor,
-    MaxSubnetNodes, MaxSubnets, MinAttestationPercentage, MinSubnetMinStake,
-    MinSubnetNodeReputation, MinSubnetReputation, NodeSubnetStake, PeerInfo, QueueImmunityEpochs,
-    RegisteredSubnetNodesData, RewardsCapacitor, SubnetConsensusSubmission, SubnetElectedValidator,
-    SubnetName, SubnetNodeClass, SubnetNodeConsecutiveIncludedEpochs, SubnetNodeConsensusData,
+    IdleClassificationEpochs, IncludedClassificationEpochs, MaxSubnetNodes, MaxSubnets,
+    MinAttestationPercentage, MinSubnetMinStake, MinSubnetNodeReputation, MinSubnetReputation,
+    NodeSubnetStake, PeerInfo, QueueImmunityEpochs, RegisteredSubnetNodesData, RewardsCapacitor,
+    SubnetConsensusSubmission, SubnetElectedValidator, SubnetName, SubnetNodeClass,
+    SubnetNodeConsecutiveIncludedEpochs, SubnetNodeConsensusData, SubnetNodeElectionSlots,
     SubnetNodeIdleConsecutiveEpochs, SubnetNodeMinWeightDecreaseReputationThreshold,
     SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodesData, SubnetOwner,
-    SubnetPauseCooldownEpochs, SubnetRemovalReason, SubnetReputation, SubnetState, SubnetsData,
-    SuperMajorityAttestationRatio, TotalActiveSubnets, TotalNodeDelegateStakeBalance,
-    TotalNodeDelegateStakeShares, TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids,
-    TotalSubnetNodes, TotalSubnetUids, ValidatorAbsentDecreaseReputationFactor,
+    SubnetPauseCooldownEpochs, SubnetRemovalReason, SubnetReputation,
+    SubnetReputationFactorSchedules, SubnetState, SubnetsData, SuperMajorityAttestationRatio,
+    TotalActiveSubnets, TotalNodeDelegateStakeBalance, TotalNodeDelegateStakeShares,
+    TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetUids,
     ValidatorAbsentSubnetReputationFactor, ValidatorColdkey, ValidatorDelegateStakeBalance,
     ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor, ValidatorsData,
 };
@@ -22,7 +22,7 @@ use frame_support::pallet_prelude::DispatchResult;
 use frame_support::traits::Currency;
 use frame_support::weights::WeightMeter;
 use frame_support::{assert_err, assert_ok};
-use sp_std::collections::btree_map::BTreeMap;
+use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 
 //
 //
@@ -41,6 +41,129 @@ use sp_std::collections::btree_map::BTreeMap;
 //
 
 // Validate
+
+fn canonical_expected_consensus_data_for_submission(
+    subnet_id: u32,
+    subnet_epoch: u32,
+    data: &[SubnetNodeConsensusData],
+) -> Vec<SubnetNodeConsensusData> {
+    let mut lowest_scores = BTreeMap::new();
+
+    for entry in data {
+        let included = SubnetNodesData::<Test>::try_get(subnet_id, entry.subnet_node_id)
+            .map(|subnet_node| {
+                subnet_node.has_classification(&SubnetNodeClass::Included, subnet_epoch)
+            })
+            .unwrap_or(false);
+
+        if included {
+            lowest_scores
+                .entry(entry.subnet_node_id)
+                .and_modify(|score| {
+                    if entry.score < *score {
+                        *score = entry.score;
+                    }
+                })
+                .or_insert(entry.score);
+        }
+    }
+
+    lowest_scores
+        .into_iter()
+        .map(|(subnet_node_id, score)| SubnetNodeConsensusData {
+            subnet_node_id,
+            score,
+        })
+        .collect()
+}
+
+fn canonical_expected_stored_consensus_data(
+    data: &[SubnetNodeConsensusData],
+) -> Vec<SubnetNodeConsensusData> {
+    let mut lowest_scores = BTreeMap::new();
+
+    for entry in data {
+        lowest_scores
+            .entry(entry.subnet_node_id)
+            .and_modify(|score| {
+                if entry.score < *score {
+                    *score = entry.score;
+                }
+            })
+            .or_insert(entry.score);
+    }
+
+    lowest_scores
+        .into_iter()
+        .map(|(subnet_node_id, score)| SubnetNodeConsensusData {
+            subnet_node_id,
+            score,
+        })
+        .collect()
+}
+
+fn checked_consensus_score_sum(data: &[SubnetNodeConsensusData]) -> Option<u128> {
+    data.iter()
+        .try_fold(0u128, |acc, entry| acc.checked_add(entry.score))
+}
+
+fn assert_unique_sorted_consensus_data(data: &[SubnetNodeConsensusData]) {
+    let ids = data
+        .iter()
+        .map(|entry| entry.subnet_node_id)
+        .collect::<Vec<_>>();
+    let unique_ids = ids.iter().copied().collect::<BTreeSet<_>>();
+
+    assert_eq!(ids.len(), unique_ids.len());
+    assert!(ids.windows(2).all(|window| window[0] < window[1]));
+}
+
+fn build_elected_subnet_for_consensus(
+    subnet_name: Vec<u8>,
+    node_count: u32,
+) -> (u32, u32, u32, AccountId, Vec<SubnetNodeConsensusData>) {
+    increase_epochs(50);
+
+    let deposit_amount: u128 = 10000000000000000000000;
+    let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+    let subnet_uid = TotalSubnetUids::<Test>::get() + 1;
+    let subnet_id_key_offset = get_subnet_id_key_offset(subnet_uid);
+    let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+
+    build_activated_subnet(
+        subnet_name.clone(),
+        0,
+        node_count,
+        deposit_amount,
+        stake_amount,
+    );
+
+    let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+    let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
+
+    let epoch = System::block_number() / EpochLength::get();
+    set_block_to_subnet_slot_epoch(epoch, subnet_id);
+
+    let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+    Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+
+    let elected_node_id = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
+    let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, elected_node_id).unwrap();
+    let consensus_data = get_subnet_node_consensus_data(
+        subnet_id_key_offset,
+        max_subnet_nodes,
+        0,
+        total_subnet_nodes,
+    );
+
+    (
+        subnet_id,
+        subnet_epoch,
+        elected_node_id,
+        hotkey,
+        consensus_data,
+    )
+}
 
 #[test]
 fn test_propose_attestation() {
@@ -165,6 +288,302 @@ fn test_propose_attestation() {
 }
 
 #[test]
+fn test_propose_attestation_canonicalizes_duplicate_scores_to_lowest_score() {
+    new_test_ext().execute_with(|| {
+        let node_count = MaxSubnetNodes::<Test>::get().min(12).max(3);
+        let (subnet_id, subnet_epoch, elected_node_id, hotkey, base_data) =
+            build_elected_subnet_for_consensus("subnet-name".into(), node_count);
+
+        assert!(base_data.len() >= 3);
+
+        let duplicate_node_id = base_data.first().unwrap().subnet_node_id;
+        let original_score = base_data.first().unwrap().score;
+        let lower_score = original_score / 2;
+        let higher_score = original_score.saturating_add(original_score.max(1));
+
+        let mut submitted_data = base_data.clone();
+        submitted_data.insert(
+            2,
+            SubnetNodeConsensusData {
+                subnet_node_id: duplicate_node_id,
+                score: higher_score,
+            },
+        );
+        submitted_data.push(SubnetNodeConsensusData {
+            subnet_node_id: duplicate_node_id,
+            score: lower_score,
+        });
+
+        let mut election_slots = SubnetNodeElectionSlots::<Test>::get(subnet_id);
+        let duplicate_validator_id = *election_slots.first().unwrap();
+        election_slots.push(duplicate_validator_id);
+        election_slots.push(duplicate_validator_id);
+        let mut expected_validator_ids = election_slots.clone();
+        expected_validator_ids.sort_unstable();
+        expected_validator_ids.dedup();
+        SubnetNodeElectionSlots::<Test>::insert(subnet_id, election_slots);
+
+        let expected_data = canonical_expected_consensus_data_for_submission(
+            subnet_id,
+            subnet_epoch,
+            &submitted_data,
+        );
+        let expected_lowest_score = expected_data
+            .iter()
+            .find(|entry| entry.subnet_node_id == duplicate_node_id)
+            .unwrap()
+            .score;
+        assert_eq!(expected_lowest_score, lower_score);
+
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(hotkey),
+            subnet_id,
+            elected_node_id,
+            submitted_data,
+            None,
+            None,
+            None,
+            None,
+        ));
+
+        let submission = SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
+
+        assert_eq!(submission.data, expected_data);
+        assert_unique_sorted_consensus_data(&submission.data);
+        assert_eq!(submission.validator_ids, expected_validator_ids);
+    });
+}
+
+#[test]
+fn test_propose_attestation_duplicate_overflow_uses_lower_score_before_sum() {
+    new_test_ext().execute_with(|| {
+        let node_count = MaxSubnetNodes::<Test>::get().min(12).max(2);
+        let (subnet_id, subnet_epoch, elected_node_id, hotkey, base_data) =
+            build_elected_subnet_for_consensus("subnet-name".into(), node_count);
+
+        assert!(base_data.len() >= 2);
+
+        let duplicate_node_id = base_data.first().unwrap().subnet_node_id;
+        let lower_score = base_data.first().unwrap().score;
+        let other_entry = base_data
+            .iter()
+            .find(|entry| entry.subnet_node_id != duplicate_node_id)
+            .unwrap()
+            .clone();
+        let submitted_data = vec![
+            SubnetNodeConsensusData {
+                subnet_node_id: duplicate_node_id,
+                score: u128::MAX,
+            },
+            other_entry,
+            SubnetNodeConsensusData {
+                subnet_node_id: duplicate_node_id,
+                score: lower_score,
+            },
+        ];
+        let expected_data = canonical_expected_consensus_data_for_submission(
+            subnet_id,
+            subnet_epoch,
+            &submitted_data,
+        );
+        assert!(checked_consensus_score_sum(&expected_data).is_some());
+
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(hotkey),
+            subnet_id,
+            elected_node_id,
+            submitted_data,
+            None,
+            None,
+            None,
+            None,
+        ));
+
+        let submission = SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
+        let stored_score = submission
+            .data
+            .iter()
+            .find(|entry| entry.subnet_node_id == duplicate_node_id)
+            .unwrap()
+            .score;
+
+        assert_eq!(submission.data, expected_data);
+        assert_eq!(stored_score, lower_score);
+    });
+}
+
+#[test]
+fn test_precheck_canonicalizes_duplicate_stored_scores_without_mutating_storage() {
+    new_test_ext().execute_with(|| {
+        let node_count = MaxSubnetNodes::<Test>::get().min(12).max(3);
+        let (subnet_id, subnet_epoch, elected_node_id, hotkey, base_data) =
+            build_elected_subnet_for_consensus("subnet-name".into(), node_count);
+
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(hotkey),
+            subnet_id,
+            elected_node_id,
+            base_data,
+            None,
+            None,
+            None,
+            None,
+        ));
+
+        let mut corrupted_submission =
+            SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
+        let duplicate_entry = corrupted_submission.data.first().unwrap().clone();
+        let lower_score = duplicate_entry.score / 2;
+        let higher_score = duplicate_entry
+            .score
+            .saturating_add(duplicate_entry.score.max(1));
+
+        corrupted_submission.data.insert(
+            0,
+            SubnetNodeConsensusData {
+                subnet_node_id: duplicate_entry.subnet_node_id,
+                score: higher_score,
+            },
+        );
+        corrupted_submission.data.push(SubnetNodeConsensusData {
+            subnet_node_id: duplicate_entry.subnet_node_id,
+            score: lower_score,
+        });
+
+        let expected_data = canonical_expected_stored_consensus_data(&corrupted_submission.data);
+        let expected_weight_sum = checked_consensus_score_sum(&expected_data).unwrap();
+
+        SubnetConsensusSubmission::<Test>::insert(
+            subnet_id,
+            subnet_epoch,
+            corrupted_submission.clone(),
+        );
+
+        let (result, _) = Network::precheck_subnet_consensus_submission(
+            subnet_id,
+            subnet_epoch,
+            Network::get_current_epoch_as_u32(),
+        );
+        let result = result.unwrap();
+
+        assert_eq!(result.data, expected_data);
+        assert_eq!(result.data_length, result.data.len() as u32);
+        assert_eq!(result.weight_sum, expected_weight_sum);
+        assert_eq!(
+            SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap(),
+            corrupted_submission
+        );
+    });
+}
+
+#[test]
+fn test_precheck_returns_none_on_unique_score_overflow() {
+    new_test_ext().execute_with(|| {
+        let node_count = MaxSubnetNodes::<Test>::get().min(12).max(2);
+        let (subnet_id, subnet_epoch, elected_node_id, hotkey, base_data) =
+            build_elected_subnet_for_consensus("subnet-name".into(), node_count);
+
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(hotkey),
+            subnet_id,
+            elected_node_id,
+            base_data,
+            None,
+            None,
+            None,
+            None,
+        ));
+
+        let mut corrupted_submission =
+            SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
+        let first_node_id = corrupted_submission.data.first().unwrap().subnet_node_id;
+        let second_node_id = corrupted_submission
+            .data
+            .iter()
+            .find(|entry| entry.subnet_node_id != first_node_id)
+            .unwrap()
+            .subnet_node_id;
+
+        corrupted_submission.data = vec![
+            SubnetNodeConsensusData {
+                subnet_node_id: first_node_id,
+                score: u128::MAX,
+            },
+            SubnetNodeConsensusData {
+                subnet_node_id: second_node_id,
+                score: 1,
+            },
+        ];
+        assert!(checked_consensus_score_sum(&corrupted_submission.data).is_none());
+
+        SubnetConsensusSubmission::<Test>::insert(
+            subnet_id,
+            subnet_epoch,
+            corrupted_submission.clone(),
+        );
+
+        let (result, _) = Network::precheck_subnet_consensus_submission(
+            subnet_id,
+            subnet_epoch,
+            Network::get_current_epoch_as_u32(),
+        );
+
+        assert!(result.is_none());
+        assert_eq!(
+            SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap(),
+            corrupted_submission
+        );
+    });
+}
+
+#[test]
+fn test_precheck_uses_unique_validator_ids_for_attestation_ratio() {
+    new_test_ext().execute_with(|| {
+        let node_count = MaxSubnetNodes::<Test>::get().min(12).max(3);
+        let (subnet_id, subnet_epoch, elected_node_id, hotkey, base_data) =
+            build_elected_subnet_for_consensus("subnet-name".into(), node_count);
+
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(hotkey),
+            subnet_id,
+            elected_node_id,
+            base_data,
+            None,
+            None,
+            None,
+            None,
+        ));
+
+        let mut corrupted_submission =
+            SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
+        let duplicate_validator_id = *corrupted_submission.validator_ids.first().unwrap();
+        corrupted_submission
+            .validator_ids
+            .extend([duplicate_validator_id, duplicate_validator_id]);
+
+        let mut unique_validator_ids = corrupted_submission.validator_ids.clone();
+        unique_validator_ids.sort_unstable();
+        unique_validator_ids.dedup();
+        let expected_attestation_ratio = Network::percent_div(
+            corrupted_submission.attests.len() as u128,
+            unique_validator_ids.len() as u128,
+        )
+        .clamp(0, Network::percentage_factor_as_u128());
+
+        SubnetConsensusSubmission::<Test>::insert(subnet_id, subnet_epoch, corrupted_submission);
+
+        let (result, _) = Network::precheck_subnet_consensus_submission(
+            subnet_id,
+            subnet_epoch,
+            Network::get_current_epoch_as_u32(),
+        );
+        let result = result.unwrap();
+
+        assert_eq!(result.attestation_ratio, expected_attestation_ratio);
+    });
+}
+
+#[test]
 fn test_validator_absent_propose_attestation_decrease_reputation() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
@@ -184,7 +603,10 @@ fn test_validator_absent_propose_attestation_decrease_reputation() {
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
         ValidatorAbsentSubnetReputationFactor::<Test>::set(50000000000000000);
-        ValidatorAbsentDecreaseReputationFactor::<Test>::insert(subnet_id, 50000000000000000);
+        SubnetReputationFactorSchedules::<Test>::mutate(subnet_id, |schedule| {
+            schedule.current.validator_absent_decrease = 50000000000000000;
+            schedule.pending = None;
+        });
 
         let epoch_length = EpochLength::get();
         let block_number = System::block_number();
@@ -3467,7 +3889,10 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation_remove_node() {
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
-        IncludedIncreaseReputationFactor::<Test>::insert(subnet_id, 0);
+        SubnetReputationFactorSchedules::<Test>::mutate(subnet_id, |schedule| {
+            schedule.current.included_increase = 0;
+            schedule.pending = None;
+        });
 
         let epoch_length = EpochLength::get();
         let block_number = System::block_number();
@@ -4649,7 +5074,7 @@ fn test_distribute_rewards_fork_graduate_idle_to_included() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: idle_peer_id.clone(),
                 multiaddr: None,
             },
@@ -4878,7 +5303,7 @@ fn test_distribute_rewards_graduate_included_to_validator() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: idle_peer_id.clone(),
                 multiaddr: None,
             },
@@ -5066,7 +5491,7 @@ fn test_distribute_rewards_graduate_included_to_validator_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: idle_peer_id.clone(),
                 multiaddr: None,
             },
@@ -5252,7 +5677,7 @@ fn test_distribute_rewards_reset_included_consecutive_epochs() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: idle_peer_id.clone(),
                 multiaddr: None,
             },

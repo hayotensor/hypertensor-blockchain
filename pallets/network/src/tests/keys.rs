@@ -2,7 +2,7 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength, Error, MaxSubnetNodes,
+    Error, MaxSubnetNodes,
     MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake, NodeSubnetStake,
     OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodes, StakeUnbondingLedger,
     SubnetName, TotalActiveSubnets, TotalSubnetNodes,
@@ -54,16 +54,16 @@ use sp_std::collections::btree_map::BTreeMap;
 
 //         // Insert identity
 
-//         let name = to_bounded::<DefaultMaxVectorLength>("name");
-//         let url = to_bounded::<DefaultMaxUrlLength>("url");
-//         let image = to_bounded::<DefaultMaxUrlLength>("image");
-//         let discord = to_bounded::<DefaultMaxSocialIdLength>("discord");
-//         let x = to_bounded::<DefaultMaxSocialIdLength>("x");
-//         let telegram = to_bounded::<DefaultMaxSocialIdLength>("telegram");
-//         let github = to_bounded::<DefaultMaxUrlLength>("github");
-//         let hugging_face = to_bounded::<DefaultMaxUrlLength>("hugging_face");
-//         let description = to_bounded::<DefaultMaxVectorLength>("description");
-//         let misc = to_bounded::<DefaultMaxVectorLength>("misc");
+//         let name = to_bounded::<NetworkMaxVectorLength>("name");
+//         let url = to_bounded::<NetworkMaxUrlLength>("url");
+//         let image = to_bounded::<NetworkMaxUrlLength>("image");
+//         let discord = to_bounded::<NetworkMaxSocialIdLength>("discord");
+//         let x = to_bounded::<NetworkMaxSocialIdLength>("x");
+//         let telegram = to_bounded::<NetworkMaxSocialIdLength>("telegram");
+//         let github = to_bounded::<NetworkMaxUrlLength>("github");
+//         let hugging_face = to_bounded::<NetworkMaxUrlLength>("hugging_face");
+//         let description = to_bounded::<NetworkMaxVectorLength>("description");
+//         let misc = to_bounded::<NetworkMaxVectorLength>("misc");
 //         assert_ok!(Network::register_or_update_identity(
 //             RuntimeOrigin::signed(coldkey.clone()),
 //             hotkey.clone(),
@@ -371,16 +371,16 @@ use sp_std::collections::btree_map::BTreeMap;
 
 //         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
 
-//         let name = to_bounded::<DefaultMaxVectorLength>("name");
-//         let url = to_bounded::<DefaultMaxUrlLength>("url");
-//         let image = to_bounded::<DefaultMaxUrlLength>("image");
-//         let discord = to_bounded::<DefaultMaxSocialIdLength>("discord");
-//         let x = to_bounded::<DefaultMaxSocialIdLength>("x");
-//         let telegram = to_bounded::<DefaultMaxSocialIdLength>("telegram");
-//         let github = to_bounded::<DefaultMaxUrlLength>("github");
-//         let hugging_face = to_bounded::<DefaultMaxUrlLength>("hugging_face");
-//         let description = to_bounded::<DefaultMaxVectorLength>("description");
-//         let misc = to_bounded::<DefaultMaxVectorLength>("misc");
+//         let name = to_bounded::<NetworkMaxVectorLength>("name");
+//         let url = to_bounded::<NetworkMaxUrlLength>("url");
+//         let image = to_bounded::<NetworkMaxUrlLength>("image");
+//         let discord = to_bounded::<NetworkMaxSocialIdLength>("discord");
+//         let x = to_bounded::<NetworkMaxSocialIdLength>("x");
+//         let telegram = to_bounded::<NetworkMaxSocialIdLength>("telegram");
+//         let github = to_bounded::<NetworkMaxUrlLength>("github");
+//         let hugging_face = to_bounded::<NetworkMaxUrlLength>("hugging_face");
+//         let description = to_bounded::<NetworkMaxVectorLength>("description");
+//         let misc = to_bounded::<NetworkMaxVectorLength>("misc");
 //         assert_ok!(Network::register_or_update_identity(
 //             RuntimeOrigin::signed(coldkey.clone()),
 //             hotkey.clone(),

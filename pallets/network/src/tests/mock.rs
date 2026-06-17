@@ -214,6 +214,11 @@ parameter_types! {
     pub MaximumHooksWeight: Weight = Perbill::from_percent(50) *
         BlockWeights::get().max_block;
     pub const DesignatedEpochSlots: u32 = 3;
+    pub const NetworkMaxVectorLength: u32 = 1024;
+    pub const NetworkMaxUrlLength: u32 = 1024;
+    pub const NetworkMaxSocialIdLength: u32 = 255;
+    pub const NetworkValidatorArgsLimit: u32 = 4096;
+    pub const NetworkMaxSwapQueueLength: u32 = 1000;
 }
 
 impl Config for Test {
@@ -233,6 +238,11 @@ impl Config for Test {
     type OverwatchEpochEmissions = OverwatchEpochEmissions;
     type MaximumHooksWeight = MaximumHooksWeight;
     type DesignatedEpochSlots = DesignatedEpochSlots;
+    type MaxVectorLength = NetworkMaxVectorLength;
+    type MaxUrlLength = NetworkMaxUrlLength;
+    type MaxSocialIdLength = NetworkMaxSocialIdLength;
+    type ValidatorArgsLimit = NetworkValidatorArgsLimit;
+    type MaxSwapQueueLength = NetworkMaxSwapQueueLength;
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {

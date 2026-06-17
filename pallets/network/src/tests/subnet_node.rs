@@ -3,17 +3,17 @@ use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
     BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ConsensusSubmissionData,
-    CurrentNodeBurnRate, DefaultMaxVectorLength, Error, InitialValidatorData,
+    CurrentNodeBurnRate, Error, InitialValidatorData,
     MaxDelegateStakePercentage, MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes,
     MaxSubnets, MinSubnetMinStake, MinSubnetNodes, MultiaddrSubnetNodeId,
     NodeRegistrationInitialValidatorIds, NodeRewardRateUpdatePeriod, NodeSlotIndex,
     NodeSubnetStake, PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData,
-    SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNodeClass,
-    SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeQueue, SubnetNodeQueueEpochs,
-    SubnetNodeReputation, SubnetNode, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
-    SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, TotalActiveNodes,
-    TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake,
-    TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
+    SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
+    SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueue,
+    SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData,
+    SubnetOwner, SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState,
+    TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes,
+    TotalStake, TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
     TotalSubnetUids, TotalValidatorIds, UniqueParamSubnetNodeId, ValidatorColdkey,
     ValidatorIdHotkey, ValidatorReputation, ValidatorSubnetNodes,
 };
@@ -85,7 +85,7 @@ fn test_activate_subnet_then_register_subnet_node_then_activate_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
@@ -200,7 +200,7 @@ fn test_register_subnet_subnet_is_paused_error() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -270,7 +270,7 @@ fn test_register_subnet_subnet_must_be_registering_or_active_v2() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -335,7 +335,7 @@ fn test_register_subnet_coldkey_registration_whitelist_error_v2() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -434,7 +434,7 @@ fn test_owner_added_initial_validator_can_register_during_registration() {
             new_validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
@@ -530,7 +530,7 @@ fn test_register_subnet_max_registered_nodes_error_v2() {
                         validator_id,
                         subnet_id,
                         None,
-                        PeerInfo {
+                        PeerInfo::<Test> {
                             peer_id: peer_id.clone(),
                             multiaddr: None,
                         },
@@ -549,7 +549,7 @@ fn test_register_subnet_max_registered_nodes_error_v2() {
                     validator_id,
                     subnet_id,
                     None,
-                    PeerInfo {
+                    PeerInfo::<Test> {
                         peer_id: peer_id.clone(),
                         multiaddr: None,
                     },
@@ -608,7 +608,7 @@ fn test_register_subnet_node_and_then_update_a_param_v2() {
         let validator_id = TotalValidatorIds::<Test>::get();
 
         let unique: Vec<u8> = "a".into();
-        let bounded_unique: BoundedVec<u8, DefaultMaxVectorLength> =
+        let bounded_unique: NetworkBytes<Test> =
             unique.try_into().expect("String too long");
 
         assert_ok!(Network::register_subnet_node(
@@ -616,7 +616,7 @@ fn test_register_subnet_node_and_then_update_a_param_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
@@ -664,7 +664,7 @@ fn test_register_subnet_node_and_then_update_a_param_v2() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -724,11 +724,11 @@ fn test_register_subnet_node_post_subnet_activation_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: None,
             }),
@@ -816,11 +816,11 @@ fn test_activate_subnet_node_post_subnet_activation_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: None,
             }),
@@ -925,11 +925,11 @@ fn test_remove_subnet_node_registered_v2() {
         let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount);
 
         let unique: Vec<u8> = "a".into();
-        let bounded_unique: BoundedVec<u8, DefaultMaxVectorLength> =
+        let bounded_unique: NetworkBytes<Test> =
             unique.try_into().expect("String too long");
 
         let non_unique: Vec<u8> = "a".into();
-        let bounded_non_unique: BoundedVec<u8, DefaultMaxVectorLength> =
+        let bounded_non_unique: NetworkBytes<Test> =
             non_unique.try_into().expect("String too long");
 
         assert_ok!(Network::register_validator(
@@ -947,11 +947,11 @@ fn test_remove_subnet_node_registered_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: None,
             }),
@@ -1056,11 +1056,11 @@ fn test_remove_subnet_node_registered_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: None,
             }),
@@ -1196,11 +1196,11 @@ fn test_remove_subnet_node_registered_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: None,
             }),
@@ -1337,11 +1337,11 @@ fn test_remove_subnet_node_registered_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: None,
             }),
@@ -1502,11 +1502,11 @@ fn test_register_subnet_node_subnet_err_v2() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
-                Some(PeerInfo {
+                Some(PeerInfo::<Test> {
                     peer_id: bootnode_peer_id.clone(),
                     multiaddr: None,
                 }),
@@ -1527,11 +1527,11 @@ fn test_register_subnet_node_subnet_err_v2() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
-                Some(PeerInfo {
+                Some(PeerInfo::<Test> {
                     peer_id: bootnode_peer_id.clone(),
                     multiaddr: None,
                 }),
@@ -1625,11 +1625,11 @@ fn test_register_subnet_node_not_exists_err() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: bad_peer_id.clone(),
                     multiaddr: None,
                 },
-                Some(PeerInfo {
+                Some(PeerInfo::<Test> {
                     peer_id: bootnode_peer_id.clone(),
                     multiaddr: None,
                 }),
@@ -1651,15 +1651,15 @@ fn test_register_subnet_node_not_exists_err() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: bad_peer_id.clone(),
                     multiaddr: None,
                 },
-                Some(PeerInfo {
+                Some(PeerInfo::<Test> {
                     peer_id: bad_bootnode_peer_id.clone(),
                     multiaddr: None,
                 }),
-                Some(PeerInfo {
+                Some(PeerInfo::<Test> {
                     peer_id: client_peer_id.clone(),
                     multiaddr: None,
                 }),
@@ -1679,15 +1679,15 @@ fn test_register_subnet_node_not_exists_err() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: bad_peer_id.clone(),
                     multiaddr: None,
                 },
-                Some(PeerInfo {
+                Some(PeerInfo::<Test> {
                     peer_id: bootnode_peer_id.clone(),
                     multiaddr: None,
                 }),
-                Some(PeerInfo {
+                Some(PeerInfo::<Test> {
                     peer_id: bad_client_peer_id.clone(),
                     multiaddr: None,
                 }),
@@ -1747,7 +1747,7 @@ fn test_add_subnet_node_stake_err_v2() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -1808,7 +1808,7 @@ fn test_add_subnet_node_stake_not_enough_balance_err_v2() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -1870,7 +1870,7 @@ fn test_register_subnet_node_invalid_peer_id_err_v2() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: bad_peer.clone(),
                     multiaddr: None,
                 },
@@ -1894,15 +1894,15 @@ fn test_register_subnet_node_invalid_peer_id_err_v2() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: valid_peer_id.clone(),
                     multiaddr: None,
                 },
-                Some(PeerInfo {
+                Some(PeerInfo::<Test> {
                     peer_id: bad_peer.clone(),
                     multiaddr: None,
                 }),
-                Some(PeerInfo {
+                Some(PeerInfo::<Test> {
                     peer_id: valid_client_peer_id.clone(),
                     multiaddr: None,
                 }),
@@ -1920,15 +1920,15 @@ fn test_register_subnet_node_invalid_peer_id_err_v2() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: valid_peer_id.clone(),
                     multiaddr: None,
                 },
-                Some(PeerInfo {
+                Some(PeerInfo::<Test> {
                     peer_id: valid_bootnode_peer_id.clone(),
                     multiaddr: None,
                 }),
-                Some(PeerInfo {
+                Some(PeerInfo::<Test> {
                     peer_id: bad_peer.clone(),
                     multiaddr: None,
                 }),
@@ -1985,7 +1985,7 @@ fn test_remove_subnet_node_not_key_owner_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
@@ -2114,7 +2114,7 @@ fn test_update_peer_id_v2() {
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 
         let current_peer_id = subnet_node.peer_info.peer_id;
-        let new_peer_info = PeerInfo {
+        let new_peer_info = PeerInfo::<Test> {
             peer_id: peer(500),
             multiaddr: None,
         };
@@ -2166,7 +2166,7 @@ fn test_update_peer_id_v2() {
 
         let subnet_node_id = end - 1;
 
-        let new_peer_info = PeerInfo {
+        let new_peer_info = PeerInfo::<Test> {
             peer_id: current_peer_id.clone(),
             multiaddr: None,
         };
@@ -2218,7 +2218,7 @@ fn test_update_peer_id_exists_v2() {
         let current_peer_id = subnet_node.peer_info.clone().peer_id;
 
         let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end - 1);
-        let new_peer_info = PeerInfo {
+        let new_peer_info = PeerInfo::<Test> {
             peer_id: peer_id.clone(),
             multiaddr: None,
         };
@@ -2314,7 +2314,7 @@ fn test_update_peer_id_invalid_peer_id_v2() {
         let peer_id = format!("2");
 
         let bad_peer: PeerId = PeerId(peer_id.clone().into());
-        let new_peer_info = PeerInfo {
+        let new_peer_info = PeerInfo::<Test> {
             peer_id: bad_peer,
             multiaddr: None,
         };
@@ -2370,7 +2370,7 @@ fn test_update_bootnode_peer_id_v2() {
         assert_eq!(curr_bootnode_multiaddr_subnet_node_id, subnet_node_id);
 
         // Updated peer info
-        let new_peer_info = Some(PeerInfo {
+        let new_peer_info = Some(PeerInfo::<Test> {
             peer_id: peer(500),
             multiaddr: None,
         });
@@ -2499,7 +2499,7 @@ fn test_update_bootnode_peer_id_exists_v2() {
         let someone_elses_bootnode_peer_id =
             get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end - 1);
 
-        let someone_elses_peer_info = Some(PeerInfo {
+        let someone_elses_peer_info = Some(PeerInfo::<Test> {
             peer_id: someone_elses_bootnode_peer_id,
             multiaddr: None,
         });
@@ -2514,7 +2514,7 @@ fn test_update_bootnode_peer_id_exists_v2() {
             Error::<Test>::PeerIdExist
         );
 
-        let current_peer_info = Some(PeerInfo {
+        let current_peer_info = Some(PeerInfo::<Test> {
             peer_id: current_bootnode_peer_id,
             multiaddr: None,
         });
@@ -2559,7 +2559,7 @@ fn test_update_bootnode_peer_id_not_key_owner_v2() {
 
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 
-        let new_peer_info = Some(PeerInfo {
+        let new_peer_info = Some(PeerInfo::<Test> {
             peer_id: peer(1),
             multiaddr: None,
         });
@@ -2602,7 +2602,7 @@ fn test_update_bootnode_peer_id_invalid_peer_id_v2() {
 
         // let bad_bootnode_peer: PeerId = PeerId(bootnode_peer_id.clone().into());
 
-        let new_peer_info = Some(PeerInfo {
+        let new_peer_info = Some(PeerInfo::<Test> {
             peer_id: PeerId(bootnode_peer_id.clone().into()),
             multiaddr: None,
         });
@@ -2651,7 +2651,7 @@ fn test_update_client_peer_id_v2() {
         // new and unused peer id
         let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
 
-        let new_peer_info = Some(PeerInfo {
+        let new_peer_info = Some(PeerInfo::<Test> {
             peer_id: client_peer_id.clone(),
             multiaddr: None,
         });
@@ -2701,7 +2701,7 @@ fn test_update_client_peer_id_v2() {
 
         let subnet_node_id = end - 1;
 
-        let new_peer_info = Some(PeerInfo {
+        let new_peer_info = Some(PeerInfo::<Test> {
             peer_id: client_peer_id.clone(),
             multiaddr: None,
         });
@@ -2755,7 +2755,7 @@ fn test_update_client_peer_id_exists_v2() {
 
         // let peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end - 1);
 
-        let new_peer_info = Some(PeerInfo {
+        let new_peer_info = Some(PeerInfo::<Test> {
             peer_id: get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end - 1),
             multiaddr: None,
         });
@@ -2809,7 +2809,7 @@ fn test_update_client_peer_id_not_key_owner() {
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 
         let current_client_peer_id = subnet_node.client_peer_info.unwrap().peer_id;
-        let new_peer_info = Some(PeerInfo {
+        let new_peer_info = Some(PeerInfo::<Test> {
             peer_id: current_client_peer_id,
             multiaddr: None,
         });
@@ -2849,7 +2849,7 @@ fn test_update_client_peer_id_invalid_peer_id() {
         let client_peer_id = format!("2");
 
         let bad_client_peer: PeerId = PeerId(client_peer_id.clone().into());
-        let new_peer_info = Some(PeerInfo {
+        let new_peer_info = Some(PeerInfo::<Test> {
             peer_id: bad_client_peer,
             multiaddr: None,
         });
@@ -2890,6 +2890,86 @@ fn subnet_stake_multiplier_works() {
         let mult = Network::get_subnet_min_delegate_staking_multiplier(55);
         let expected = Network::percentage_factor_as_u128() + (3000000000000000000 / 2);
         assert_eq!(mult, expected);
+    });
+}
+
+#[test]
+fn test_update_node_hotkey_override_and_clear() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-hotkey".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let end = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let subnet_node_id = 1;
+        let validator_id = SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id).unwrap();
+        let coldkey = ValidatorColdkey::<Test>::get(validator_id).unwrap();
+        let validator_hotkey = ValidatorIdHotkey::<Test>::get(validator_id).unwrap();
+        let node_hotkey = account(99_001);
+
+        assert_err!(
+            Network::update_node_hotkey(
+                RuntimeOrigin::signed(account(99_002)),
+                subnet_id,
+                subnet_node_id,
+                Some(node_hotkey.clone()),
+            ),
+            Error::<Test>::InvalidValidator
+        );
+
+        assert_ok!(Network::update_node_hotkey(
+            RuntimeOrigin::signed(coldkey.clone()),
+            subnet_id,
+            subnet_node_id,
+            Some(node_hotkey.clone()),
+        ));
+        assert_eq!(
+            SubnetNodeIdHotkey::<Test>::get(subnet_id, subnet_node_id),
+            Some(node_hotkey.clone())
+        );
+
+        assert_err!(
+            Network::get_hotkey_associated_subnet_node(
+                subnet_id,
+                subnet_node_id,
+                validator_id,
+                validator_hotkey.clone(),
+            ),
+            Error::<Test>::InvalidHotkeySubnetNodeId
+        );
+        assert_eq!(
+            Network::get_hotkey_associated_subnet_node(
+                subnet_id,
+                subnet_node_id,
+                validator_id,
+                node_hotkey,
+            )
+            .unwrap(),
+            subnet_node_id
+        );
+
+        assert_ok!(Network::update_node_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            subnet_id,
+            subnet_node_id,
+            None,
+        ));
+        assert_eq!(
+            SubnetNodeIdHotkey::<Test>::get(subnet_id, subnet_node_id),
+            None
+        );
+        assert_eq!(
+            Network::get_hotkey_associated_subnet_node(
+                subnet_id,
+                subnet_node_id,
+                validator_id,
+                validator_hotkey,
+            )
+            .unwrap(),
+            subnet_node_id
+        );
     });
 }
 
@@ -3010,7 +3090,7 @@ fn test_update_node_unique() {
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 
         let unique: Vec<u8> = "a".into();
-        let bounded_unique: BoundedVec<u8, DefaultMaxVectorLength> =
+        let bounded_unique: NetworkBytes<Test> =
             unique.try_into().expect("String too long");
 
         // sanity check
@@ -3081,7 +3161,7 @@ fn test_update_node_unique() {
         let subnet_node_id = end;
 
         let new_unique: Vec<u8> = "new".into();
-        let new_bounded_unique: BoundedVec<u8, DefaultMaxVectorLength> =
+        let new_bounded_unique: NetworkBytes<Test> =
             new_unique.try_into().expect("String too long");
 
         assert_ok!(Network::update_node_unique(
@@ -3133,7 +3213,7 @@ fn test_update_unique_to_none() {
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 
         let unique: Vec<u8> = "a".into();
-        let bounded_unique: BoundedVec<u8, DefaultMaxVectorLength> =
+        let bounded_unique: NetworkBytes<Test> =
             unique.try_into().expect("String too long");
 
         // sanity check
@@ -3207,7 +3287,7 @@ fn test_update_node_non_unique() {
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 
         let non_unique: Vec<u8> = "a".into();
-        let bounded_non_unique: BoundedVec<u8, DefaultMaxVectorLength> =
+        let bounded_non_unique: NetworkBytes<Test> =
             non_unique.try_into().expect("String too long");
 
         assert_ok!(Network::update_node_non_unique(
@@ -3269,7 +3349,7 @@ fn test_update_node_non_unique_to_none() {
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 
         let non_unique: Vec<u8> = "a".into();
-        let bounded_non_unique: BoundedVec<u8, DefaultMaxVectorLength> =
+        let bounded_non_unique: NetworkBytes<Test> =
             non_unique.try_into().expect("String too long");
 
         assert_ok!(Network::update_node_non_unique(
@@ -3334,7 +3414,7 @@ fn test_insert_node_into_election_slot() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
@@ -3717,7 +3797,7 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
@@ -3741,7 +3821,7 @@ fn test_register_subnet_node_initial_coldkeys_max_registered() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -3778,10 +3858,18 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
         let missing_queue_node_id = queued_node_id + 1;
         let super_majority_threshold = Network::percentage_factor_as_u128();
 
-        let missing_node_consensus = ConsensusSubmissionData {
+        let missing_node_consensus = ConsensusSubmissionData::<Test> {
+            validator_subnet_node_id: 0,
+            validator_epoch_progress: 0,
+            validator_reward_factor: 0,
             attestation_ratio: super_majority_threshold,
+            weight_sum: 0,
+            data_length: 0,
+            data: Vec::new(),
+            attests: BTreeMap::new(),
+            subnet_nodes: Vec::new(),
+            prioritize_queue_node_id: None,
             remove_queue_node_id: Some(missing_queue_node_id),
-            ..Default::default()
         };
 
         assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id).len(), 1);
@@ -3792,7 +3880,6 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             subnet_id,
             &missing_node_consensus,
             super_majority_threshold,
-            0,
         );
 
         assert!(RegisteredSubnetNodesData::<Test>::contains_key(
@@ -3808,10 +3895,18 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             } if *event_subnet_id == subnet_id && *subnet_node_id == missing_queue_node_id
         )));
 
-        let queued_node_consensus = ConsensusSubmissionData {
+        let queued_node_consensus = ConsensusSubmissionData::<Test> {
+            validator_subnet_node_id: 0,
+            validator_epoch_progress: 0,
+            validator_reward_factor: 0,
             attestation_ratio: super_majority_threshold,
+            weight_sum: 0,
+            data_length: 0,
+            data: Vec::new(),
+            attests: BTreeMap::new(),
+            subnet_nodes: Vec::new(),
+            prioritize_queue_node_id: None,
             remove_queue_node_id: Some(queued_node_id),
-            ..Default::default()
         };
 
         // Should work to remove a node
@@ -3820,7 +3915,6 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             subnet_id,
             &queued_node_consensus,
             super_majority_threshold,
-            0,
         );
 
         assert!(!RegisteredSubnetNodesData::<Test>::contains_key(
@@ -3858,10 +3952,10 @@ fn test_do_activate_subnet_node_subnet_active_node_queued() {
             start_epoch: 0,
         };
 
-        let subnet_node = SubnetNode {
+        let subnet_node = SubnetNode::<Test> {
             id: subnet_node_id,
             validator_id: validator_id,
-            peer_info: PeerInfo {
+            peer_info: PeerInfo::<Test> {
                 peer_id: peer_id,
                 multiaddr: None,
             },
@@ -3941,10 +4035,10 @@ fn test_do_activate_subnet_node_failures() {
             start_epoch: 0,
         };
 
-        let subnet_node = SubnetNode {
+        let subnet_node = SubnetNode::<Test> {
             id: subnet_node_id,
             validator_id: validator_id,
-            peer_info: PeerInfo {
+            peer_info: PeerInfo::<Test> {
                 peer_id: peer_id,
                 multiaddr: None,
             },
@@ -4049,10 +4143,10 @@ fn test_do_activate_subnet_node_registered_subnet() {
             start_epoch: 0,
         };
 
-        let subnet_node = SubnetNode {
+        let subnet_node = SubnetNode::<Test> {
             id: subnet_node_id,
             validator_id: validator_id,
-            peer_info: PeerInfo {
+            peer_info: PeerInfo::<Test> {
                 peer_id: peer_id,
                 multiaddr: None,
             },
@@ -4155,6 +4249,8 @@ fn test_slash_validator() {
             100000000000000000, // 10%
             1,
             1,
+            Network::get_reputation_factors_for_epoch(subnet_id, 1)
+                .validator_non_consensus_decrease,
         );
 
         assert!(starting_node_rep > SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id));

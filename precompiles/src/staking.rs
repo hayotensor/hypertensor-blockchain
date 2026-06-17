@@ -141,7 +141,7 @@ where
 
     #[precompile::public("swapDelegateStake(uint256,uint256,uint256)")]
     #[precompile::payable]
-    fn swap_delegate_stake(
+    fn swap_from_subnet_to_subnet(
         handle: &mut impl PrecompileHandle,
         from_subnet_id: U256,
         to_subnet_id: U256,
@@ -152,7 +152,7 @@ where
         let to_subnet_id = try_u256_to_u32(to_subnet_id)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::swap_delegate_stake {
+        let call = pallet_network::Call::<R>::swap_from_subnet_to_subnet {
             from_subnet_id,
             to_subnet_id,
             delegate_stake_shares_to_swap,
@@ -275,7 +275,7 @@ where
 
     #[precompile::public("swapNodeDelegateStake(uint256,uint256,uint256)")]
     #[precompile::payable]
-    fn swap_validator_delegate_stake(
+    fn swap_from_validator_to_validator(
         handle: &mut impl PrecompileHandle,
         from_validator_id: U256,
         to_validator_id: U256,
@@ -286,7 +286,7 @@ where
         let to_validator_id = try_u256_to_u32(to_validator_id)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::swap_validator_delegate_stake {
+        let call = pallet_network::Call::<R>::swap_from_validator_to_validator {
             from_validator_id,
             to_validator_id,
             stake_to_be_removed,

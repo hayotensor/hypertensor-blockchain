@@ -2,16 +2,418 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     AccountNodeDelegateStakeShares, AccountSubnetDelegateStakeShares,
-    AccountValidatorDelegateStakeShares, DelegateStakeCooldownEpochs, Error, MaxSubnetNodes,
-    MaxSubnets, MaxUnbondings, MinSubnetMinStake, NodeDelegateStakeCooldownEpochs, NodeSubnetStake,
-    PeerInfo, RegisteredSubnetNodesData, StakeCooldownEpochs, StakeUnbondingLedger, SubnetName,
-    SubnetNodeQueueEpochs, TotalActiveSubnets, TotalSubnetNodeUids, TotalSubnetNodes,
-    TotalValidatorIds,
+    AccountValidatorDelegateStakeShares, DelegateAccountStake, DelegateStakeCooldownEpochs, Error,
+    MaxSubnetNodes, MaxSubnets, MaxUnbondings, MinSubnetMinStake, NodeDelegateStakeCooldownEpochs,
+    NodeSubnetStake, OverwatchMinStakeBalance, OverwatchNodeStakeBalance, PeerInfo,
+    RegisteredSubnetNodesData, StakeCooldownEpochs, StakeUnbondingLedger, SubnetName,
+    SubnetNodeQueueEpochs, TotalAccountDelegateStake, TotalActiveSubnets, TotalDelegateStake,
+    TotalOverwatchNodeStakeBalance, TotalStake, TotalSubnetDelegateStakeBalance,
+    TotalSubnetDelegateStakeShares, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
+    TotalUnbondingBalance, TotalValidatorDelegateStakeBalance, TotalValidatorIds,
+    ValidatorDelegateStakeBalance, ValidatorDelegateStakeShares, ValidatorSubnetNodes,
 };
 use frame_support::traits::Currency;
 use frame_support::weights::WeightMeter;
 use frame_support::{assert_err, assert_ok};
 use sp_std::collections::btree_map::BTreeMap;
+
+fn set_full_unbonding_ledger(
+    account_id: &AccountIdOf<Test>,
+    first_claim_block: u32,
+) -> BTreeMap<u32, u128> {
+    let mut ledger = BTreeMap::new();
+    for n in 0..MaxUnbondings::<Test>::get() {
+        ledger.insert(first_claim_block.saturating_add(n), 100 + n as u128);
+    }
+    let total = ledger.values().copied().sum();
+    StakeUnbondingLedger::<Test>::insert(account_id, ledger.clone());
+    TotalUnbondingBalance::<Test>::set(total);
+    ledger
+}
+
+#[test]
+fn test_full_unbonding_ledger_blocks_subnet_delegate_unstake_without_debit() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-delegate-full-ledger".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let delegate_amount: u128 = 1000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+
+        let delegate = account(900);
+        let _ = Balances::deposit_creating(&delegate, delegate_amount + 500);
+        assert_ok!(Network::add_delegate_stake(
+            RuntimeOrigin::signed(delegate.clone()),
+            subnet_id,
+            delegate_amount,
+        ));
+
+        let shares = AccountSubnetDelegateStakeShares::<Test>::get(&delegate, subnet_id);
+        let ledger =
+            set_full_unbonding_ledger(&delegate, System::block_number().saturating_add(10_000));
+        let total_unbonding = TotalUnbondingBalance::<Test>::get();
+        let total_delegate_stake = TotalDelegateStake::<Test>::get();
+        let total_subnet_delegate_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+        let total_subnet_delegate_shares = TotalSubnetDelegateStakeShares::<Test>::get(subnet_id);
+
+        assert_err!(
+            Network::remove_delegate_stake(
+                RuntimeOrigin::signed(delegate.clone()),
+                subnet_id,
+                shares,
+            ),
+            Error::<Test>::MaxUnlockingsReached
+        );
+
+        assert_eq!(
+            AccountSubnetDelegateStakeShares::<Test>::get(&delegate, subnet_id),
+            shares
+        );
+        assert_eq!(TotalDelegateStake::<Test>::get(), total_delegate_stake);
+        assert_eq!(
+            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
+            total_subnet_delegate_balance
+        );
+        assert_eq!(
+            TotalSubnetDelegateStakeShares::<Test>::get(subnet_id),
+            total_subnet_delegate_shares
+        );
+        assert_eq!(StakeUnbondingLedger::<Test>::get(&delegate), ledger);
+        assert_eq!(TotalUnbondingBalance::<Test>::get(), total_unbonding);
+    });
+}
+
+#[test]
+fn test_full_unbonding_ledger_blocks_validator_delegate_unstake_without_debit() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "validator-delegate-full-ledger".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let delegate_amount: u128 = 1000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet_with_delegator_rewards(
+            subnet_name,
+            0,
+            16,
+            deposit_amount,
+            stake_amount,
+            DEFAULT_DELEGATE_REWARD_RATE,
+        );
+
+        let validator_id = 1;
+        let delegate = account(901);
+        let _ = Balances::deposit_creating(&delegate, delegate_amount + 500);
+        assert_ok!(Network::add_validator_delegate_stake(
+            RuntimeOrigin::signed(delegate.clone()),
+            validator_id,
+            delegate_amount,
+        ));
+
+        let shares = AccountValidatorDelegateStakeShares::<Test>::get(&delegate, validator_id);
+        let ledger =
+            set_full_unbonding_ledger(&delegate, System::block_number().saturating_add(10_000));
+        let total_unbonding = TotalUnbondingBalance::<Test>::get();
+        let validator_delegate_balance = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
+        let validator_delegate_shares = ValidatorDelegateStakeShares::<Test>::get(validator_id);
+        let total_validator_delegate_balance = TotalValidatorDelegateStakeBalance::<Test>::get();
+
+        assert_err!(
+            Network::remove_validator_delegate_stake(
+                RuntimeOrigin::signed(delegate.clone()),
+                validator_id,
+                shares,
+            ),
+            Error::<Test>::MaxUnlockingsReached
+        );
+
+        assert_eq!(
+            AccountValidatorDelegateStakeShares::<Test>::get(&delegate, validator_id),
+            shares
+        );
+        assert_eq!(
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id),
+            validator_delegate_balance
+        );
+        assert_eq!(
+            ValidatorDelegateStakeShares::<Test>::get(validator_id),
+            validator_delegate_shares
+        );
+        assert_eq!(
+            TotalValidatorDelegateStakeBalance::<Test>::get(),
+            total_validator_delegate_balance
+        );
+        assert_eq!(StakeUnbondingLedger::<Test>::get(&delegate), ledger);
+        assert_eq!(TotalUnbondingBalance::<Test>::get(), total_unbonding);
+    });
+}
+
+#[test]
+fn test_full_unbonding_ledger_blocks_node_unstake_without_debit() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "node-full-ledger".into();
+        let deposit_amount: u128 = 1000000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let node_stake: u128 = stake_amount.saturating_add(1000);
+
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let max_subnets = MaxSubnets::<Test>::get();
+        let end = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+
+        let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
+        let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
+        let burn_amount = Network::calculate_burn_amount(subnet_id);
+        let _ = Balances::deposit_creating(&coldkey, node_stake + burn_amount + 500);
+
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            50000000000000000,
+            None,
+            None,
+        ));
+        let validator_id = TotalValidatorIds::<Test>::get();
+
+        assert_ok!(Network::register_subnet_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            validator_id,
+            subnet_id,
+            None,
+            PeerInfo::<Test> {
+                peer_id: peer(999),
+                multiaddr: None,
+            },
+            None,
+            None,
+            node_stake,
+            None,
+            None,
+            u128::MAX,
+        ));
+        let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
+
+        assert_ok!(Network::remove_subnet_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            subnet_id,
+            subnet_node_id,
+        ));
+
+        let ledger =
+            set_full_unbonding_ledger(&coldkey, System::block_number().saturating_add(10_000));
+        let total_unbonding = TotalUnbondingBalance::<Test>::get();
+        let node_stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
+        let total_subnet_stake = TotalSubnetStake::<Test>::get(subnet_id);
+        let total_stake = TotalStake::<Test>::get();
+        let validator_subnet_nodes = ValidatorSubnetNodes::<Test>::get(validator_id);
+
+        assert_err!(
+            Network::remove_node_stake(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet_id,
+                subnet_node_id,
+                node_stake_balance,
+            ),
+            Error::<Test>::MaxUnlockingsReached
+        );
+
+        assert_eq!(
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
+            node_stake_balance
+        );
+        assert_eq!(TotalSubnetStake::<Test>::get(subnet_id), total_subnet_stake);
+        assert_eq!(TotalStake::<Test>::get(), total_stake);
+        assert_eq!(
+            ValidatorSubnetNodes::<Test>::get(validator_id),
+            validator_subnet_nodes
+        );
+        assert_eq!(StakeUnbondingLedger::<Test>::get(&coldkey), ledger);
+        assert_eq!(TotalUnbondingBalance::<Test>::get(), total_unbonding);
+    });
+}
+
+#[test]
+fn test_full_unbonding_ledger_blocks_delegate_account_balance_removal_without_debit() {
+    new_test_ext().execute_with(|| {
+        let account_id = account(902);
+        Network::increase_delegate_account_balance(&account_id, 1000);
+
+        let ledger =
+            set_full_unbonding_ledger(&account_id, System::block_number().saturating_add(10_000));
+        let total_unbonding = TotalUnbondingBalance::<Test>::get();
+        let delegate_account_stake = DelegateAccountStake::<Test>::get(&account_id);
+        let total_account_delegate_stake = TotalAccountDelegateStake::<Test>::get();
+
+        assert_err!(
+            Network::remove_delegate_account_balance(
+                RuntimeOrigin::signed(account_id.clone()),
+                100,
+            ),
+            Error::<Test>::MaxUnlockingsReached
+        );
+
+        assert_eq!(
+            DelegateAccountStake::<Test>::get(&account_id),
+            delegate_account_stake
+        );
+        assert_eq!(
+            TotalAccountDelegateStake::<Test>::get(),
+            total_account_delegate_stake
+        );
+        assert_eq!(StakeUnbondingLedger::<Test>::get(&account_id), ledger);
+        assert_eq!(TotalUnbondingBalance::<Test>::get(), total_unbonding);
+    });
+}
+
+#[test]
+fn test_full_unbonding_ledger_blocks_overwatch_unstake_without_debit() {
+    new_test_ext().execute_with(|| {
+        let validator_id = 1;
+        manual_insert_validator(validator_id, 903, 904);
+        let coldkey = account(903);
+        let overwatch_node_id = insert_overwatch_node_v2(validator_id);
+        let stake = OverwatchMinStakeBalance::<Test>::get().saturating_add(1000);
+        set_overwatch_node_stake(overwatch_node_id, stake);
+
+        let ledger =
+            set_full_unbonding_ledger(&coldkey, System::block_number().saturating_add(10_000));
+        let total_unbonding = TotalUnbondingBalance::<Test>::get();
+        let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id);
+        let total_overwatch_stake = TotalOverwatchNodeStakeBalance::<Test>::get();
+
+        assert_err!(
+            Network::remove_overwatch_node_stake(
+                RuntimeOrigin::signed(coldkey.clone()),
+                overwatch_node_id,
+                100,
+            ),
+            Error::<Test>::MaxUnlockingsReached
+        );
+
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
+            overwatch_stake
+        );
+        assert_eq!(
+            TotalOverwatchNodeStakeBalance::<Test>::get(),
+            total_overwatch_stake
+        );
+        assert_eq!(StakeUnbondingLedger::<Test>::get(&coldkey), ledger);
+        assert_eq!(TotalUnbondingBalance::<Test>::get(), total_unbonding);
+    });
+}
+
+#[test]
+fn test_full_unbonding_ledger_claims_matured_entry_before_delegate_account_removal() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(100);
+
+        let account_id = account(904);
+        let matured_amount = 77;
+        let amount_to_remove = 25;
+        Network::increase_delegate_account_balance(&account_id, 1000);
+        let _ = Balances::deposit_creating(&account_id, EXISTENTIAL_DEPOSIT);
+        let balance_before = Balances::free_balance(&account_id);
+
+        let ledger_before = set_full_unbonding_ledger_with_entry(
+            &account_id,
+            System::block_number(),
+            matured_amount,
+        );
+        let total_unbonding_before = TotalUnbondingBalance::<Test>::get();
+        let stake_before = DelegateAccountStake::<Test>::get(&account_id);
+        let claim_block = System::block_number()
+            .saturating_add(StakeCooldownEpochs::<Test>::get() * EpochLength::get());
+
+        assert_ok!(Network::remove_delegate_account_balance(
+            RuntimeOrigin::signed(account_id.clone()),
+            amount_to_remove,
+        ));
+
+        let ledger_after = StakeUnbondingLedger::<Test>::get(&account_id);
+        assert_eq!(ledger_after.len() as u32, MaxUnbondings::<Test>::get());
+        assert!(!ledger_after.contains_key(&System::block_number()));
+        assert_eq!(ledger_after.get(&claim_block), Some(&amount_to_remove));
+        assert_eq!(
+            DelegateAccountStake::<Test>::get(&account_id),
+            stake_before - amount_to_remove
+        );
+        assert_eq!(
+            Balances::free_balance(&account_id),
+            balance_before + matured_amount
+        );
+        assert_eq!(
+            TotalUnbondingBalance::<Test>::get(),
+            total_unbonding_before - matured_amount + amount_to_remove
+        );
+        assert_eq!(ledger_before.len() as u32, MaxUnbondings::<Test>::get());
+    });
+}
+
+#[test]
+fn test_full_unbonding_ledger_merges_existing_claim_block_at_capacity() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(100);
+
+        let account_id = account(905);
+        let existing_amount = 50;
+        let amount_to_remove = 25;
+        Network::increase_delegate_account_balance(&account_id, 1000);
+
+        let claim_block = System::block_number()
+            .saturating_add(StakeCooldownEpochs::<Test>::get() * EpochLength::get());
+        let ledger_before =
+            set_full_unbonding_ledger_with_entry(&account_id, claim_block, existing_amount);
+        let total_unbonding_before = TotalUnbondingBalance::<Test>::get();
+        let stake_before = DelegateAccountStake::<Test>::get(&account_id);
+
+        assert_ok!(Network::remove_delegate_account_balance(
+            RuntimeOrigin::signed(account_id.clone()),
+            amount_to_remove,
+        ));
+
+        let ledger_after = StakeUnbondingLedger::<Test>::get(&account_id);
+        assert_eq!(ledger_after.len(), ledger_before.len());
+        assert_eq!(
+            ledger_after.get(&claim_block),
+            Some(&(existing_amount + amount_to_remove))
+        );
+        assert_eq!(
+            DelegateAccountStake::<Test>::get(&account_id),
+            stake_before - amount_to_remove
+        );
+        assert_eq!(
+            TotalUnbondingBalance::<Test>::get(),
+            total_unbonding_before + amount_to_remove
+        );
+    });
+}
+
+fn set_full_unbonding_ledger_with_entry(
+    account_id: &AccountIdOf<Test>,
+    claim_block: u32,
+    amount: u128,
+) -> BTreeMap<u32, u128> {
+    let mut ledger = BTreeMap::new();
+    ledger.insert(claim_block, amount);
+
+    let mut next_claim_block = System::block_number().saturating_add(10_000);
+    while ledger.len() < MaxUnbondings::<Test>::get() as usize {
+        if !ledger.contains_key(&next_claim_block) {
+            ledger.insert(next_claim_block, 100 + ledger.len() as u128);
+        }
+        next_claim_block = next_claim_block.saturating_add(1);
+    }
+
+    let total = ledger.values().copied().sum();
+    StakeUnbondingLedger::<Test>::insert(account_id, ledger.clone());
+    TotalUnbondingBalance::<Test>::set(total);
+    ledger
+}
 
 ///
 ///
@@ -76,7 +478,7 @@ fn test_register_remove_claim_stake_unbondings() {
             current_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
             },
@@ -370,7 +772,7 @@ fn test_register_activate_remove_claim_stake_unbondings() {
             current_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
             },
@@ -527,7 +929,7 @@ fn test_remove_stake_twice_in_epoch() {
             current_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
             },
@@ -708,7 +1110,7 @@ fn test_claim_stake_unbondings_no_unbondings_err() {
             current_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
             },
@@ -810,7 +1212,7 @@ fn test_remove_to_stake_max_unlockings_reached_err() {
             current_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
             },

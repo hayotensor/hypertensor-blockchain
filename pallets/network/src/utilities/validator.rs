@@ -48,7 +48,7 @@ impl<T: Config> Pallet<T> {
     }
 
     fn perform_update_validator_delegate_reward_rate(
-        maybe_params: &mut Option<ValidatorData<T::AccountId>>,
+        maybe_params: &mut Option<ValidatorData<T>>,
         validator_id: u32,
         block: u32,
         new_delegate_reward_rate: u128,
@@ -120,7 +120,7 @@ impl<T: Config> Pallet<T> {
     fn perform_update_validator_delegate_account(
         validator_id: u32,
         validator_coldkey: T::AccountId,
-        maybe_params: &mut Option<ValidatorData<T::AccountId>>,
+        maybe_params: &mut Option<ValidatorData<T>>,
         delegate_account_id: Option<T::AccountId>,
         delegate_rate: Option<u128>,
     ) -> DispatchResult {
@@ -194,7 +194,7 @@ impl<T: Config> Pallet<T> {
 
     fn perform_update_delegate_account(
         validator_id: u32,
-        maybe_params: &mut Option<ValidatorData<T::AccountId>>,
+        maybe_params: &mut Option<ValidatorData<T>>,
         delegate_account_id: Option<T::AccountId>,
         delegate_rate: Option<u128>,
     ) -> DispatchResult {
@@ -270,7 +270,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_validator_identity(
         origin: OriginFor<T>,
         validator_id: u32,
-        identity: Option<IdentityData>,
+        identity: Option<IdentityData<T>>,
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 

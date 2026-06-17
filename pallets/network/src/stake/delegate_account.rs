@@ -42,18 +42,25 @@ impl<T: Config> Pallet<T> {
             None => return Err(Error::<T>::CouldNotConvertToBalance.into()),
         };
 
-        Self::decrease_delegate_account_balance(&account_id, amount_to_remove);
-
         let block: u32 = Self::get_current_block_as_u32();
+        let cooldown_blocks = StakeCooldownEpochs::<T>::get() * T::EpochLength::get();
 
-        // Add to ledger and always match the stake cooldown epochs (or greater cooldown)
-        Self::add_balance_to_unbonding_ledger(
+        Self::prepare_unbonding_ledger_entry(
             &account_id,
             amount_to_remove,
-            StakeCooldownEpochs::<T>::get() * T::EpochLength::get(),
+            cooldown_blocks,
             block,
-        )
-        .map_err(|e| e)?;
+        )?;
+
+        Self::decrease_delegate_account_balance(&account_id, amount_to_remove);
+
+        // Add to ledger and always match the stake cooldown epochs (or greater cooldown)
+        Self::insert_balance_to_unbonding_ledger(
+            &account_id,
+            amount_to_remove,
+            cooldown_blocks,
+            block,
+        );
 
         Self::deposit_event(Event::DelegateBalanceRemoved {
             account_id,

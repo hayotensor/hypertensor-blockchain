@@ -4,14 +4,15 @@ use crate::{
     Error, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes,
     OverwatchEpochLengthMultiplier, OverwatchMinAge, OverwatchMinStakeBalance,
     OverwatchNodeBlacklist, OverwatchNodeIdHotkey, OverwatchNodeIndex, OverwatchNodeStakeBalance,
-    OverwatchNodeWeights, OverwatchNodes, OverwatchStakeWeightFactor, OverwatchSubnetWeights,
-    OverwatchValidatorWhitelist, PeerId, PeerIdOverwatchNodeId, StakeCooldownEpochs,
-    StakeUnbondingLedger, SubnetName, SubnetNodesData, SubnetState, TotalOverwatchNodeStakeBalance,
-    TotalOverwatchNodeUids, TotalOverwatchNodes, TotalValidatorIds,
+    OverwatchNodeValidatorId, OverwatchNodeWeights, OverwatchNodes, OverwatchStakeWeightFactor,
+    OverwatchSubnetWeights, OverwatchValidatorWhitelist, PeerId, PeerIdOverwatchNodeId,
+    StakeCooldownEpochs, StakeUnbondingLedger, SubnetName, SubnetNodesData, SubnetState,
+    TotalOverwatchNodeStakeBalance, TotalOverwatchNodeUids, TotalOverwatchNodes, TotalValidatorIds,
+    ValidatorSubnetNodes,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
-use sp_std::collections::btree_map::BTreeMap;
+use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 
 //
 //
@@ -166,6 +167,84 @@ fn test_register_overwatch_node_min_stake_error() {
 }
 
 #[test]
+fn test_register_overwatch_node_stake_failure_does_not_commit_partial_state_or_clean_validator_nodes(
+) {
+    new_test_ext().execute_with(|| {
+        let coldkey_n = 10_030;
+        let hotkey_n = 10_031;
+        let coldkey = account(coldkey_n);
+        let hotkey = account(hotkey_n);
+
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            50000000000000000,
+            None,
+            None,
+        ));
+
+        let validator_id = TotalValidatorIds::<Test>::get();
+        OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
+
+        increase_epochs(OverwatchEpochLengthMultiplier::<Test>::get() as u32);
+        make_overwatch_qualified_v2(validator_id, coldkey_n);
+
+        let stale_subnet_id = TotalOverwatchNodeUids::<Test>::get()
+            .saturating_add(MaxSubnets::<Test>::get())
+            .saturating_add(1);
+        let mut stale_nodes = BTreeSet::new();
+        stale_nodes.insert(TotalOverwatchNodeUids::<Test>::get().saturating_add(1));
+        ValidatorSubnetNodes::<Test>::mutate(validator_id, |nodes| {
+            nodes.insert(stale_subnet_id, stale_nodes);
+        });
+
+        let total_overwatch_node_uids = TotalOverwatchNodeUids::<Test>::get();
+        let next_overwatch_node_id = total_overwatch_node_uids.saturating_add(1);
+        let total_overwatch_nodes = TotalOverwatchNodes::<Test>::get();
+        let overwatch_node_validator_exists =
+            OverwatchNodeValidatorId::<Test>::contains_key(next_overwatch_node_id);
+        let overwatch_node_exists = OverwatchNodes::<Test>::contains_key(next_overwatch_node_id);
+        let overwatch_node_stake = OverwatchNodeStakeBalance::<Test>::get(next_overwatch_node_id);
+        let total_overwatch_stake = TotalOverwatchNodeStakeBalance::<Test>::get();
+        let validator_subnet_nodes = ValidatorSubnetNodes::<Test>::get(validator_id);
+
+        assert_err!(
+            Network::register_overwatch_node(
+                RuntimeOrigin::signed(coldkey.clone()),
+                OverwatchMinStakeBalance::<Test>::get(),
+            ),
+            Error::<Test>::NotEnoughBalanceToStake
+        );
+
+        assert_eq!(
+            TotalOverwatchNodeUids::<Test>::get(),
+            total_overwatch_node_uids
+        );
+        assert_eq!(TotalOverwatchNodes::<Test>::get(), total_overwatch_nodes);
+        assert_eq!(
+            OverwatchNodeValidatorId::<Test>::contains_key(next_overwatch_node_id),
+            overwatch_node_validator_exists
+        );
+        assert_eq!(
+            OverwatchNodes::<Test>::contains_key(next_overwatch_node_id),
+            overwatch_node_exists
+        );
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(next_overwatch_node_id),
+            overwatch_node_stake
+        );
+        assert_eq!(
+            TotalOverwatchNodeStakeBalance::<Test>::get(),
+            total_overwatch_stake
+        );
+        assert_eq!(
+            ValidatorSubnetNodes::<Test>::get(validator_id),
+            validator_subnet_nodes
+        );
+    });
+}
+
+#[test]
 fn test_register_overwatch_node_errors() {
     new_test_ext().execute_with(|| {
         let amount = 100000000000000000000;
@@ -290,6 +369,94 @@ fn test_set_overwatch_peer_id_v2() {
             .get(&subnet_id)
             .map_or(false, |x_peer_id| *x_peer_id == peer_id);
         assert!(exists);
+    });
+}
+
+#[test]
+fn test_update_overwatch_hotkey_override_and_clear() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "overwatch-hotkey-subnet".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        build_activated_subnet(
+            subnet_name.clone(),
+            0,
+            MinSubnetNodes::<Test>::get(),
+            deposit_amount,
+            stake_amount,
+        );
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+
+        let coldkey = account(1);
+        let validator_hotkey = account(2);
+        let overwatch_hotkey = account(3);
+        let _ = Balances::deposit_creating(&coldkey, OverwatchMinStakeBalance::<Test>::get() + 500);
+
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            validator_hotkey.clone(),
+            50000000000000000,
+            None,
+            None,
+        ));
+        let validator_id = TotalValidatorIds::<Test>::get();
+        OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
+
+        let expected_overwatch_node_id = TotalOverwatchNodeUids::<Test>::get().saturating_add(1);
+        make_overwatch_qualified_v2(validator_id, expected_overwatch_node_id);
+        assert_ok!(Network::register_overwatch_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            OverwatchMinStakeBalance::<Test>::get(),
+        ));
+        let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get();
+
+        assert_err!(
+            Network::update_overwatch_hotkey(
+                RuntimeOrigin::signed(account(99)),
+                overwatch_node_id,
+                Some(overwatch_hotkey.clone()),
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+
+        assert_ok!(Network::update_overwatch_hotkey(
+            RuntimeOrigin::signed(coldkey.clone()),
+            overwatch_node_id,
+            Some(overwatch_hotkey.clone()),
+        ));
+        assert_eq!(
+            OverwatchNodeIdHotkey::<Test>::get(overwatch_node_id),
+            Some(overwatch_hotkey.clone())
+        );
+
+        assert_err!(
+            Network::set_overwatch_node_peer_id(
+                RuntimeOrigin::signed(validator_hotkey.clone()),
+                subnet_id,
+                overwatch_node_id,
+                peer(101),
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+        assert_ok!(Network::set_overwatch_node_peer_id(
+            RuntimeOrigin::signed(overwatch_hotkey),
+            subnet_id,
+            overwatch_node_id,
+            peer(101),
+        ));
+
+        assert_ok!(Network::update_overwatch_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            overwatch_node_id,
+            None,
+        ));
+        assert_eq!(OverwatchNodeIdHotkey::<Test>::get(overwatch_node_id), None);
+        assert_ok!(Network::set_overwatch_node_peer_id(
+            RuntimeOrigin::signed(validator_hotkey),
+            subnet_id,
+            overwatch_node_id,
+            peer(102),
+        ));
     });
 }
 

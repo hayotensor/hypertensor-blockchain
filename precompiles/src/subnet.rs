@@ -7,8 +7,8 @@ use frame_support::{
 use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, ExitError, PrecompileFailure, PrecompileHandle};
 use pallet_network::{
-    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength,
-    DefaultValidatorArgsLimit, DelegateAccount, IdentityData, PeerInfo, SubnetNodeConsensusData,
+    DelegateAccount, IdentityData, NetworkBytes, PeerInfo, SubnetNodeConsensusData,
+    SubnetReputationFactorUpdates,
 };
 use precompile_utils::{EvmResult, prelude::*};
 use sp_core::{H160, H256, OpaquePeerId, U256};
@@ -82,7 +82,7 @@ where
         } else {
             None
         };
-        let identity = identity_data_from_inputs(
+        let identity = identity_data_from_inputs::<R>(
             has_identity,
             &name,
             &url,
@@ -285,7 +285,7 @@ where
                 Ok::<_, PrecompileFailure>((try_u256_to_u32(id)?, try_u256_to_u32(count)?))
             })
             .collect::<Result<_, _>>()?;
-        let bootnodes: BTreeMap<OpaquePeerId, BoundedVec<u8, DefaultMaxVectorLength>> = bootnodes
+        let bootnodes: BTreeMap<OpaquePeerId, NetworkBytes<R>> = bootnodes
             .into_iter()
             .map(|(peer_id, multiaddr_bytes)| {
                 let peer_id = OpaquePeerId(peer_id.as_bytes().to_vec());
@@ -295,7 +295,7 @@ where
             })
             .collect::<Result<_, _>>()?;
 
-        let subnet_data = pallet_network::RegistrationSubnetData {
+        let subnet_data = pallet_network::RegistrationSubnetData::<R> {
             name: name.into(),
             repo: repo.into(),
             description: description.into(),
@@ -406,7 +406,7 @@ where
         } else {
             Some(R::AddressMapping::into_account_id(hotkey.into()))
         };
-        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+        let peer_multiaddr: Option<NetworkBytes<R>> =
             if peer_info.1.as_bytes().is_empty() {
                 None
             } else {
@@ -415,12 +415,12 @@ where
                         .map_err(|_| revert("Peer multiaddr too long"))?,
                 )
             };
-        let peer_info = PeerInfo {
+        let peer_info = PeerInfo::<R> {
             peer_id: OpaquePeerId(peer_info.0.as_bytes().to_vec()),
             multiaddr: peer_multiaddr,
         };
         let bootnode_peer_info = if !bootnode_peer_info.0.as_bytes().is_empty() {
-            let bootnode_peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+            let bootnode_peer_multiaddr: Option<NetworkBytes<R>> =
                 if bootnode_peer_info.1.as_bytes().is_empty() {
                     None
                 } else {
@@ -429,7 +429,7 @@ where
                             .map_err(|_| revert("Bootnode multiaddr too long"))?,
                     )
                 };
-            Some(PeerInfo {
+            Some(PeerInfo::<R> {
                 peer_id: OpaquePeerId(bootnode_peer_info.0.as_bytes().to_vec()),
                 multiaddr: bootnode_peer_multiaddr,
             })
@@ -437,7 +437,7 @@ where
             None
         };
         let client_peer_info = if !client_peer_info.0.as_bytes().is_empty() {
-            let client_peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+            let client_peer_multiaddr: Option<NetworkBytes<R>> =
                 if client_peer_info.1.as_bytes().is_empty() {
                     None
                 } else {
@@ -446,7 +446,7 @@ where
                             .map_err(|_| revert("Client multiaddr too long"))?,
                     )
                 };
-            Some(PeerInfo {
+            Some(PeerInfo::<R> {
                 peer_id: OpaquePeerId(client_peer_info.0.as_bytes().to_vec()),
                 multiaddr: client_peer_multiaddr,
             })
@@ -455,10 +455,10 @@ where
         };
 
         let stake_to_be_added: u128 = stake_to_be_added.unique_saturated_into();
-        let unique: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
-            bounded_string_to_option_bounded_vec::<1024, DefaultMaxVectorLength>(&unique)?;
-        let non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
-            bounded_string_to_option_bounded_vec::<1024, DefaultMaxVectorLength>(&non_unique)?;
+        let unique: Option<NetworkBytes<R>> =
+            bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(&unique)?;
+        let non_unique: Option<NetworkBytes<R>> =
+            bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(&non_unique)?;
         let max_burn_amount: u128 = max_burn_amount.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
@@ -548,8 +548,8 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let unique: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
-            bounded_string_to_option_bounded_vec::<1024, DefaultMaxVectorLength>(&unique)?;
+        let unique: Option<NetworkBytes<R>> =
+            bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(&unique)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::update_node_unique {
@@ -578,8 +578,8 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
-            bounded_string_to_option_bounded_vec::<1024, DefaultMaxVectorLength>(&non_unique)?;
+        let non_unique: Option<NetworkBytes<R>> =
+            bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(&non_unique)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::update_node_non_unique {
@@ -641,7 +641,7 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+        let peer_multiaddr: Option<NetworkBytes<R>> =
             if new_peer_info.1.as_bytes().is_empty() {
                 None
             } else {
@@ -650,7 +650,7 @@ where
                         .map_err(|_| revert("Peer multiaddr too long"))?,
                 )
             };
-        let peer_info = PeerInfo {
+        let peer_info = PeerInfo::<R> {
             peer_id: OpaquePeerId(new_peer_info.0.as_bytes().to_vec()),
             multiaddr: peer_multiaddr,
         };
@@ -682,7 +682,7 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+        let peer_multiaddr: Option<NetworkBytes<R>> =
             if new_peer_info.1.as_bytes().is_empty() {
                 None
             } else {
@@ -691,7 +691,7 @@ where
                         .map_err(|_| revert("Peer multiaddr too long"))?,
                 )
             };
-        let peer_info = Some(PeerInfo {
+        let peer_info = Some(PeerInfo::<R> {
             peer_id: OpaquePeerId(new_peer_info.0.as_bytes().to_vec()),
             multiaddr: peer_multiaddr,
         });
@@ -723,7 +723,7 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let peer_multiaddr: Option<BoundedVec<u8, DefaultMaxVectorLength>> =
+        let peer_multiaddr: Option<NetworkBytes<R>> =
             if new_peer_info.1.as_bytes().is_empty() {
                 None
             } else {
@@ -732,7 +732,7 @@ where
                         .map_err(|_| revert("Peer multiaddr too long"))?,
                 )
             };
-        let peer_info = Some(PeerInfo {
+        let peer_info = Some(PeerInfo::<R> {
             peer_id: OpaquePeerId(new_peer_info.0.as_bytes().to_vec()),
             multiaddr: peer_multiaddr,
         });
@@ -791,11 +791,11 @@ where
         } else {
             None
         };
-        let args = unbounded_bytes_to_option_bounded_vec::<DefaultValidatorArgsLimit>(
+        let args = unbounded_bytes_to_option_bounded_vec::<<R as pallet_network::Config>::ValidatorArgsLimit>(
             &args,
             "Args too long",
         )?;
-        let attest_data = unbounded_bytes_to_option_bounded_vec::<DefaultValidatorArgsLimit>(
+        let attest_data = unbounded_bytes_to_option_bounded_vec::<<R as pallet_network::Config>::ValidatorArgsLimit>(
             &attest_data,
             "Attest data too long",
         )?;
@@ -831,7 +831,7 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let data = unbounded_bytes_to_option_bounded_vec::<DefaultValidatorArgsLimit>(
+        let data = unbounded_bytes_to_option_bounded_vec::<<R as pallet_network::Config>::ValidatorArgsLimit>(
             &data,
             "Data too long",
         )?;
@@ -874,26 +874,26 @@ where
     //     let origin = R::AddressMapping::into_account_id(handle.context().caller);
     //     let hotkey = R::AddressMapping::into_account_id(hotkey.into());
 
-    //     let name: BoundedVec<u8, DefaultMaxVectorLength> =
-    //         bounded_string_to_bounded_vec::<1024, DefaultMaxVectorLength>(&name)?;
-    //     let url: BoundedVec<u8, DefaultMaxUrlLength> =
-    //         bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&url)?;
-    //     let image: BoundedVec<u8, DefaultMaxUrlLength> =
-    //         bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&image)?;
-    //     let discord: BoundedVec<u8, DefaultMaxSocialIdLength> =
-    //         bounded_string_to_bounded_vec::<255, DefaultMaxSocialIdLength>(&discord)?;
-    //     let x: BoundedVec<u8, DefaultMaxSocialIdLength> =
-    //         bounded_string_to_bounded_vec::<255, DefaultMaxSocialIdLength>(&x)?;
-    //     let telegram: BoundedVec<u8, DefaultMaxSocialIdLength> =
-    //         bounded_string_to_bounded_vec::<255, DefaultMaxSocialIdLength>(&telegram)?;
-    //     let github: BoundedVec<u8, DefaultMaxUrlLength> =
-    //         bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&github)?;
-    //     let hugging_face: BoundedVec<u8, DefaultMaxUrlLength> =
-    //         bounded_string_to_bounded_vec::<1024, DefaultMaxUrlLength>(&hugging_face)?;
-    //     let description: BoundedVec<u8, DefaultMaxVectorLength> =
-    //         bounded_string_to_bounded_vec::<1024, DefaultMaxVectorLength>(&description)?;
-    //     let misc: BoundedVec<u8, DefaultMaxVectorLength> =
-    //         bounded_string_to_bounded_vec::<1024, DefaultMaxVectorLength>(&misc)?;
+    //     let name: NetworkBytes<R> =
+    //         bounded_string_to_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(&name)?;
+    //     let url: NetworkUrl<R> =
+    //         bounded_string_to_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(&url)?;
+    //     let image: NetworkUrl<R> =
+    //         bounded_string_to_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(&image)?;
+    //     let discord: NetworkSocialId<R> =
+    //         bounded_string_to_bounded_vec::<255, <R as pallet_network::Config>::MaxSocialIdLength>(&discord)?;
+    //     let x: NetworkSocialId<R> =
+    //         bounded_string_to_bounded_vec::<255, <R as pallet_network::Config>::MaxSocialIdLength>(&x)?;
+    //     let telegram: NetworkSocialId<R> =
+    //         bounded_string_to_bounded_vec::<255, <R as pallet_network::Config>::MaxSocialIdLength>(&telegram)?;
+    //     let github: NetworkUrl<R> =
+    //         bounded_string_to_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(&github)?;
+    //     let hugging_face: NetworkUrl<R> =
+    //         bounded_string_to_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(&hugging_face)?;
+    //     let description: NetworkBytes<R> =
+    //         bounded_string_to_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(&description)?;
+    //     let misc: NetworkBytes<R> =
+    //         bounded_string_to_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(&misc)?;
 
     //     let call = pallet_network::Call::<R>::register_or_update_identity {
     //         hotkey,
@@ -1541,9 +1541,12 @@ where
         let value = value.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::owner_update_absent_decrease_reputation_factor {
+        let call = pallet_network::Call::<R>::owner_update_reputation_factors {
             subnet_id,
-            value,
+            updates: SubnetReputationFactorUpdates {
+                absent_decrease: Some(value),
+                ..Default::default()
+            },
         };
 
         RuntimeHelper::<R>::try_dispatch(
@@ -1566,9 +1569,12 @@ where
         let value = value.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call = pallet_network::Call::<R>::owner_update_included_increase_reputation_factor {
+        let call = pallet_network::Call::<R>::owner_update_reputation_factors {
             subnet_id,
-            value,
+            updates: SubnetReputationFactorUpdates {
+                included_increase: Some(value),
+                ..Default::default()
+            },
         };
 
         RuntimeHelper::<R>::try_dispatch(
@@ -1591,11 +1597,13 @@ where
         let value = value.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call =
-            pallet_network::Call::<R>::owner_update_below_min_weight_decrease_reputation_factor {
-                subnet_id,
-                value,
-            };
+        let call = pallet_network::Call::<R>::owner_update_reputation_factors {
+            subnet_id,
+            updates: SubnetReputationFactorUpdates {
+                below_min_weight_decrease: Some(value),
+                ..Default::default()
+            },
+        };
 
         RuntimeHelper::<R>::try_dispatch(
             handle,
@@ -1617,11 +1625,13 @@ where
         let value = value.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call =
-            pallet_network::Call::<R>::owner_update_non_attestor_decrease_reputation_factor {
-                subnet_id,
-                value,
-            };
+        let call = pallet_network::Call::<R>::owner_update_reputation_factors {
+            subnet_id,
+            updates: SubnetReputationFactorUpdates {
+                non_attestor_decrease: Some(value),
+                ..Default::default()
+            },
+        };
 
         RuntimeHelper::<R>::try_dispatch(
             handle,
@@ -1643,8 +1653,13 @@ where
         let value = value.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call =
-            pallet_network::Call::<R>::owner_update_non_consensus_attestor_decrease_reputation_factor { subnet_id, value };
+        let call = pallet_network::Call::<R>::owner_update_reputation_factors {
+            subnet_id,
+            updates: SubnetReputationFactorUpdates {
+                non_consensus_attestor_decrease: Some(value),
+                ..Default::default()
+            },
+        };
 
         RuntimeHelper::<R>::try_dispatch(
             handle,
@@ -1666,11 +1681,13 @@ where
         let value = value.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call =
-            pallet_network::Call::<R>::owner_update_validator_absent_decrease_reputation_factor {
-                subnet_id,
-                value,
-            };
+        let call = pallet_network::Call::<R>::owner_update_reputation_factors {
+            subnet_id,
+            updates: SubnetReputationFactorUpdates {
+                validator_absent_decrease: Some(value),
+                ..Default::default()
+            },
+        };
 
         RuntimeHelper::<R>::try_dispatch(
             handle,
@@ -1694,8 +1711,13 @@ where
         let value = value.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
-        let call =
-            pallet_network::Call::<R>::owner_update_validator_non_consensus_decrease_reputation_factor { subnet_id, value };
+        let call = pallet_network::Call::<R>::owner_update_reputation_factors {
+            subnet_id,
+            updates: SubnetReputationFactorUpdates {
+                validator_non_consensus_decrease: Some(value),
+                ..Default::default()
+            },
+        };
 
         RuntimeHelper::<R>::try_dispatch(
             handle,
@@ -1716,7 +1738,7 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
 
-        let add: BTreeMap<OpaquePeerId, BoundedVec<u8, DefaultMaxVectorLength>> = add
+        let add: BTreeMap<OpaquePeerId, NetworkBytes<R>> = add
             .into_iter()
             .map(|(peer_id, bootnode_bytes)| {
                 let peer_id = OpaquePeerId(peer_id.as_bytes().to_vec());
@@ -2225,7 +2247,10 @@ where
         let subnet_id = try_u256_to_u32(subnet_id)?;
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
 
-        let result = pallet_network::AbsentDecreaseReputationFactor::<R>::get(subnet_id);
+        let current_epoch = pallet_network::Pallet::<R>::get_current_subnet_epoch_as_u32(subnet_id);
+        let result =
+            pallet_network::Pallet::<R>::get_reputation_factors_for_epoch(subnet_id, current_epoch)
+                .absent_decrease;
 
         Ok(result)
     }
@@ -2239,7 +2264,10 @@ where
         let subnet_id = try_u256_to_u32(subnet_id)?;
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
 
-        let result = pallet_network::IncludedIncreaseReputationFactor::<R>::get(subnet_id);
+        let current_epoch = pallet_network::Pallet::<R>::get_current_subnet_epoch_as_u32(subnet_id);
+        let result =
+            pallet_network::Pallet::<R>::get_reputation_factors_for_epoch(subnet_id, current_epoch)
+                .included_increase;
 
         Ok(result)
     }
@@ -2253,7 +2281,10 @@ where
         let subnet_id = try_u256_to_u32(subnet_id)?;
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
 
-        let result = pallet_network::BelowMinWeightDecreaseReputationFactor::<R>::get(subnet_id);
+        let current_epoch = pallet_network::Pallet::<R>::get_current_subnet_epoch_as_u32(subnet_id);
+        let result =
+            pallet_network::Pallet::<R>::get_reputation_factors_for_epoch(subnet_id, current_epoch)
+                .below_min_weight_decrease;
 
         Ok(result)
     }
@@ -2267,7 +2298,10 @@ where
         let subnet_id = try_u256_to_u32(subnet_id)?;
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
 
-        let result = pallet_network::NonAttestorDecreaseReputationFactor::<R>::get(subnet_id);
+        let current_epoch = pallet_network::Pallet::<R>::get_current_subnet_epoch_as_u32(subnet_id);
+        let result =
+            pallet_network::Pallet::<R>::get_reputation_factors_for_epoch(subnet_id, current_epoch)
+                .non_attestor_decrease;
 
         Ok(result)
     }
@@ -2281,8 +2315,10 @@ where
         let subnet_id = try_u256_to_u32(subnet_id)?;
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
 
+        let current_epoch = pallet_network::Pallet::<R>::get_current_subnet_epoch_as_u32(subnet_id);
         let result =
-            pallet_network::NonConsensusAttestorDecreaseReputationFactor::<R>::get(subnet_id);
+            pallet_network::Pallet::<R>::get_reputation_factors_for_epoch(subnet_id, current_epoch)
+                .non_consensus_attestor_decrease;
 
         Ok(result)
     }
@@ -2296,7 +2332,10 @@ where
         let subnet_id = try_u256_to_u32(subnet_id)?;
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
 
-        let result = pallet_network::ValidatorAbsentDecreaseReputationFactor::<R>::get(subnet_id);
+        let current_epoch = pallet_network::Pallet::<R>::get_current_subnet_epoch_as_u32(subnet_id);
+        let result =
+            pallet_network::Pallet::<R>::get_reputation_factors_for_epoch(subnet_id, current_epoch)
+                .validator_absent_decrease;
 
         Ok(result)
     }
@@ -2310,8 +2349,10 @@ where
         let subnet_id = try_u256_to_u32(subnet_id)?;
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
 
+        let current_epoch = pallet_network::Pallet::<R>::get_current_subnet_epoch_as_u32(subnet_id);
         let result =
-            pallet_network::ValidatorNonConsensusSubnetNodeReputationFactor::<R>::get(subnet_id);
+            pallet_network::Pallet::<R>::get_reputation_factors_for_epoch(subnet_id, current_epoch)
+                .validator_non_consensus_decrease;
 
         Ok(result)
     }
@@ -2460,7 +2501,7 @@ fn try_u32_to_u256(value: u32) -> Result<U256, PrecompileFailure> {
     })
 }
 
-fn identity_data_from_inputs(
+fn identity_data_from_inputs<R>(
     has_identity: bool,
     name: &BoundedString<ConstU32<1024>>,
     url: &BoundedString<ConstU32<1024>>,
@@ -2472,26 +2513,29 @@ fn identity_data_from_inputs(
     hugging_face: &BoundedString<ConstU32<1024>>,
     description: &BoundedString<ConstU32<1024>>,
     misc: &BoundedString<ConstU32<1024>>,
-) -> Result<Option<IdentityData>, PrecompileFailure> {
+) -> Result<Option<IdentityData<R>>, PrecompileFailure>
+where
+    R: pallet_network::Config,
+{
     if !has_identity {
         return Ok(None);
     }
 
-    Ok(Some(IdentityData {
-        name: bounded_string_to_option_bounded_vec::<1024, DefaultMaxVectorLength>(name)?,
-        url: bounded_string_to_option_bounded_vec::<1024, DefaultMaxUrlLength>(url)?,
-        image: bounded_string_to_option_bounded_vec::<1024, DefaultMaxUrlLength>(image)?,
-        discord: bounded_string_to_option_bounded_vec::<255, DefaultMaxSocialIdLength>(discord)?,
-        x: bounded_string_to_option_bounded_vec::<255, DefaultMaxSocialIdLength>(x)?,
-        telegram: bounded_string_to_option_bounded_vec::<255, DefaultMaxSocialIdLength>(telegram)?,
-        github: bounded_string_to_option_bounded_vec::<1024, DefaultMaxUrlLength>(github)?,
-        hugging_face: bounded_string_to_option_bounded_vec::<1024, DefaultMaxUrlLength>(
+    Ok(Some(IdentityData::<R> {
+        name: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(name)?,
+        url: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(url)?,
+        image: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(image)?,
+        discord: bounded_string_to_option_bounded_vec::<255, <R as pallet_network::Config>::MaxSocialIdLength>(discord)?,
+        x: bounded_string_to_option_bounded_vec::<255, <R as pallet_network::Config>::MaxSocialIdLength>(x)?,
+        telegram: bounded_string_to_option_bounded_vec::<255, <R as pallet_network::Config>::MaxSocialIdLength>(telegram)?,
+        github: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(github)?,
+        hugging_face: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(
             hugging_face,
         )?,
-        description: bounded_string_to_option_bounded_vec::<1024, DefaultMaxVectorLength>(
+        description: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(
             description,
         )?,
-        misc: bounded_string_to_option_bounded_vec::<1024, DefaultMaxVectorLength>(misc)?,
+        misc: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(misc)?,
     }))
 }
 

@@ -1,19 +1,20 @@
 use super::mock::*;
+pub use crate::NetworkBytes;
 use crate::Event;
 use crate::{
     multiaddr::*, AccountSubnetDelegateStakeShares, AttestEntry, BootnodePeerIdSubnetNodeId,
-    ClientPeerIdSubnetNodeId, ColdkeyValidatorId, ConsensusData, DefaultMaxVectorLength,
-    DelegateAccount, EmergencySubnetNodeElectionData, HotkeyValidatorId, InitialValidatorData,
-    MaxMaxRegisteredNodes, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
+    ClientPeerIdSubnetNodeId, ColdkeyValidatorId, ConsensusData, DelegateAccount,
+    EmergencySubnetNodeElectionData, HotkeyValidatorId, InitialValidatorData, MaxMaxRegisteredNodes,
+    MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     MinSubnetNodes, MinSubnetRegistrationEpochs, MultiaddrSubnetNodeId, NetworkMaxStakeBalance,
     NodeSubnetStake, OverwatchCommitCutoffPercent, OverwatchEpochLengthMultiplier, OverwatchMinAge,
     OverwatchMinStakeBalance, OverwatchNode, OverwatchNodeIdHotkey, OverwatchNodeStakeBalance,
     OverwatchNodeValidatorId, OverwatchNodes, OverwatchReveals, PeerIdSubnetNodeId, PeerInfo,
     RegisteredSubnetNodesData, RegistrationSubnetData, Reputation, StakeCooldownEpochs,
     StakeUnbondingLedger, SubnetConsensusSubmission, SubnetData, SubnetElectedValidator,
-    SubnetIdFriendlyUid, SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName,
+    SubnetIdFriendlyUid, SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode,
     SubnetNodeClass, SubnetNodeClassification, SubnetNodeConsensusData, SubnetNodeElectionSlots,
-    SubnetNodeIdHotkey, SubnetNodeQueue, SubnetNodeReputation, SubnetNode, SubnetNodeValidatorId,
+    SubnetNodeIdHotkey, SubnetNodeQueue, SubnetNodeReputation, SubnetNodeValidatorId,
     SubnetNodesData, SubnetOwner, SubnetRegistrationEpoch, SubnetRegistrationEpochs,
     SubnetReputation, SubnetSlot, SubnetState, SubnetsData, TotalActiveNodes,
     TotalActiveSubnetNodes, TotalActiveSubnets, TotalNodes, TotalOverwatchNodeStakeBalance,
@@ -150,7 +151,7 @@ pub fn get_multiaddr(
     subnet_id: Option<u32>,
     subnet_node_id: Option<u32>,
     offset: Option<u8>,
-) -> Option<BoundedVec<u8, DefaultMaxVectorLength>> {
+) -> Option<NetworkBytes<Test>> {
     let ip_append = if let Some(subnet_id) = subnet_id {
         &[127, 0, offset.unwrap_or(0), subnet_id as u8]
     } else {
@@ -221,7 +222,7 @@ pub fn build_activated_subnet(
         end = min_nodes;
     }
 
-    let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+    let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
         subnet_id_key_offset,
         max_subnet_nodes,
         subnet_name.clone().into(),
@@ -313,15 +314,15 @@ pub fn build_activated_subnet(
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
             }),
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: client_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(2)),
             }),
@@ -356,7 +357,7 @@ pub fn build_activated_subnet(
         assert_eq!(multiaddr_subnet_node_id, subnet_node_id);
         assert_eq!(
             subnet_node_data.peer_info,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
             }
@@ -369,7 +370,7 @@ pub fn build_activated_subnet(
         assert_eq!(bootnode_multiaddr_subnet_node_id, subnet_node_id);
         assert_eq!(
             subnet_node_data.bootnode_peer_info,
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
             })
@@ -382,7 +383,7 @@ pub fn build_activated_subnet(
         assert_eq!(client_multiaddr_subnet_node_id, subnet_node_id);
         assert_eq!(
             subnet_node_data.client_peer_info,
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: client_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(2)),
             })
@@ -519,7 +520,7 @@ pub fn build_activated_subnet_new_excess_subnets(
         end = min_nodes;
     }
 
-    let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+    let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
         subnet_id_key_offset,
         max_subnet_nodes,
         subnet_name.clone().into(),
@@ -605,15 +606,15 @@ pub fn build_activated_subnet_new_excess_subnets(
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
             }),
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: client_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(2)),
             }),
@@ -730,7 +731,7 @@ pub fn build_registered_subnet(
     deposit_amount: u128,
     amount: u128,
     delegate_stake_conditional: bool,
-    add_subnet_data: Option<RegistrationSubnetData>,
+    add_subnet_data: Option<RegistrationSubnetData<Test>>,
 ) {
     let alice = account(0);
     if Balances::free_balance(alice) == 0 {
@@ -861,15 +862,15 @@ pub fn build_registered_subnet(
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
             }),
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: client_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(2)),
             }),
@@ -1008,10 +1009,10 @@ pub fn insert_subnet_node(
         start_epoch: start_epoch,
     };
 
-    let subnet_node: SubnetNode = SubnetNode {
+    let subnet_node: SubnetNode<Test> = SubnetNode::<Test> {
         id: subnet_node_id,
         validator_id: validator_id,
-        peer_info: PeerInfo {
+        peer_info: PeerInfo::<Test> {
             peer_id: peer_id.clone(),
             multiaddr: None,
         },
@@ -1138,12 +1139,12 @@ pub fn build_registered_subnet_nodes(
         amount_staked += amount;
 
         let multiaddr = get_multiaddr(Some(subnet_id), Some(_n), None);
-        let unique: Option<BoundedVec<u8, DefaultMaxVectorLength>> = {
+        let unique: Option<NetworkBytes<Test>> = {
             let bytes: Vec<u8> = format!("unique-{}-{}", subnet_id, _n).into();
             Some(bytes.try_into().expect("unique too long"))
         };
         // For non_unique (if applicable)
-        let non_unique: Option<BoundedVec<u8, DefaultMaxVectorLength>> = {
+        let non_unique: Option<NetworkBytes<Test>> = {
             let bytes: Vec<u8> = format!("non-unique-{}-{}", subnet_id, _n).into();
             Some(bytes.try_into().expect("non_unique too long"))
         };
@@ -1153,15 +1154,15 @@ pub fn build_registered_subnet_nodes(
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
             }),
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: client_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(2)),
             }),
@@ -1270,15 +1271,15 @@ pub fn build_registered_nodes_in_queue(
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
             }),
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: client_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(2)),
             }),
@@ -1356,7 +1357,7 @@ pub fn build_activated_subnet_with_delegator_rewards(
         end = min_nodes;
     }
 
-    let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+    let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
         subnets,
         max_subnet_nodes,
         subnet_name.clone().into(),
@@ -1423,15 +1424,15 @@ pub fn build_activated_subnet_with_delegator_rewards(
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
             },
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
             }),
-            Some(PeerInfo {
+            Some(PeerInfo::<Test> {
                 peer_id: client_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(2)),
             }),
@@ -1590,9 +1591,9 @@ pub fn default_registration_subnet_data(
     name: Vec<u8>,
     start: u32,
     end: u32,
-) -> RegistrationSubnetData {
+) -> RegistrationSubnetData<Test> {
     let seed_bytes: &[u8] = &name;
-    let add_subnet_data = RegistrationSubnetData {
+    let add_subnet_data = RegistrationSubnetData::<Test> {
         name: name.clone(),
         repo: blake2_128(seed_bytes).to_vec(), // must be unique
         description: Vec::new(),
@@ -1744,7 +1745,7 @@ pub fn get_subnet_node_consensus_data_with_custom_score(
     subnet_node_data
 }
 
-pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> ConsensusData {
+pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> ConsensusData<Test> {
     let mut attests = BTreeMap::new();
     let mut data = Vec::new();
 
@@ -1763,7 +1764,7 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
 
         attests.insert(
             node_id,
-            AttestEntry {
+            AttestEntry::<Test> {
                 block: block_number,
                 attestor_progress: 0,
                 reward_factor: Network::percentage_factor_as_u128(),
@@ -1776,11 +1777,8 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
         });
     }
 
-    let included_subnet_nodes: Vec<SubnetNode> = Network::get_active_classified_subnet_nodes(
-        subnet_id,
-        &SubnetNodeClass::Included,
-        epoch,
-    );
+    let included_subnet_nodes: Vec<SubnetNode<Test>> =
+        Network::get_active_classified_subnet_nodes(subnet_id, &SubnetNodeClass::Included, epoch);
 
     let validator_ids: Vec<u32> = if let Some(emergency_validator_data) =
         EmergencySubnetNodeElectionData::<Test>::get(subnet_id)
@@ -1793,7 +1791,7 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
         SubnetNodeElectionSlots::<Test>::get(subnet_id)
     };
 
-    ConsensusData {
+    ConsensusData::<Test> {
         validator_id: subnet_id * max_subnet_nodes,
         block: block_number,
         validator_epoch_progress: 0,
@@ -1936,10 +1934,10 @@ pub fn manual_insert_subnet_node_v2(
     SubnetNodesData::<Test>::insert(
         subnet_id,
         node_id,
-        SubnetNode {
+        SubnetNode::<Test> {
             id: node_id,
             validator_id: validator_id,
-            peer_info: PeerInfo {
+            peer_info: PeerInfo::<Test> {
                 peer_id: peer(peer_n),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(node_id), None),
             },
@@ -1959,7 +1957,7 @@ pub fn manual_insert_subnet_node_v2(
 }
 
 pub fn manual_insert_validator(validator_id: u32, coldkey_n: u32, hotkey_n: u32) {
-    let validator_data: ValidatorData<AccountId> = ValidatorData {
+    let validator_data: ValidatorData<Test> = ValidatorData::<Test> {
         id: validator_id,
         hotkey: account(hotkey_n),
         delegate_reward_rate: 0,

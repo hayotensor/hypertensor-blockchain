@@ -2,9 +2,10 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    ColdkeyValidatorId, DefaultMaxVectorLength, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
-    PeerIdOverwatchNodeId, PeerInfo, SubnetBootnodes, SubnetElectedValidator, SubnetName,
-    SubnetNodeClass, TotalActiveSubnets,
+    AccountNodeDelegateStakeShares, ColdkeyValidatorId, MaxSubnetNodes,
+    MaxSubnets, MinSubnetMinStake, OverwatchCommits, OverwatchReveals, PeerIdOverwatchNodeId,
+    PeerInfo, SubnetBootnodes, SubnetElectedValidator, SubnetName, SubnetNodeClass,
+    TotalActiveSubnets, TotalNodeDelegateStakeBalance, TotalNodeDelegateStakeShares,
 };
 use frame_support::assert_ok;
 use frame_support::traits::{Currency, ExistenceRequirement};
@@ -112,7 +113,7 @@ fn test_proof_of_stake_all_peer_id_types() {
             "Proof of stake should work with overwatch node peer_id"
         );
 
-        let bv = |b: u8| BoundedVec::<u8, DefaultMaxVectorLength>::try_from(vec![b]).unwrap();
+        let bv = |b: u8| NetworkBytes::<Test>::try_from(vec![b]).unwrap();
         let add_map = BTreeMap::from([(peer(2), bv(2)), (peer(3), bv(3))]);
 
         SubnetBootnodes::<Test>::insert(subnet_id, add_map);
@@ -162,7 +163,7 @@ fn test_proof_of_stake_all_peer_id_types() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
@@ -487,5 +488,81 @@ fn test_get_validator_delegate_stakes() {
             node_delegate_stakes.len() > 0,
             "Should have node delegate stakes"
         );
+    })
+}
+
+#[test]
+fn test_get_node_delegate_stakes() {
+    new_test_ext().execute_with(|| {
+        let delegator = account(1000);
+        let other_delegator = account(1001);
+        let subnet_id = 7;
+        let subnet_node_id = 11;
+        let shares = 25;
+        let total_shares = 100;
+        let total_balance = 400;
+
+        TotalNodeDelegateStakeShares::<Test>::insert(subnet_id, subnet_node_id, total_shares);
+        TotalNodeDelegateStakeBalance::<Test>::insert(subnet_id, subnet_node_id, total_balance);
+        AccountNodeDelegateStakeShares::<Test>::insert(
+            (delegator.clone(), subnet_id, subnet_node_id),
+            shares,
+        );
+        AccountNodeDelegateStakeShares::<Test>::insert(
+            (other_delegator.clone(), subnet_id, subnet_node_id),
+            shares,
+        );
+
+        let stakes = Network::get_node_delegate_stakes(delegator);
+
+        assert_eq!(stakes.len(), 1);
+        assert_eq!(stakes[0].subnet_id, subnet_id);
+        assert_eq!(stakes[0].subnet_node_id, subnet_node_id);
+        assert_eq!(stakes[0].shares, shares);
+        assert_eq!(
+            stakes[0].balance,
+            Network::convert_to_balance(shares, total_shares, total_balance)
+        );
+    })
+}
+
+#[test]
+fn test_get_overwatch_commits_and_reveals_for_epoch_and_node() {
+    new_test_ext().execute_with(|| {
+        let epoch = 9;
+        let overwatch_node_id = 3;
+        let other_overwatch_node_id = 4;
+        let subnet_id_1 = 21;
+        let subnet_id_2 = 22;
+        let weight_1 = 100000000000000000;
+        let weight_2 = 200000000000000000;
+        let other_weight = 300000000000000000;
+
+        let commit_1 = make_commit(weight_1, b"salt-1".to_vec());
+        let commit_2 = make_commit(weight_2, b"salt-2".to_vec());
+        OverwatchCommits::<Test>::insert((epoch, overwatch_node_id, subnet_id_1), commit_1);
+        OverwatchCommits::<Test>::insert((epoch, overwatch_node_id, subnet_id_2), commit_2);
+        OverwatchCommits::<Test>::insert(
+            (epoch, other_overwatch_node_id, subnet_id_1),
+            make_commit(other_weight, b"salt-3".to_vec()),
+        );
+
+        OverwatchReveals::<Test>::insert((epoch, subnet_id_1, overwatch_node_id), weight_1);
+        OverwatchReveals::<Test>::insert((epoch, subnet_id_2, overwatch_node_id), weight_2);
+        OverwatchReveals::<Test>::insert(
+            (epoch, subnet_id_1, other_overwatch_node_id),
+            other_weight,
+        );
+
+        let commits = Network::get_overwatch_commits_for_epoch_and_node(epoch, overwatch_node_id);
+        assert_eq!(commits.len(), 2);
+        assert!(commits.contains(&(subnet_id_1, commit_1)));
+        assert!(commits.contains(&(subnet_id_2, commit_2)));
+
+        let reveals = Network::get_overwatch_reveals_for_epoch_and_node(epoch, overwatch_node_id);
+        assert_eq!(reveals.len(), 2);
+        assert!(reveals.contains(&(subnet_id_1, weight_1)));
+        assert!(reveals.contains(&(subnet_id_2, weight_2)));
+        assert!(!reveals.contains(&(subnet_id_1, other_weight)));
     })
 }

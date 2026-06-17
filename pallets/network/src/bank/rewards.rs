@@ -17,13 +17,24 @@ use super::*;
 use frame_support::pallet_prelude::{DispatchError, Weight};
 
 impl<T: Config> Pallet<T> {
+    fn validator_subnet_nodes_weight_params(validator_id: u32, subnet_id: u32) -> (u32, u32) {
+        let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
+        let x = validator_subnet_nodes.len() as u32;
+        let c = validator_subnet_nodes
+            .get(&subnet_id)
+            .map(|nodes| nodes.len() as u32)
+            .unwrap_or(0);
+
+        (x, c)
+    }
+
     pub fn distribute_rewards(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
         block: u32,
         current_epoch: u32,
         current_subnet_epoch: u32,
-        consensus_submission_data: ConsensusSubmissionData,
+        consensus_submission_data: ConsensusSubmissionData<T>,
         rewards_data: RewardsData,
         min_attestation_percentage: u128,
         coldkey_reputation_increase_factor: u128,
@@ -33,6 +44,7 @@ impl<T: Config> Pallet<T> {
         let db_weight = T::DbWeight::get();
 
         let percentage_factor = Self::percentage_factor_as_u128();
+        let evaluated_subnet_epoch = current_subnet_epoch.saturating_sub(1);
         let min_validator_reputation = MinSubnetNodeReputation::<T>::get(subnet_id);
         let subnet_reputation = SubnetReputation::<T>::get(subnet_id);
         // MinSubnetNodeReputation | SubnetReputation
@@ -56,6 +68,7 @@ impl<T: Config> Pallet<T> {
                 min_validator_reputation,
                 electable_nodes_count,
                 current_epoch,
+                evaluated_subnet_epoch,
                 subnet_reputation,
                 percentage_factor,
                 weight_meter,
@@ -95,11 +108,13 @@ impl<T: Config> Pallet<T> {
         let idle_epochs = IdleClassificationEpochs::<T>::get(subnet_id);
         let included_epochs = IncludedClassificationEpochs::<T>::get(subnet_id);
         let weight_threshold = SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id);
-        let absent_factor = AbsentDecreaseReputationFactor::<T>::get(subnet_id);
-        let included_factor = IncludedIncreaseReputationFactor::<T>::get(subnet_id);
-        let min_weight_factor = BelowMinWeightDecreaseReputationFactor::<T>::get(subnet_id);
-        let non_attestor_factor = NonAttestorDecreaseReputationFactor::<T>::get(subnet_id);
-        weight_meter.consume(db_weight.reads(7));
+        let reputation_factors =
+            Self::get_reputation_factors_for_epoch(subnet_id, evaluated_subnet_epoch);
+        let absent_factor = reputation_factors.absent_decrease;
+        let included_factor = reputation_factors.included_increase;
+        let min_weight_factor = reputation_factors.below_min_weight_decrease;
+        let non_attestor_factor = reputation_factors.non_attestor_decrease;
+        weight_meter.consume(db_weight.reads(4));
 
         // Super majority, update queue to prioritize node ID that subnet form a consensus to cut the line
         // and or update queue to remove a node ID the subnet forms a consensus to be removed (if passed immunity period)
@@ -108,7 +123,6 @@ impl<T: Config> Pallet<T> {
             subnet_id,
             &consensus_submission_data,
             super_majority_threshold,
-            electable_nodes_count,
         );
 
         // MinSubnetNodes
@@ -482,17 +496,21 @@ impl<T: Config> Pallet<T> {
     /// Subnet is not in consensus
     pub fn handle_non_consensus(
         subnet_id: u32,
-        consensus_submission_data: ConsensusSubmissionData,
+        consensus_submission_data: ConsensusSubmissionData<T>,
         min_attestation_percentage: u128,
         coldkey_reputation_decrease_factor: u128,
         min_validator_reputation: u128,
         electable_nodes_count: u32,
         current_epoch: u32,
+        evaluated_subnet_epoch: u32,
         subnet_reputation: u128,
         percentage_factor: u128,
         weight_meter: &mut WeightMeter,
     ) {
         let db_weight = T::DbWeight::get();
+        let reputation_factors =
+            Self::get_reputation_factors_for_epoch(subnet_id, evaluated_subnet_epoch);
+        weight_meter.consume(db_weight.reads(1));
 
         // --- Slash validator
         // Slashes stake balance
@@ -507,6 +525,7 @@ impl<T: Config> Pallet<T> {
             min_validator_reputation,
             electable_nodes_count,
             current_epoch,
+            reputation_factors.validator_non_consensus_decrease,
         );
         weight_meter.consume(slash_validator_weight);
 
@@ -526,13 +545,11 @@ impl<T: Config> Pallet<T> {
 
         // Get the decrease factor based on the attestation ratio
         let non_consensus_attestor_factor = Self::get_non_consensus_attestor_factor(
-            subnet_id,
+            reputation_factors.non_consensus_attestor_decrease,
             consensus_submission_data.attestation_ratio,
             min_attestation_percentage,
             percentage_factor,
         );
-        // NonConsensusAttestorDecreaseReputationFactor
-        weight_meter.consume(db_weight.reads(1));
 
         // --- Decrease reputation of attestors
         for (subnet_node_id, attest_data) in consensus_submission_data.attests {
@@ -556,27 +573,25 @@ impl<T: Config> Pallet<T> {
 
                 if new_reputation < min_validator_reputation {
                     weight_meter.consume(db_weight.reads(1));
-                    weight_meter.consume(db_weight.reads(1));
-                    let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(subnet_node_id);
-                    // x = number of subnets (outer BTreeMap size)
-                    let x = validator_subnet_nodes.len() as u32;
-                    // c = number of nodes in the specific subnet (inner BTreeSet size)
-                    let c = validator_subnet_nodes
-                        .get(&subnet_id)
-                        .map(|nodes| nodes.len() as u32)
-                        .unwrap_or(0);
+                    if let Some(validator_id) =
+                        SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
+                    {
+                        weight_meter.consume(db_weight.reads(1));
+                        let (x, c) =
+                            Self::validator_subnet_nodes_weight_params(validator_id, subnet_id);
 
-                    if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
-                        x,
-                        electable_nodes_count,
-                        c,
-                    )) {
-                        Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-                        weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
+                        if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
                             x,
                             electable_nodes_count,
                             c,
-                        ));
+                        )) {
+                            Self::remove_active_subnet_node(subnet_id, subnet_node_id);
+                            weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
+                                x,
+                                electable_nodes_count,
+                                c,
+                            ));
+                        }
                     }
                 }
             }
@@ -589,7 +604,7 @@ impl<T: Config> Pallet<T> {
         validator_id: u32,
         subnet_id: u32,
         subnet_node_id: u32,
-        consensus_submission_data: &ConsensusSubmissionData,
+        consensus_submission_data: &ConsensusSubmissionData<T>,
         min_attestation_percentage: u128,
         coldkey_reputation_increase_factor: u128,
         current_epoch: u32,
@@ -649,8 +664,6 @@ impl<T: Config> Pallet<T> {
     /// * `subnet_id` - The ID of the subnet
     /// * `consensus_submission_data` - Consensus submission data containing queue operations
     /// * `super_majority_threshold` - The super majority threshold for consensus
-    /// * `electable_nodes_count` - The number of electable nodes in the subnet
-    ///
     /// # Behavior
     ///
     /// The function performs the following steps:
@@ -670,9 +683,8 @@ impl<T: Config> Pallet<T> {
     pub fn handle_node_queue_consensus(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
-        consensus_submission_data: &ConsensusSubmissionData,
+        consensus_submission_data: &ConsensusSubmissionData<T>,
         super_majority_threshold: u128,
-        electable_nodes_count: u32,
     ) {
         if consensus_submission_data.attestation_ratio >= super_majority_threshold {
             let db_weight = T::DbWeight::get();
@@ -711,37 +723,28 @@ impl<T: Config> Pallet<T> {
             // Handle remove node - remove from queue entirely
             // These are not yet activated nodes so this does not impact the emissions distribution
             if let Some(remove_queue_node_id) = consensus_submission_data.remove_queue_node_id {
-                log::error!("remove_queue_node_id id: {:?}", remove_queue_node_id);
                 if let Some(index) = queue
                     .iter()
                     .position(|node| node.id == remove_queue_node_id)
                 {
-                    log::error!("remove_queue_node_id is_some");
+                    let validator_id = queue[index].validator_id;
+                    let r = queue.len() as u32;
                     weight_meter.consume(db_weight.reads(1));
-                    let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(remove_queue_node_id);
-                    // x = number of subnets (outer BTreeMap size)
-                    let x = validator_subnet_nodes.len() as u32;
-                    // c = number of nodes in the specific subnet (inner BTreeSet size)
-                    let c = validator_subnet_nodes
-                        .get(&subnet_id)
-                        .map(|nodes| nodes.len() as u32)
-                        .unwrap_or(0);
+                    let (x, c) =
+                        Self::validator_subnet_nodes_weight_params(validator_id, subnet_id);
 
                     if weight_meter.can_consume(T::WeightInfo::remove_registered_subnet_node(
                         x,
-                        electable_nodes_count,
+                        r,
                         c,
                     )) {
-                        log::error!("remove_queue_node_id removing");
-
                         Self::remove_registered_subnet_node(subnet_id, remove_queue_node_id);
                         weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(
                             x,
-                            electable_nodes_count,
+                            r,
                             c,
                         ));
 
-                        log::error!("remove_queue_node_id event");
                         Self::deposit_event(Event::QueuedNodeRemoved {
                             subnet_id,
                             subnet_node_id: remove_queue_node_id,
@@ -760,26 +763,22 @@ impl<T: Config> Pallet<T> {
     ) {
         let db_weight = T::DbWeight::get();
         weight_meter.consume(db_weight.reads(1));
-        let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(subnet_node_id);
-        // x = number of subnets (outer BTreeMap size)
-        let x = validator_subnet_nodes.len() as u32;
-        // c = number of nodes in the specific subnet (inner BTreeSet size)
-        let c = validator_subnet_nodes
-            .get(&subnet_id)
-            .map(|nodes| nodes.len() as u32)
-            .unwrap_or(0);
+        if let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) {
+            weight_meter.consume(db_weight.reads(1));
+            let (x, c) = Self::validator_subnet_nodes_weight_params(validator_id, subnet_id);
 
-        if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
-            x,
-            electable_nodes_count,
-            c,
-        )) {
-            Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-            weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
+            if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
                 x,
                 electable_nodes_count,
                 c,
-            ));
+            )) {
+                Self::remove_active_subnet_node(subnet_id, subnet_node_id);
+                weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
+                    x,
+                    electable_nodes_count,
+                    c,
+                ));
+            }
         }
     }
 
@@ -897,20 +896,10 @@ impl<T: Config> Pallet<T> {
         // TotalNodeDelegateStakeShares
         weight_meter.consume(db_weight.reads(1));
 
-        log::error!("handle_validator_delegate_stake");
-
         // We make sure the pool has shares before depositing into it
         if total_node_delegated_stake_shares != 0 {
             let node_delegate_reward = Self::percent_mul(account_reward, delegate_reward_rate);
             let updated_account_reward = account_reward.saturating_sub(node_delegate_reward);
-            log::error!(
-                "handle_validator_delegate_stake node_delegate_reward   {:?}",
-                node_delegate_reward
-            );
-            log::error!(
-                "handle_validator_delegate_stake updated_account_reward {:?}",
-                updated_account_reward
-            );
             Self::do_increase_validator_delegate_stake(validator_id, node_delegate_reward);
             // reads:
             // TotalNodeDelegateStakeBalance | TotalNodeDelegateStakeShares

@@ -17,13 +17,13 @@ use super::*;
 use frame_support::pallet_prelude::DispatchError;
 
 impl<T: Config> Pallet<T> {
-    pub fn assign_subnet_slot(subnet_id: u32) -> Result<u32, DispatchError> {
+    pub fn get_available_subnet_slot() -> Result<u32, DispatchError> {
         let epoch_length = T::EpochLength::get();
         // See `on_initialize` for why there are 3 epoch designated
         let max_slots = epoch_length - T::DesignatedEpochSlots::get();
 
         // Get currently assigned slots
-        let mut assigned_slots = AssignedSlots::<T>::get();
+        let assigned_slots = AssignedSlots::<T>::get();
 
         ensure!(
             (assigned_slots.len() as u32) < max_slots,
@@ -39,6 +39,19 @@ impl<T: Config> Pallet<T> {
             .find(|slot| !assigned_slots.contains(slot))
             .ok_or(Error::<T>::NoAvailableSlots)?;
 
+        Ok(free_slot)
+    }
+
+    pub fn assign_subnet_slot(subnet_id: u32) -> Result<u32, DispatchError> {
+        let free_slot = Self::get_available_subnet_slot()?;
+        Self::insert_subnet_slot_assignment(subnet_id, free_slot);
+
+        Ok(free_slot)
+    }
+
+    pub(crate) fn insert_subnet_slot_assignment(subnet_id: u32, free_slot: u32) {
+        let mut assigned_slots = AssignedSlots::<T>::get();
+
         // Update assigned slots set
         assigned_slots.insert(free_slot);
         AssignedSlots::<T>::put(assigned_slots);
@@ -46,8 +59,6 @@ impl<T: Config> Pallet<T> {
         // Assign
         SubnetSlot::<T>::insert(subnet_id, free_slot);
         SlotAssignment::<T>::insert(free_slot, subnet_id);
-
-        Ok(free_slot)
     }
 
     /// Remove a subnet from its slot
@@ -219,7 +230,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_update_bootnodes(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
-        add: BTreeMap<PeerId, BoundedVec<u8, DefaultMaxVectorLength>>,
+        add: BTreeMap<PeerId, NetworkBytes<T>>,
         remove: BTreeSet<PeerId>,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
@@ -300,5 +311,21 @@ impl<T: Config> Pallet<T> {
         } else {
             None
         }
+    }
+
+    /// Gate subnet registration behind the current subnet registration policy.
+    pub fn ensure_subnet_registration_allowed(
+        coldkey: &T::AccountId,
+        subnet_id: u32,
+    ) -> DispatchResult {
+        if !RequireSubnetRegistrationWhitelist::<T>::get() {
+            return Ok(());
+        }
+        ensure!(
+            SubnetRegistrationWhitelist::<T>::get(coldkey, subnet_id),
+            Error::<T>::ColdkeyRegistrationWhitelist
+        );
+
+        Ok(())
     }
 }

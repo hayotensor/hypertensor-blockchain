@@ -2,7 +2,7 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength, DelegateAccount,
+    DelegateAccount,
     DelegateAccountStake, Error, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs,
     MinSubnetMinStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodes, PeerInfo,
     StakeCooldownEpochs, StakeUnbondingLedger, SubnetName, SubnetNodeClass, SubnetState,

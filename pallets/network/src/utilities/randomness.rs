@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use super::*;
+use sp_runtime::traits::Hash;
 
 impl<T: Config> Pallet<T> {
     pub fn get_random_number_v2(seed: u32) -> u32 {
@@ -58,5 +59,52 @@ impl<T: Config> Pallet<T> {
         array.copy_from_slice(&bytes[0..4]);
 
         u32::from_le_bytes(array)
+    }
+
+    /// Return a bounded random index for an arbitrary encoded domain.
+    ///
+    /// This samples an index in `[0, upper_bound)`, mixes caller-provided domain data with pallet
+    /// and parent-block domain data, and avoids the direct modulo path except as a deterministic
+    /// fallback. The runtime still uses `pallet_insecure_randomness_collective_flip`, so this is
+    /// not cryptographic randomness.
+    pub(crate) fn get_bounded_random_index<Domain: Encode>(
+        domain: Domain,
+        upper_bound: u32,
+    ) -> Option<u32> {
+        if upper_bound == 0 {
+            return None;
+        }
+
+        if upper_bound == 1 {
+            return Some(0);
+        }
+
+        let modulus = upper_bound as u64;
+        let parent_hash = frame_system::Pallet::<T>::parent_hash();
+        let subject = (T::PalletId::get(), parent_hash, domain, modulus);
+        let (random_seed, _) = T::Randomness::random(&subject.encode());
+        let rejection_zone = u64::MAX - (u64::MAX % modulus);
+        let mut fallback = 0u64;
+        const MAX_RANDOM_INDEX_ATTEMPTS: u32 = 8;
+
+        for attempt in 0..MAX_RANDOM_INDEX_ATTEMPTS {
+            let entropy = T::Hashing::hash_of(&(random_seed.as_ref(), subject.encode(), attempt));
+            let value = Self::first_u64_from_hash(entropy);
+            fallback = value;
+
+            if value < rejection_zone {
+                return Some((value % modulus) as u32);
+            }
+        }
+
+        Some((fallback % modulus) as u32)
+    }
+
+    fn first_u64_from_hash(hash: T::Hash) -> u64 {
+        let mut array = [0u8; 8];
+        for (dst, src) in array.iter_mut().zip(hash.as_ref().iter()) {
+            *dst = *src;
+        }
+        u64::from_le_bytes(array)
     }
 }

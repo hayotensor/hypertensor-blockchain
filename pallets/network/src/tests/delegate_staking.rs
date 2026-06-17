@@ -6,7 +6,7 @@ use crate::{
     StakeUnbondingLedger, SubnetName, SubnetRemovalReason, SubnetsData, SwapCallQueue,
     SwapQueueOrder, TotalActiveSubnets, TotalDelegateStake, TotalNodeDelegateStakeBalance,
     TotalNodeDelegateStakeShares, TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeShares,
-    TotalSubnetNodes,
+    TotalSubnetNodes, TxRateLimit,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
@@ -108,6 +108,65 @@ fn test_add_to_delegate_stake() {
         assert!(
             (delegate_balance >= Network::percent_mul(amount, 990000000000000000))
                 && (delegate_balance < amount)
+        );
+    });
+}
+
+#[test]
+fn test_add_delegate_stake_respects_tx_rate_limit() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "delegate-rate-limit".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000e+18 as u128;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let delegator = account(900);
+        let rate_limit = 3;
+        TxRateLimit::<Test>::put(rate_limit);
+        System::set_block_number(1);
+        let _ = Balances::deposit_creating(&delegator, amount.saturating_mul(3) + 500);
+
+        assert_ok!(Network::add_delegate_stake(
+            RuntimeOrigin::signed(delegator.clone()),
+            subnet_id,
+            amount,
+        ));
+        let shares_after_first =
+            AccountSubnetDelegateStakeShares::<Test>::get(delegator.clone(), subnet_id);
+        let balance_after_first = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+
+        assert_err!(
+            Network::add_delegate_stake(
+                RuntimeOrigin::signed(delegator.clone()),
+                subnet_id,
+                amount
+            ),
+            Error::<Test>::TxRateLimitExceeded
+        );
+        assert_eq!(
+            AccountSubnetDelegateStakeShares::<Test>::get(delegator.clone(), subnet_id),
+            shares_after_first
+        );
+        assert_eq!(
+            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
+            balance_after_first
+        );
+
+        System::set_block_number(System::block_number() + rate_limit + 1);
+        assert_ok!(Network::add_delegate_stake(
+            RuntimeOrigin::signed(delegator.clone()),
+            subnet_id,
+            amount,
+        ));
+        assert!(
+            AccountSubnetDelegateStakeShares::<Test>::get(delegator, subnet_id)
+                > shares_after_first
+        );
+        assert_eq!(
+            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
+            balance_after_first + amount
         );
     });
 }
@@ -236,23 +295,11 @@ fn test_delegate_math() {
             };
         let total_subnet_delegate_stake_balance =
             TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-        log::error!(
-            "total_subnet_delegate_stake_shares   {:?}",
-            total_subnet_delegate_stake_shares
-        );
-        log::error!(
-            "total_subnet_delegate_stake_balance  {:?}",
-            total_subnet_delegate_stake_balance
-        );
 
         let mut delegate_stake_to_be_added_as_shares = Network::convert_to_shares(
             delegate_stake_to_be_added,
             total_subnet_delegate_stake_shares,
             total_subnet_delegate_stake_balance,
-        );
-        log::error!(
-            "delegate_stake_to_be_added_as_shares  {:?}",
-            delegate_stake_to_be_added_as_shares
         );
 
         Network::increase_account_delegate_stake(
@@ -269,29 +316,10 @@ fn test_delegate_math() {
         let total_subnet_delegate_stake_balance =
             TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
 
-        log::error!(" ");
-        log::error!(
-            "account_delegate_shares               {:?}",
-            account_delegate_shares
-        );
-        log::error!(
-            "total_subnet_delegate_stake_shares   {:?}",
-            total_subnet_delegate_stake_shares
-        );
-        log::error!(
-            "total_subnet_delegate_stake_balance  {:?}",
-            total_subnet_delegate_stake_balance
-        );
-
         let delegate_balance = Network::convert_to_balance(
             account_delegate_shares,
             total_subnet_delegate_stake_shares,
             total_subnet_delegate_stake_balance,
-        );
-
-        log::error!(
-            "delegate_balance                      {:?}",
-            delegate_balance
         );
 
         // Ensure balance is within <= 0.01% of deposited balance, and less than deposited balance
@@ -305,10 +333,6 @@ fn test_delegate_math() {
             account_delegate_shares,
             total_subnet_delegate_stake_shares + 9000,
             total_subnet_delegate_stake_balance,
-        );
-        log::error!(
-            "delegate_balance2                     {:?}",
-            delegate_balance2
         );
     });
 }
@@ -349,14 +373,10 @@ fn check_balances() {
         //   total_subnet_delegate_stake_shares,
         //   total_subnet_delegate_stake_balance
         // );
-        // log::error!("USER_INITIAL_TOKENS  {:?}", USER_INITIAL_TOKENS);
-        // log::error!("user_balance         {:?}", user_balance);
         // // assert!(false);
 
-        // log::error!("10_u128.pow(1)         {:?}", 10_u128.pow(1));
 
         // let loss = 1.0 - user_balance as f64 / USER_INITIAL_TOKENS as f64;
-        // log::error!("loss         {:?}", loss);
 
         for n in 3..28 {
             // reset everything
@@ -665,7 +685,7 @@ fn test_remove_delegate_stake_not_enough_stake_to_withdraw() {
         );
 
         assert_err!(
-            Network::swap_delegate_stake(
+            Network::swap_from_subnet_to_subnet(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
                 subnet_id,
                 subnet_id_2,
@@ -694,7 +714,7 @@ fn test_remove_delegate_stake_not_enough_stake_to_withdraw() {
         );
 
         assert_err!(
-            Network::swap_delegate_stake(
+            Network::swap_from_subnet_to_subnet(
                 RuntimeOrigin::signed(account(total_subnet_nodes + 1)),
                 subnet_id,
                 subnet_id_2,
@@ -1202,7 +1222,7 @@ fn test_swap_delegate_stake() {
             TotalSubnetDelegateStakeBalance::<Test>::get(from_subnet_id);
         let prev_next_id = NextSwapQueueId::<Test>::get();
 
-        assert_ok!(Network::swap_delegate_stake(
+        assert_ok!(Network::swap_from_subnet_to_subnet(
             RuntimeOrigin::signed(account(n_account)),
             from_subnet_id,
             to_subnet_id,
@@ -1298,7 +1318,7 @@ fn test_switch_delegate_stake_not_enough_stake_err() {
         // let _ = Balances::deposit_creating(&account(n_account), amount+500);
 
         // assert_err!(
-        //   Network::swap_delegate_stake(
+        //   Network::swap_from_subnet_to_subnet(
         //     RuntimeOrigin::signed(account(n_account)),
         //     from_subnet_id,
         //     to_subnet_id,
@@ -1308,7 +1328,7 @@ fn test_switch_delegate_stake_not_enough_stake_err() {
         // );
 
         // assert_err!(
-        //   Network::swap_delegate_stake(
+        //   Network::swap_from_subnet_to_subnet(
         //     RuntimeOrigin::signed(account(n_account)),
         //     from_subnet_id,
         //     to_subnet_id,

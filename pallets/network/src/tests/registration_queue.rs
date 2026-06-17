@@ -2,15 +2,19 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    ChurnLimit, ColdkeyValidatorId, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, PeerInfo,
+    BootnodePeerIdSubnetNodeId, ChurnLimit, ClientPeerIdSubnetNodeId, ColdkeyValidatorId, Error,
+    MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MultiaddrSubnetNodeId,
+    NodeRegistrationsThisEpoch, NodeSubnetStake, PeerIdSubnetNodeId, PeerInfo,
     RegisteredSubnetNodesData, SubnetName, SubnetNodeClass, SubnetNodeQueue, SubnetNodeQueueEpochs,
-    SubnetNodesData, TotalActiveSubnetNodes, TotalActiveSubnets, TotalSubnetNodeUids,
-    TotalSubnetNodes, ValidatorColdkey,
+    SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, TotalActiveSubnetNodes,
+    TotalActiveSubnets, TotalNodes, TotalStake, TotalSubnetNodeUids, TotalSubnetNodes,
+    TotalSubnetStake, ValidatorColdkey, ValidatorSubnetNodes,
 };
-use frame_support::assert_ok;
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
 use frame_support::weights::WeightMeter;
+use frame_support::{assert_err, assert_ok};
+use sp_std::collections::btree_map::BTreeMap;
 
 ///
 ///
@@ -77,7 +81,7 @@ fn test_register_subnet_node_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
@@ -118,6 +122,227 @@ fn test_register_subnet_node_v2() {
         //         data: subnet_node.clone(),
         //     }
         // );
+    })
+}
+
+#[test]
+fn test_register_subnet_node_duplicate_request_peer_does_not_commit_partial_state() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-duplicate-peer".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let max_subnets = MaxSubnets::<Test>::get();
+        let end = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 10);
+        let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 10);
+        let duplicate_peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end + 10);
+        let burn_amount = Network::calculate_burn_amount(subnet_id);
+        let _ = Balances::deposit_creating(&coldkey, amount + burn_amount + EXISTENTIAL_DEPOSIT);
+
+        assert_ok!(Network::register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            DEFAULT_DELEGATE_REWARD_RATE,
+            None,
+            None,
+        ));
+        let validator_id = ColdkeyValidatorId::<Test>::get(&coldkey).unwrap();
+
+        let total_subnet_node_uids = TotalSubnetNodeUids::<Test>::get(subnet_id);
+        let next_subnet_node_id = total_subnet_node_uids.saturating_add(1);
+        let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
+        let total_nodes = TotalNodes::<Test>::get();
+        let queue = SubnetNodeQueue::<Test>::get(subnet_id);
+        let peer_mapping_exists =
+            PeerIdSubnetNodeId::<Test>::contains_key(subnet_id, &duplicate_peer_id);
+        let bootnode_mapping_exists =
+            BootnodePeerIdSubnetNodeId::<Test>::contains_key(subnet_id, &duplicate_peer_id);
+        let client_mapping_exists =
+            ClientPeerIdSubnetNodeId::<Test>::contains_key(subnet_id, &duplicate_peer_id);
+        let multiaddr_mappings =
+            MultiaddrSubnetNodeId::<Test>::iter_prefix(subnet_id).collect::<BTreeMap<_, _>>();
+        let registered_node_exists =
+            RegisteredSubnetNodesData::<Test>::contains_key(subnet_id, next_subnet_node_id);
+        let active_node_exists =
+            SubnetNodesData::<Test>::contains_key(subnet_id, next_subnet_node_id);
+
+        assert_err!(
+            Network::register_subnet_node(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
+                subnet_id,
+                None,
+                PeerInfo::<Test> {
+                    peer_id: duplicate_peer_id.clone(),
+                    multiaddr: None,
+                },
+                Some(PeerInfo::<Test> {
+                    peer_id: duplicate_peer_id.clone(),
+                    multiaddr: None,
+                }),
+                None,
+                amount,
+                None,
+                None,
+                u128::MAX,
+            ),
+            Error::<Test>::PeerIdExist
+        );
+
+        assert_eq!(
+            TotalSubnetNodeUids::<Test>::get(subnet_id),
+            total_subnet_node_uids
+        );
+        assert_eq!(TotalSubnetNodes::<Test>::get(subnet_id), total_subnet_nodes);
+        assert_eq!(TotalNodes::<Test>::get(), total_nodes);
+        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id), queue);
+        assert_eq!(
+            PeerIdSubnetNodeId::<Test>::contains_key(subnet_id, &duplicate_peer_id),
+            peer_mapping_exists
+        );
+        assert_eq!(
+            BootnodePeerIdSubnetNodeId::<Test>::contains_key(subnet_id, &duplicate_peer_id),
+            bootnode_mapping_exists
+        );
+        assert_eq!(
+            ClientPeerIdSubnetNodeId::<Test>::contains_key(subnet_id, &duplicate_peer_id),
+            client_mapping_exists
+        );
+        assert_eq!(
+            MultiaddrSubnetNodeId::<Test>::iter_prefix(subnet_id).collect::<BTreeMap<_, _>>(),
+            multiaddr_mappings
+        );
+        assert_eq!(
+            RegisteredSubnetNodesData::<Test>::contains_key(subnet_id, next_subnet_node_id),
+            registered_node_exists
+        );
+        assert_eq!(
+            SubnetNodesData::<Test>::contains_key(subnet_id, next_subnet_node_id),
+            active_node_exists
+        );
+    })
+}
+
+#[test]
+fn test_register_subnet_node_stake_failure_does_not_commit_partial_state() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-stake-failure".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let max_subnets = MaxSubnets::<Test>::get();
+        let end = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 20);
+        let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 20);
+        let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end + 20);
+
+        assert_ok!(Network::register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            DEFAULT_DELEGATE_REWARD_RATE,
+            None,
+            None,
+        ));
+        let validator_id = ColdkeyValidatorId::<Test>::get(&coldkey).unwrap();
+
+        let total_subnet_node_uids = TotalSubnetNodeUids::<Test>::get(subnet_id);
+        let next_subnet_node_id = total_subnet_node_uids.saturating_add(1);
+        let coldkey_balance = Balances::free_balance(&coldkey);
+        let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
+        let total_nodes = TotalNodes::<Test>::get();
+        let node_registrations = NodeRegistrationsThisEpoch::<Test>::get(subnet_id);
+        let queue = SubnetNodeQueue::<Test>::get(subnet_id);
+        let total_subnet_stake = TotalSubnetStake::<Test>::get(subnet_id);
+        let total_stake = TotalStake::<Test>::get();
+        let validator_subnet_nodes = ValidatorSubnetNodes::<Test>::get(validator_id);
+        let peer_mapping_exists = PeerIdSubnetNodeId::<Test>::contains_key(subnet_id, &peer_id);
+        let registered_node_exists =
+            RegisteredSubnetNodesData::<Test>::contains_key(subnet_id, next_subnet_node_id);
+        let active_node_exists =
+            SubnetNodesData::<Test>::contains_key(subnet_id, next_subnet_node_id);
+        let node_validator_exists =
+            SubnetNodeValidatorId::<Test>::contains_key(subnet_id, next_subnet_node_id);
+        let node_reputation_exists =
+            SubnetNodeReputation::<Test>::contains_key(subnet_id, next_subnet_node_id);
+        let node_stake = NodeSubnetStake::<Test>::get(next_subnet_node_id, subnet_id);
+
+        assert_err!(
+            Network::register_subnet_node(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
+                subnet_id,
+                None,
+                PeerInfo::<Test> {
+                    peer_id: peer_id.clone(),
+                    multiaddr: None,
+                },
+                None,
+                None,
+                amount,
+                None,
+                None,
+                u128::MAX,
+            ),
+            Error::<Test>::NotEnoughBalanceToStake
+        );
+
+        assert_eq!(Balances::free_balance(&coldkey), coldkey_balance);
+        assert_eq!(
+            TotalSubnetNodeUids::<Test>::get(subnet_id),
+            total_subnet_node_uids
+        );
+        assert_eq!(TotalSubnetNodes::<Test>::get(subnet_id), total_subnet_nodes);
+        assert_eq!(TotalNodes::<Test>::get(), total_nodes);
+        assert_eq!(
+            NodeRegistrationsThisEpoch::<Test>::get(subnet_id),
+            node_registrations
+        );
+        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id), queue);
+        assert_eq!(
+            PeerIdSubnetNodeId::<Test>::contains_key(subnet_id, &peer_id),
+            peer_mapping_exists
+        );
+        assert_eq!(
+            RegisteredSubnetNodesData::<Test>::contains_key(subnet_id, next_subnet_node_id),
+            registered_node_exists
+        );
+        assert_eq!(
+            SubnetNodesData::<Test>::contains_key(subnet_id, next_subnet_node_id),
+            active_node_exists
+        );
+        assert_eq!(
+            SubnetNodeValidatorId::<Test>::contains_key(subnet_id, next_subnet_node_id),
+            node_validator_exists
+        );
+        assert_eq!(
+            SubnetNodeReputation::<Test>::contains_key(subnet_id, next_subnet_node_id),
+            node_reputation_exists
+        );
+        assert_eq!(
+            NodeSubnetStake::<Test>::get(next_subnet_node_id, subnet_id),
+            node_stake
+        );
+        assert_eq!(TotalSubnetStake::<Test>::get(subnet_id), total_subnet_stake);
+        assert_eq!(TotalStake::<Test>::get(), total_stake);
+        assert_eq!(
+            ValidatorSubnetNodes::<Test>::get(validator_id),
+            validator_subnet_nodes
+        );
     })
 }
 
@@ -170,7 +395,7 @@ fn test_register_subnet_node_v2_and_activate() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
@@ -316,7 +541,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -504,7 +729,7 @@ fn test_register_subnet_node_v2_with_max_nodes() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -669,7 +894,7 @@ fn test_register_subnet_node_v2_activate_up_to_max_nodes() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },

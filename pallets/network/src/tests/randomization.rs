@@ -57,3 +57,32 @@ fn test_random_number_is_deterministic_with_mocked_randomness() {
         assert_eq!(r1, r2); // StaticRandomness always returns same result
     });
 }
+
+#[test]
+fn test_bounded_random_index_handles_zero_total() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(Network::get_bounded_random_index((1, 1, 1), 0), None);
+        assert_eq!(Network::get_bounded_random_index((1, 1, 1), 1), Some(0));
+    });
+}
+
+#[test]
+fn test_bounded_random_index_is_deterministic_and_bounded() {
+    new_test_ext().execute_with(|| {
+        let upper_bound = 13;
+        let first = Network::get_bounded_random_index((1, 2, 3), upper_bound).unwrap();
+        let second = Network::get_bounded_random_index((1, 2, 3), upper_bound).unwrap();
+
+        assert_eq!(first, second);
+        assert!(first < upper_bound);
+
+        for upper_bound in 1..=64 {
+            let idx = Network::get_bounded_random_index(
+                (upper_bound, upper_bound + 1, upper_bound + 2),
+                upper_bound,
+            )
+            .unwrap();
+            assert!(idx < upper_bound);
+        }
+    });
+}

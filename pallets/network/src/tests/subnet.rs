@@ -2,7 +2,7 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AssignedSlots, DefaultMaxVectorLength, Error, LastRegistrationCost,
+    AssignedSlots, Error, FriendlyUidSubnetId, LastRegistrationCost,
     LastSubnetRegistrationBlock, MaxBootnodes, MaxChurnLimit, MaxDelegateStakePercentage,
     MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes,
     MaxMinDelegateStakeMultiplier, MaxQueueEpochs, MaxSubnetMinStake, MaxSubnetNodes,
@@ -11,11 +11,13 @@ use crate::{
     MinMaxRegisteredNodes, MinQueueEpochs, MinRegistrationCost, MinSubnetMinStake, MinSubnetNodes,
     MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
     NetworkMaxStakeBalance, PeerInfo, PrevSubnetActivationEpoch, RegistrationCostDecayBlocks,
-    RegistrationSubnetData, SlotAssignment, SubnetBootnodeAccess, SubnetBootnodes, SubnetData,
-    SubnetElectedValidator, SubnetEnactmentEpochs, SubnetName, SubnetOwner,
-    SubnetRegistrationEpoch, SubnetRegistrationEpochs, SubnetRemovalReason, SubnetReputation,
-    SubnetSlot, SubnetState, SubnetsData, TotalActiveSubnets, TotalSubnetDelegateStakeBalance,
-    TotalSubnetNodeUids, TotalSubnetNodes, TotalValidatorIds,
+    RegistrationSubnetData, RequireSubnetRegistrationWhitelist, SlotAssignment,
+    SubnetBootnodeAccess, SubnetBootnodes, SubnetData, SubnetElectedValidator,
+    SubnetEnactmentEpochs, SubnetIdFriendlyUid, SubnetName, SubnetOwner, SubnetRegistrationEpoch,
+    SubnetRegistrationEpochs, SubnetRegistrationWhitelist, SubnetRemovalReason, SubnetRepo,
+    SubnetReputation, SubnetSlot, SubnetState, SubnetsData, TotalActiveSubnets,
+    TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetUids,
+    TotalSubnets, TotalValidatorIds,
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
@@ -59,7 +61,7 @@ fn test_register_subnet() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -99,6 +101,153 @@ fn test_register_subnet() {
 }
 
 #[test]
+fn test_register_subnet_respects_global_registration_whitelist() {
+    new_test_ext().execute_with(|| {
+        increase_epochs(1);
+
+        let owner = account(77);
+        let subnet_name: Vec<u8> = "whitelist-gated-subnet".into();
+        let subnet_id = TotalSubnetUids::<Test>::get().saturating_add(1);
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
+            TotalActiveSubnets::<Test>::get() + 1,
+            MaxSubnetNodes::<Test>::get(),
+            subnet_name.clone().into(),
+            0,
+            MinSubnetNodes::<Test>::get() + 1,
+        );
+        let cost = Network::get_current_registration_cost(System::block_number());
+        let _ = Balances::deposit_creating(&owner, cost + EXISTENTIAL_DEPOSIT + 1000);
+
+        assert_ok!(Network::update_require_subnet_registration_whitelist(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+            true,
+        ));
+        assert!(RequireSubnetRegistrationWhitelist::<Test>::get());
+
+        assert_err!(
+            Network::register_subnet(
+                RuntimeOrigin::signed(owner.clone()),
+                cost.saturating_add(1000),
+                add_subnet_data.clone(),
+            ),
+            Error::<Test>::ColdkeyRegistrationWhitelist
+        );
+        assert_eq!(SubnetName::<Test>::get(&subnet_name), None);
+        assert!(!SubnetsData::<Test>::contains_key(subnet_id));
+
+        assert_ok!(Network::update_subnet_registrant(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+            owner.clone(),
+            subnet_id,
+            true,
+        ));
+        assert!(SubnetRegistrationWhitelist::<Test>::get(
+            owner.clone(),
+            subnet_id
+        ));
+
+        assert_ok!(Network::register_subnet(
+            RuntimeOrigin::signed(owner.clone()),
+            cost.saturating_add(1000),
+            add_subnet_data,
+        ));
+
+        assert_eq!(SubnetName::<Test>::get(&subnet_name), Some(subnet_id));
+        assert_eq!(SubnetOwner::<Test>::get(subnet_id), Some(owner));
+    })
+}
+
+#[test]
+fn test_register_subnet_no_available_slot_does_not_commit_partial_state() {
+    new_test_ext().execute_with(|| {
+        increase_epochs(1);
+
+        for subnet_id in DesignatedEpochSlots::get()..EpochLength::get() {
+            assert_ok!(Network::assign_subnet_slot(subnet_id));
+        }
+
+        let owner = account(10_010);
+        let subnet_name: Vec<u8> = "subnet-no-slot".into();
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
+            TotalActiveSubnets::<Test>::get() + 1,
+            MaxSubnetNodes::<Test>::get(),
+            subnet_name.clone().into(),
+            0,
+            MinSubnetNodes::<Test>::get() + 1,
+        );
+        let subnet_repo = add_subnet_data.repo.clone();
+
+        let block_number = System::block_number();
+        let cost = Network::get_current_registration_cost(block_number);
+        let _ = Balances::deposit_creating(&owner, cost + EXISTENTIAL_DEPOSIT + 1000);
+
+        let treasury_account = TreasuryAccount::get();
+        let owner_balance = Balances::free_balance(&owner);
+        let treasury_balance = Balances::free_balance(&treasury_account);
+        let total_subnet_uids = TotalSubnetUids::<Test>::get();
+        let next_subnet_id = total_subnet_uids.saturating_add(1);
+        let total_subnets = TotalSubnets::<Test>::get();
+        let assigned_slots = AssignedSlots::<Test>::get();
+        let subnet_slot = SubnetSlot::<Test>::iter().collect::<BTreeMap<_, _>>();
+        let slot_assignment = SlotAssignment::<Test>::iter().collect::<BTreeMap<_, _>>();
+        let subnet_name_lookup = SubnetName::<Test>::get(&subnet_name);
+        let subnet_repo_lookup = SubnetRepo::<Test>::get(&subnet_repo);
+        let subnet_data_exists = SubnetsData::<Test>::contains_key(next_subnet_id);
+        let subnet_owner = SubnetOwner::<Test>::get(next_subnet_id);
+        let subnet_friendly_id = SubnetIdFriendlyUid::<Test>::get(next_subnet_id);
+        let friendly_uid_subnet_id = subnet_friendly_id
+            .and_then(|friendly_id| FriendlyUidSubnetId::<Test>::get(friendly_id));
+        let last_registration_cost = LastRegistrationCost::<Test>::get();
+        let last_registration_block = LastSubnetRegistrationBlock::<Test>::get();
+
+        assert_err!(
+            Network::register_subnet(
+                RuntimeOrigin::signed(owner.clone()),
+                cost.saturating_add(1000),
+                add_subnet_data,
+            ),
+            Error::<Test>::NoAvailableSlots
+        );
+
+        assert_eq!(Balances::free_balance(&owner), owner_balance);
+        assert_eq!(Balances::free_balance(&treasury_account), treasury_balance);
+        assert_eq!(TotalSubnetUids::<Test>::get(), total_subnet_uids);
+        assert_eq!(TotalSubnets::<Test>::get(), total_subnets);
+        assert_eq!(AssignedSlots::<Test>::get(), assigned_slots);
+        assert_eq!(
+            SubnetSlot::<Test>::iter().collect::<BTreeMap<_, _>>(),
+            subnet_slot
+        );
+        assert_eq!(
+            SlotAssignment::<Test>::iter().collect::<BTreeMap<_, _>>(),
+            slot_assignment
+        );
+        assert_eq!(SubnetName::<Test>::get(&subnet_name), subnet_name_lookup);
+        assert_eq!(SubnetRepo::<Test>::get(&subnet_repo), subnet_repo_lookup);
+        assert_eq!(
+            SubnetsData::<Test>::contains_key(next_subnet_id),
+            subnet_data_exists
+        );
+        assert_eq!(SubnetOwner::<Test>::get(next_subnet_id), subnet_owner);
+        assert_eq!(
+            SubnetIdFriendlyUid::<Test>::get(next_subnet_id),
+            subnet_friendly_id
+        );
+        if let Some(friendly_id) = subnet_friendly_id {
+            assert_eq!(
+                FriendlyUidSubnetId::<Test>::get(friendly_id),
+                friendly_uid_subnet_id
+            );
+        }
+        assert_eq!(LastRegistrationCost::<Test>::get(), last_registration_cost);
+        assert_eq!(
+            LastSubnetRegistrationBlock::<Test>::get(),
+            last_registration_block
+        );
+    });
+}
+
+#[test]
 fn test_register_subnet_exists_error() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
@@ -119,7 +268,7 @@ fn test_register_subnet_exists_error() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -172,7 +321,7 @@ fn test_register_subnet_repo_error() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let mut add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -224,7 +373,7 @@ fn test_register_subnet_repo_error() {
 
 //         let subnets = TotalActiveSubnets::<Test>::get() + 1;
 //         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-// let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+// let mut add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
 //     subnets,
 //     max_subnet_nodes,
 //     subnet_name.clone().into(),
@@ -498,7 +647,7 @@ fn test_register_subnet_errors() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let mut add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let mut add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -657,7 +806,7 @@ fn test_register_subnet_not_enough_balance_err() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -700,7 +849,7 @@ fn test_activate_subnet() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -754,7 +903,7 @@ fn test_activate_subnet() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -828,7 +977,7 @@ fn test_activate_subnet_anytime() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -884,7 +1033,7 @@ fn test_activate_subnet_anytime() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -951,7 +1100,7 @@ fn test_activate_subnet_conditions_not_met_in_registration_period() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1017,7 +1166,7 @@ fn test_activate_subnet_invalid_subnet_id_error() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1073,7 +1222,7 @@ fn test_activate_subnet_invalid_subnet_id_error() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -1117,7 +1266,7 @@ fn test_activate_subnet_already_activated_err() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1173,7 +1322,7 @@ fn test_activate_subnet_already_activated_err() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -1240,7 +1389,7 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1296,7 +1445,7 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -1359,7 +1508,7 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1415,7 +1564,7 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -1491,7 +1640,7 @@ fn test_activate_subnet_min_subnet_nodes_remove_subnet() {
 
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1565,7 +1714,7 @@ fn test_activate_subnet_min_delegate_balance_remove_subnet() {
         let max_subnets = MaxSubnets::<Test>::get();
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+        let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
             subnets,
             max_subnet_nodes,
             subnet_name.clone().into(),
@@ -1619,7 +1768,7 @@ fn test_activate_subnet_min_delegate_balance_remove_subnet() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },
@@ -1872,7 +2021,7 @@ fn test_update_bootnodes() {
         SubnetBootnodeAccess::<Test>::insert(subnet_id, BTreeSet::from([caller.clone()]));
 
         // Helper to build a bounded vec from bytes
-        let bv = |b: u8| BoundedVec::<u8, DefaultMaxVectorLength>::try_from(vec![b]).unwrap();
+        let bv = |b: u8| NetworkBytes::<Test>::try_from(vec![b]).unwrap();
 
         // --- Case 1: Add bootnodes ---
         // let add_map = BTreeMap::from([(peer(1), bv(1)), (peer(2), bv(2))]);
@@ -1987,7 +2136,7 @@ fn test_update_bootnode_owner_updates() {
         let owner = SubnetOwner::<Test>::get(subnet_id).unwrap();
 
         // Helper to build a bounded vec from bytes
-        let bv = |b: u8| BoundedVec::<u8, DefaultMaxVectorLength>::try_from(vec![b]).unwrap();
+        let bv = |b: u8| NetworkBytes::<Test>::try_from(vec![b]).unwrap();
 
         // --- Case 1: Add bootnodes ---
         // let add_map = BTreeMap::from([(peer(1), bv(1)), (peer(2), bv(2))]);
@@ -2313,7 +2462,7 @@ fn test_excess_subnet_removal_lowest_delegate_stake_fail2() {
 
 //         let min_nodes = MinSubnetNodes::<Test>::get();
 
-// let add_subnet_data: RegistrationSubnetData = default_registration_subnet_data(
+// let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
 //     subnets,
 //     max_subnet_nodes,
 //     subnet_name.clone().into(),

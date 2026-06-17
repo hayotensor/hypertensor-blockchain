@@ -239,6 +239,18 @@ impl<T: Config> Pallet<T> {
             return (Err(Error::<T>::TxRateLimitExceeded.into()), 0, 0);
         }
 
+        let cooldown_blocks = DelegateStakeCooldownEpochs::<T>::get() * T::EpochLength::get();
+        if add_to_ledger {
+            if let Err(e) = Self::prepare_unbonding_ledger_entry(
+                &account_id,
+                delegate_stake_to_be_removed,
+                cooldown_blocks,
+                block,
+            ) {
+                return (Err(e), 0, 0);
+            }
+        }
+
         // --- We remove the shares from the account and balance from the pool
         Self::decrease_account_validator_delegate_stake(
             &account_id,
@@ -249,16 +261,12 @@ impl<T: Config> Pallet<T> {
 
         // --- We add the balancer to the account_id.  If the above fails we will not credit this account_id.
         if add_to_ledger {
-            let result = Self::add_balance_to_unbonding_ledger(
+            Self::insert_balance_to_unbonding_ledger(
                 &account_id,
                 delegate_stake_to_be_removed,
-                DelegateStakeCooldownEpochs::<T>::get() * T::EpochLength::get(),
+                cooldown_blocks,
                 block,
             );
-
-            if let Err(e) = result {
-                return (Err(e), 0, 0);
-            }
         }
 
         (
@@ -266,45 +274,6 @@ impl<T: Config> Pallet<T> {
             delegate_stake_to_be_removed,
             delegate_stake_shares_to_be_removed,
         )
-    }
-
-    pub fn do_swap_validator_delegate_stake(
-        origin: T::RuntimeOrigin,
-        from_validator_id: u32,
-        to_validator_id: u32,
-        validator_delegate_stake_shares_to_swap: u128,
-    ) -> DispatchResult {
-        let account_id: T::AccountId = ensure_signed(origin)?;
-
-        // --- Remove
-        // Don't add to ledger
-        // DO add to queue
-        let (result, balance, _) = Self::perform_do_remove_validator_delegate_stake(
-            &account_id,
-            from_validator_id,
-            validator_delegate_stake_shares_to_swap,
-            false,
-        );
-
-        result?;
-
-        // --- Add to queue
-        let call = QueuedSwapCall::SwapToValidatorDelegateStake {
-            account_id: account_id.clone(),
-            to_validator_id,
-            balance,
-        };
-
-        Self::queue_swap(account_id.clone(), call)?;
-
-        // Self::deposit_event(Event::DelegateValidatorStakeSwapped {
-        //     account_id: account_id,
-        //     from_validator_id: from_validator_id,
-        //     to_validator_id: to_validator_id,
-        //     amount: balance,
-        // });
-
-        Ok(())
     }
 
     pub fn do_transfer_validator_delegate_stake(

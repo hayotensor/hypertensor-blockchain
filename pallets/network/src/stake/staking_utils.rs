@@ -27,28 +27,49 @@ impl<T: Config> Pallet<T> {
         cooldown_blocks: u32,
         block: u32,
     ) -> DispatchResult {
+        Self::prepare_unbonding_ledger_entry(coldkey, amount, cooldown_blocks, block)?;
+        Self::insert_balance_to_unbonding_ledger(coldkey, amount, cooldown_blocks, block);
+
+        Ok(())
+    }
+
+    pub fn prepare_unbonding_ledger_entry(
+        coldkey: &T::AccountId,
+        _amount: u128,
+        cooldown_blocks: u32,
+        block: u32,
+    ) -> DispatchResult {
         let claim_block = block.saturating_add(cooldown_blocks);
+        let max_unbondings = MaxUnbondings::<T>::get();
+        let mut unbondings = StakeUnbondingLedger::<T>::get(coldkey);
 
-        let unbondings = StakeUnbondingLedger::<T>::get(&coldkey);
-
-        let total_unbondings = unbondings.len() as u32;
-        log::error!("total_unbondings {:?}", total_unbondings);
-
-        // --- Ensure we don't surpass max unlockings by attempting to unlock unbondings
-        if total_unbondings == MaxUnbondings::<T>::get() {
-            Self::do_claim_unbondings(&coldkey);
+        if unbondings.contains_key(&claim_block) {
+            return Ok(());
         }
 
-        // --- Get updated unbondings after claiming unbondings
-        let unbondings = StakeUnbondingLedger::<T>::get(&coldkey);
+        // --- Ensure we don't surpass max unlockings by attempting to unlock unbondings
+        if unbondings.len() as u32 >= max_unbondings {
+            Self::do_claim_unbondings(coldkey);
+            unbondings = StakeUnbondingLedger::<T>::get(coldkey);
+        }
 
-        // We're about to add another unbonding to the ledger - it must be n-1
         ensure!(
-            total_unbondings < MaxUnbondings::<T>::get(),
+            unbondings.contains_key(&claim_block) || (unbondings.len() as u32) < max_unbondings,
             Error::<T>::MaxUnlockingsReached
         );
 
-        StakeUnbondingLedger::<T>::mutate(&coldkey, |ledger| {
+        Ok(())
+    }
+
+    pub(crate) fn insert_balance_to_unbonding_ledger(
+        coldkey: &T::AccountId,
+        amount: u128,
+        cooldown_blocks: u32,
+        block: u32,
+    ) {
+        let claim_block = block.saturating_add(cooldown_blocks);
+
+        StakeUnbondingLedger::<T>::mutate(coldkey, |ledger| {
             ledger
                 .entry(claim_block)
                 .and_modify(|v| v.saturating_accrue(amount))
@@ -56,8 +77,6 @@ impl<T: Config> Pallet<T> {
         });
 
         TotalUnbondingBalance::<T>::mutate(|total| *total = total.saturating_add(amount));
-
-        Ok(())
     }
 
     pub fn do_claim_unbondings(coldkey: &T::AccountId) -> u32 {
@@ -221,13 +240,14 @@ impl<T: Config> Pallet<T> {
             execute_after_blocks: T::EpochLength::get(),
         };
 
-        // Add to data storage
-        SwapCallQueue::<T>::insert(&id, &queued_item);
+        SwapQueueOrder::<T>::try_mutate(|queue| -> DispatchResult {
+            queue
+                .try_push(id)
+                .map_err(|_| Error::<T>::SwapQueueFull)?;
+            Ok(())
+        })?;
 
-        // Add ID to the end of the queue
-        SwapQueueOrder::<T>::mutate(|queue| {
-            let _ = queue.try_push(id); // Handle error if queue is full
-        });
+        SwapCallQueue::<T>::insert(&id, &queued_item);
 
         NextSwapQueueId::<T>::mutate(|next_id| *next_id = next_id.saturating_add(1));
 

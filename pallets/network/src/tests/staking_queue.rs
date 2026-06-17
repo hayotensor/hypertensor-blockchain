@@ -3,13 +3,15 @@ use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
     AccountSubnetDelegateStakeShares, AccountValidatorDelegateStakeShares,
-    DelegateStakeCooldownEpochs, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, NextSwapQueueId,
+    DelegateStakeCooldownEpochs, Error, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, NextSwapQueueId,
     QueuedSwapCall, QueuedSwapItem, StakeUnbondingLedger, SubnetName, SwapCallQueue,
     SwapQueueOrder, TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeShares,
     ValidatorDelegateStakeBalance, ValidatorDelegateStakeShares,
 };
+use frame_support::assert_err;
 use frame_support::assert_ok;
 use frame_support::traits::Currency;
+use frame_support::traits::Get;
 use frame_support::weights::WeightMeter;
 
 //
@@ -87,6 +89,36 @@ fn insert_to_validator_swap_call_queue(
 }
 
 #[test]
+fn test_swap_queue_order_accepts_configured_capacity_and_rejects_overflow() {
+    new_test_ext().execute_with(|| {
+        let max_len = <Test as crate::Config>::MaxSwapQueueLength::get();
+
+        SwapQueueOrder::<Test>::mutate(|queue| {
+            for id in 0..max_len {
+                queue.try_push(id).expect("configured capacity should fit");
+            }
+        });
+
+        assert_eq!(SwapQueueOrder::<Test>::get().len(), max_len as usize);
+
+        let next_id = NextSwapQueueId::<Test>::get();
+        let call = QueuedSwapCall::SwapToSubnetDelegateStake {
+            account_id: account(1),
+            to_subnet_id: 1,
+            balance: 1,
+        };
+
+        assert_err!(
+            Network::queue_swap(account(1), call),
+            Error::<Test>::SwapQueueFull
+        );
+        assert_eq!(NextSwapQueueId::<Test>::get(), next_id);
+        assert!(SwapCallQueue::<Test>::get(next_id).is_none());
+        assert_eq!(SwapCallQueue::<Test>::iter().count(), 0);
+    });
+}
+
+#[test]
 fn test_update_swap_queue_delegate_stake() {
     new_test_ext().execute_with(|| {
         let deposit_amount: u128 = 10000000000000000000000;
@@ -152,7 +184,7 @@ fn test_update_swap_queue_delegate_stake() {
             TotalSubnetDelegateStakeBalance::<Test>::get(from_subnet_id);
         let prev_next_id = NextSwapQueueId::<Test>::get();
 
-        assert_ok!(Network::swap_delegate_stake(
+        assert_ok!(Network::swap_from_subnet_to_subnet(
             RuntimeOrigin::signed(account(n_account)),
             from_subnet_id,
             to_subnet_id,
@@ -380,7 +412,7 @@ fn test_update_swap_queue_node_delegate_stake() {
             ValidatorDelegateStakeBalance::<Test>::get(from_validator_id);
         let prev_next_id = NextSwapQueueId::<Test>::get();
 
-        assert_ok!(Network::swap_validator_delegate_stake(
+        assert_ok!(Network::swap_from_validator_to_validator(
             RuntimeOrigin::signed(account(n_account)),
             from_validator_id,
             to_validator_id,

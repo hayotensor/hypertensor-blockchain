@@ -23,6 +23,14 @@ use super::*;
 use frame_support::pallet_prelude::DispatchError;
 
 impl<T: Config> Pallet<T> {
+    pub fn get_reputation_factors_for_epoch(
+        subnet_id: u32,
+        evaluated_subnet_epoch: u32,
+    ) -> SubnetReputationFactors {
+        SubnetReputationFactorSchedules::<T>::get(subnet_id)
+            .factors_for_epoch(evaluated_subnet_epoch)
+    }
+
     pub fn increase_validator_reputation(
         validator_id: u32,
         attestation_percentage: u128,
@@ -294,7 +302,7 @@ impl<T: Config> Pallet<T> {
     /// Get the non consensus attestor factor
     ///
     /// # Arguments
-    /// * `subnet_id` - The subnet id
+    /// * `non_consensus_attestor_decrease_factor` - The resolved factor for the evaluated epoch
     /// * `attestation_ratio` - The attestation ratio
     /// * `min_attestation_percentage` - The minimum attestation percentage
     /// * `percentage_factor` - The percentage factor (1e18)
@@ -302,13 +310,13 @@ impl<T: Config> Pallet<T> {
     /// # Returns
     /// The non consensus attestor factor
     pub fn get_non_consensus_attestor_factor(
-        subnet_id: u32,
+        non_consensus_attestor_decrease_factor: u128,
         attestation_ratio: u128,
         min_attestation_percentage: u128,
         percentage_factor: u128,
     ) -> u128 {
         Self::percent_mul(
-            NonConsensusAttestorDecreaseReputationFactor::<T>::get(subnet_id),
+            non_consensus_attestor_decrease_factor,
             percentage_factor.saturating_sub(Self::percent_div(
                 attestation_ratio,
                 min_attestation_percentage,

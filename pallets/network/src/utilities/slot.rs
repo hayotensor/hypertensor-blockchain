@@ -658,7 +658,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         prev_subnet_epoch: u32,
         current_epoch: u32,
-    ) -> (Option<ConsensusSubmissionData>, Weight) {
+    ) -> (Option<ConsensusSubmissionData<T>>, Weight) {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
@@ -696,12 +696,14 @@ impl<T: Config> Pallet<T> {
                     //
                     // Update node rep
                     //
+                    let reputation_factors =
+                        Self::get_reputation_factors_for_epoch(subnet_id, prev_subnet_epoch);
                     if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, validator_id) {
                         Self::decrease_and_return_node_reputation(
                             subnet_id,
                             validator_id,
                             rep,
-                            ValidatorAbsentDecreaseReputationFactor::<T>::get(subnet_id),
+                            reputation_factors.validator_absent_decrease,
                             None,
                         );
                     }
@@ -711,7 +713,7 @@ impl<T: Config> Pallet<T> {
 
                     // Reads:
                     // - SubnetNodeReputation
-                    // - ValidatorAbsentDecreaseReputationFactor
+                    // - SubnetReputationFactorSchedules
                     // Writes:
                     // - SubnetNodeReputation
                     weight = weight.saturating_add(db_weight.reads_writes(2, 1));
@@ -722,22 +724,25 @@ impl<T: Config> Pallet<T> {
         };
 
         // --- Get all qualified possible attestors
-        let max_attestors: u128 = submission.validator_ids.len() as u128;
+        let validator_ids = Self::canonicalize_consensus_validator_ids(submission.validator_ids);
+        let max_attestors: u128 = validator_ids.len() as u128;
 
         weight = weight.saturating_add(db_weight.reads(1));
 
-        let consensus_data = ConsensusSubmissionData {
+        let (data, weight_sum) = match Self::canonicalize_consensus_data_entries(submission.data) {
+            Ok(canonical_data) => canonical_data,
+            Err(_) => return (None, weight),
+        };
+
+        let consensus_data = ConsensusSubmissionData::<T> {
             validator_subnet_node_id: submission.validator_id,
             validator_epoch_progress: submission.validator_epoch_progress,
             validator_reward_factor: submission.validator_reward_factor,
             attestation_ratio: Self::percent_div(submission.attests.len() as u128, max_attestors)
                 .clamp(0, Self::percentage_factor_as_u128()),
-            weight_sum: submission
-                .data
-                .iter()
-                .fold(0, |acc, x| acc.saturating_add(x.score)),
-            data_length: submission.data.len() as u32,
-            data: submission.data,
+            weight_sum,
+            data_length: data.len() as u32,
+            data,
             attests: submission.attests,
             subnet_nodes: submission.subnet_nodes,
             prioritize_queue_node_id: submission.prioritize_queue_node_id,

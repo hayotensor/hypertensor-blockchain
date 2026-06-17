@@ -3,7 +3,7 @@ use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
     BootnodePeerIdSubnetNodeId, MultiaddrSubnetNodeId,
-    ClientPeerIdSubnetNodeId, DefaultMaxVectorLength, Error,
+    ClientPeerIdSubnetNodeId, Error,
     MaxDelegateStakePercentage, MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes,
     MaxSubnets, MinSubnetNodes, MinSubnetRegistrationEpochs,
     TotalNodeDelegateStakeBalance,
@@ -88,7 +88,7 @@ fn test_register_subnet_node_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
@@ -181,7 +181,7 @@ fn test_register_subnet_node_v2_and_activate() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
             },
@@ -334,7 +334,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
                 },

@@ -160,12 +160,13 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
-        let (result, delegate_stake_to_be_removed, _) = Self::perform_do_remove_delegate_stake(
-            &account_id,
-            subnet_id,
-            delegate_stake_shares_to_be_removed,
-            true,
-        );
+        let (result, delegate_stake_to_be_removed, _) =
+            Self::perform_do_remove_subnet_delegate_stake(
+                &account_id,
+                subnet_id,
+                delegate_stake_shares_to_be_removed,
+                true,
+            );
 
         result?;
 
@@ -194,7 +195,7 @@ impl<T: Config> Pallet<T> {
     ///              - True: Unstake user to unstaking ledger.
     ///              - False: Don't add balance to unstaking ledger.
     ///
-    pub fn perform_do_remove_delegate_stake(
+    pub fn perform_do_remove_subnet_delegate_stake(
         account_id: &T::AccountId,
         subnet_id: u32,
         delegate_stake_shares_to_be_removed: u128,
@@ -238,6 +239,18 @@ impl<T: Config> Pallet<T> {
             return (Err(Error::<T>::TxRateLimitExceeded.into()), 0, 0);
         }
 
+        let cooldown_blocks = DelegateStakeCooldownEpochs::<T>::get() * T::EpochLength::get();
+        if add_to_ledger {
+            if let Err(e) = Self::prepare_unbonding_ledger_entry(
+                &account_id,
+                delegate_stake_to_be_removed,
+                cooldown_blocks,
+                block,
+            ) {
+                return (Err(e), 0, 0);
+            }
+        }
+
         // --- We remove the shares from the account and balance from the pool
         Self::decrease_account_delegate_stake(
             &account_id,
@@ -248,16 +261,12 @@ impl<T: Config> Pallet<T> {
 
         // --- We add the balancer to the account_id.  If the above fails we will not credit this account_id.
         if add_to_ledger {
-            let result = Self::add_balance_to_unbonding_ledger(
+            Self::insert_balance_to_unbonding_ledger(
                 &account_id,
                 delegate_stake_to_be_removed,
-                DelegateStakeCooldownEpochs::<T>::get() * T::EpochLength::get(),
+                cooldown_blocks,
                 block,
             );
-
-            if let Err(e) = result {
-                return (Err(e), 0, 0);
-            }
         }
 
         (
@@ -276,7 +285,7 @@ impl<T: Config> Pallet<T> {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
         // --- Remove delegate stake
-        let (result, balance, _) = Self::perform_do_remove_delegate_stake(
+        let (result, balance, _) = Self::perform_do_remove_subnet_delegate_stake(
             &account_id,
             from_subnet_id,
             delegate_stake_shares_to_swap,

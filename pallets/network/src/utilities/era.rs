@@ -498,9 +498,14 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        let idx = Self::get_random_number(block, slot_list.len() as u32) as usize;
+        let Some(idx) = Self::get_bounded_random_index(
+            (subnet_id, subnet_epoch, block),
+            slot_list.len() as u32,
+        ) else {
+            return;
+        };
 
-        let subnet_node_id = slot_list.get(idx).cloned();
+        let subnet_node_id = slot_list.get(idx as usize).cloned();
 
         if let Some(node_id) = subnet_node_id {
             // --- Insert validator for next epoch

@@ -27,18 +27,31 @@ use crate::{
     OverwatchMinDiversificationRatio, OverwatchMinRepScore, OverwatchMinStakeBalance,
     OverwatchNodeBlacklist, OverwatchStakeWeightFactor, OverwatchValidatorWhitelist,
     OverwatchWeightFactor, QueueImmunityEpochs, RegistrationCostAlpha, RegistrationCostDecayBlocks,
-    StakeCooldownEpochs, SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower,
-    SubnetEnactmentEpochs, SubnetName, SubnetOwnerPercentage, SubnetPauseCooldownEpochs,
-    SubnetRegistrationEpochs, SubnetWeightFactors, SubnetWeightFactorsData,
+    RequireSubnetRegistrationWhitelist, StakeCooldownEpochs,
+    SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower, SubnetEnactmentEpochs,
+    SubnetName, SubnetOwnerPercentage, SubnetPauseCooldownEpochs, SubnetRegistrationEpochs,
+    SubnetRegistrationWhitelist, SubnetWeightFactors, SubnetWeightFactorsData,
     SuperMajorityAttestationRatio, TxRateLimit, ValidatorAbsentSubnetReputationFactor,
     ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor, ValidatorRewardK,
     ValidatorRewardMidpoint,
 };
+use frame_support::traits::Get;
 use frame_support::{assert_err, assert_ok};
 
 //
 // Admin / Collective Extrinsic Tests
 //
+
+#[test]
+fn test_network_bound_config_values() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(<Test as crate::Config>::MaxVectorLength::get(), 1024);
+        assert_eq!(<Test as crate::Config>::MaxUrlLength::get(), 1024);
+        assert_eq!(<Test as crate::Config>::MaxSocialIdLength::get(), 255);
+        assert_eq!(<Test as crate::Config>::ValidatorArgsLimit::get(), 4096);
+        assert_eq!(<Test as crate::Config>::MaxSwapQueueLength::get(), 1000);
+    });
+}
 
 // === Pause/Unpause Tests ===
 
@@ -1334,6 +1347,15 @@ fn test_set_max_swap_queue_calls_per_block() {
             *network_events().last().unwrap(),
             Event::SetMaxSwapQueueCallsPerBlock(new_value)
         );
+
+        let too_large = <Test as crate::Config>::MaxSwapQueueLength::get().saturating_add(1);
+        assert_err!(
+            Network::set_max_swap_queue_calls_per_block(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                too_large
+            ),
+            Error::<Test>::InvalidValues
+        );
     });
 }
 
@@ -1385,6 +1407,63 @@ fn test_collective_set_coldkey_overwatch_node_eligibility() {
         ));
 
         assert_eq!(OverwatchNodeBlacklist::<Test>::get(coldkey), value);
+    });
+}
+
+#[test]
+fn test_update_subnet_registration_whitelist_controls() {
+    new_test_ext().execute_with(|| {
+        let coldkey = account(42);
+        let subnet_id = 7;
+
+        assert_err!(
+            Network::update_require_subnet_registration_whitelist(
+                RuntimeOrigin::signed(account(1)),
+                true
+            ),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        assert_err!(
+            Network::update_subnet_registrant(
+                RuntimeOrigin::signed(account(1)),
+                coldkey.clone(),
+                subnet_id,
+                true,
+            ),
+            sp_runtime::DispatchError::BadOrigin
+        );
+
+        assert!(!RequireSubnetRegistrationWhitelist::<Test>::get());
+        assert_ok!(Network::update_require_subnet_registration_whitelist(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+            true,
+        ));
+        assert!(RequireSubnetRegistrationWhitelist::<Test>::get());
+
+        assert!(!SubnetRegistrationWhitelist::<Test>::get(
+            coldkey.clone(),
+            subnet_id
+        ));
+        assert_ok!(Network::update_subnet_registrant(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+            coldkey.clone(),
+            subnet_id,
+            true,
+        ));
+        assert!(SubnetRegistrationWhitelist::<Test>::get(
+            coldkey.clone(),
+            subnet_id
+        ));
+
+        assert_ok!(Network::update_subnet_registrant(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+            coldkey.clone(),
+            subnet_id,
+            false,
+        ));
+        assert!(!SubnetRegistrationWhitelist::<Test>::get(
+            coldkey, subnet_id
+        ));
     });
 }
 
@@ -1478,6 +1557,8 @@ fn test_set_sigmoid_midpoint() {
 fn test_set_maximum_hooks_weight() {
     new_test_ext().execute_with(|| {
         System::set_block_number(System::block_number() + 1);
+
+        assert_eq!(MaximumHooksWeightV2::<Test>::get(), MaximumHooksWeight::get());
 
         let new_value: u32 = 100;
 

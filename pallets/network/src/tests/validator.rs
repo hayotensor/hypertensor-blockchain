@@ -3,27 +3,147 @@ use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
     BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ColdkeyValidatorId, CurrentNodeBurnRate,
-    DefaultMaxSocialIdLength, DefaultMaxUrlLength, DefaultMaxVectorLength, Error,
+    DelegateAccount, Error,
     HotkeyValidatorId, IdentityData, MaxDelegateStakePercentage, MaxRegisteredNodes,
     MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes,
     MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex, NodeSubnetStake,
-    PeerIdSubnetNodeId, PeerInfo, RegisteredSubnetNodesData, SubnetElectedValidator,
-    SubnetMinStakeBalance, SubnetName, SubnetNodeClass, SubnetNodeClassification,
-    SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueueEpochs, SubnetNodeReputation,
-    SubnetNode, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
-    SubnetRegistrationEpochs, SubnetState, TotalActiveNodes, TotalActiveSubnetNodes,
-    TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake, TotalSubnetElectableNodes,
+    OverwatchNodeValidatorId, OverwatchNodes, PeerIdSubnetNodeId, PeerInfo,
+    RegisteredSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName,
+    SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
+    SubnetNodeIdHotkey, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId,
+    SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState,
+    TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes,
+    TotalOverwatchNodeUids, TotalOverwatchNodes, TotalStake, TotalSubnetElectableNodes,
     TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorIds,
-    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey, ValidatorIdHotkey,
-    ValidatorsData,
+    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey, ValidatorData,
+    ValidatorIdHotkey, ValidatorsData,
 };
-use frame_support::traits::Currency;
-use frame_support::traits::ExistenceRequirement;
+use frame_support::traits::{
+    Currency, ExistenceRequirement, GetStorageVersion, OnRuntimeUpgrade, StorageVersion,
+};
 use frame_support::weights::WeightMeter;
 use frame_support::BoundedVec;
 use frame_support::{assert_err, assert_ok};
 use sp_core::OpaquePeerId as PeerId;
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct ValidatorStorageSnapshot {
+    coldkey_validator_ids: Vec<(AccountId, Option<u32>)>,
+    coldkey_hotkeys: Vec<(AccountId, Option<AccountId>)>,
+    hotkey_validator_ids: Vec<(AccountId, Option<u32>)>,
+    validator_coldkey: Option<AccountId>,
+    validator_hotkey: Option<AccountId>,
+    validators_data: ValidatorData<Test>,
+}
+
+fn register_validator_for_rotation(coldkey: &AccountId, hotkey: &AccountId) -> u32 {
+    let total_before = TotalValidatorIds::<Test>::get();
+    let reward_rate = MaxDelegateStakePercentage::<Test>::get().saturating_sub(1);
+
+    assert_ok!(Network::do_register_validator(
+        RuntimeOrigin::signed(coldkey.clone()),
+        hotkey.clone(),
+        reward_rate,
+        None,
+        None,
+    ));
+
+    let validator_id = TotalValidatorIds::<Test>::get();
+    assert!(validator_id > total_before);
+    assert_eq!(ColdkeyValidatorId::<Test>::get(coldkey), Some(validator_id));
+    validator_id
+}
+
+fn validator_storage_snapshot(
+    validator_id: u32,
+    coldkeys: &[AccountId],
+) -> ValidatorStorageSnapshot {
+    ValidatorStorageSnapshot {
+        coldkey_validator_ids: coldkeys
+            .iter()
+            .cloned()
+            .map(|coldkey| {
+                let value = ColdkeyValidatorId::<Test>::get(&coldkey);
+                (coldkey, value)
+            })
+            .collect(),
+        coldkey_hotkeys: coldkeys
+            .iter()
+            .cloned()
+            .map(|coldkey| {
+                let value = ValidatorColdkeyHotkey::<Test>::get(&coldkey);
+                (coldkey, value)
+            })
+            .collect(),
+        hotkey_validator_ids: coldkeys
+            .iter()
+            .cloned()
+            .map(|hotkey| {
+                let value = HotkeyValidatorId::<Test>::get(&hotkey);
+                (hotkey, value)
+            })
+            .collect(),
+        validator_coldkey: ValidatorColdkey::<Test>::get(validator_id),
+        validator_hotkey: ValidatorIdHotkey::<Test>::get(validator_id),
+        validators_data: ValidatorsData::<Test>::get(validator_id),
+    }
+}
+
+#[test]
+fn test_register_validator_invalid_delegate_account_does_not_commit_partial_state() {
+    new_test_ext().execute_with(|| {
+        let coldkey = account(10_000);
+        let hotkey = account(10_001);
+        let delegate_account = DelegateAccount {
+            account_id: account(10_002),
+            rate: 0,
+        };
+
+        let total_validator_ids = TotalValidatorIds::<Test>::get();
+        let next_validator_id = total_validator_ids.saturating_add(1);
+        let validator_id_hotkey = ValidatorIdHotkey::<Test>::get(next_validator_id);
+        let validators_data_exists = ValidatorsData::<Test>::contains_key(next_validator_id);
+        let coldkey_validator_id = ColdkeyValidatorId::<Test>::get(&coldkey);
+        let validator_coldkey = ValidatorColdkey::<Test>::get(next_validator_id);
+        let validator_coldkey_hotkey = ValidatorColdkeyHotkey::<Test>::get(&coldkey);
+        let hotkey_validator_id = HotkeyValidatorId::<Test>::get(&hotkey);
+
+        assert_err!(
+            Network::do_register_validator(
+                RuntimeOrigin::signed(coldkey.clone()),
+                hotkey.clone(),
+                50000000000000000,
+                Some(delegate_account),
+                None,
+            ),
+            Error::<Test>::InvalidDelegateAccountRate
+        );
+
+        assert_eq!(TotalValidatorIds::<Test>::get(), total_validator_ids);
+        assert_eq!(
+            ValidatorIdHotkey::<Test>::get(next_validator_id),
+            validator_id_hotkey
+        );
+        assert_eq!(
+            ValidatorsData::<Test>::contains_key(next_validator_id),
+            validators_data_exists
+        );
+        assert_eq!(
+            ColdkeyValidatorId::<Test>::get(&coldkey),
+            coldkey_validator_id
+        );
+        assert_eq!(
+            ValidatorColdkey::<Test>::get(next_validator_id),
+            validator_coldkey
+        );
+        assert_eq!(
+            ValidatorColdkeyHotkey::<Test>::get(&coldkey),
+            validator_coldkey_hotkey
+        );
+        assert_eq!(HotkeyValidatorId::<Test>::get(&hotkey), hotkey_validator_id);
+    });
+}
 
 #[test]
 fn test_register_validator() {
@@ -101,6 +221,677 @@ fn test_register_validator() {
 }
 
 #[test]
+fn test_update_validator_coldkey_revokes_old_coldkey() {
+    new_test_ext().execute_with(|| {
+        let old_coldkey = account(10_000);
+        let old_hotkey = account(10_001);
+        let new_coldkey = account(10_002);
+        let replacement_hotkey = account(10_003);
+
+        let validator_id = register_validator_for_rotation(&old_coldkey, &old_hotkey);
+        let original_hotkey = ValidatorIdHotkey::<Test>::get(validator_id).unwrap();
+        let original_validator_data = ValidatorsData::<Test>::get(validator_id);
+
+        assert_ok!(Network::update_validator_coldkey(
+            RuntimeOrigin::signed(old_coldkey.clone()),
+            validator_id,
+            new_coldkey.clone(),
+        ));
+
+        assert_eq!(ColdkeyValidatorId::<Test>::get(&old_coldkey), None);
+        assert_eq!(ValidatorColdkeyHotkey::<Test>::get(&old_coldkey), None);
+        assert_eq!(
+            ColdkeyValidatorId::<Test>::get(&new_coldkey),
+            Some(validator_id)
+        );
+        assert_eq!(
+            ValidatorColdkey::<Test>::get(validator_id),
+            Some(new_coldkey.clone())
+        );
+        assert_eq!(
+            ValidatorColdkeyHotkey::<Test>::get(&new_coldkey),
+            Some(original_hotkey.clone())
+        );
+        assert_eq!(
+            ValidatorIdHotkey::<Test>::get(validator_id),
+            Some(original_hotkey.clone())
+        );
+        assert_eq!(
+            ValidatorsData::<Test>::get(validator_id),
+            original_validator_data
+        );
+
+        let before_old_hotkey_attempt =
+            validator_storage_snapshot(validator_id, &[old_coldkey.clone(), new_coldkey.clone()]);
+        assert_err!(
+            Network::update_validator_hotkey(
+                RuntimeOrigin::signed(old_coldkey.clone()),
+                validator_id,
+                replacement_hotkey.clone(),
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+        assert_eq!(
+            validator_storage_snapshot(validator_id, &[old_coldkey.clone(), new_coldkey.clone()]),
+            before_old_hotkey_attempt
+        );
+
+        assert_ok!(Network::update_validator_hotkey(
+            RuntimeOrigin::signed(new_coldkey.clone()),
+            validator_id,
+            replacement_hotkey.clone(),
+        ));
+        assert_eq!(
+            ValidatorIdHotkey::<Test>::get(validator_id),
+            Some(replacement_hotkey.clone())
+        );
+        assert_eq!(
+            ValidatorColdkeyHotkey::<Test>::get(&new_coldkey),
+            Some(replacement_hotkey)
+        );
+    })
+}
+
+#[test]
+fn test_old_validator_coldkey_cannot_rotate_again_after_rotation() {
+    new_test_ext().execute_with(|| {
+        let old_coldkey = account(10_010);
+        let old_hotkey = account(10_011);
+        let new_coldkey = account(10_012);
+        let second_new_coldkey = account(10_013);
+
+        let validator_id = register_validator_for_rotation(&old_coldkey, &old_hotkey);
+
+        assert_ok!(Network::update_validator_coldkey(
+            RuntimeOrigin::signed(old_coldkey.clone()),
+            validator_id,
+            new_coldkey.clone(),
+        ));
+
+        let before = validator_storage_snapshot(
+            validator_id,
+            &[
+                old_coldkey.clone(),
+                new_coldkey.clone(),
+                second_new_coldkey.clone(),
+            ],
+        );
+        assert_err!(
+            Network::update_validator_coldkey(
+                RuntimeOrigin::signed(old_coldkey.clone()),
+                validator_id,
+                second_new_coldkey.clone(),
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+        assert_eq!(
+            validator_storage_snapshot(
+                validator_id,
+                &[old_coldkey, new_coldkey, second_new_coldkey]
+            ),
+            before
+        );
+    })
+}
+
+#[test]
+fn test_stale_old_coldkey_index_does_not_authorize_validator_owner_calls() {
+    new_test_ext().execute_with(|| {
+        let old_coldkey = account(10_020);
+        let old_hotkey = account(10_021);
+        let new_coldkey = account(10_022);
+        let attempted_hotkey = account(10_023);
+
+        let validator_id = register_validator_for_rotation(&old_coldkey, &old_hotkey);
+
+        assert_ok!(Network::update_validator_coldkey(
+            RuntimeOrigin::signed(old_coldkey.clone()),
+            validator_id,
+            new_coldkey.clone(),
+        ));
+
+        ColdkeyValidatorId::<Test>::insert(old_coldkey.clone(), validator_id);
+        assert_eq!(
+            ColdkeyValidatorId::<Test>::get(&old_coldkey),
+            Some(validator_id)
+        );
+        assert_eq!(
+            ValidatorColdkey::<Test>::get(validator_id),
+            Some(new_coldkey.clone())
+        );
+
+        let before_hotkey_update =
+            validator_storage_snapshot(validator_id, &[old_coldkey.clone(), new_coldkey.clone()]);
+        assert_err!(
+            Network::update_validator_hotkey(
+                RuntimeOrigin::signed(old_coldkey.clone()),
+                validator_id,
+                attempted_hotkey,
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+        assert_eq!(
+            validator_storage_snapshot(validator_id, &[old_coldkey.clone(), new_coldkey.clone()]),
+            before_hotkey_update
+        );
+
+        let subnet_id = TotalSubnetUids::<Test>::get().saturating_add(1);
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+
+        let register_peer_id = peer(10_024);
+        let next_subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id).saturating_add(1);
+        let before_register_node = (
+            TotalSubnetNodeUids::<Test>::get(subnet_id),
+            TotalSubnetNodes::<Test>::get(subnet_id),
+            TotalNodes::<Test>::get(),
+            PeerIdSubnetNodeId::<Test>::get(subnet_id, &register_peer_id),
+            RegisteredSubnetNodesData::<Test>::get(subnet_id, next_subnet_node_id),
+            SubnetNodesData::<Test>::get(subnet_id, next_subnet_node_id),
+            SubnetNodeValidatorId::<Test>::get(subnet_id, next_subnet_node_id),
+        );
+
+        assert_err!(
+            Network::register_subnet_node(
+                RuntimeOrigin::signed(old_coldkey.clone()),
+                validator_id,
+                subnet_id,
+                None,
+                PeerInfo::<Test> {
+                    peer_id: register_peer_id.clone(),
+                    multiaddr: None,
+                },
+                None,
+                None,
+                1,
+                None,
+                None,
+                0,
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+        assert_eq!(
+            (
+                TotalSubnetNodeUids::<Test>::get(subnet_id),
+                TotalSubnetNodes::<Test>::get(subnet_id),
+                TotalNodes::<Test>::get(),
+                PeerIdSubnetNodeId::<Test>::get(subnet_id, &register_peer_id),
+                RegisteredSubnetNodesData::<Test>::get(subnet_id, next_subnet_node_id),
+                SubnetNodesData::<Test>::get(subnet_id, next_subnet_node_id),
+                SubnetNodeValidatorId::<Test>::get(subnet_id, next_subnet_node_id),
+            ),
+            before_register_node
+        );
+
+        insert_subnet_node(
+            validator_id,
+            subnet_id,
+            10_025,
+            10_026,
+            10_027,
+            SubnetNodeClass::Registered,
+            0,
+        );
+        let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
+        let before_remove_node = (
+            TotalSubnetNodeUids::<Test>::get(subnet_id),
+            TotalSubnetNodes::<Test>::get(subnet_id),
+            TotalNodes::<Test>::get(),
+            RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id),
+            SubnetNodesData::<Test>::get(subnet_id, subnet_node_id),
+            SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id),
+        );
+
+        assert_err!(
+            Network::remove_subnet_node(
+                RuntimeOrigin::signed(old_coldkey.clone()),
+                subnet_id,
+                subnet_node_id,
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+        assert_eq!(
+            (
+                TotalSubnetNodeUids::<Test>::get(subnet_id),
+                TotalSubnetNodes::<Test>::get(subnet_id),
+                TotalNodes::<Test>::get(),
+                RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id),
+                SubnetNodesData::<Test>::get(subnet_id, subnet_node_id),
+                SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id),
+            ),
+            before_remove_node
+        );
+
+        let before_overwatch_register = (
+            TotalOverwatchNodeUids::<Test>::get(),
+            TotalOverwatchNodes::<Test>::get(),
+            OverwatchNodes::<Test>::iter().collect::<Vec<_>>(),
+            OverwatchNodeValidatorId::<Test>::iter().collect::<Vec<_>>(),
+        );
+        assert_err!(
+            Network::register_overwatch_node(RuntimeOrigin::signed(old_coldkey.clone()), 1),
+            Error::<Test>::NotKeyOwner
+        );
+        assert_eq!(
+            (
+                TotalOverwatchNodeUids::<Test>::get(),
+                TotalOverwatchNodes::<Test>::get(),
+                OverwatchNodes::<Test>::iter().collect::<Vec<_>>(),
+                OverwatchNodeValidatorId::<Test>::iter().collect::<Vec<_>>(),
+            ),
+            before_overwatch_register
+        );
+    })
+}
+
+#[test]
+fn test_update_validator_coldkey_rejects_collisions_without_mutating_state() {
+    new_test_ext().execute_with(|| {
+        let first_coldkey = account(10_040);
+        let first_hotkey = account(10_041);
+        let second_coldkey = account(10_042);
+        let second_hotkey = account(10_043);
+
+        let first_validator_id = register_validator_for_rotation(&first_coldkey, &first_hotkey);
+        let second_validator_id = register_validator_for_rotation(&second_coldkey, &second_hotkey);
+
+        let tracked_coldkeys = vec![
+            first_coldkey.clone(),
+            first_hotkey.clone(),
+            second_coldkey.clone(),
+            second_hotkey.clone(),
+        ];
+
+        let assert_failed_rotation_preserves_state =
+            |new_coldkey: AccountId, expected_error: Error<Test>| {
+                let first_before =
+                    validator_storage_snapshot(first_validator_id, &tracked_coldkeys);
+                let second_before =
+                    validator_storage_snapshot(second_validator_id, &tracked_coldkeys);
+
+                assert_err!(
+                    Network::update_validator_coldkey(
+                        RuntimeOrigin::signed(first_coldkey.clone()),
+                        first_validator_id,
+                        new_coldkey,
+                    ),
+                    expected_error
+                );
+
+                assert_eq!(
+                    validator_storage_snapshot(first_validator_id, &tracked_coldkeys),
+                    first_before
+                );
+                assert_eq!(
+                    validator_storage_snapshot(second_validator_id, &tracked_coldkeys),
+                    second_before
+                );
+            };
+
+        assert_failed_rotation_preserves_state(first_coldkey.clone(), Error::<Test>::NotKeyOwner);
+        assert_failed_rotation_preserves_state(
+            first_hotkey.clone(),
+            Error::<Test>::ColdkeyMatchesHotkey,
+        );
+        assert_failed_rotation_preserves_state(second_coldkey.clone(), Error::<Test>::NotKeyOwner);
+        assert_failed_rotation_preserves_state(second_hotkey.clone(), Error::<Test>::NotKeyOwner);
+    })
+}
+
+#[test]
+fn test_cleanup_stale_validator_coldkeys_migration_removes_only_stale_entries() {
+    new_test_ext().execute_with(|| {
+        let canonical_coldkey = account(10_060);
+        let canonical_hotkey = account(10_061);
+        let stale_coldkey = account(10_062);
+        let missing_validator_coldkey = account(10_063);
+
+        let validator_id = register_validator_for_rotation(&canonical_coldkey, &canonical_hotkey);
+        let missing_validator_id = TotalValidatorIds::<Test>::get().saturating_add(1);
+
+        ColdkeyValidatorId::<Test>::insert(stale_coldkey.clone(), validator_id);
+        ColdkeyValidatorId::<Test>::insert(missing_validator_coldkey.clone(), missing_validator_id);
+        StorageVersion::new(0).put::<Network>();
+
+        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(0));
+
+        let _ =
+            <crate::migrations::CleanupStaleValidatorColdkeys<Test> as OnRuntimeUpgrade>::on_runtime_upgrade();
+
+        assert_eq!(
+            ColdkeyValidatorId::<Test>::get(&canonical_coldkey),
+            Some(validator_id)
+        );
+        assert_eq!(ColdkeyValidatorId::<Test>::get(&stale_coldkey), None);
+        assert_eq!(
+            ColdkeyValidatorId::<Test>::get(&missing_validator_coldkey),
+            None
+        );
+        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(1));
+
+        let entries_after_first_run = ColdkeyValidatorId::<Test>::iter().collect::<Vec<_>>();
+        let snapshot_after_first_run = validator_storage_snapshot(
+            validator_id,
+            &[
+                canonical_coldkey.clone(),
+                stale_coldkey.clone(),
+                missing_validator_coldkey.clone(),
+            ],
+        );
+
+        let _ =
+            <crate::migrations::CleanupStaleValidatorColdkeys<Test> as OnRuntimeUpgrade>::on_runtime_upgrade();
+
+        assert_eq!(
+            ColdkeyValidatorId::<Test>::iter().collect::<Vec<_>>(),
+            entries_after_first_run
+        );
+        assert_eq!(
+            validator_storage_snapshot(
+                validator_id,
+                &[canonical_coldkey, stale_coldkey, missing_validator_coldkey]
+            ),
+            snapshot_after_first_run
+        );
+        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(1));
+    })
+}
+
+#[test]
+fn test_update_validator_hotkey_replaces_reverse_index() {
+    new_test_ext().execute_with(|| {
+        let coldkey = account(10_080);
+        let initial_hotkey = account(10_081);
+        let new_hotkey = account(10_082);
+
+        let validator_id = register_validator_for_rotation(&coldkey, &initial_hotkey);
+        let current_hotkey = ValidatorIdHotkey::<Test>::get(validator_id).unwrap();
+        let original_validator_data = ValidatorsData::<Test>::get(validator_id);
+
+        assert_ok!(Network::update_validator_hotkey(
+            RuntimeOrigin::signed(coldkey.clone()),
+            validator_id,
+            new_hotkey.clone(),
+        ));
+
+        let mut expected_validator_data = original_validator_data;
+        expected_validator_data.hotkey = new_hotkey.clone();
+
+        assert_eq!(HotkeyValidatorId::<Test>::get(&current_hotkey), None);
+        assert_eq!(
+            HotkeyValidatorId::<Test>::get(&new_hotkey),
+            Some(validator_id)
+        );
+        assert_eq!(
+            ValidatorIdHotkey::<Test>::get(validator_id),
+            Some(new_hotkey.clone())
+        );
+        assert_eq!(
+            ValidatorColdkeyHotkey::<Test>::get(&coldkey),
+            Some(new_hotkey.clone())
+        );
+        assert_eq!(
+            ValidatorsData::<Test>::get(validator_id),
+            expected_validator_data
+        );
+    })
+}
+
+#[test]
+fn test_update_validator_hotkey_rejects_another_validator_hotkey_without_mutating_state() {
+    new_test_ext().execute_with(|| {
+        let first_coldkey = account(10_090);
+        let first_hotkey = account(10_091);
+        let second_coldkey = account(10_092);
+        let second_hotkey = account(10_093);
+
+        let first_validator_id = register_validator_for_rotation(&first_coldkey, &first_hotkey);
+        let second_validator_id = register_validator_for_rotation(&second_coldkey, &second_hotkey);
+        let first_current_hotkey = ValidatorIdHotkey::<Test>::get(first_validator_id).unwrap();
+        let second_current_hotkey = ValidatorIdHotkey::<Test>::get(second_validator_id).unwrap();
+        let tracked_accounts = vec![
+            first_coldkey.clone(),
+            first_current_hotkey.clone(),
+            second_coldkey.clone(),
+            second_current_hotkey.clone(),
+        ];
+
+        let first_before = validator_storage_snapshot(first_validator_id, &tracked_accounts);
+        let second_before = validator_storage_snapshot(second_validator_id, &tracked_accounts);
+
+        assert_err!(
+            Network::update_validator_hotkey(
+                RuntimeOrigin::signed(first_coldkey.clone()),
+                first_validator_id,
+                second_current_hotkey.clone(),
+            ),
+            Error::<Test>::HotkeyHasOwner
+        );
+
+        assert_eq!(
+            validator_storage_snapshot(first_validator_id, &tracked_accounts),
+            first_before
+        );
+        assert_eq!(
+            validator_storage_snapshot(second_validator_id, &tracked_accounts),
+            second_before
+        );
+        assert_eq!(
+            HotkeyValidatorId::<Test>::get(&first_current_hotkey),
+            Some(first_validator_id)
+        );
+        assert_eq!(
+            HotkeyValidatorId::<Test>::get(&second_current_hotkey),
+            Some(second_validator_id)
+        );
+    })
+}
+
+#[test]
+fn test_update_validator_hotkey_rejects_coldkey_collisions_without_mutating_state() {
+    new_test_ext().execute_with(|| {
+        let first_coldkey = account(10_100);
+        let first_hotkey = account(10_101);
+        let second_coldkey = account(10_102);
+        let second_hotkey = account(10_103);
+
+        let first_validator_id = register_validator_for_rotation(&first_coldkey, &first_hotkey);
+        let second_validator_id = register_validator_for_rotation(&second_coldkey, &second_hotkey);
+        let first_current_hotkey = ValidatorIdHotkey::<Test>::get(first_validator_id).unwrap();
+        let second_current_hotkey = ValidatorIdHotkey::<Test>::get(second_validator_id).unwrap();
+        let tracked_accounts = vec![
+            first_coldkey.clone(),
+            first_current_hotkey,
+            second_coldkey.clone(),
+            second_current_hotkey,
+        ];
+
+        let assert_failed_hotkey_rotation_preserves_state =
+            |new_hotkey: AccountId, expected_error: Error<Test>| {
+                let first_before =
+                    validator_storage_snapshot(first_validator_id, &tracked_accounts);
+                let second_before =
+                    validator_storage_snapshot(second_validator_id, &tracked_accounts);
+
+                assert_err!(
+                    Network::update_validator_hotkey(
+                        RuntimeOrigin::signed(first_coldkey.clone()),
+                        first_validator_id,
+                        new_hotkey,
+                    ),
+                    expected_error
+                );
+
+                assert_eq!(
+                    validator_storage_snapshot(first_validator_id, &tracked_accounts),
+                    first_before
+                );
+                assert_eq!(
+                    validator_storage_snapshot(second_validator_id, &tracked_accounts),
+                    second_before
+                );
+            };
+
+        assert_failed_hotkey_rotation_preserves_state(
+            first_coldkey.clone(),
+            Error::<Test>::ColdkeyMatchesHotkey,
+        );
+        assert_failed_hotkey_rotation_preserves_state(
+            second_coldkey.clone(),
+            Error::<Test>::HotkeyHasOwner,
+        );
+    })
+}
+
+#[test]
+fn test_update_validator_hotkey_rejects_stale_reverse_index_without_mutating_state() {
+    new_test_ext().execute_with(|| {
+        let coldkey = account(10_110);
+        let initial_hotkey = account(10_111);
+        let new_hotkey = account(10_112);
+
+        let validator_id = register_validator_for_rotation(&coldkey, &initial_hotkey);
+        let current_hotkey = ValidatorIdHotkey::<Test>::get(validator_id).unwrap();
+        let stale_validator_id = validator_id.saturating_add(1);
+
+        HotkeyValidatorId::<Test>::insert(current_hotkey.clone(), stale_validator_id);
+
+        let tracked_accounts = vec![coldkey.clone(), current_hotkey.clone(), new_hotkey.clone()];
+        let before = validator_storage_snapshot(validator_id, &tracked_accounts);
+
+        assert_err!(
+            Network::update_validator_hotkey(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
+                new_hotkey,
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+
+        assert_eq!(
+            validator_storage_snapshot(validator_id, &tracked_accounts),
+            before
+        );
+        assert_eq!(
+            HotkeyValidatorId::<Test>::get(&current_hotkey),
+            Some(stale_validator_id)
+        );
+    })
+}
+
+#[test]
+fn test_update_validator_hotkey_allows_noop_without_mutating_state() {
+    new_test_ext().execute_with(|| {
+        let coldkey = account(10_120);
+        let initial_hotkey = account(10_121);
+
+        let validator_id = register_validator_for_rotation(&coldkey, &initial_hotkey);
+        let current_hotkey = ValidatorIdHotkey::<Test>::get(validator_id).unwrap();
+        let tracked_accounts = vec![coldkey.clone(), current_hotkey.clone()];
+        let before = validator_storage_snapshot(validator_id, &tracked_accounts);
+
+        assert_ok!(Network::update_validator_hotkey(
+            RuntimeOrigin::signed(coldkey.clone()),
+            validator_id,
+            current_hotkey,
+        ));
+
+        assert_eq!(
+            validator_storage_snapshot(validator_id, &tracked_accounts),
+            before
+        );
+    })
+}
+
+#[test]
+fn test_cleanup_stale_validator_hotkeys_migration_removes_stale_and_disputed_indexes() {
+    new_test_ext().execute_with(|| {
+        let canonical_coldkey = account(10_130);
+        let canonical_hotkey_input = account(10_131);
+        let stale_reverse_hotkey = account(10_132);
+        let duplicate_owner_coldkey = account(10_133);
+        let duplicate_owner_hotkey_input = account(10_134);
+        let duplicate_claimant_coldkey = account(10_135);
+        let duplicate_claimant_hotkey_input = account(10_136);
+
+        let canonical_validator_id =
+            register_validator_for_rotation(&canonical_coldkey, &canonical_hotkey_input);
+        let duplicate_owner_validator_id =
+            register_validator_for_rotation(&duplicate_owner_coldkey, &duplicate_owner_hotkey_input);
+        let duplicate_claimant_validator_id = register_validator_for_rotation(
+            &duplicate_claimant_coldkey,
+            &duplicate_claimant_hotkey_input,
+        );
+
+        let canonical_hotkey =
+            ValidatorIdHotkey::<Test>::get(canonical_validator_id).unwrap();
+        let duplicate_hotkey =
+            ValidatorIdHotkey::<Test>::get(duplicate_owner_validator_id).unwrap();
+        let duplicate_claimant_original_hotkey =
+            ValidatorIdHotkey::<Test>::get(duplicate_claimant_validator_id).unwrap();
+
+        HotkeyValidatorId::<Test>::insert(stale_reverse_hotkey.clone(), canonical_validator_id);
+        ValidatorIdHotkey::<Test>::insert(duplicate_claimant_validator_id, duplicate_hotkey.clone());
+        let mut duplicate_claimant_data =
+            ValidatorsData::<Test>::get(duplicate_claimant_validator_id);
+        duplicate_claimant_data.hotkey = duplicate_hotkey.clone();
+        ValidatorsData::<Test>::insert(duplicate_claimant_validator_id, duplicate_claimant_data);
+        StorageVersion::new(1).put::<Network>();
+
+        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(1));
+
+        let _ =
+            <crate::migrations::CleanupStaleValidatorHotkeys<Test> as OnRuntimeUpgrade>::on_runtime_upgrade();
+
+        assert_eq!(
+            HotkeyValidatorId::<Test>::get(&canonical_hotkey),
+            Some(canonical_validator_id)
+        );
+        assert_eq!(HotkeyValidatorId::<Test>::get(&stale_reverse_hotkey), None);
+        assert_eq!(HotkeyValidatorId::<Test>::get(&duplicate_hotkey), None);
+        assert_eq!(
+            HotkeyValidatorId::<Test>::get(&duplicate_claimant_original_hotkey),
+            None
+        );
+        assert_eq!(
+            ValidatorIdHotkey::<Test>::get(duplicate_owner_validator_id),
+            Some(duplicate_hotkey.clone())
+        );
+        assert_eq!(
+            ValidatorIdHotkey::<Test>::get(duplicate_claimant_validator_id),
+            Some(duplicate_hotkey.clone())
+        );
+        assert_eq!(
+            ValidatorsData::<Test>::get(duplicate_claimant_validator_id).hotkey,
+            duplicate_hotkey
+        );
+        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(2));
+
+        let hotkey_entries_after_first_run = HotkeyValidatorId::<Test>::iter().collect::<Vec<_>>();
+        let owner_forward_after_first_run =
+            ValidatorIdHotkey::<Test>::get(duplicate_owner_validator_id);
+        let claimant_forward_after_first_run =
+            ValidatorIdHotkey::<Test>::get(duplicate_claimant_validator_id);
+
+        let _ =
+            <crate::migrations::CleanupStaleValidatorHotkeys<Test> as OnRuntimeUpgrade>::on_runtime_upgrade();
+
+        assert_eq!(
+            HotkeyValidatorId::<Test>::iter().collect::<Vec<_>>(),
+            hotkey_entries_after_first_run
+        );
+        assert_eq!(
+            ValidatorIdHotkey::<Test>::get(duplicate_owner_validator_id),
+            owner_forward_after_first_run
+        );
+        assert_eq!(
+            ValidatorIdHotkey::<Test>::get(duplicate_claimant_validator_id),
+            claimant_forward_after_first_run
+        );
+        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(2));
+    })
+}
+
+#[test]
 fn test_register_validator_subnet_node() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
@@ -165,7 +956,7 @@ fn test_register_validator_subnet_node() {
                 current_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer(1),
                     multiaddr: None,
                 },
@@ -186,7 +977,7 @@ fn test_register_validator_subnet_node() {
                 999,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer(1),
                     multiaddr: None,
                 },
@@ -207,7 +998,7 @@ fn test_register_validator_subnet_node() {
                 current_id,
                 subnet_id,
                 None,
-                PeerInfo {
+                PeerInfo::<Test> {
                     peer_id: peer(1),
                     multiaddr: None,
                 },
@@ -226,7 +1017,7 @@ fn test_register_validator_subnet_node() {
             current_id,
             subnet_id,
             None,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
             },
@@ -244,7 +1035,7 @@ fn test_register_validator_subnet_node() {
         assert_eq!(node.validator_id, current_id);
         assert_eq!(
             node.peer_info,
-            PeerInfo {
+            PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
             }
@@ -282,10 +1073,10 @@ fn test_get_hotkey_associated_subnet_node_prefers_subnet_node_hotkey_override() 
         SubnetNodesData::<Test>::insert(
             subnet_id,
             subnet_node_id,
-            SubnetNode {
+            SubnetNode::<Test> {
                 id: subnet_node_id,
                 validator_id,
-                peer_info: PeerInfo {
+                peer_info: PeerInfo::<Test> {
                     peer_id: peer(1),
                     multiaddr: None,
                 },
@@ -332,10 +1123,10 @@ fn test_get_hotkey_associated_subnet_node_uses_validator_hotkey_without_override
         SubnetNodesData::<Test>::insert(
             subnet_id,
             subnet_node_id,
-            SubnetNode {
+            SubnetNode::<Test> {
                 id: subnet_node_id,
                 validator_id,
-                peer_info: PeerInfo {
+                peer_info: PeerInfo::<Test> {
                     peer_id: peer(2),
                     multiaddr: None,
                 },
@@ -534,6 +1325,75 @@ fn test_update_validator_delegate_reward_rate() {
 }
 
 #[test]
+fn test_update_validator_delegate_reward_rate_validation_branches() {
+    new_test_ext().execute_with(|| {
+        let coldkey = account(10);
+        let hotkey = account(11);
+        let max_decrease = MaxRewardRateDecrease::<Test>::get();
+        let reward_rate = max_decrease.saturating_mul(3);
+
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
+            None,
+            None,
+        ));
+        let validator_id = TotalValidatorIds::<Test>::get();
+
+        assert_err!(
+            Network::update_validator_delegate_reward_rate(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
+                MaxDelegateStakePercentage::<Test>::get().saturating_add(1),
+            ),
+            Error::<Test>::InvalidDelegateRewardRate
+        );
+
+        System::set_block_number(1);
+        assert_err!(
+            Network::update_validator_delegate_reward_rate(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
+                reward_rate.saturating_add(1),
+            ),
+            Error::<Test>::MaxRewardRateUpdates
+        );
+
+        System::set_block_number(NodeRewardRateUpdatePeriod::<Test>::get());
+        assert_err!(
+            Network::update_validator_delegate_reward_rate(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
+                reward_rate,
+            ),
+            Error::<Test>::NoDelegateRewardRateChange
+        );
+
+        let too_large_decrease = reward_rate.saturating_sub(max_decrease).saturating_sub(1);
+        assert_err!(
+            Network::update_validator_delegate_reward_rate(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
+                too_large_decrease,
+            ),
+            Error::<Test>::SurpassesMaxRewardRateDecrease
+        );
+
+        let allowed_decrease = reward_rate.saturating_sub(max_decrease);
+        assert_ok!(Network::update_validator_delegate_reward_rate(
+            RuntimeOrigin::signed(coldkey),
+            validator_id,
+            allowed_decrease,
+        ));
+        assert_eq!(
+            ValidatorsData::<Test>::get(validator_id).delegate_reward_rate,
+            allowed_decrease
+        );
+    })
+}
+
+#[test]
 fn test_update_validator_identity() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
@@ -554,18 +1414,18 @@ fn test_update_validator_identity() {
             hotkey.clone()
         );
 
-        let name = to_bounded::<DefaultMaxVectorLength>("name");
-        let url = to_bounded::<DefaultMaxUrlLength>("url");
-        let image = to_bounded::<DefaultMaxUrlLength>("image");
-        let discord = to_bounded::<DefaultMaxSocialIdLength>("discord");
-        let x = to_bounded::<DefaultMaxSocialIdLength>("x");
-        let telegram = to_bounded::<DefaultMaxSocialIdLength>("telegram");
-        let github = to_bounded::<DefaultMaxUrlLength>("github");
-        let hugging_face = to_bounded::<DefaultMaxUrlLength>("hugging_face");
-        let description = to_bounded::<DefaultMaxVectorLength>("description");
-        let misc = to_bounded::<DefaultMaxVectorLength>("misc");
+        let name = to_bounded::<NetworkMaxVectorLength>("name");
+        let url = to_bounded::<NetworkMaxUrlLength>("url");
+        let image = to_bounded::<NetworkMaxUrlLength>("image");
+        let discord = to_bounded::<NetworkMaxSocialIdLength>("discord");
+        let x = to_bounded::<NetworkMaxSocialIdLength>("x");
+        let telegram = to_bounded::<NetworkMaxSocialIdLength>("telegram");
+        let github = to_bounded::<NetworkMaxUrlLength>("github");
+        let hugging_face = to_bounded::<NetworkMaxUrlLength>("hugging_face");
+        let description = to_bounded::<NetworkMaxVectorLength>("description");
+        let misc = to_bounded::<NetworkMaxVectorLength>("misc");
 
-        let identity: IdentityData = IdentityData {
+        let identity: IdentityData<Test> = IdentityData::<Test> {
             name: Some(name.clone()),
             url: Some(url.clone()),
             image: Some(image.clone()),
@@ -606,7 +1466,7 @@ fn test_update_validator_identity() {
         assert_eq!(v_identity.clone().unwrap().misc, Some(misc.clone()));
 
         // Remove one identity parameter
-        let identity: IdentityData = IdentityData {
+        let identity: IdentityData<Test> = IdentityData::<Test> {
             name: Some(name.clone()),
             url: Some(url.clone()),
             image: Some(image.clone()),
