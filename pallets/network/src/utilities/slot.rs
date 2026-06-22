@@ -728,6 +728,34 @@ impl<T: Config> Pallet<T> {
         let max_attestors: u128 = validator_ids.len() as u128;
 
         weight = weight.saturating_add(db_weight.reads(1));
+        let attestor_weight_snapshot =
+            SubnetConsensusAttestorWeights::<T>::get(subnet_id, prev_subnet_epoch);
+
+        let attestation_ratio = if let Some(snapshot) = attestor_weight_snapshot {
+            if snapshot.total_weight > 0 {
+                let attested_weight =
+                    match submission
+                        .attests
+                        .keys()
+                        .try_fold(0u128, |acc, subnet_node_id| {
+                            acc.checked_add(
+                                snapshot.weights.get(subnet_node_id).copied().unwrap_or(0),
+                            )
+                        }) {
+                        Some(weight) => weight,
+                        None => return (None, weight),
+                    };
+
+                Self::percent_div(attested_weight, snapshot.total_weight)
+                    .clamp(0, Self::percentage_factor_as_u128())
+            } else {
+                Self::percent_div(submission.attests.len() as u128, max_attestors)
+                    .clamp(0, Self::percentage_factor_as_u128())
+            }
+        } else {
+            Self::percent_div(submission.attests.len() as u128, max_attestors)
+                .clamp(0, Self::percentage_factor_as_u128())
+        };
 
         let (data, weight_sum) = match Self::canonicalize_consensus_data_entries(submission.data) {
             Ok(canonical_data) => canonical_data,
@@ -738,8 +766,7 @@ impl<T: Config> Pallet<T> {
             validator_subnet_node_id: submission.validator_id,
             validator_epoch_progress: submission.validator_epoch_progress,
             validator_reward_factor: submission.validator_reward_factor,
-            attestation_ratio: Self::percent_div(submission.attests.len() as u128, max_attestors)
-                .clamp(0, Self::percentage_factor_as_u128()),
+            attestation_ratio,
             weight_sum,
             data_length: data.len() as u32,
             data,

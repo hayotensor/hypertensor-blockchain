@@ -214,7 +214,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: Cow::Borrowed("hypertensor-node"),
     impl_name: Cow::Borrowed("hypertensor-node"),
     authoring_version: 1,
-    spec_version: 1,
+    spec_version: 2,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -441,7 +441,7 @@ fn is_network_value_call(call: &pallet_network::Call<Runtime>) -> bool {
             | pallet_network::Call::remove_subnet_node { .. }
             | pallet_network::Call::add_node_stake { .. }
             | pallet_network::Call::remove_node_stake { .. }
-            | pallet_network::Call::add_delegate_stake { .. }
+            | pallet_network::Call::add_subnet_delegate_stake { .. }
             | pallet_network::Call::swap_from_subnet_to_subnet { .. }
             | pallet_network::Call::transfer_delegate_stake { .. }
             | pallet_network::Call::remove_delegate_stake { .. }
@@ -484,7 +484,7 @@ fn is_network_staking_call(call: &pallet_network::Call<Runtime>) -> bool {
 fn is_network_delegate_staking_call(call: &pallet_network::Call<Runtime>) -> bool {
     matches!(
         call,
-        pallet_network::Call::add_delegate_stake { .. }
+        pallet_network::Call::add_subnet_delegate_stake { .. }
             | pallet_network::Call::swap_from_subnet_to_subnet { .. }
             | pallet_network::Call::remove_delegate_stake { .. }
             | pallet_network::Call::add_validator_delegate_stake { .. }
@@ -1746,7 +1746,7 @@ mod tests {
                 subnet_node_id: 1,
                 stake_to_be_removed: 10,
             }),
-            network_call(pallet_network::Call::add_delegate_stake {
+            network_call(pallet_network::Call::add_subnet_delegate_stake {
                 subnet_id: 1,
                 stake_to_be_added: 10,
             }),
@@ -1834,7 +1834,7 @@ mod tests {
 
     #[test]
     fn non_transfer_rejects_utility_and_proxy_escalation() {
-        let blocked_network_call = network_call(pallet_network::Call::add_delegate_stake {
+        let blocked_network_call = network_call(pallet_network::Call::add_subnet_delegate_stake {
             subnet_id: 1,
             stake_to_be_added: 10,
         });
@@ -1869,7 +1869,7 @@ mod tests {
             to_account_id: account(2),
             delegate_stake_shares_to_transfer: 10,
         });
-        let delegate_stake = network_call(pallet_network::Call::add_delegate_stake {
+        let delegate_stake = network_call(pallet_network::Call::add_subnet_delegate_stake {
             subnet_id: 1,
             stake_to_be_added: 10,
         });

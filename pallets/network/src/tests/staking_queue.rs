@@ -155,7 +155,7 @@ fn test_update_swap_queue_delegate_stake() {
 
         let starting_delegator_balance = Balances::free_balance(&account(n_account));
 
-        assert_ok!(Network::add_delegate_stake(
+        assert_ok!(Network::add_subnet_delegate_stake(
             RuntimeOrigin::signed(account(n_account)),
             from_subnet_id,
             amount,

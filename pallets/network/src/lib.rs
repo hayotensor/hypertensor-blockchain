@@ -462,6 +462,16 @@ pub mod pallet {
             account_id: T::AccountId,
             amount: u128,
         },
+        ValidatorDelegateStakeAdded {
+            validator_id: u32,
+            account_id: T::AccountId,
+            delegate_stake_to_be_added: u128
+        },
+        ValidatorDelegateStakeRemoved {
+            validator_id: u32,
+            account_id: T::AccountId,
+            delegate_stake_to_be_removed: u128
+        },
         // Admin
         SetMaxSubnets(u32),
         SetMaxBootnodes(u32),
@@ -503,6 +513,7 @@ pub mod pallet {
         SetMaxRewardRateDecrease(u128),
         SetSubnetDistributionPower(u128),
         SetDelegateStakeWeightFactor(u128),
+        SetConsensusValidatorNodeCountDecay(u128),
         SetInflationSigmoidMidpoint(u128),
         SetMaximumHooksWeight(u32),
         SetBaseNodeBurnAmount(u128),
@@ -974,6 +985,8 @@ pub mod pallet {
         AlreadyAttested,
         /// Score overflow
         ScoreOverflow,
+        /// Attestor weight overflow
+        AttestorWeightOverflow,
         ElectionSlotInsertFail,
         /// Not the key owner
         NotKeyOwner,
@@ -1904,6 +1917,13 @@ pub mod pallet {
         pub data: Option<ValidatorArgs<T>>,
     }
 
+    /// Snapshotted attestor weights for a subnet consensus submission.
+    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+    pub struct ConsensusAttestorWeightSnapshot {
+        pub weights: BTreeMap<u32, u128>,
+        pub total_weight: u128,
+    }
+
     /// This struct represents the processed consensus submission. It is generated
     /// during the `precheck_subnet_consensus_submission` process and contains all
     /// the information needed for reward distribution and subnet state updates.
@@ -2810,6 +2830,13 @@ pub mod pallet {
         750000000000000000
     }
     /// This type value is referenced in:
+    /// - ConsensusValidatorNodeCountDecay
+    #[pallet::type_value]
+    pub fn DefaultConsensusValidatorNodeCountDecay() -> u128 {
+        // 1.0, no node-count decay
+        1000000000000000000
+    }
+    /// This type value is referenced in:
     /// - ValidatorReputationIncreaseFactor
     #[pallet::type_value]
     pub fn DefaultValidatorReputationIncreaseFactor() -> u128 {
@@ -3639,6 +3666,11 @@ pub mod pallet {
     pub type DelegateStakeWeightFactor<T> =
         StorageValue<_, u128, ValueQuery, DefaultDelegateStakeWeightFactor>;
 
+    /// Factor used to diminish a validator's consensus weight for multiple eligible nodes in one subnet.
+    #[pallet::storage]
+    pub type ConsensusValidatorNodeCountDecay<T> =
+        StorageValue<_, u128, ValueQuery, DefaultConsensusValidatorNodeCountDecay>;
+
     #[derive(
         Default,
         Encode,
@@ -4173,6 +4205,18 @@ pub mod pallet {
     #[pallet::storage] // subnet ID => epoch  => data
     pub type SubnetConsensusSubmission<T: Config> =
         StorageDoubleMap<_, Identity, u32, Identity, u32, ConsensusData<T>>;
+
+    /// Proposal-time attestor weight snapshots used for stake-weighted consensus.
+    #[pallet::storage]
+    pub type SubnetConsensusAttestorWeights<T> = StorageDoubleMap<
+        _,
+        Identity,
+        u32,
+        Identity,
+        u32,
+        ConsensusAttestorWeightSnapshot,
+        OptionQuery,
+    >;
 
     /// Minimum attestation ratio to form consensus
     #[pallet::storage]
@@ -5626,7 +5670,7 @@ pub mod pallet {
         ///
         #[pallet::call_index(54)]
         #[pallet::weight({0})]
-        pub fn add_delegate_stake(
+        pub fn add_subnet_delegate_stake(
             origin: OriginFor<T>,
             subnet_id: u32,
             stake_to_be_added: u128,
@@ -5641,7 +5685,7 @@ pub mod pallet {
                 Error::<T>::InvalidSubnetId
             );
 
-            Self::do_add_delegate_stake(origin, subnet_id, stake_to_be_added)
+            Self::do_add_subnet_delegate_stake(origin, subnet_id, stake_to_be_added)
         }
 
         /// Swap subnet delegate stake
@@ -7080,6 +7124,16 @@ pub mod pallet {
         ) -> DispatchResult {
             Self::is_paused()?;
             Self::do_owner_update_reputation_factors(origin, subnet_id, updates)
+        }
+
+        #[pallet::call_index(170)]
+        #[pallet::weight({0})]
+        pub fn set_consensus_validator_node_count_decay(
+            origin: OriginFor<T>,
+            value: u128,
+        ) -> DispatchResult {
+            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_consensus_validator_node_count_decay(value)
         }
     }
 

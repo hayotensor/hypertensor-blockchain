@@ -114,7 +114,7 @@ where
 
     #[precompile::public("addToDelegateStake(uint256,uint256)")]
     #[precompile::payable]
-    fn add_delegate_stake(
+    fn add_subnet_delegate_stake(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
         stake_to_be_added: U256,
@@ -124,7 +124,7 @@ where
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let stake_to_be_added: u128 = stake_to_be_added.unique_saturated_into();
 
-        let call = pallet_network::Call::<R>::add_delegate_stake {
+        let call = pallet_network::Call::<R>::add_subnet_delegate_stake {
             subnet_id,
             stake_to_be_added,
         };

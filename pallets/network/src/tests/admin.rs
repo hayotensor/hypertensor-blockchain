@@ -3,9 +3,9 @@ use super::test_utils::*;
 use crate::Event;
 use crate::{
     AttestorMinRewardFactor, AttestorRewardExponent, BaseNodeBurnAmount, BaseSlashPercentage,
-    BaseValidatorReward, DefaultOverwatchSubnetWeight, DelegateStakeCooldownEpochs,
-    DelegateStakeSubnetRemovalInterval, DelegateStakeWeightFactor, Error,
-    InConsensusSubnetReputationFactor, InflationSigmoidMidpoint, InflationSigmoidSteepness,
+    BaseValidatorReward, ConsensusValidatorNodeCountDecay, DefaultOverwatchSubnetWeight,
+    DelegateStakeCooldownEpochs, DelegateStakeSubnetRemovalInterval, DelegateStakeWeightFactor,
+    Error, InConsensusSubnetReputationFactor, InflationSigmoidMidpoint, InflationSigmoidSteepness,
     LessThanMinNodesSubnetReputationFactor, MaxBootnodes, MaxChurnLimit, MaxChurnLimitMultiplier,
     MaxDelegateStakePercentage, MaxEmergencySubnetNodes, MaxEmergencyValidatorEpochsMultiplier,
     MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes,
@@ -1000,6 +1000,51 @@ fn test_set_delegate_stake_weight_factor() {
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SetDelegateStakeWeightFactor(new_value)
+        );
+    });
+}
+
+#[test]
+fn test_set_consensus_validator_node_count_decay() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(System::block_number() + 1);
+
+        let percentage_factor = Network::percentage_factor_as_u128();
+        assert_eq!(ConsensusValidatorNodeCountDecay::<Test>::get(), percentage_factor);
+
+        let new_value = percentage_factor / 2;
+        assert_ok!(Network::set_consensus_validator_node_count_decay(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+            new_value
+        ));
+
+        assert_eq!(ConsensusValidatorNodeCountDecay::<Test>::get(), new_value);
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::SetConsensusValidatorNodeCountDecay(new_value)
+        );
+
+        assert_ok!(Network::set_consensus_validator_node_count_decay(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+            0
+        ));
+        assert_eq!(ConsensusValidatorNodeCountDecay::<Test>::get(), 0);
+
+        assert_ok!(Network::set_consensus_validator_node_count_decay(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+            percentage_factor
+        ));
+        assert_eq!(
+            ConsensusValidatorNodeCountDecay::<Test>::get(),
+            percentage_factor
+        );
+
+        assert_err!(
+            Network::set_consensus_validator_node_count_decay(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                percentage_factor + 1
+            ),
+            Error::<Test>::InvalidPercent
         );
     });
 }

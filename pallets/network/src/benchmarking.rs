@@ -468,7 +468,7 @@ fn build_activated_subnet<T: Config>(
             .expect("REASON"),
         ExistenceRequirement::KeepAlive,
     ));
-    assert_ok!(Network::<T>::add_delegate_stake(
+    assert_ok!(Network::<T>::add_subnet_delegate_stake(
         RawOrigin::Signed(delegate_staker_account.clone()).into(),
         subnet_id,
         min_subnet_delegate_stake,
@@ -614,7 +614,7 @@ fn build_registered_subnet<T: Config>(
             .expect("REASON"),
         ExistenceRequirement::KeepAlive,
     ));
-    assert_ok!(Network::<T>::add_delegate_stake(
+    assert_ok!(Network::<T>::add_subnet_delegate_stake(
         RawOrigin::Signed(delegate_staker_account.clone()).into(),
         subnet_id,
         min_subnet_delegate_stake,
@@ -1650,7 +1650,7 @@ mod benchmarks {
                 .expect("REASON"),
             ExistenceRequirement::KeepAlive,
         ));
-        assert_ok!(Network::<T>::add_delegate_stake(
+        assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_staker_account.clone()).into(),
             subnet_id,
             min_subnet_delegate_stake,
@@ -2913,7 +2913,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_delegate_stake(
+        assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
@@ -2973,7 +2973,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn add_delegate_stake() {
+    fn add_subnet_delegate_stake() {
         let end = 4;
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
@@ -2996,7 +2996,7 @@ mod benchmarks {
         let starting_delegator_balance = T::Currency::free_balance(&delegate_account.clone());
 
         #[extrinsic_call]
-        add_delegate_stake(
+        add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()),
             subnet_id,
             DEFAULT_STAKE_TO_BE_ADDED,
@@ -3060,7 +3060,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_delegate_stake(
+        assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             from_subnet_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
@@ -3151,7 +3151,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_delegate_stake(
+        assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
@@ -3202,7 +3202,7 @@ mod benchmarks {
                 .expect("REASON"),
             ExistenceRequirement::KeepAlive,
         ));
-        assert_ok!(Network::<T>::add_delegate_stake(
+        assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
@@ -3264,7 +3264,7 @@ mod benchmarks {
             ExistenceRequirement::KeepAlive,
         ));
 
-        assert_ok!(Network::<T>::add_delegate_stake(
+        assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
@@ -3591,7 +3591,7 @@ mod benchmarks {
         let delegate_account: T::AccountId = funded_account::<T>("delegate_account", 0);
         fund_account::<T>(&delegate_account, DEFAULT_DELEGATE_STAKE_TO_BE_ADDED);
 
-        assert_ok!(Network::<T>::add_delegate_stake(
+        assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             from_subnet_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
@@ -3660,7 +3660,7 @@ mod benchmarks {
     #[benchmark]
     fn propose_attestation() {
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
-        let end = 5;
+        let end = max_subnet_nodes;
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
             0,
@@ -3688,6 +3688,17 @@ mod benchmarks {
 
         let subnet_node_data_vec =
             get_subnet_node_consensus_data::<T>(subnet_id, max_subnet_nodes, 0, end);
+
+        for subnet_node_id in 1..=end {
+            if let Some(validator_id) =
+                SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
+            {
+                ValidatorDelegateStakeBalance::<T>::insert(
+                    validator_id,
+                    DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+                );
+            }
+        }
 
         #[extrinsic_call]
         propose_attestation(
@@ -3703,6 +3714,8 @@ mod benchmarks {
 
         let submission =
             SubnetConsensusSubmission::<T>::get(subnet_id, subnet_epoch as u32).unwrap();
+        let snapshot =
+            SubnetConsensusAttestorWeights::<T>::get(subnet_id, subnet_epoch as u32).unwrap();
 
         assert_eq!(
             submission.validator_id,
@@ -3715,13 +3728,15 @@ mod benchmarks {
             "Err: data len"
         );
         assert_eq!(submission.attests.len(), 1, "Err: attests"); // validator auto-attests
+        assert_eq!(snapshot.weights.len() as u32, end, "Err: weights");
+        assert_ne!(snapshot.total_weight, 0, "Err: total weight");
     }
 
     #[benchmark]
     fn attest() {
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let max_subnets = MaxSubnets::<T>::get();
-        let end = 5;
+        let end = max_subnet_nodes;
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
             0,
@@ -3750,6 +3765,17 @@ mod benchmarks {
         let subnet_node_data_vec =
             get_subnet_node_consensus_data::<T>(subnet_id, max_subnet_nodes, 0, end);
 
+        for subnet_node_id in 1..=end {
+            if let Some(validator_id) =
+                SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
+            {
+                ValidatorDelegateStakeBalance::<T>::insert(
+                    validator_id,
+                    DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+                );
+            }
+        }
+
         assert_ok!(Network::<T>::propose_attestation(
             RawOrigin::Signed(hotkey.clone()).into(),
             subnet_id,
@@ -3761,9 +3787,12 @@ mod benchmarks {
             None,
         ));
 
-        // Might be the same ID as validator_id
-        let attester = Network::<T>::get_subnet_node_associated_hotkey(subnet_id, end).unwrap();
-        let attester_subnet_node_id = end;
+        let attester_subnet_node_id = (1..=end)
+            .find(|node_id| *node_id != subnet_node_id.unwrap())
+            .unwrap();
+        let attester =
+            Network::<T>::get_subnet_node_associated_hotkey(subnet_id, attester_subnet_node_id)
+                .unwrap();
 
         let current_block_number = get_current_block_as_u32::<T>();
 
@@ -4989,6 +5018,20 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn set_consensus_validator_node_count_decay() {
+        let value = ConsensusValidatorNodeCountDecay::<T>::get();
+        let new_value = value - 1;
+
+        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
+            .expect("try_successful_origin failed");
+
+        #[extrinsic_call]
+        set_consensus_validator_node_count_decay(origin as T::RuntimeOrigin, new_value);
+
+        assert_eq!(ConsensusValidatorNodeCountDecay::<T>::get(), new_value);
+    }
+
+    #[benchmark]
     fn set_inflation_sigmoid_steepness() {
         let value = InflationSigmoidSteepness::<T>::get();
         let new_value = value - 1;
@@ -5686,7 +5729,7 @@ mod benchmarks {
 
         let starting_delegator_balance = T::Currency::free_balance(&account.clone());
 
-        assert_ok!(Network::<T>::add_delegate_stake(
+        assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(account.clone()).into(),
             from_subnet_id,
             amount,
@@ -6574,7 +6617,12 @@ mod benchmarks {
         let current_epoch = Network::<T>::get_current_epoch_as_u32();
 
         // submit data for the previous epoch
+        let validator_ids =
+            Network::<T>::canonicalize_consensus_validator_ids(consensus_data.validator_ids.clone());
+        let snapshot =
+            Network::<T>::snapshot_consensus_attestor_weights(subnet_id, &validator_ids).unwrap();
         SubnetConsensusSubmission::<T>::insert(subnet_id, subnet_epoch - 1, consensus_data);
+        SubnetConsensusAttestorWeights::<T>::insert(subnet_id, subnet_epoch - 1, snapshot);
 
         #[block]
         {

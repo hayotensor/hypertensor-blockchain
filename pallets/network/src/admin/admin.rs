@@ -365,6 +365,18 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
+    pub fn do_set_consensus_validator_node_count_decay(value: u128) -> DispatchResult {
+        ensure!(
+            value <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+
+        ConsensusValidatorNodeCountDecay::<T>::set(value);
+
+        Self::deposit_event(Event::SetConsensusValidatorNodeCountDecay(value));
+
+        Ok(())
+    }
     pub fn do_set_inflation_sigmoid_steepness(value: u128) -> DispatchResult {
         InflationSigmoidSteepness::<T>::set(value);
 

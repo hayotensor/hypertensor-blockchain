@@ -448,7 +448,7 @@ pub fn build_activated_subnet(
 
     assert_ne!(min_subnet_delegate_stake, u128::MAX);
     // --- Add the minimum required delegate stake balance to activate the subnet
-    assert_ok!(Network::add_delegate_stake(
+    assert_ok!(Network::add_subnet_delegate_stake(
         RuntimeOrigin::signed(account(delegate_staker_account)),
         subnet_id,
         min_subnet_delegate_stake,
@@ -696,7 +696,7 @@ pub fn build_activated_subnet_new_excess_subnets(
 
     assert_ne!(min_subnet_delegate_stake, u128::MAX);
     // --- Add the minimum required delegate stake balance to activate the subnet
-    assert_ok!(Network::add_delegate_stake(
+    assert_ok!(Network::add_subnet_delegate_stake(
         RuntimeOrigin::signed(account(delegate_staker_account)),
         subnet_id,
         min_subnet_delegate_stake,
@@ -955,7 +955,7 @@ pub fn build_registered_subnet(
 
         assert_ne!(min_subnet_delegate_stake, u128::MAX);
         // --- Add the minimum required delegate stake balance to activate the subnet
-        assert_ok!(Network::add_delegate_stake(
+        assert_ok!(Network::add_subnet_delegate_stake(
             RuntimeOrigin::signed(account(delegate_staker_account)),
             subnet_id,
             min_subnet_delegate_stake,
@@ -1479,7 +1479,7 @@ pub fn build_activated_subnet_with_delegator_rewards(
         min_subnet_delegate_stake + 500,
     );
     // --- Add the minimum required delegate stake balance to activate the subnet
-    assert_ok!(Network::add_delegate_stake(
+    assert_ok!(Network::add_subnet_delegate_stake(
         RuntimeOrigin::signed(account(delegate_staker_account)),
         subnet_id,
         min_subnet_delegate_stake,
@@ -1911,7 +1911,7 @@ pub fn insert_subnet_requirements(id: u32) {
 
     assert_ne!(min_subnet_delegate_stake, u128::MAX);
     // --- Add the minimum required delegate stake balance to activate the subnet
-    assert_ok!(Network::add_delegate_stake(
+    assert_ok!(Network::add_subnet_delegate_stake(
         RuntimeOrigin::signed(account(delegate_staker_account)),
         id,
         min_subnet_delegate_stake,

@@ -77,6 +77,76 @@ impl<T: Config> Pallet<T> {
         validator_ids
     }
 
+    pub(crate) fn snapshot_consensus_attestor_weights(
+        subnet_id: u32,
+        validator_ids: &[u32],
+    ) -> Result<ConsensusAttestorWeightSnapshot, Error<T>> {
+        let mut validator_nodes: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
+        let mut unmapped_nodes = Vec::new();
+
+        for subnet_node_id in validator_ids {
+            if let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, *subnet_node_id)
+            {
+                validator_nodes
+                    .entry(validator_id)
+                    .or_default()
+                    .push(*subnet_node_id);
+            } else {
+                unmapped_nodes.push(*subnet_node_id);
+            }
+        }
+
+        let mut weights = BTreeMap::new();
+        let mut total_weight = 0u128;
+        let node_count_decay = ConsensusValidatorNodeCountDecay::<T>::get();
+        let percentage_factor = Self::percentage_factor_as_u128();
+
+        for subnet_node_id in unmapped_nodes {
+            total_weight = total_weight
+                .checked_add(1)
+                .ok_or(Error::<T>::AttestorWeightOverflow)?;
+            weights.insert(subnet_node_id, 1);
+        }
+
+        for (validator_id, subnet_node_ids) in validator_nodes {
+            let validator_weight = ValidatorDelegateStakeBalance::<T>::get(validator_id).max(1);
+            let node_count = subnet_node_ids.len() as u128;
+            let effective_validator_weight =
+                if node_count > 1 && node_count_decay < percentage_factor {
+                    let penalty_exponent = 1.0 - Self::get_percent_as_f64(node_count_decay);
+                    let divisor = Self::pow(node_count as f64, penalty_exponent);
+                    let decayed_weight = validator_weight as f64 / divisor;
+
+                    if decayed_weight.is_finite() {
+                        (decayed_weight as u128).max(1)
+                    } else {
+                        validator_weight
+                    }
+                } else {
+                    validator_weight
+                };
+            let base_node_weight = effective_validator_weight / node_count;
+            let remainder = effective_validator_weight % node_count;
+
+            total_weight = total_weight
+                .checked_add(effective_validator_weight)
+                .ok_or(Error::<T>::AttestorWeightOverflow)?;
+
+            for (index, subnet_node_id) in subnet_node_ids.into_iter().enumerate() {
+                let mut node_weight = base_node_weight;
+                if (index as u128) < remainder {
+                    node_weight = node_weight.saturating_add(1);
+                }
+                weights.insert(subnet_node_id, node_weight);
+            }
+        }
+
+        Ok(ConsensusAttestorWeightSnapshot {
+            weights,
+            total_weight,
+        })
+    }
+
     /// Proposes attestation and submits consensus data for a subnet epoch.
     ///
     /// This function allows an elected validator to submit consensus data for their subnet,
@@ -249,6 +319,8 @@ impl<T: Config> Pallet<T> {
             SubnetNodeElectionSlots::<T>::get(subnet_id)
         };
         let validator_ids = Self::canonicalize_consensus_validator_ids(validator_ids);
+        let attestor_weight_snapshot =
+            Self::snapshot_consensus_attestor_weights(subnet_id, &validator_ids)?;
 
         // Check if validator sent through queue priority or removal node IDs
         if prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some() {
@@ -308,6 +380,11 @@ impl<T: Config> Pallet<T> {
 
         // --- Store the data
         SubnetConsensusSubmission::<T>::insert(subnet_id, subnet_epoch, consensus_data);
+        SubnetConsensusAttestorWeights::<T>::insert(
+            subnet_id,
+            subnet_epoch,
+            attestor_weight_snapshot,
+        );
 
         Self::deposit_event(Event::ValidatorSubmission {
             subnet_id: subnet_id,
@@ -333,13 +410,6 @@ impl<T: Config> Pallet<T> {
             Self::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id,)? == hotkey,
             Error::<T>::InvalidValidator
         );
-
-        // let subnet_node_id = Self::get_hotkey_associated_subnet_node(
-        //     subnet_id,
-        //     subnet_node_id,
-        //     validator_id,
-        //     hotkey.clone(),
-        // )?;
 
         // --- Ensure node classified to attest
         // This is redundant because we check this later.

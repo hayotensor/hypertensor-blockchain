@@ -156,7 +156,7 @@ fn test_on_initialize() {
                         let delta = min_subnet_delegate_stake - total_delegate_stake_balance;
                         let delegate = account(10000 + subnet_id);
                         let _ = Balances::deposit_creating(&delegate, delta + 500);
-                        assert_ok!(Network::add_delegate_stake(
+                        assert_ok!(Network::add_subnet_delegate_stake(
                             RuntimeOrigin::signed(delegate),
                             subnet_id,
                             delta,

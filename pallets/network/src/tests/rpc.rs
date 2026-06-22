@@ -449,7 +449,7 @@ fn test_get_delegate_stakes() {
         let _ = Balances::deposit_creating(&delegator, 1000000000000000000000 + 500);
 
         // Add delegate stake
-        assert_ok!(Network::add_delegate_stake(
+        assert_ok!(Network::add_subnet_delegate_stake(
             RuntimeOrigin::signed(delegator.clone()),
             subnet_id,
             1000000000000000000000

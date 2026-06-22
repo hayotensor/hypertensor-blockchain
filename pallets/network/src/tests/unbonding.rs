@@ -44,7 +44,7 @@ fn test_full_unbonding_ledger_blocks_subnet_delegate_unstake_without_debit() {
 
         let delegate = account(900);
         let _ = Balances::deposit_creating(&delegate, delegate_amount + 500);
-        assert_ok!(Network::add_delegate_stake(
+        assert_ok!(Network::add_subnet_delegate_stake(
             RuntimeOrigin::signed(delegate.clone()),
             subnet_id,
             delegate_amount,
@@ -574,7 +574,7 @@ fn test_register_remove_delegate_claim_stake_unbondings() {
 
         let starting_balance = Balances::free_balance(&delegate_staker.clone());
 
-        assert_ok!(Network::add_delegate_stake(
+        assert_ok!(Network::add_subnet_delegate_stake(
             RuntimeOrigin::signed(delegate_staker.clone()),
             subnet_id,
             delegate_stake_amount,
