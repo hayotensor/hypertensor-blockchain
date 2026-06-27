@@ -991,6 +991,18 @@ where
         )
     }
 
+    #[precompile::public("setEmergencyValidatorCooldownEpochs(uint256)")]
+    fn set_emergency_validator_cooldown_epochs(
+        handle: &mut impl PrecompileHandle,
+        value: U256,
+    ) -> EvmResult<()> {
+        let value = try_u256_to_u32(value)?;
+        dispatch_call::<R>(
+            handle,
+            pallet_network::Call::<R>::set_emergency_validator_cooldown_epochs { value },
+        )
+    }
+
     #[precompile::public("setOverwatchStakeWeightFactor(uint256)")]
     fn set_overwatch_stake_weight_factor(
         handle: &mut impl PrecompileHandle,
@@ -1018,6 +1030,18 @@ where
         dispatch_call::<R>(
             handle,
             pallet_network::Call::<R>::set_subnet_weight_factors { value },
+        )
+    }
+
+    #[precompile::public("setSubnetNetFlowSmoothingAlpha(uint256)")]
+    fn set_subnet_net_flow_smoothing_alpha(
+        handle: &mut impl PrecompileHandle,
+        value: U256,
+    ) -> EvmResult<()> {
+        let value = try_u256_to_u128(value)?;
+        dispatch_call::<R>(
+            handle,
+            pallet_network::Call::<R>::set_subnet_net_flow_smoothing_alpha { value },
         )
     }
 

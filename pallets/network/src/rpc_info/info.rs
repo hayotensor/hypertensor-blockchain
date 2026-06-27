@@ -102,10 +102,7 @@ impl<T: Config> Pallet<T> {
         infos
     }
 
-    pub fn get_subnet_node_info(
-        subnet_id: u32,
-        subnet_node_id: u32,
-    ) -> Option<SubnetNodeInfo<T>> {
+    pub fn get_subnet_node_info(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNodeInfo<T>> {
         let subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::get(subnet_id, subnet_node_id)
         } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {

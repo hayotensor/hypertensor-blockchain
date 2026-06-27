@@ -45,15 +45,17 @@ impl<T: Config> Pallet<T> {
 
         let percentage_factor = Self::percentage_factor_as_u128();
         let evaluated_subnet_epoch = current_subnet_epoch.saturating_sub(1);
-        let min_validator_reputation = MinSubnetNodeReputation::<T>::get(subnet_id);
+        let emergency_snapshot = consensus_submission_data.emergency.clone();
+        let min_validator_reputation = emergency_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.min_subnet_node_reputation)
+            .unwrap_or_else(|| MinSubnetNodeReputation::<T>::get(subnet_id));
         let subnet_reputation = SubnetReputation::<T>::get(subnet_id);
         // MinSubnetNodeReputation | SubnetReputation
         weight_meter.consume(db_weight.reads(2));
 
-        // We run this here because any epoch where a validator submits data, whether in consensus
-        // or not, we increment the forks `total_epochs`
         let forked_subnet_node_ids: Option<BTreeSet<u32>> =
-            Self::maybe_get_forked_subnet_node_ids(weight_meter, subnet_id);
+            Self::maybe_get_forked_subnet_node_ids(weight_meter, subnet_id, &emergency_snapshot);
 
         let electable_nodes_count = SubnetNodeElectionSlots::<T>::get(subnet_id).len() as u32;
         weight_meter.consume(db_weight.reads(1));
@@ -68,7 +70,12 @@ impl<T: Config> Pallet<T> {
                 min_validator_reputation,
                 electable_nodes_count,
                 current_epoch,
-                evaluated_subnet_epoch,
+                emergency_snapshot
+                    .as_ref()
+                    .map(|snapshot| snapshot.reputation_factors)
+                    .unwrap_or_else(|| {
+                        Self::get_reputation_factors_for_epoch(subnet_id, evaluated_subnet_epoch)
+                    }),
                 subnet_reputation,
                 percentage_factor,
                 weight_meter,
@@ -107,9 +114,16 @@ impl<T: Config> Pallet<T> {
 
         let idle_epochs = IdleClassificationEpochs::<T>::get(subnet_id);
         let included_epochs = IncludedClassificationEpochs::<T>::get(subnet_id);
-        let weight_threshold = SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id);
-        let reputation_factors =
-            Self::get_reputation_factors_for_epoch(subnet_id, evaluated_subnet_epoch);
+        let weight_threshold = emergency_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.min_weight_decrease_reputation_threshold)
+            .unwrap_or_else(|| SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id));
+        let reputation_factors = emergency_snapshot
+            .as_ref()
+            .map(|snapshot| snapshot.reputation_factors)
+            .unwrap_or_else(|| {
+                Self::get_reputation_factors_for_epoch(subnet_id, evaluated_subnet_epoch)
+            });
         let absent_factor = reputation_factors.absent_decrease;
         let included_factor = reputation_factors.included_increase;
         let min_weight_factor = reputation_factors.below_min_weight_decrease;
@@ -502,15 +516,12 @@ impl<T: Config> Pallet<T> {
         min_validator_reputation: u128,
         electable_nodes_count: u32,
         current_epoch: u32,
-        evaluated_subnet_epoch: u32,
+        reputation_factors: SubnetReputationFactors,
         subnet_reputation: u128,
         percentage_factor: u128,
         weight_meter: &mut WeightMeter,
     ) {
         let db_weight = T::DbWeight::get();
-        let reputation_factors =
-            Self::get_reputation_factors_for_epoch(subnet_id, evaluated_subnet_epoch);
-        weight_meter.consume(db_weight.reads(1));
 
         // --- Slash validator
         // Slashes stake balance
@@ -733,17 +744,11 @@ impl<T: Config> Pallet<T> {
                     let (x, c) =
                         Self::validator_subnet_nodes_weight_params(validator_id, subnet_id);
 
-                    if weight_meter.can_consume(T::WeightInfo::remove_registered_subnet_node(
-                        x,
-                        r,
-                        c,
-                    )) {
+                    if weight_meter
+                        .can_consume(T::WeightInfo::remove_registered_subnet_node(x, r, c))
+                    {
                         Self::remove_registered_subnet_node(subnet_id, remove_queue_node_id);
-                        weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(
-                            x,
-                            r,
-                            c,
-                        ));
+                        weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(x, r, c));
 
                         Self::deposit_event(Event::QueuedNodeRemoved {
                             subnet_id,
@@ -861,26 +866,32 @@ impl<T: Config> Pallet<T> {
     pub fn maybe_get_forked_subnet_node_ids(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
+        emergency_snapshot: &Option<EmergencyConsensusSnapshot>,
     ) -> Option<BTreeSet<u32>> {
+        let Some(snapshot) = emergency_snapshot else {
+            return None;
+        };
+
         let db_weight = T::DbWeight::get();
+        let mut should_finish = false;
 
-        // EmergencySubnetNodeElectionData
         weight_meter.consume(db_weight.reads(1));
-        let forked_subnet_node_ids: Option<BTreeSet<u32>> =
-            EmergencySubnetNodeElectionData::<T>::mutate_exists(subnet_id, |maybe_data| {
-                if let Some(data) = maybe_data {
+        EmergencySubnetNodeElectionData::<T>::mutate_exists(subnet_id, |maybe_data| {
+            if let Some(data) = maybe_data {
+                if data.activated && data.subnet_node_ids == snapshot.subnet_node_ids {
                     weight_meter.consume(db_weight.writes(1));
-
-                    // Increment `total_epochs`
                     data.total_epochs = data.total_epochs.saturating_add(1);
-
-                    Some(data.subnet_node_ids.iter().cloned().collect())
-                } else {
-                    None
+                    should_finish = data.total_epochs >= data.target_emergency_validators_epochs;
                 }
-            });
+            }
+        });
 
-        forked_subnet_node_ids
+        if should_finish {
+            Self::finish_emergency_validator_set(subnet_id);
+            weight_meter.consume(db_weight.writes(2));
+        }
+
+        Some(snapshot.subnet_node_ids.iter().cloned().collect())
     }
 
     pub fn handle_validator_delegate_stake(

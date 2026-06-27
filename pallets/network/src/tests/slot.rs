@@ -4,8 +4,9 @@ use crate::{
     FinalSubnetEmissionWeights, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     NewRegistrationCostMultiplier, OverwatchNodeStakeBalance, OverwatchNodeValidatorId,
     OverwatchReveals, QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetConsensusSubmission,
-    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName, SubnetNodeQueue,
-    TotalActiveSubnets,
+    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName, SubnetNetFlow,
+    SubnetNetFlowSmoothedWeight, SubnetNetFlowSmoothingAlpha, SubnetNodeQueue, SubnetRemovalReason,
+    SubnetsData, TotalActiveSubnets,
 };
 use sp_std::collections::btree_map::BTreeMap;
 
@@ -26,10 +27,32 @@ use sp_std::collections::btree_map::BTreeMap;
 // precheck_subnet_consensus_submission: test_precheck_subnet_consensus_submission
 // calculate_rewards: test_calculate_rewards
 
+fn build_active_subnet_ids(count: u32) -> Vec<u32> {
+    NewRegistrationCostMultiplier::<Test>::set(Network::percentage_factor_as_u128());
+
+    let deposit_amount: u128 = 10000000000000000000000;
+    let amount: u128 = 1000000000000000000000;
+    let end = 12;
+
+    for s in 0..count {
+        let subnet_name: Vec<u8> = format!("net-flow-subnet-{s}").into();
+        build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
+    }
+
+    increase_epochs(1);
+
+    (0..count)
+        .map(|s| {
+            let subnet_name: Vec<u8> = format!("net-flow-subnet-{s}").into();
+            SubnetName::<Test>::get(subnet_name).unwrap()
+        })
+        .collect()
+}
+
 #[test]
 fn test_calculate_overwatch_rewards() {
     new_test_ext().execute_with(|| {
-        NewRegistrationCostMultiplier::<Test>::set(1000000000000000000);
+        NewRegistrationCostMultiplier::<Test>::set(Network::percentage_factor_as_u128());
 
         let deposit_amount: u128 = 10000000000000000000000;
         let amount: u128 = 1000000000000000000000;
@@ -47,7 +70,7 @@ fn test_calculate_overwatch_rewards() {
 
         set_overwatch_epoch(1);
 
-        let default_weight = 1000000000000000000; // 1.0
+        let default_weight = Network::percentage_factor_as_u128();
         let overwatch_epoch = Network::get_current_overwatch_epoch_as_u32();
 
         let overwatch_nodes = 4;
@@ -133,7 +156,7 @@ fn test_calculate_overwatch_rewards() {
 #[test]
 fn test_handle_subnet_emission_weights() {
     new_test_ext().execute_with(|| {
-        NewRegistrationCostMultiplier::<Test>::set(1000000000000000000);
+        NewRegistrationCostMultiplier::<Test>::set(Network::percentage_factor_as_u128());
 
         let deposit_amount: u128 = 10000000000000000000000;
         let amount: u128 = 1000000000000000000000;
@@ -168,7 +191,7 @@ fn test_handle_subnet_emission_weights() {
 #[test]
 fn test_calculate_subnet_weights() {
     new_test_ext().execute_with(|| {
-        NewRegistrationCostMultiplier::<Test>::set(1000000000000000000);
+        NewRegistrationCostMultiplier::<Test>::set(Network::percentage_factor_as_u128());
 
         let deposit_amount: u128 = 10000000000000000000000;
         let amount: u128 = 1000000000000000000000;
@@ -202,7 +225,7 @@ fn test_calculate_subnet_weights() {
 #[test]
 fn test_calculate_subnet_weights_active_live_only() {
     new_test_ext().execute_with(|| {
-        NewRegistrationCostMultiplier::<Test>::set(1000000000000000000);
+        NewRegistrationCostMultiplier::<Test>::set(Network::percentage_factor_as_u128());
 
         let deposit_amount: u128 = 10000000000000000000000;
         let amount: u128 = 1000000000000000000000;
@@ -249,6 +272,152 @@ fn test_calculate_subnet_weights_active_live_only() {
                 assert!(*subnet_weight.unwrap() <= Network::percentage_factor_as_u128());
             }
         }
+    });
+}
+
+#[test]
+fn test_get_net_flow_weights_smoothes_relative_weights() {
+    new_test_ext().execute_with(|| {
+        let subnet_ids = build_active_subnet_ids(3);
+        let alpha = test_percent(1, 2);
+        SubnetNetFlowSmoothingAlpha::<Test>::set(alpha);
+
+        SubnetNetFlow::<Test>::insert(subnet_ids[0], -100);
+        SubnetNetFlow::<Test>::insert(subnet_ids[1], 0);
+        SubnetNetFlow::<Test>::insert(subnet_ids[2], 100);
+
+        let (weights, _) = Network::get_net_flow_weights(
+            SubnetsData::<Test>::iter().collect(),
+            Network::get_current_epoch_as_u32(),
+        );
+
+        let raw_middle_weight = Network::percent_div(100, 300);
+        let raw_high_weight = Network::percent_div(200, 300);
+        let expected_middle_weight = Network::percent_mul(raw_middle_weight, alpha);
+        let expected_high_weight = Network::percent_mul(raw_high_weight, alpha);
+
+        assert_eq!(weights.get(&subnet_ids[0]).copied().unwrap_or(0), 0);
+        assert_eq!(
+            weights.get(&subnet_ids[1]).copied().unwrap_or(0),
+            expected_middle_weight
+        );
+        assert_eq!(
+            weights.get(&subnet_ids[2]).copied().unwrap_or(0),
+            expected_high_weight
+        );
+        assert!(expected_high_weight > expected_middle_weight);
+
+        for subnet_id in subnet_ids.iter().copied() {
+            assert_eq!(SubnetNetFlow::<Test>::get(subnet_id), 0);
+            assert_eq!(
+                SubnetNetFlowSmoothedWeight::<Test>::get(subnet_id),
+                weights.get(&subnet_id).copied().unwrap_or(0)
+            );
+        }
+    });
+}
+
+#[test]
+fn test_get_net_flow_weights_decays_on_equal_flow_epoch() {
+    new_test_ext().execute_with(|| {
+        let subnet_ids = build_active_subnet_ids(3);
+        let alpha = test_percent(1, 2);
+        SubnetNetFlowSmoothingAlpha::<Test>::set(alpha);
+
+        SubnetNetFlow::<Test>::insert(subnet_ids[0], -100);
+        SubnetNetFlow::<Test>::insert(subnet_ids[1], 0);
+        SubnetNetFlow::<Test>::insert(subnet_ids[2], 100);
+
+        let (first_weights, _) = Network::get_net_flow_weights(
+            SubnetsData::<Test>::iter().collect(),
+            Network::get_current_epoch_as_u32(),
+        );
+        let first_high_weight = first_weights.get(&subnet_ids[2]).copied().unwrap_or(0);
+        assert!(first_high_weight > 0);
+
+        let (second_weights, _) = Network::get_net_flow_weights(
+            SubnetsData::<Test>::iter().collect(),
+            Network::get_current_epoch_as_u32(),
+        );
+
+        let expected_decayed_weight = Network::percent_mul(first_high_weight, alpha);
+        assert_eq!(
+            second_weights.get(&subnet_ids[2]).copied().unwrap_or(0),
+            expected_decayed_weight
+        );
+        assert!(expected_decayed_weight < first_high_weight);
+    });
+}
+
+#[test]
+fn test_get_net_flow_weights_excludes_non_live_subnets_and_clears_storage() {
+    new_test_ext().execute_with(|| {
+        let _active_subnet_ids = build_active_subnet_ids(2);
+
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+        let registering_subnet_name: Vec<u8> = "net-flow-registering-subnet".into();
+        build_registered_subnet(
+            registering_subnet_name.clone(),
+            0,
+            4,
+            deposit_amount,
+            amount,
+            true,
+            None,
+        );
+        let registering_subnet_id =
+            SubnetName::<Test>::get(registering_subnet_name.clone()).unwrap();
+
+        SubnetNetFlow::<Test>::insert(registering_subnet_id, 1000);
+        SubnetNetFlowSmoothedWeight::<Test>::insert(
+            registering_subnet_id,
+            Network::percentage_factor_as_u128(),
+        );
+
+        let (weights, _) = Network::get_net_flow_weights(
+            SubnetsData::<Test>::iter().collect(),
+            Network::get_current_epoch_as_u32(),
+        );
+
+        assert!(!weights.contains_key(&registering_subnet_id));
+        assert_eq!(SubnetNetFlow::<Test>::get(registering_subnet_id), 0);
+        assert_eq!(
+            SubnetNetFlowSmoothedWeight::<Test>::get(registering_subnet_id),
+            0
+        );
+    });
+}
+
+#[test]
+fn test_subnet_removal_clears_net_flow_storage() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = build_active_subnet_ids(1)[0];
+
+        SubnetNetFlow::<Test>::insert(subnet_id, -100);
+        SubnetNetFlowSmoothedWeight::<Test>::insert(
+            subnet_id,
+            Network::percentage_factor_as_u128(),
+        );
+
+        Network::do_remove_subnet(subnet_id, SubnetRemovalReason::Owner);
+
+        assert_eq!(SubnetNetFlow::<Test>::get(subnet_id), 0);
+        assert_eq!(SubnetNetFlowSmoothedWeight::<Test>::get(subnet_id), 0);
+    });
+}
+
+#[test]
+fn test_subnet_net_flow_large_amount_does_not_wrap_signed() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+
+        Network::increase_account_delegate_stake(&account(1), subnet_id, u128::MAX, 0);
+        assert_eq!(SubnetNetFlow::<Test>::get(subnet_id), i128::MAX);
+
+        SubnetNetFlow::<Test>::remove(subnet_id);
+        Network::decrease_account_delegate_stake(&account(1), subnet_id, u128::MAX, 0);
+        assert_eq!(SubnetNetFlow::<Test>::get(subnet_id), -i128::MAX);
     });
 }
 

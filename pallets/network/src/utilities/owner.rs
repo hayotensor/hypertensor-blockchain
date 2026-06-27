@@ -17,8 +17,6 @@
 // See all storage elements for docs in `lib.rs`
 
 use super::*;
-use libm::{ceil, log};
-
 impl<T: Config> Pallet<T> {
     /// Owner pause subnet for up to max period
     ///
@@ -107,7 +105,7 @@ impl<T: Config> Pallet<T> {
 
             // Update each registration queued node
             // Move each nodes start_epoch forward by the amount of epochs the subnet was paused
-            for (subnet_id, uid, _) in RegisteredSubnetNodesData::<T>::iter() {
+            for (uid, _) in RegisteredSubnetNodesData::<T>::iter_prefix(subnet_id) {
                 RegisteredSubnetNodesData::<T>::mutate(subnet_id, uid, |subnet_node| {
                     let curr_start_epoch = subnet_node.classification.start_epoch;
                     subnet_node.classification.start_epoch = curr_start_epoch.saturating_add(delta);
@@ -127,16 +125,22 @@ impl<T: Config> Pallet<T> {
 
         PreviousSubnetPauseEpoch::<T>::insert(subnet_id, epoch);
 
-        // Modify max subnet epoch if owner called for emergency validators
+        // Activate a pending emergency validator set. Active emergency data is intentionally
+        // not reset on later pause/unpause cycles.
         EmergencySubnetNodeElectionData::<T>::mutate_exists(subnet_id, |maybe_data| {
             if let Some(data) = maybe_data {
-                data.max_emergency_validators_epoch = Self::get_current_subnet_epoch_as_u32(
-                    subnet_id,
-                )
-                .saturating_add(Self::percent_mul(
-                    data.target_emergency_validators_epochs as u128,
-                    MaxEmergencyValidatorEpochsMultiplier::<T>::get(),
-                ) as u32);
+                if !data.activated {
+                    let start_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+                    let max_emergency_delta = Self::percent_mul(
+                        data.target_emergency_validators_epochs as u128,
+                        MaxEmergencyValidatorEpochsMultiplier::<T>::get(),
+                    )
+                    .min(u32::MAX as u128) as u32;
+                    data.activated = true;
+                    data.started_subnet_epoch = start_epoch;
+                    data.max_emergency_validators_epoch =
+                        start_epoch.saturating_add(max_emergency_delta);
+                }
             }
         });
 
@@ -151,7 +155,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_owner_set_emergency_validator_set(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
-        mut subnet_node_ids: Vec<u32>,
+        subnet_node_ids: Vec<u32>,
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
@@ -165,33 +169,37 @@ impl<T: Config> Pallet<T> {
             Error::<T>::SubnetMustBePaused
         );
 
-        // Remove duplicate subnet node ids
-        subnet_node_ids.dedup_by(|a, b| a == b);
-
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::maybe_finish_expired_emergency_validator_set(subnet_id, subnet_epoch);
 
-        // Filter out subnet node ids that are not validators
-        subnet_node_ids.retain(|id| match SubnetNodesData::<T>::try_get(subnet_id, id) {
-            Ok(subnet_node) => {
-                subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
-            }
-            Err(()) => false,
-        });
+        if let Some(data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id) {
+            ensure!(!data.activated, Error::<T>::EmergencyValidatorsActive);
+        }
 
-        // Ensure the number of subnet node ids is at least >= min subnet nodes requirement
+        Self::ensure_emergency_validator_cooldown_complete(subnet_id)?;
+
+        let subnet_node_ids =
+            Self::validate_emergency_validator_ids(subnet_id, subnet_epoch, subnet_node_ids)?;
+
+        let reputation_factors = Self::get_reputation_factors_for_epoch(subnet_id, subnet_epoch);
         ensure!(
-            subnet_node_ids.len() as u32 >= MinSubnetNodes::<T>::get(),
-            Error::<T>::InvalidMinEmergencySubnetNodes
+            reputation_factors.absent_decrease > 0,
+            Error::<T>::InvalidEmergencyValidatorDuration
         );
 
-        // Ensure the number of subnet node ids is at most <= max subnet nodes requirement
+        let min_subnet_node_reputation = MinSubnetNodeReputation::<T>::get(subnet_id);
         ensure!(
-            subnet_node_ids.len() as u32 <= MaxEmergencySubnetNodes::<T>::get(),
-            Error::<T>::InvalidMaxEmergencySubnetNodes
+            min_subnet_node_reputation > 0,
+            Error::<T>::InvalidEmergencyValidatorDuration
         );
 
         // Calculate the target emergency epochs
-        let target_emergency_epochs = Self::get_max_steps_for_node_removal(subnet_id) + 1;
+        let target_emergency_epochs = Self::get_max_steps_for_node_removal(
+            subnet_id,
+            &subnet_node_ids,
+            reputation_factors.absent_decrease,
+            min_subnet_node_reputation,
+        )?;
 
         // Insert emergency subnet validator data
         EmergencySubnetNodeElectionData::<T>::insert(
@@ -201,6 +209,12 @@ impl<T: Config> Pallet<T> {
                 target_emergency_validators_epochs: target_emergency_epochs,
                 total_epochs: 0,
                 max_emergency_validators_epoch: 0,
+                activated: false,
+                started_subnet_epoch: 0,
+                reputation_factors,
+                min_subnet_node_reputation,
+                min_weight_decrease_reputation_threshold:
+                    SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
             },
         );
 
@@ -216,100 +230,167 @@ impl<T: Config> Pallet<T> {
     pub fn do_owner_set_emergency_validator_set_v2(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
-        mut subnet_node_ids: Vec<u32>,
+        subnet_node_ids: Vec<u32>,
     ) -> DispatchResult {
-        let coldkey: T::AccountId = ensure_signed(origin)?;
-
-        ensure!(
-            Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
-            Error::<T>::NotSubnetOwner
-        );
-
-        ensure!(
-            Self::is_subnet_paused(subnet_id).unwrap_or(false),
-            Error::<T>::SubnetMustBePaused
-        );
-
-        // Remove duplicate subnet node ids
-        subnet_node_ids.dedup_by(|a, b| a == b);
-
-        let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
-
-        // Filter out subnet node ids that are not validators
-        subnet_node_ids.retain(|id| match SubnetNodesData::<T>::try_get(subnet_id, id) {
-            Ok(subnet_node) => {
-                subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
-            }
-            Err(()) => false,
-        });
-
-        // Ensure the number of subnet node ids is at least >= min subnet nodes requirement
-        ensure!(
-            subnet_node_ids.len() as u32 >= MinSubnetNodes::<T>::get(),
-            Error::<T>::InvalidMinEmergencySubnetNodes
-        );
-
-        // Ensure the number of subnet node ids is at most <= max subnet nodes requirement
-        ensure!(
-            subnet_node_ids.len() as u32 <= MaxEmergencySubnetNodes::<T>::get(),
-            Error::<T>::InvalidMaxEmergencySubnetNodes
-        );
-
-        // Calculate the target emergency epochs
-        let target_emergency_epochs = Self::get_max_steps_for_node_removal(subnet_id) + 1;
-
-        // Insert emergency subnet validator data
-        EmergencySubnetNodeElectionData::<T>::insert(
-            subnet_id,
-            EmergencySubnetValidatorData {
-                subnet_node_ids: subnet_node_ids.clone(),
-                target_emergency_validators_epochs: target_emergency_epochs,
-                total_epochs: 0,
-                max_emergency_validators_epoch: 0,
-            },
-        );
-
-        Self::deposit_event(Event::SubnetForked {
-            subnet_id: subnet_id,
-            owner: coldkey,
-            subnet_node_ids,
-        });
-
-        Ok(())
+        Self::do_owner_set_emergency_validator_set(origin, subnet_id, subnet_node_ids)
     }
 
     /// Get the required epochs to have a node removed based on not being in consensus data
     /// based on the `AbsentDecreaseReputationFactor`
     /// i.e. if a node is not in consensus data, it will be removed after this many epochs
-    fn get_max_steps_for_node_removal(subnet_id: u32) -> u32 {
-        let one: f64 = Self::get_percent_as_f64(Self::percentage_factor_as_u128());
+    fn get_max_steps_for_node_removal(
+        subnet_id: u32,
+        emergency_subnet_node_ids: &Vec<u32>,
+        absent_decrease_factor: u128,
+        min_reputation: u128,
+    ) -> Result<u32, Error<T>> {
+        let emergency_ids: BTreeSet<u32> = emergency_subnet_node_ids.iter().cloned().collect();
+        let mut max_steps = 0u32;
 
-        // Based on network min max parameters
-        let min_min_reputation: f64 =
-            Self::get_percent_as_f64(MinMinSubnetNodeReputation::<T>::get());
-        let min_absent_factor: f64 = Self::get_percent_as_f64(MinNodeReputationFactor::<T>::get());
+        for subnet_node_id in SubnetNodeElectionSlots::<T>::get(subnet_id) {
+            if emergency_ids.contains(&subnet_node_id) {
+                continue;
+            }
 
-        let r = one - min_absent_factor;
-        let n = ceil(log(min_min_reputation / one) / log(r)) as u32 + 1;
+            let mut reputation =
+                SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id).unwrap_or(0);
+            let mut steps = 0u32;
 
-        // Subnet parameters
-        let min_reputation: f64 =
-            Self::get_percent_as_f64(MinSubnetNodeReputation::<T>::get(subnet_id));
-        let reputation_factors = Self::get_reputation_factors_for_epoch(
-            subnet_id,
-            Self::get_current_subnet_epoch_as_u32(subnet_id),
-        );
-        let absent_factor: f64 = Self::get_percent_as_f64(reputation_factors.absent_decrease);
+            while reputation >= min_reputation {
+                reputation = Self::decrease_rep(reputation, absent_decrease_factor, None);
+                steps = steps.saturating_add(1);
 
-        let r2 = one - absent_factor;
-        let n2 = ceil(log(min_reputation / one) / log(r2)) as u32 + 1;
+                ensure!(
+                    steps <= 10_000,
+                    Error::<T>::InvalidEmergencyValidatorDuration
+                );
+            }
 
-        // Redundantly check steps
-        if n < n2 {
-            return n;
+            max_steps = max_steps.max(steps);
         }
 
-        n2
+        Ok(max_steps.saturating_add(1))
+    }
+
+    fn validate_emergency_validator_ids(
+        subnet_id: u32,
+        subnet_epoch: u32,
+        mut subnet_node_ids: Vec<u32>,
+    ) -> Result<Vec<u32>, Error<T>> {
+        ensure!(
+            subnet_node_ids.len() as u32 <= MaxEmergencySubnetNodes::<T>::get(),
+            Error::<T>::InvalidMaxEmergencySubnetNodes
+        );
+
+        for subnet_node_id in subnet_node_ids.iter() {
+            let subnet_node = SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
+                .map_err(|_| Error::<T>::InvalidEmergencySubnetNodeId)?;
+
+            ensure!(
+                subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch),
+                Error::<T>::InvalidEmergencySubnetNodeId
+            );
+        }
+
+        subnet_node_ids.sort_unstable();
+        subnet_node_ids.dedup();
+
+        ensure!(
+            subnet_node_ids.len() as u32 >= MinSubnetNodes::<T>::get(),
+            Error::<T>::InvalidMinEmergencySubnetNodes
+        );
+
+        ensure!(
+            subnet_node_ids.len() as u32 <= MaxEmergencySubnetNodes::<T>::get(),
+            Error::<T>::InvalidMaxEmergencySubnetNodes
+        );
+
+        Ok(subnet_node_ids)
+    }
+
+    pub fn ensure_emergency_validator_cooldown_complete(subnet_id: u32) -> DispatchResult {
+        let last_end_epoch = LastEmergencyValidatorEndEpoch::<T>::get(subnet_id);
+        if last_end_epoch == 0 {
+            return Ok(());
+        }
+
+        let current_epoch = Self::get_current_epoch_as_u32();
+        ensure!(
+            last_end_epoch.saturating_add(EmergencyValidatorCooldownEpochs::<T>::get())
+                <= current_epoch,
+            Error::<T>::EmergencyValidatorCooldownActive
+        );
+
+        Ok(())
+    }
+
+    pub fn is_emergency_validator_set_active(subnet_id: u32) -> bool {
+        EmergencySubnetNodeElectionData::<T>::get(subnet_id)
+            .map(|data| data.activated)
+            .unwrap_or(false)
+    }
+
+    pub fn active_emergency_validator_ids(
+        data: &EmergencySubnetValidatorData,
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> Vec<u32> {
+        data.subnet_node_ids
+            .iter()
+            .filter_map(|subnet_node_id| {
+                SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
+                    .ok()
+                    .filter(|subnet_node| {
+                        subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
+                    })
+                    .map(|_| *subnet_node_id)
+            })
+            .collect()
+    }
+
+    pub fn is_emergency_validator_set_expired(
+        data: &EmergencySubnetValidatorData,
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> bool {
+        data.activated
+            && (data.total_epochs >= data.target_emergency_validators_epochs
+                || subnet_epoch > data.max_emergency_validators_epoch
+                || (Self::active_emergency_validator_ids(data, subnet_id, subnet_epoch).len()
+                    as u32)
+                    < MinSubnetNodes::<T>::get())
+    }
+
+    pub fn maybe_finish_expired_emergency_validator_set(subnet_id: u32, subnet_epoch: u32) -> bool {
+        if let Some(data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id) {
+            if Self::is_emergency_validator_set_expired(&data, subnet_id, subnet_epoch) {
+                Self::finish_emergency_validator_set(subnet_id);
+                return true;
+            }
+        }
+
+        false
+    }
+
+    pub fn emergency_consensus_snapshot(
+        data: &EmergencySubnetValidatorData,
+    ) -> EmergencyConsensusSnapshot {
+        EmergencyConsensusSnapshot {
+            subnet_node_ids: data.subnet_node_ids.clone(),
+            reputation_factors: data.reputation_factors,
+            min_subnet_node_reputation: data.min_subnet_node_reputation,
+            min_weight_decrease_reputation_threshold: data.min_weight_decrease_reputation_threshold,
+        }
+    }
+
+    pub fn finish_emergency_validator_set(subnet_id: u32) {
+        if EmergencySubnetNodeElectionData::<T>::take(subnet_id).is_some() {
+            LastEmergencyValidatorEndEpoch::<T>::insert(
+                subnet_id,
+                Self::get_current_epoch_as_u32(),
+            );
+            Self::deposit_event(Event::EmergencyValidatorSetExpired { subnet_id });
+        }
     }
 
     /// Owner can remove the emergency validator set at any time
@@ -338,7 +419,14 @@ impl<T: Config> Pallet<T> {
             Error::<T>::SubnetMustBePaused
         );
 
-        EmergencySubnetNodeElectionData::<T>::remove(subnet_id);
+        if let Some(data) = EmergencySubnetNodeElectionData::<T>::take(subnet_id) {
+            if data.activated {
+                LastEmergencyValidatorEndEpoch::<T>::insert(
+                    subnet_id,
+                    Self::get_current_epoch_as_u32(),
+                );
+            }
+        }
 
         Self::deposit_event(Event::SubnetForkRevert {
             subnet_id: subnet_id,
@@ -1067,6 +1155,11 @@ impl<T: Config> Pallet<T> {
         );
 
         ensure!(
+            !EmergencySubnetNodeElectionData::<T>::contains_key(subnet_id),
+            Error::<T>::EmergencyValidatorsSet
+        );
+
+        ensure!(
             value <= Self::percentage_factor_as_u128(),
             Error::<T>::InvalidPercent
         );
@@ -1105,6 +1198,45 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    pub fn do_owner_update_consensus_validator_node_count_decay(
+        origin: T::RuntimeOrigin,
+        subnet_id: u32,
+        value: u128,
+    ) -> DispatchResult {
+        let coldkey: T::AccountId = ensure_signed(origin)?;
+
+        ensure!(
+            Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
+            Error::<T>::NotSubnetOwner
+        );
+
+        ensure!(
+            value <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+
+        let current_epoch = Self::get_current_epoch_as_u32();
+        let update_interval = ConsensusValidatorNodeCountDecayUpdateInterval::<T>::get();
+
+        if let Some(last_update) = LastConsensusValidatorNodeCountDecayUpdate::<T>::get(subnet_id) {
+            ensure!(
+                last_update.saturating_add(update_interval) <= current_epoch,
+                Error::<T>::ConsensusValidatorNodeCountDecayUpdateTooSoon
+            );
+        }
+
+        ConsensusValidatorNodeCountDecay::<T>::insert(subnet_id, value);
+        LastConsensusValidatorNodeCountDecayUpdate::<T>::insert(subnet_id, current_epoch);
+
+        Self::deposit_event(Event::ConsensusValidatorNodeCountDecayUpdate {
+            subnet_id,
+            owner: coldkey,
+            value,
+        });
+
+        Ok(())
+    }
+
     pub fn do_owner_update_min_subnet_node_reputation(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
@@ -1115,6 +1247,16 @@ impl<T: Config> Pallet<T> {
         ensure!(
             Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
             Error::<T>::NotSubnetOwner
+        );
+
+        Self::maybe_finish_expired_emergency_validator_set(
+            subnet_id,
+            Self::get_current_subnet_epoch_as_u32(subnet_id),
+        );
+
+        ensure!(
+            !Self::is_emergency_validator_set_active(subnet_id),
+            Error::<T>::EmergencyValidatorsSet
         );
 
         ensure!(
@@ -1151,6 +1293,16 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
+        Self::maybe_finish_expired_emergency_validator_set(
+            subnet_id,
+            Self::get_current_subnet_epoch_as_u32(subnet_id),
+        );
+
+        ensure!(
+            !Self::is_emergency_validator_set_active(subnet_id),
+            Error::<T>::EmergencyValidatorsSet
+        );
+
         ensure!(
             value <= MaxSubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(),
             Error::<T>::InvalidPercent
@@ -1184,8 +1336,13 @@ impl<T: Config> Pallet<T> {
         ensure!(updates.has_update(), Error::<T>::InvalidValues);
 
         if updates.requires_no_emergency_validators() {
+            Self::maybe_finish_expired_emergency_validator_set(
+                subnet_id,
+                Self::get_current_subnet_epoch_as_u32(subnet_id),
+            );
+
             ensure!(
-                !EmergencySubnetNodeElectionData::<T>::contains_key(subnet_id),
+                !Self::is_emergency_validator_set_active(subnet_id),
                 Error::<T>::EmergencyValidatorsSet
             );
         }

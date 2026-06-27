@@ -82,61 +82,64 @@ impl<T: Config> Pallet<T> {
         validator_ids: &[u32],
     ) -> Result<ConsensusAttestorWeightSnapshot, Error<T>> {
         let mut validator_nodes: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-        let mut unmapped_nodes = Vec::new();
 
         for subnet_node_id in validator_ids {
-            if let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, *subnet_node_id)
-            {
-                validator_nodes
-                    .entry(validator_id)
-                    .or_default()
-                    .push(*subnet_node_id);
-            } else {
-                unmapped_nodes.push(*subnet_node_id);
-            }
+            let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, *subnet_node_id)
+                .ok_or(Error::<T>::InvalidSubnetNodeId)?;
+            validator_nodes
+                .entry(validator_id)
+                .or_default()
+                .push(*subnet_node_id);
         }
 
         let mut weights = BTreeMap::new();
         let mut total_weight = 0u128;
-        let node_count_decay = ConsensusValidatorNodeCountDecay::<T>::get();
+        let node_count_decay = ConsensusValidatorNodeCountDecay::<T>::get(subnet_id);
         let percentage_factor = Self::percentage_factor_as_u128();
 
-        for subnet_node_id in unmapped_nodes {
-            total_weight = total_weight
-                .checked_add(1)
-                .ok_or(Error::<T>::AttestorWeightOverflow)?;
-            weights.insert(subnet_node_id, 1);
-        }
-
         for (validator_id, subnet_node_ids) in validator_nodes {
-            let validator_weight = ValidatorDelegateStakeBalance::<T>::get(validator_id).max(1);
-            let node_count = subnet_node_ids.len() as u128;
-            let effective_validator_weight =
-                if node_count > 1 && node_count_decay < percentage_factor {
-                    let penalty_exponent = 1.0 - Self::get_percent_as_f64(node_count_decay);
-                    let divisor = Self::pow(node_count as f64, penalty_exponent);
-                    let decayed_weight = validator_weight as f64 / divisor;
+            let validator_delegate_stake = ValidatorDelegateStakeBalance::<T>::get(validator_id);
+            let validator_node_weights = ValidatorNodeDelegateStakeWeights::<T>::get(validator_id);
+            let snapshotted_node_count = subnet_node_ids.len() as u128;
+            let node_count = ValidatorSubnetNodes::<T>::get(validator_id)
+                .get(&subnet_id)
+                .map(|subnet_nodes| subnet_nodes.len() as u128)
+                .unwrap_or(snapshotted_node_count)
+                .max(snapshotted_node_count);
 
-                    if decayed_weight.is_finite() {
-                        (decayed_weight as u128).max(1)
+            for subnet_node_id in subnet_node_ids {
+                let allocation = validator_node_weights
+                    .get(&(subnet_id, subnet_node_id))
+                    .copied()
+                    .unwrap_or(0);
+                let allocated_weight = Self::percent_mul(validator_delegate_stake, allocation);
+
+                let node_weight = if allocated_weight > 0
+                    && node_count > 1
+                    && node_count_decay < percentage_factor
+                {
+                    let penalty_exponent = Self::get_percent_as_f64(
+                        percentage_factor.saturating_sub(node_count_decay.min(percentage_factor)),
+                    );
+                    let divisor = Self::pow(node_count as f64, penalty_exponent);
+
+                    if divisor.is_finite() && divisor > 0.0 {
+                        let decayed_weight = allocated_weight as f64 / divisor;
+                        if decayed_weight.is_finite() && decayed_weight > 0.0 {
+                            decayed_weight as u128
+                        } else {
+                            0
+                        }
                     } else {
-                        validator_weight
+                        allocated_weight
                     }
                 } else {
-                    validator_weight
+                    allocated_weight
                 };
-            let base_node_weight = effective_validator_weight / node_count;
-            let remainder = effective_validator_weight % node_count;
 
-            total_weight = total_weight
-                .checked_add(effective_validator_weight)
-                .ok_or(Error::<T>::AttestorWeightOverflow)?;
-
-            for (index, subnet_node_id) in subnet_node_ids.into_iter().enumerate() {
-                let mut node_weight = base_node_weight;
-                if (index as u128) < remainder {
-                    node_weight = node_weight.saturating_add(1);
-                }
+                total_weight = total_weight
+                    .checked_add(node_weight)
+                    .ok_or(Error::<T>::AttestorWeightOverflow)?;
                 weights.insert(subnet_node_id, node_weight);
             }
         }
@@ -308,13 +311,28 @@ impl<T: Config> Pallet<T> {
         // call of this function as the official point of time of which nodes can attest on this epoch.
         //
         // This is in case the owner "suedo-forks" or pauses the subnet after the validator has submitted their data.
-        let validator_ids: Vec<u32> = if let Some(emergency_validator_data) =
+        let emergency_snapshot = if let Some(emergency_validator_data) =
             EmergencySubnetNodeElectionData::<T>::get(subnet_id)
         {
-            emergency_validator_data
-                .subnet_node_ids
-                .into_iter()
-                .collect()
+            if emergency_validator_data.activated {
+                Some(Self::emergency_consensus_snapshot(
+                    &emergency_validator_data,
+                ))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
+
+        if emergency_snapshot.is_some()
+            && (prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some())
+        {
+            return Err(Error::<T>::EmergencyQueueMutationNotAllowed.into());
+        }
+
+        let validator_ids: Vec<u32> = if let Some(snapshot) = &emergency_snapshot {
+            snapshot.subnet_node_ids.iter().cloned().collect()
         } else {
             SubnetNodeElectionSlots::<T>::get(subnet_id)
         };
@@ -376,6 +394,7 @@ impl<T: Config> Pallet<T> {
             remove_queue_node_id: remove_queue_node_id,
             data: data,
             args: args,
+            emergency: emergency_snapshot,
         };
 
         // --- Store the data

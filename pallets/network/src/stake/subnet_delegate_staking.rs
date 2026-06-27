@@ -382,8 +382,9 @@ impl<T: Config> Pallet<T> {
 
         TotalDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
 
+        let flow_delta = i128::try_from(amount).unwrap_or(i128::MAX);
         SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
-            *flow = flow.saturating_add(amount as i128);
+            *flow = flow.saturating_add(flow_delta);
         });
     }
 
@@ -408,8 +409,9 @@ impl<T: Config> Pallet<T> {
 
         TotalDelegateStake::<T>::mutate(|mut n| n.saturating_reduce(amount));
 
+        let flow_delta = i128::try_from(amount).unwrap_or(i128::MAX);
         SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
-            *flow = flow.saturating_sub(amount as i128);
+            *flow = flow.saturating_sub(flow_delta);
         });
     }
 

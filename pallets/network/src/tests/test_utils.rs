@@ -1,11 +1,11 @@
 use super::mock::*;
-pub use crate::NetworkBytes;
 use crate::Event;
+pub use crate::NetworkBytes;
 use crate::{
     multiaddr::*, AccountSubnetDelegateStakeShares, AttestEntry, BootnodePeerIdSubnetNodeId,
     ClientPeerIdSubnetNodeId, ColdkeyValidatorId, ConsensusData, DelegateAccount,
-    EmergencySubnetNodeElectionData, HotkeyValidatorId, InitialValidatorData, MaxMaxRegisteredNodes,
-    MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
+    EmergencySubnetNodeElectionData, HotkeyValidatorId, InitialValidatorData,
+    MaxMaxRegisteredNodes, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     MinSubnetNodes, MinSubnetRegistrationEpochs, MultiaddrSubnetNodeId, NetworkMaxStakeBalance,
     NodeSubnetStake, OverwatchCommitCutoffPercent, OverwatchEpochLengthMultiplier, OverwatchMinAge,
     OverwatchMinStakeBalance, OverwatchNode, OverwatchNodeIdHotkey, OverwatchNodeStakeBalance,
@@ -20,8 +20,9 @@ use crate::{
     TotalActiveSubnetNodes, TotalActiveSubnets, TotalNodes, TotalOverwatchNodeStakeBalance,
     TotalOverwatchNodeUids, TotalOverwatchNodes, TotalStake, TotalSubnetDelegateStakeBalance,
     TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids,
-    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey, ValidatorData,
-    ValidatorIdHotkey, ValidatorReputation, ValidatorSubnetNodes, ValidatorsData,
+    TotalValidatorDelegateStakeBalance, UniqueParamSubnetNodeId, ValidatorColdkey,
+    ValidatorColdkeyHotkey, ValidatorData, ValidatorDelegateStakeBalance, ValidatorIdHotkey,
+    ValidatorReputation, ValidatorSubnetNodes, ValidatorsData,
 };
 use fp_account::AccountId20;
 use frame_support::assert_ok;
@@ -36,13 +37,38 @@ use sp_std::collections::btree_map::BTreeMap;
 use sp_std::collections::btree_set::BTreeSet;
 
 pub type AccountIdOf<Test> = <Test as frame_system::Config>::AccountId;
-pub const PERCENTAGE_FACTOR: u128 = 1000000000000000000_u128;
-pub const DEFAULT_SCORE: u128 = 500000000000000000;
+pub const PERCENTAGE_FACTOR: u128 = 1_000_000_000_000_000_000_u128;
+pub const DEFAULT_SCORE: u128 = PERCENTAGE_FACTOR / 2;
 // pub const MAX_SUBNET_NODES: u32 = 254;
 pub const DEFAULT_REGISTRATION_BLOCKS: u32 = 130_000;
-pub const DEFAULT_DELEGATE_REWARD_RATE: u128 = 100000000000000000; // 10%
+pub const DEFAULT_DELEGATE_REWARD_RATE: u128 = PERCENTAGE_FACTOR / 10; // 10%
 pub const ALICE_EXPECTED_BALANCE: u128 = 1000000000000000000000000; // 1,000,000
 pub const STARTING_SUBNET_ID: u32 = 128000;
+
+pub fn test_percent(numerator: u128, denominator: u128) -> u128 {
+    assert_ne!(denominator, 0);
+    Network::percent_div(numerator, denominator)
+}
+
+pub fn seed_equal_validator_delegate_stake_for_subnet(subnet_id: u32) {
+    let mut validator_ids = BTreeSet::new();
+
+    for subnet_node_id in 1..=TotalSubnetNodes::<Test>::get(subnet_id) {
+        if let Some(validator_id) = SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id) {
+            validator_ids.insert(validator_id);
+        }
+    }
+
+    for validator_id in validator_ids {
+        let current_stake = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
+        if current_stake == 0 {
+            ValidatorDelegateStakeBalance::<Test>::insert(validator_id, 1);
+            TotalValidatorDelegateStakeBalance::<Test>::mutate(|total| {
+                *total = total.saturating_add(1);
+            });
+        }
+    }
+}
 
 pub fn account(id: u32) -> AccountIdOf<Test> {
     let hash = keccak_256(&id.to_le_bytes());
@@ -277,7 +303,7 @@ pub fn build_activated_subnet(
                 max_subnets,
                 expected_validator_id,
             );
-            let v_reward_rate = 50000000000000000; // 5%
+            let v_reward_rate = test_percent(1, 20); // 5%
 
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -314,10 +340,10 @@ pub fn build_activated_subnet(
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
-            },
+            }),
             Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
@@ -331,7 +357,6 @@ pub fn build_activated_subnet(
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         assert_eq!(
@@ -348,7 +373,10 @@ pub fn build_activated_subnet(
         let subnet_node_data = SubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
-        assert_eq!(subnet_node_data.peer_info.peer_id, peer_id.clone());
+        assert_eq!(
+            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            peer_id.clone()
+        );
 
         let multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::get(
             subnet_id,
@@ -357,10 +385,10 @@ pub fn build_activated_subnet(
         assert_eq!(multiaddr_subnet_node_id, subnet_node_id);
         assert_eq!(
             subnet_node_data.peer_info,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
-            }
+            })
         );
 
         let bootnode_multiaddr_subnet_node_id = MultiaddrSubnetNodeId::<Test>::get(
@@ -569,7 +597,7 @@ pub fn build_activated_subnet_new_excess_subnets(
                 max_subnets,
                 expected_validator_id,
             );
-            let v_reward_rate = 50000000000000000; // 5%
+            let v_reward_rate = test_percent(1, 20); // 5%
 
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -606,10 +634,10 @@ pub fn build_activated_subnet_new_excess_subnets(
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
-            },
+            }),
             Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
@@ -623,7 +651,6 @@ pub fn build_activated_subnet_new_excess_subnets(
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         // Is activated, registered element is removed
@@ -635,7 +662,10 @@ pub fn build_activated_subnet_new_excess_subnets(
         let subnet_node_data = SubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
-        assert_eq!(subnet_node_data.peer_info.peer_id, peer_id.clone());
+        assert_eq!(
+            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            peer_id.clone()
+        );
 
         // --- Is ``Validator`` if registered before subnet activation
         assert_eq!(
@@ -825,7 +855,7 @@ pub fn build_registered_subnet(
                 max_subnets,
                 expected_validator_id,
             );
-            let v_reward_rate = 50000000000000000; // 5%
+            let v_reward_rate = test_percent(1, 20); // 5%
 
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -862,10 +892,10 @@ pub fn build_registered_subnet(
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
-            },
+            }),
             Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
@@ -879,7 +909,6 @@ pub fn build_registered_subnet(
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         assert_eq!(
@@ -896,7 +925,10 @@ pub fn build_registered_subnet(
         let subnet_node_data = SubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
-        assert_eq!(subnet_node_data.peer_info.peer_id, peer_id.clone());
+        assert_eq!(
+            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            peer_id.clone()
+        );
 
         // --- Is ``Validator`` if registered before subnet activation
         assert_eq!(
@@ -1012,10 +1044,10 @@ pub fn insert_subnet_node(
     let subnet_node: SubnetNode<Test> = SubnetNode::<Test> {
         id: subnet_node_id,
         validator_id: validator_id,
-        peer_info: PeerInfo::<Test> {
+        peer_info: Some(PeerInfo::<Test> {
             peer_id: peer_id.clone(),
             multiaddr: None,
-        },
+        }),
         bootnode_peer_info: None,
         client_peer_info: None,
         classification: classification,
@@ -1105,7 +1137,7 @@ pub fn build_registered_subnet_nodes(
                 max_subnets,
                 expected_validator_id,
             );
-            let v_reward_rate = 50000000000000000; // 5%
+            let v_reward_rate = test_percent(1, 20); // 5%
 
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -1154,10 +1186,10 @@ pub fn build_registered_subnet_nodes(
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
-            },
+            }),
             Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
@@ -1171,7 +1203,6 @@ pub fn build_registered_subnet_nodes(
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         assert_eq!(
@@ -1183,7 +1214,10 @@ pub fn build_registered_subnet_nodes(
             RegisteredSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
-        assert_eq!(subnet_node_data.peer_info.peer_id, peer_id.clone());
+        assert_eq!(
+            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            peer_id.clone()
+        );
 
         // --- Is ``Validator`` if registered before subnet activation
         assert_eq!(
@@ -1241,7 +1275,7 @@ pub fn build_registered_nodes_in_queue(
                 max_subnets,
                 expected_validator_id,
             );
-            let v_reward_rate = 50000000000000000; // 5%
+            let v_reward_rate = test_percent(1, 20); // 5%
 
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -1271,10 +1305,10 @@ pub fn build_registered_nodes_in_queue(
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
-            },
+            }),
             Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
@@ -1288,7 +1322,6 @@ pub fn build_registered_nodes_in_queue(
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         log::error!("subnet_node_id {:?}", subnet_node_id);
 
@@ -1302,7 +1335,10 @@ pub fn build_registered_nodes_in_queue(
             RegisteredSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
-        assert_eq!(subnet_node_data.peer_info.peer_id, peer_id.clone());
+        assert_eq!(
+            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            peer_id.clone()
+        );
 
         // --- Is ``Registered`` if registered before subnet activation
         assert_eq!(
@@ -1424,10 +1460,10 @@ pub fn build_activated_subnet_with_delegator_rewards(
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
-            },
+            }),
             Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
@@ -1441,13 +1477,15 @@ pub fn build_activated_subnet_with_delegator_rewards(
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         let subnet_node_data = SubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
-        assert_eq!(subnet_node_data.peer_info.peer_id, peer_id.clone());
+        assert_eq!(
+            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            peer_id.clone()
+        );
 
         // --- Is ``Validator`` if registered before subnet activation
         assert_eq!(
@@ -1600,7 +1638,7 @@ pub fn default_registration_subnet_data(
         misc: Vec::new(),
         min_stake: MinSubnetMinStake::<Test>::get(),
         max_stake: NetworkMaxStakeBalance::<Test>::get(),
-        delegate_stake_percentage: 100000000000000000, // 10%
+        delegate_stake_percentage: test_percent(1, 10), // 10%
         initial_validators: get_initial_validator_ids(subnets, max_subnet_nodes, start, end),
         bootnodes: BTreeMap::from([(
             peer(0),
@@ -1780,13 +1818,14 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
     let included_subnet_nodes: Vec<SubnetNode<Test>> =
         Network::get_active_classified_subnet_nodes(subnet_id, &SubnetNodeClass::Included, epoch);
 
-    let validator_ids: Vec<u32> = if let Some(emergency_validator_data) =
-        EmergencySubnetNodeElectionData::<Test>::get(subnet_id)
-    {
-        emergency_validator_data
-            .subnet_node_ids
-            .into_iter()
-            .collect()
+    let emergency = EmergencySubnetNodeElectionData::<Test>::get(subnet_id)
+        .filter(|emergency_validator_data| emergency_validator_data.activated)
+        .map(|emergency_validator_data| {
+            Network::emergency_consensus_snapshot(&emergency_validator_data)
+        });
+
+    let validator_ids: Vec<u32> = if let Some(snapshot) = &emergency {
+        snapshot.subnet_node_ids.clone()
     } else {
         SubnetNodeElectionSlots::<Test>::get(subnet_id)
     };
@@ -1803,6 +1842,7 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
         remove_queue_node_id: None,
         subnet_nodes: included_subnet_nodes,
         args: None,
+        emergency,
     }
 }
 
@@ -1937,10 +1977,10 @@ pub fn manual_insert_subnet_node_v2(
         SubnetNode::<Test> {
             id: node_id,
             validator_id: validator_id,
-            peer_info: PeerInfo::<Test> {
+            peer_info: Some(PeerInfo::<Test> {
                 peer_id: peer(peer_n),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(node_id), None),
-            },
+            }),
             bootnode_peer_info: None,
             client_peer_info: None,
             classification: SubnetNodeClassification {
@@ -2018,6 +2058,8 @@ pub fn run_subnet_consensus_step_v2(
 
     let subnet_node_data_vec =
         get_subnet_node_consensus_data(subnet_id, max_subnet_nodes, 0, total_subnet_nodes);
+
+    seed_equal_validator_delegate_stake_for_subnet(subnet_id);
 
     assert_ok!(Network::propose_attestation(
         RuntimeOrigin::signed(validator_hotkey.clone()),
@@ -2122,20 +2164,19 @@ pub fn make_overwatch_qualified_v2(validator_id: u32, coldkey_n: u32) {
     }
 
     ValidatorSubnetNodes::<Test>::insert(validator_id, subnet_nodes);
-
     // max reputation
     ValidatorReputation::<Test>::insert(
         validator_id,
         Reputation {
             start_epoch: 0,
-            score: 1_000_000_000_000_000_000,
+            score: Network::percentage_factor_as_u128(),
             lifetime_node_count: max_subnets * max_subnet_nodes,
             total_active_nodes: max_subnets * max_subnet_nodes,
             total_increases: 999,
             total_decreases: 0,
-            average_attestation: 1_000_000_000_000_000_000,
+            average_attestation: Network::percentage_factor_as_u128(),
             last_validator_epoch: 0,
-            ow_score: 1_000_000_000_000_000_000,
+            ow_score: Network::percentage_factor_as_u128(),
         },
     );
 

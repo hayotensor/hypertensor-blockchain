@@ -2,27 +2,24 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    BootnodePeerIdSubnetNodeId, MultiaddrSubnetNodeId,
-    ClientPeerIdSubnetNodeId, Error,
+    BootnodePeerIdSubnetNodeId, ChurnLimit, ClientPeerIdSubnetNodeId, Error,
     MaxDelegateStakePercentage, MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes,
-    MaxSubnets, MinSubnetNodes, MinSubnetRegistrationEpochs,
-    TotalNodeDelegateStakeBalance,
-    NodeSlotIndex, PeerIdSubnetNodeId, SubnetNodeQueue,
-    RegisteredSubnetNodesData, SubnetNodeQueueEpochs, Reputation, NodeRewardRateUpdatePeriod,
-    SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNodeClass,
-    SubnetNodeClassification, SubnetNodeElectionSlots, UniqueParamSubnetNodeId,
-    SubnetOwner, SubnetState, SubnetsData,
-    TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes,
-    TotalStake, TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
-    ChurnLimit, PeerInfo,
+    MaxSubnets, MinSubnetNodes, MinSubnetRegistrationEpochs, MultiaddrSubnetNodeId,
+    NodeRewardRateUpdatePeriod, NodeSlotIndex, PeerIdSubnetNodeId, PeerInfo,
+    RegisteredSubnetNodesData, Reputation, SubnetElectedValidator, SubnetMinStakeBalance,
+    SubnetName, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
+    SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetOwner, SubnetState, SubnetsData,
+    TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes,
+    TotalNodeDelegateStakeBalance, TotalNodes, TotalStake, TotalSubnetElectableNodes,
+    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, UniqueParamSubnetNodeId,
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;
+use frame_support::weights::WeightMeter;
 use frame_support::BoundedVec;
 use frame_support::{assert_err, assert_ok};
 use sp_core::OpaquePeerId as PeerId;
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
-use frame_support::weights::WeightMeter;
 
 ///
 ///
@@ -88,10 +85,10 @@ fn test_register_subnet_node_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             stake_amount,
@@ -99,7 +96,6 @@ fn test_register_subnet_node_v2() {
             None,
             burn_amount + 100000000,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
@@ -116,9 +112,7 @@ fn test_register_subnet_node_v2() {
         assert_eq!(total_subnet_nodes + 1, new_total_nodes);
 
         let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
-        let found = reg_queue
-            .iter()
-            .find(|node| node.id == subnet_node_id);
+        let found = reg_queue.iter().find(|node| node.id == subnet_node_id);
         assert_eq!(found.unwrap().id, subnet_node_id);
 
         assert_eq!(
@@ -181,10 +175,10 @@ fn test_register_subnet_node_v2_and_activate() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             stake_amount,
@@ -192,7 +186,6 @@ fn test_register_subnet_node_v2_and_activate() {
             None,
             burn_amount + 100000000,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
@@ -206,9 +199,7 @@ fn test_register_subnet_node_v2_and_activate() {
         assert_eq!(total_subnet_nodes + 1, new_total_nodes);
 
         let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
-        let found = reg_queue
-            .iter()
-            .find(|node| node.id == subnet_node_id);
+        let found = reg_queue.iter().find(|node| node.id == subnet_node_id);
         assert_eq!(found.unwrap().id, subnet_node_id);
 
         assert_eq!(
@@ -250,9 +241,7 @@ fn test_register_subnet_node_v2_and_activate() {
             Err(())
         );
         let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
-        let found = reg_queue
-            .iter()
-            .find(|node| node.id == subnet_node_id);
+        let found = reg_queue.iter().find(|node| node.id == subnet_node_id);
         assert_eq!(found, None);
 
         // Check in activation
@@ -261,7 +250,6 @@ fn test_register_subnet_node_v2_and_activate() {
         assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
     })
 }
-
 
 #[test]
 fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
@@ -308,7 +296,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
             let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, _n);
             let bootnode_peer_id = get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, _n);
             let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, _n);
-            
+
             assert_ok!(Balances::transfer(
                 &account(0), // alice
                 &coldkey.clone(),
@@ -334,10 +322,10 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 stake_amount,
@@ -345,7 +333,6 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
                 None,
                 burn_amount + 100000000,
             ));
-
             let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
             let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
@@ -355,17 +342,21 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
             );
             assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
 
-            assert_eq!(total_subnet_nodes + 1, TotalSubnetNodes::<Test>::get(subnet_id));
+            assert_eq!(
+                total_subnet_nodes + 1,
+                TotalSubnetNodes::<Test>::get(subnet_id)
+            );
 
             let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
-            let found = reg_queue
-                .iter()
-                .find(|node| node.id == subnet_node_id);
+            let found = reg_queue.iter().find(|node| node.id == subnet_node_id);
             assert_eq!(found.unwrap().id, subnet_node_id);
             System::set_block_number(System::block_number() + 1);
         }
 
-        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id).len() as u32, reg_end - reg_start);
+        assert_eq!(
+            SubnetNodeQueue::<Test>::get(subnet_id).len() as u32,
+            reg_end - reg_start
+        );
 
         let total_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
@@ -390,17 +381,22 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
         );
 
         // Only activate up to the churn limit
-        assert_eq!(prev_active_total_nodes + churn_limit, TotalActiveSubnetNodes::<Test>::get(subnet_id));
+        assert_eq!(
+            prev_active_total_nodes + churn_limit,
+            TotalActiveSubnetNodes::<Test>::get(subnet_id)
+        );
 
-        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id).len() as u32, reg_end - reg_start - churn_limit);
-        
+        assert_eq!(
+            SubnetNodeQueue::<Test>::get(subnet_id).len() as u32,
+            reg_end - reg_start - churn_limit
+        );
+
         for n in reg_start..reg_end {
             let _n = n + 1;
             let subnet_node_id = _n;
 
             // Ensure all nodes up to the churn limit were activated
             if _n <= reg_start + churn_limit {
-
                 // Check in activation
                 let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
                 assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Idle);
@@ -412,9 +408,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
                     Err(())
                 );
                 let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
-                let found = reg_queue
-                    .iter()
-                    .find(|node| node.id == subnet_node_id);
+                let found = reg_queue.iter().find(|node| node.id == subnet_node_id);
                 assert_eq!(found, None);
             } else {
                 // Other nodes still in queue
@@ -423,9 +417,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
                     Err(())
                 );
                 let reg_queue = SubnetNodeQueue::<Test>::get(subnet_id);
-                let found = reg_queue
-                    .iter()
-                    .find(|node| node.id == subnet_node_id);
+                let found = reg_queue.iter().find(|node| node.id == subnet_node_id);
                 assert_eq!(found.unwrap().id, subnet_node_id);
             }
         }

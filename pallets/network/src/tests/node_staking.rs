@@ -935,10 +935,10 @@ fn test_register_try_removing_all_stake_error() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             stake_amount,

@@ -22,10 +22,10 @@
 #![cfg(feature = "runtime-benchmarks")]
 use super::*;
 
+use crate::utilities::multiaddr::{encode_varint, Multiaddr, IP4, P2P, TCP};
 #[allow(unused)]
 use crate::Pallet as Network;
 use crate::*;
-use crate::utilities::multiaddr::{encode_varint, Multiaddr, IP4, P2P, TCP};
 use fp_account::AccountId20;
 use frame_benchmarking::v2::*;
 use frame_support::{
@@ -213,7 +213,7 @@ fn register_benchmark_subnet_node<T: Config>(
         validator_id,
         subnet_id,
         node_hotkey.clone(),
-        peer_info.clone(),
+        Some(peer_info.clone()),
         Some(bootnode_peer_info),
         Some(client_peer_info),
         stake_to_be_added,
@@ -408,7 +408,7 @@ fn build_activated_subnet<T: Config>(
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
         assert_eq!(
-            subnet_node_data.peer_info.peer_id,
+            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
             peer_info.peer_id.clone()
         );
 
@@ -554,7 +554,7 @@ fn build_registered_subnet<T: Config>(
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
         assert_eq!(
-            subnet_node_data.peer_info.peer_id,
+            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
             peer_info.peer_id.clone()
         );
 
@@ -669,7 +669,7 @@ fn build_registered_subnet_nodes<T: Config>(
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
         assert_eq!(
-            subnet_node_data.peer_info.peer_id,
+            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
             peer_info.peer_id.clone()
         );
 
@@ -835,7 +835,7 @@ pub fn insert_subnet_node<T: Config>(
         SubnetNode::<T> {
             id: node_id,
             validator_id,
-            peer_info,
+            peer_info: Some(peer_info),
             bootnode_peer_info: None,
             client_peer_info: None,
             classification: SubnetNodeClassification {
@@ -1122,7 +1122,10 @@ pub fn get_initial_validator_ids(
     whitelist
 }
 
-pub fn get_simulated_consensus_data<T: Config>(subnet_id: u32, node_count: u32) -> ConsensusData<T> {
+pub fn get_simulated_consensus_data<T: Config>(
+    subnet_id: u32,
+    node_count: u32,
+) -> ConsensusData<T> {
     let mut attests = BTreeMap::new();
     let mut data = Vec::new();
 
@@ -1154,19 +1157,21 @@ pub fn get_simulated_consensus_data<T: Config>(subnet_id: u32, node_count: u32) 
         });
     }
 
-    let included_subnet_nodes: Vec<SubnetNode<T>> = Network::<T>::get_active_classified_subnet_nodes(
-        subnet_id,
-        &SubnetNodeClass::Included,
-        epoch,
-    );
+    let included_subnet_nodes: Vec<SubnetNode<T>> =
+        Network::<T>::get_active_classified_subnet_nodes(
+            subnet_id,
+            &SubnetNodeClass::Included,
+            epoch,
+        );
 
-    let validator_ids: Vec<u32> = if let Some(emergency_validator_data) =
-        EmergencySubnetNodeElectionData::<T>::get(subnet_id)
-    {
-        emergency_validator_data
-            .subnet_node_ids
-            .into_iter()
-            .collect()
+    let emergency = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
+        .filter(|emergency_validator_data| emergency_validator_data.activated)
+        .map(|emergency_validator_data| {
+            Network::<T>::emergency_consensus_snapshot(&emergency_validator_data)
+        });
+
+    let validator_ids: Vec<u32> = if let Some(snapshot) = &emergency {
+        snapshot.subnet_node_ids.clone()
     } else {
         SubnetNodeElectionSlots::<T>::get(subnet_id)
     };
@@ -1183,6 +1188,7 @@ pub fn get_simulated_consensus_data<T: Config>(subnet_id: u32, node_count: u32) 
         remove_queue_node_id: None,
         subnet_nodes: included_subnet_nodes,
         args: None,
+        emergency,
     }
 }
 
@@ -1303,9 +1309,7 @@ fn benchmark_identity<T: Config>() -> IdentityData<T> {
             "https://hypertensor.example",
         )),
         image: None,
-        discord: Some(to_bounded::<<T as Config>::MaxSocialIdLength>(
-            "validator",
-        )),
+        discord: Some(to_bounded::<<T as Config>::MaxSocialIdLength>("validator")),
         x: None,
         telegram: None,
         github: Some(to_bounded::<<T as Config>::MaxUrlLength>(
@@ -1590,7 +1594,7 @@ mod benchmarks {
             assert_eq!(subnet_node_data.validator_id, validator_id);
 
             assert_eq!(
-                subnet_node_data.peer_info.peer_id,
+                subnet_node_data.peer_info.as_ref().unwrap().peer_id,
                 peer_info.peer_id.clone()
             );
 
@@ -2695,7 +2699,7 @@ mod benchmarks {
             validator_id,
             subnet_id,
             Some(node_hotkey.clone()),
-            peer_info.clone(),
+            Some(peer_info.clone()),
             Some(bootnode_peer_info),
             Some(client_peer_info),
             stake_to_be_added,
@@ -2709,12 +2713,8 @@ mod benchmarks {
             SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id),
             Some(validator_id)
         );
-        let registered_subnet_node =
-            RegisteredSubnetNodesData::<T>::get(subnet_id, subnet_node_id);
-        assert_eq!(
-            registered_subnet_node.peer_info,
-            peer_info
-        );
+        let registered_subnet_node = RegisteredSubnetNodesData::<T>::get(subnet_id, subnet_node_id);
+        assert_eq!(registered_subnet_node.peer_info, Some(peer_info));
         assert!(SubnetNodeQueue::<T>::get(subnet_id)
             .iter()
             .any(|subnet_node| subnet_node.id == subnet_node_id));
@@ -3690,9 +3690,7 @@ mod benchmarks {
             get_subnet_node_consensus_data::<T>(subnet_id, max_subnet_nodes, 0, end);
 
         for subnet_node_id in 1..=end {
-            if let Some(validator_id) =
-                SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
-            {
+            if let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) {
                 ValidatorDelegateStakeBalance::<T>::insert(
                     validator_id,
                     DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
@@ -3766,9 +3764,7 @@ mod benchmarks {
             get_subnet_node_consensus_data::<T>(subnet_id, max_subnet_nodes, 0, end);
 
         for subnet_node_id in 1..=end {
-            if let Some(validator_id) =
-                SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
-            {
+            if let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) {
                 ValidatorDelegateStakeBalance::<T>::insert(
                     validator_id,
                     DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
@@ -3835,8 +3831,7 @@ mod benchmarks {
         let coldkey = ValidatorColdkey::<T>::get(validator_id).unwrap();
 
         let unique: Vec<u8> = "a".into();
-        let bounded_unique: NetworkBytes<T> =
-            unique.try_into().expect("String too long");
+        let bounded_unique: NetworkBytes<T> = unique.try_into().expect("String too long");
 
         #[extrinsic_call]
         update_node_unique(
@@ -3868,8 +3863,7 @@ mod benchmarks {
         let coldkey = ValidatorColdkey::<T>::get(validator_id).unwrap();
 
         let non_unique: Vec<u8> = "a".into();
-        let bounded_non_unique: NetworkBytes<T> =
-            non_unique.try_into().expect("String too long");
+        let bounded_non_unique: NetworkBytes<T> = non_unique.try_into().expect("String too long");
 
         #[extrinsic_call]
         update_node_non_unique(
@@ -3969,12 +3963,12 @@ mod benchmarks {
             RawOrigin::Signed(coldkey.clone()),
             subnet_id,
             subnet_node_id,
-            new_peer_info.clone(),
+            Some(new_peer_info.clone()),
         );
 
         assert_eq!(
             SubnetNodesData::<T>::get(subnet_id, subnet_node_id).peer_info,
-            new_peer_info.clone()
+            Some(new_peer_info.clone())
         )
     }
 
@@ -5018,17 +5012,30 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_consensus_validator_node_count_decay() {
-        let value = ConsensusValidatorNodeCountDecay::<T>::get();
-        let new_value = value - 1;
-
-        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
-            .expect("try_successful_origin failed");
+    fn owner_update_consensus_validator_node_count_decay() {
+        let subnet_name = DEFAULT_SUBNET_NAME.as_bytes().to_vec();
+        build_activated_subnet::<T>(
+            subnet_name.clone(),
+            0,
+            MinSubnetNodes::<T>::get(),
+            DEFAULT_DEPOSIT_AMOUNT,
+            DEFAULT_SUBNET_NODE_STAKE,
+        );
+        let subnet_id = SubnetName::<T>::get(subnet_name).unwrap();
+        let owner = subnet_owner::<T>(subnet_id);
+        let new_value = Network::<T>::percentage_factor_as_u128() / 2;
 
         #[extrinsic_call]
-        set_consensus_validator_node_count_decay(origin as T::RuntimeOrigin, new_value);
+        owner_update_consensus_validator_node_count_decay(
+            RawOrigin::Signed(owner),
+            subnet_id,
+            new_value,
+        );
 
-        assert_eq!(ConsensusValidatorNodeCountDecay::<T>::get(), new_value);
+        assert_eq!(
+            ConsensusValidatorNodeCountDecay::<T>::get(subnet_id),
+            new_value
+        );
     }
 
     #[benchmark]
@@ -6033,19 +6040,10 @@ mod benchmarks {
         let _subnet_node = SubnetNodesData::<T>::get(subnet_id, hotkey_subnet_node_id);
         let validator_id =
             SubnetNodeValidatorId::<T>::get(subnet_id, hotkey_subnet_node_id).unwrap();
-        let unique = seed_common_remove_subnet_node_state::<T>(
-            subnet_id,
-            hotkey_subnet_node_id,
-            true,
-        );
+        let unique =
+            seed_common_remove_subnet_node_state::<T>(subnet_id, hotkey_subnet_node_id, true);
 
-        seed_validator_subnet_nodes::<T>(
-            validator_id,
-            subnet_id,
-            hotkey_subnet_node_id,
-            x,
-            c,
-        );
+        seed_validator_subnet_nodes::<T>(validator_id, subnet_id, hotkey_subnet_node_id, x, c);
         let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
         assert_eq!(validator_subnet_nodes.len() as u32, x);
         let target_nodes = validator_subnet_nodes.get(&subnet_id).unwrap();
@@ -6062,6 +6060,7 @@ mod benchmarks {
                 target_emergency_validators_epochs: 0,
                 max_emergency_validators_epoch: 0,
                 total_epochs: 0,
+                ..Default::default()
             },
         );
 
@@ -6125,22 +6124,13 @@ mod benchmarks {
         // Verify node is in RegisteredSubnetNodesData
         let _subnet_node = RegisteredSubnetNodesData::<T>::get(subnet_id, remove_subnet_node_id);
         assert!(RegisteredSubnetNodesData::<T>::try_get(subnet_id, remove_subnet_node_id).is_ok());
-        let unique = seed_common_remove_subnet_node_state::<T>(
-            subnet_id,
-            remove_subnet_node_id,
-            false,
-        );
+        let unique =
+            seed_common_remove_subnet_node_state::<T>(subnet_id, remove_subnet_node_id, false);
 
         let validator_id =
             SubnetNodeValidatorId::<T>::get(subnet_id, remove_subnet_node_id).unwrap();
 
-        seed_validator_subnet_nodes::<T>(
-            validator_id,
-            subnet_id,
-            remove_subnet_node_id,
-            x,
-            c,
-        );
+        seed_validator_subnet_nodes::<T>(validator_id, subnet_id, remove_subnet_node_id, x, c);
 
         let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
         assert_eq!(validator_subnet_nodes.len() as u32, x);
@@ -6617,8 +6607,9 @@ mod benchmarks {
         let current_epoch = Network::<T>::get_current_epoch_as_u32();
 
         // submit data for the previous epoch
-        let validator_ids =
-            Network::<T>::canonicalize_consensus_validator_ids(consensus_data.validator_ids.clone());
+        let validator_ids = Network::<T>::canonicalize_consensus_validator_ids(
+            consensus_data.validator_ids.clone(),
+        );
         let snapshot =
             Network::<T>::snapshot_consensus_attestor_weights(subnet_id, &validator_ids).unwrap();
         SubnetConsensusSubmission::<T>::insert(subnet_id, subnet_epoch - 1, consensus_data);

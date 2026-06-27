@@ -600,27 +600,23 @@ impl<T: Config> Pallet<T> {
 
         let mut inflows: BTreeMap<u32, i128> = BTreeMap::new();
 
-        let mut total_subnet_reads = 0u64;
-
         for (subnet_id, data) in subnets {
-            total_subnet_reads += 1;
-
             // Take/remove the netflow to restart calculation and return the net flow
             let net_flow = SubnetNetFlow::<T>::take(subnet_id);
-            weight = weight.saturating_add(db_weight.reads(1));
+            weight = weight.saturating_add(db_weight.reads_writes(1, 1));
 
             // Inflow on registration doesn't count towards net flow weight
             // Subnet must be active
 
             // - Must be active to calculate rewards distribution
-            if data.start_epoch > epoch && data.state != SubnetState::Active {
+            if !Self::_is_subnet_active_and_live(&data, epoch) {
+                SubnetNetFlowSmoothedWeight::<T>::remove(subnet_id);
+                weight = weight.saturating_add(db_weight.writes(1));
                 continue;
             }
 
             inflows.insert(subnet_id, net_flow);
         }
-
-        weight = weight.saturating_add(db_weight.reads(total_subnet_reads));
 
         let min = inflows.values().cloned().min().unwrap_or(0);
 
@@ -641,17 +637,41 @@ impl<T: Config> Pallet<T> {
             .values()
             .fold(0u128, |acc, value| acc.saturating_add(*value));
 
-        let mut inflow_weights: BTreeMap<u32, u128> = BTreeMap::new();
+        let mut current_inflow_weights: BTreeMap<u32, u128> = BTreeMap::new();
         for (subnet_id, value) in shifted.iter() {
             let inflow_weight = if sum == 0 {
                 0
             } else {
                 Self::percent_div(*value, sum)
             };
-            inflow_weights.insert(*subnet_id, inflow_weight);
+            current_inflow_weights.insert(*subnet_id, inflow_weight);
         }
 
-        (inflow_weights, weight)
+        let smoothing_alpha = SubnetNetFlowSmoothingAlpha::<T>::get();
+        let inverse_alpha = Self::percentage_factor_as_u128().saturating_sub(smoothing_alpha);
+        weight = weight.saturating_add(db_weight.reads(1));
+
+        let mut smoothed_inflow_weights: BTreeMap<u32, u128> = BTreeMap::new();
+        for subnet_id in inflows.keys() {
+            let current_weight = current_inflow_weights.get(subnet_id).copied().unwrap_or(0);
+            let previous_weight = SubnetNetFlowSmoothedWeight::<T>::get(subnet_id);
+            weight = weight.saturating_add(db_weight.reads(1));
+
+            let smoothed_weight = Self::percent_mul(current_weight, smoothing_alpha)
+                .saturating_add(Self::percent_mul(previous_weight, inverse_alpha))
+                .min(Self::percentage_factor_as_u128());
+
+            if smoothed_weight == 0 {
+                SubnetNetFlowSmoothedWeight::<T>::remove(subnet_id);
+            } else {
+                SubnetNetFlowSmoothedWeight::<T>::insert(subnet_id, smoothed_weight);
+            }
+            weight = weight.saturating_add(db_weight.writes(1));
+
+            smoothed_inflow_weights.insert(*subnet_id, smoothed_weight);
+        }
+
+        (smoothed_inflow_weights, weight)
     }
 
     pub fn precheck_subnet_consensus_submission(
@@ -723,38 +743,35 @@ impl<T: Config> Pallet<T> {
             }
         };
 
-        // --- Get all qualified possible attestors
-        let validator_ids = Self::canonicalize_consensus_validator_ids(submission.validator_ids);
-        let max_attestors: u128 = validator_ids.len() as u128;
-
         weight = weight.saturating_add(db_weight.reads(1));
-        let attestor_weight_snapshot =
-            SubnetConsensusAttestorWeights::<T>::get(subnet_id, prev_subnet_epoch);
+        let Some(attestor_weight_snapshot) =
+            SubnetConsensusAttestorWeights::<T>::get(subnet_id, prev_subnet_epoch)
+        else {
+            return (None, weight);
+        };
 
-        let attestation_ratio = if let Some(snapshot) = attestor_weight_snapshot {
-            if snapshot.total_weight > 0 {
-                let attested_weight =
-                    match submission
-                        .attests
-                        .keys()
-                        .try_fold(0u128, |acc, subnet_node_id| {
-                            acc.checked_add(
-                                snapshot.weights.get(subnet_node_id).copied().unwrap_or(0),
-                            )
-                        }) {
-                        Some(weight) => weight,
-                        None => return (None, weight),
-                    };
+        let attestation_ratio = if attestor_weight_snapshot.total_weight > 0 {
+            let attested_weight =
+                match submission
+                    .attests
+                    .keys()
+                    .try_fold(0u128, |acc, subnet_node_id| {
+                        acc.checked_add(
+                            attestor_weight_snapshot
+                                .weights
+                                .get(subnet_node_id)
+                                .copied()
+                                .unwrap_or(0),
+                        )
+                    }) {
+                    Some(weight) => weight,
+                    None => return (None, weight),
+                };
 
-                Self::percent_div(attested_weight, snapshot.total_weight)
-                    .clamp(0, Self::percentage_factor_as_u128())
-            } else {
-                Self::percent_div(submission.attests.len() as u128, max_attestors)
-                    .clamp(0, Self::percentage_factor_as_u128())
-            }
-        } else {
-            Self::percent_div(submission.attests.len() as u128, max_attestors)
+            Self::percent_div(attested_weight, attestor_weight_snapshot.total_weight)
                 .clamp(0, Self::percentage_factor_as_u128())
+        } else {
+            0
         };
 
         let (data, weight_sum) = match Self::canonicalize_consensus_data_entries(submission.data) {
@@ -774,6 +791,7 @@ impl<T: Config> Pallet<T> {
             subnet_nodes: submission.subnet_nodes,
             prioritize_queue_node_id: submission.prioritize_queue_node_id,
             remove_queue_node_id: submission.remove_queue_node_id,
+            emergency: submission.emergency,
         };
 
         (Some(consensus_data), weight)

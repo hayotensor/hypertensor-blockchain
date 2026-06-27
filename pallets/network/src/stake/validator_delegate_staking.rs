@@ -175,7 +175,7 @@ impl<T: Config> Pallet<T> {
         // Set last block for rate limiting
         Self::set_last_tx_block(&account_id, block);
 
-        Self::deposit_event(Event::ValidatorDelegateStakeRemoved{
+        Self::deposit_event(Event::ValidatorDelegateStakeRemoved {
             validator_id,
             account_id,
             delegate_stake_to_be_removed,

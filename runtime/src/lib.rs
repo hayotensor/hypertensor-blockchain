@@ -144,14 +144,7 @@ pub type CheckedExtrinsic =
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, SignedExtra>;
 
-/// All migrations of the runtime, aside from the ones declared in the pallets.
-///
-/// This can be a tuple of types, each implementing `OnRuntimeUpgrade`.
-#[allow(unused_parens)]
-type Migrations = (
-    pallet_network::migrations::CleanupStaleValidatorColdkeys<Runtime>,
-    pallet_network::migrations::CleanupStaleValidatorHotkeys<Runtime>,
-);
+type Migrations = ();
 
 /// Executive: handles dispatch to the various modules.
 pub type Executive = frame_executive::Executive<
@@ -1721,10 +1714,10 @@ mod tests {
                 validator_id: 1,
                 subnet_id: 1,
                 hotkey: Some(account(3)),
-                peer_info: pallet_network::PeerInfo::<Runtime> {
+                peer_info: Some(pallet_network::PeerInfo::<Runtime> {
                     peer_id: sp_core::OpaquePeerId(Vec::new()),
                     multiaddr: None,
-                },
+                }),
                 bootnode_peer_info: None,
                 client_peer_info: None,
                 stake_to_be_added: 10,

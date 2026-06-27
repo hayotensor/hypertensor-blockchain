@@ -2,13 +2,13 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AssignedSlots, Error, FriendlyUidSubnetId, LastRegistrationCost,
-    LastSubnetRegistrationBlock, MaxBootnodes, MaxChurnLimit, MaxDelegateStakePercentage,
-    MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes,
-    MaxMinDelegateStakeMultiplier, MaxQueueEpochs, MaxSubnetMinStake, MaxSubnetNodes,
-    MaxSubnetPauseEpochs, MaxSubnetRemovalInterval, MaxSubnets, MinChurnLimit,
-    MinDelegateStakePercentage, MinIdleClassificationEpochs, MinIncludedClassificationEpochs,
-    MinMaxRegisteredNodes, MinQueueEpochs, MinRegistrationCost, MinSubnetMinStake, MinSubnetNodes,
+    AssignedSlots, Error, FriendlyUidSubnetId, LastRegistrationCost, LastSubnetRegistrationBlock,
+    MaxBootnodes, MaxChurnLimit, MaxDelegateStakePercentage, MaxIdleClassificationEpochs,
+    MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes, MaxMinDelegateStakeMultiplier,
+    MaxQueueEpochs, MaxSubnetMinStake, MaxSubnetNodes, MaxSubnetPauseEpochs,
+    MaxSubnetRemovalInterval, MaxSubnets, MinChurnLimit, MinDelegateStakePercentage,
+    MinIdleClassificationEpochs, MinIncludedClassificationEpochs, MinMaxRegisteredNodes,
+    MinQueueEpochs, MinRegistrationCost, MinSubnetMinStake, MinSubnetNodes,
     MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
     NetworkMaxStakeBalance, PeerInfo, PrevSubnetActivationEpoch, RegistrationCostDecayBlocks,
     RegistrationSubnetData, RequireSubnetRegistrationWhitelist, SlotAssignment,
@@ -903,10 +903,10 @@ fn test_activate_subnet() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 amount,
@@ -914,7 +914,6 @@ fn test_activate_subnet() {
                 None,
                 u128::MAX,
             ));
-
             let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
@@ -1033,10 +1032,10 @@ fn test_activate_subnet_anytime() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 amount,
@@ -1044,7 +1043,6 @@ fn test_activate_subnet_anytime() {
                 None,
                 u128::MAX,
             ));
-
             let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
@@ -1222,10 +1220,10 @@ fn test_activate_subnet_invalid_subnet_id_error() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 amount,
@@ -1233,7 +1231,6 @@ fn test_activate_subnet_invalid_subnet_id_error() {
                 None,
                 u128::MAX,
             ));
-
             let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
@@ -1322,10 +1319,10 @@ fn test_activate_subnet_already_activated_err() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 amount,
@@ -1333,7 +1330,6 @@ fn test_activate_subnet_already_activated_err() {
                 None,
                 u128::MAX,
             ));
-
             let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
@@ -1445,10 +1441,10 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 amount,
@@ -1456,7 +1452,6 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
                 None,
                 u128::MAX,
             ));
-
             let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
@@ -1564,10 +1559,10 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 amount,
@@ -1575,7 +1570,6 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
                 None,
                 u128::MAX,
             ));
-
             let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 
@@ -1768,10 +1762,10 @@ fn test_activate_subnet_min_delegate_balance_remove_subnet() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 amount,
@@ -1779,7 +1773,6 @@ fn test_activate_subnet_min_delegate_balance_remove_subnet() {
                 None,
                 u128::MAX,
             ));
-
             let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         }
 

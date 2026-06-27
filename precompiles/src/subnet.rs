@@ -406,59 +406,21 @@ where
         } else {
             Some(R::AddressMapping::into_account_id(hotkey.into()))
         };
-        let peer_multiaddr: Option<NetworkBytes<R>> =
-            if peer_info.1.as_bytes().is_empty() {
-                None
-            } else {
-                Some(
-                    BoundedVec::try_from(peer_info.1.as_bytes().to_vec())
-                        .map_err(|_| revert("Peer multiaddr too long"))?,
-                )
-            };
-        let peer_info = PeerInfo::<R> {
-            peer_id: OpaquePeerId(peer_info.0.as_bytes().to_vec()),
-            multiaddr: peer_multiaddr,
-        };
-        let bootnode_peer_info = if !bootnode_peer_info.0.as_bytes().is_empty() {
-            let bootnode_peer_multiaddr: Option<NetworkBytes<R>> =
-                if bootnode_peer_info.1.as_bytes().is_empty() {
-                    None
-                } else {
-                    Some(
-                        BoundedVec::try_from(bootnode_peer_info.1.as_bytes().to_vec())
-                            .map_err(|_| revert("Bootnode multiaddr too long"))?,
-                    )
-                };
-            Some(PeerInfo::<R> {
-                peer_id: OpaquePeerId(bootnode_peer_info.0.as_bytes().to_vec()),
-                multiaddr: bootnode_peer_multiaddr,
-            })
-        } else {
-            None
-        };
-        let client_peer_info = if !client_peer_info.0.as_bytes().is_empty() {
-            let client_peer_multiaddr: Option<NetworkBytes<R>> =
-                if client_peer_info.1.as_bytes().is_empty() {
-                    None
-                } else {
-                    Some(
-                        BoundedVec::try_from(client_peer_info.1.as_bytes().to_vec())
-                            .map_err(|_| revert("Client multiaddr too long"))?,
-                    )
-                };
-            Some(PeerInfo::<R> {
-                peer_id: OpaquePeerId(client_peer_info.0.as_bytes().to_vec()),
-                multiaddr: client_peer_multiaddr,
-            })
-        } else {
-            None
-        };
+        let peer_info = peer_info_to_option::<R>(&peer_info, "Peer multiaddr too long")?;
+        let bootnode_peer_info =
+            peer_info_to_option::<R>(&bootnode_peer_info, "Bootnode multiaddr too long")?;
+        let client_peer_info =
+            peer_info_to_option::<R>(&client_peer_info, "Client multiaddr too long")?;
 
         let stake_to_be_added: u128 = stake_to_be_added.unique_saturated_into();
-        let unique: Option<NetworkBytes<R>> =
-            bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(&unique)?;
-        let non_unique: Option<NetworkBytes<R>> =
-            bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(&non_unique)?;
+        let unique: Option<NetworkBytes<R>> = bounded_string_to_option_bounded_vec::<
+            1024,
+            <R as pallet_network::Config>::MaxVectorLength,
+        >(&unique)?;
+        let non_unique: Option<NetworkBytes<R>> = bounded_string_to_option_bounded_vec::<
+            1024,
+            <R as pallet_network::Config>::MaxVectorLength,
+        >(&non_unique)?;
         let max_burn_amount: u128 = max_burn_amount.unique_saturated_into();
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
@@ -548,8 +510,10 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let unique: Option<NetworkBytes<R>> =
-            bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(&unique)?;
+        let unique: Option<NetworkBytes<R>> = bounded_string_to_option_bounded_vec::<
+            1024,
+            <R as pallet_network::Config>::MaxVectorLength,
+        >(&unique)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::update_node_unique {
@@ -578,8 +542,10 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let non_unique: Option<NetworkBytes<R>> =
-            bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(&non_unique)?;
+        let non_unique: Option<NetworkBytes<R>> = bounded_string_to_option_bounded_vec::<
+            1024,
+            <R as pallet_network::Config>::MaxVectorLength,
+        >(&non_unique)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::update_node_non_unique {
@@ -641,19 +607,7 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let peer_multiaddr: Option<NetworkBytes<R>> =
-            if new_peer_info.1.as_bytes().is_empty() {
-                None
-            } else {
-                Some(
-                    BoundedVec::try_from(new_peer_info.1.as_bytes().to_vec())
-                        .map_err(|_| revert("Peer multiaddr too long"))?,
-                )
-            };
-        let peer_info = PeerInfo::<R> {
-            peer_id: OpaquePeerId(new_peer_info.0.as_bytes().to_vec()),
-            multiaddr: peer_multiaddr,
-        };
+        let peer_info = peer_info_to_option::<R>(&new_peer_info, "Peer multiaddr too long")?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::update_node_peer_info {
@@ -682,19 +636,7 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let peer_multiaddr: Option<NetworkBytes<R>> =
-            if new_peer_info.1.as_bytes().is_empty() {
-                None
-            } else {
-                Some(
-                    BoundedVec::try_from(new_peer_info.1.as_bytes().to_vec())
-                        .map_err(|_| revert("Peer multiaddr too long"))?,
-                )
-            };
-        let peer_info = Some(PeerInfo::<R> {
-            peer_id: OpaquePeerId(new_peer_info.0.as_bytes().to_vec()),
-            multiaddr: peer_multiaddr,
-        });
+        let peer_info = peer_info_to_option::<R>(&new_peer_info, "Peer multiaddr too long")?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::update_node_bootnode_peer_info {
@@ -723,19 +665,7 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let peer_multiaddr: Option<NetworkBytes<R>> =
-            if new_peer_info.1.as_bytes().is_empty() {
-                None
-            } else {
-                Some(
-                    BoundedVec::try_from(new_peer_info.1.as_bytes().to_vec())
-                        .map_err(|_| revert("Peer multiaddr too long"))?,
-                )
-            };
-        let peer_info = Some(PeerInfo::<R> {
-            peer_id: OpaquePeerId(new_peer_info.0.as_bytes().to_vec()),
-            multiaddr: peer_multiaddr,
-        });
+        let peer_info = peer_info_to_option::<R>(&new_peer_info, "Peer multiaddr too long")?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::update_node_client_peer_info {
@@ -791,14 +721,12 @@ where
         } else {
             None
         };
-        let args = unbounded_bytes_to_option_bounded_vec::<<R as pallet_network::Config>::ValidatorArgsLimit>(
-            &args,
-            "Args too long",
-        )?;
-        let attest_data = unbounded_bytes_to_option_bounded_vec::<<R as pallet_network::Config>::ValidatorArgsLimit>(
-            &attest_data,
-            "Attest data too long",
-        )?;
+        let args = unbounded_bytes_to_option_bounded_vec::<
+            <R as pallet_network::Config>::ValidatorArgsLimit,
+        >(&args, "Args too long")?;
+        let attest_data = unbounded_bytes_to_option_bounded_vec::<
+            <R as pallet_network::Config>::ValidatorArgsLimit,
+        >(&attest_data, "Attest data too long")?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::propose_attestation {
@@ -831,10 +759,9 @@ where
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        let data = unbounded_bytes_to_option_bounded_vec::<<R as pallet_network::Config>::ValidatorArgsLimit>(
-            &data,
-            "Data too long",
-        )?;
+        let data = unbounded_bytes_to_option_bounded_vec::<
+            <R as pallet_network::Config>::ValidatorArgsLimit,
+        >(&data, "Data too long")?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::attest {
@@ -2522,20 +2449,66 @@ where
     }
 
     Ok(Some(IdentityData::<R> {
-        name: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(name)?,
-        url: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(url)?,
-        image: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(image)?,
-        discord: bounded_string_to_option_bounded_vec::<255, <R as pallet_network::Config>::MaxSocialIdLength>(discord)?,
-        x: bounded_string_to_option_bounded_vec::<255, <R as pallet_network::Config>::MaxSocialIdLength>(x)?,
-        telegram: bounded_string_to_option_bounded_vec::<255, <R as pallet_network::Config>::MaxSocialIdLength>(telegram)?,
-        github: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(github)?,
-        hugging_face: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxUrlLength>(
-            hugging_face,
-        )?,
-        description: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(
-            description,
-        )?,
-        misc: bounded_string_to_option_bounded_vec::<1024, <R as pallet_network::Config>::MaxVectorLength>(misc)?,
+        name: bounded_string_to_option_bounded_vec::<
+            1024,
+            <R as pallet_network::Config>::MaxVectorLength,
+        >(name)?,
+        url: bounded_string_to_option_bounded_vec::<
+            1024,
+            <R as pallet_network::Config>::MaxUrlLength,
+        >(url)?,
+        image: bounded_string_to_option_bounded_vec::<
+            1024,
+            <R as pallet_network::Config>::MaxUrlLength,
+        >(image)?,
+        discord: bounded_string_to_option_bounded_vec::<
+            255,
+            <R as pallet_network::Config>::MaxSocialIdLength,
+        >(discord)?,
+        x: bounded_string_to_option_bounded_vec::<
+            255,
+            <R as pallet_network::Config>::MaxSocialIdLength,
+        >(x)?,
+        telegram: bounded_string_to_option_bounded_vec::<
+            255,
+            <R as pallet_network::Config>::MaxSocialIdLength,
+        >(telegram)?,
+        github: bounded_string_to_option_bounded_vec::<
+            1024,
+            <R as pallet_network::Config>::MaxUrlLength,
+        >(github)?,
+        hugging_face: bounded_string_to_option_bounded_vec::<
+            1024,
+            <R as pallet_network::Config>::MaxUrlLength,
+        >(hugging_face)?,
+        description: bounded_string_to_option_bounded_vec::<
+            1024,
+            <R as pallet_network::Config>::MaxVectorLength,
+        >(description)?,
+        misc: bounded_string_to_option_bounded_vec::<
+            1024,
+            <R as pallet_network::Config>::MaxVectorLength,
+        >(misc)?,
+    }))
+}
+
+fn peer_info_to_option<R>(
+    peer_info: &(BoundedString<ConstU32<64>>, UnboundedBytes),
+    multiaddr_error_message: &'static str,
+) -> Result<Option<PeerInfo<R>>, PrecompileFailure>
+where
+    R: pallet_network::Config,
+{
+    if peer_info.0.as_bytes().is_empty() {
+        return Ok(None);
+    }
+
+    let multiaddr: Option<NetworkBytes<R>> =
+        unbounded_bytes_to_option_bounded_vec(&peer_info.1, multiaddr_error_message)?;
+
+    Ok(Some(PeerInfo::<R> {
+        peer_id: OpaquePeerId(peer_info.0.as_bytes().to_vec()),
+        multiaddr,
     }))
 }
 

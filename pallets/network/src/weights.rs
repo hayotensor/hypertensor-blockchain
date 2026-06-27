@@ -151,7 +151,6 @@ pub trait WeightInfo {
 	fn set_max_reward_rate_decrease() -> Weight;
 	fn set_subnet_distribution_power() -> Weight;
 	fn set_delegate_stake_weight_factor() -> Weight;
-	fn set_consensus_validator_node_count_decay() -> Weight;
 	fn set_inflation_sigmoid_steepness() -> Weight;
 	fn set_max_overwatch_nodes() -> Weight;
 	fn set_overwatch_epoch_length_multiplier() -> Weight;
@@ -2189,7 +2188,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Storage: `Network::ValidatorRewardK` (r:1 w:0)
 	/// Proof: `Network::ValidatorRewardK` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusValidatorNodeCountDecay` (r:1 w:0)
-	/// Proof: `Network::ConsensusValidatorNodeCountDecay` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Proof: `Network::ConsensusValidatorNodeCountDecay` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
 	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
 	/// Storage: `System::EventCount` (r:1 w:1)
@@ -3657,21 +3656,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Measured:  `24`
 		//  Estimated: `1509`
 		// Minimum execution time: 10_044_000 picoseconds.
-		Weight::from_parts(10_963_000, 1509)
-			.saturating_add(T::DbWeight::get().reads(4_u64))
-			.saturating_add(T::DbWeight::get().writes(3_u64))
-	}
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusValidatorNodeCountDecay` (r:0 w:1)
-	/// Proof: `Network::ConsensusValidatorNodeCountDecay` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn set_consensus_validator_node_count_decay() -> Weight {
 		Weight::from_parts(10_963_000, 1509)
 			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
@@ -7515,7 +7499,7 @@ impl WeightInfo for () {
 	/// Storage: `Network::ValidatorRewardK` (r:1 w:0)
 	/// Proof: `Network::ValidatorRewardK` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusValidatorNodeCountDecay` (r:1 w:0)
-	/// Proof: `Network::ConsensusValidatorNodeCountDecay` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Proof: `Network::ConsensusValidatorNodeCountDecay` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
 	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
 	/// Storage: `System::EventCount` (r:1 w:1)
@@ -8983,21 +8967,6 @@ impl WeightInfo for () {
 		//  Measured:  `24`
 		//  Estimated: `1509`
 		// Minimum execution time: 10_044_000 picoseconds.
-		Weight::from_parts(10_963_000, 1509)
-			.saturating_add(RocksDbWeight::get().reads(4_u64))
-			.saturating_add(RocksDbWeight::get().writes(3_u64))
-	}
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusValidatorNodeCountDecay` (r:0 w:1)
-	/// Proof: `Network::ConsensusValidatorNodeCountDecay` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn set_consensus_validator_node_count_decay() -> Weight {
 		Weight::from_parts(10_963_000, 1509)
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))

@@ -1,11 +1,12 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    FinalSubnetEmissionWeights, MaxOverwatchNodes, MaxSubnets, MinSubnetNodes,
-    NewRegistrationCostMultiplier, NodeSubnetStake, OverwatchCommit, OverwatchCommits,
-    OverwatchEpochLengthMultiplier, OverwatchNodeStakeBalance, OverwatchReveal, OverwatchReveals,
-    OverwatchSubnetWeights, OverwatchValidatorWhitelist, SlotAssignment, SubnetConsensusSubmission,
-    SubnetElectedValidator, SubnetName, SubnetReputation, TotalSubnetDelegateStakeBalance,
+    FinalSubnetEmissionWeights, MaxOverwatchNodes, MaxSubnets, MinAttestationPercentage,
+    MinSubnetNodes, MinSubnetReputation, NewRegistrationCostMultiplier, NodeSubnetStake,
+    OverwatchCommit, OverwatchCommits, OverwatchEpochLengthMultiplier, OverwatchNodeStakeBalance,
+    OverwatchReveal, OverwatchReveals, OverwatchSubnetWeights, OverwatchValidatorWhitelist,
+    SlotAssignment, SubnetConsensusSubmission, SubnetElectedValidator, SubnetName,
+    SubnetReputation, TotalSubnetDelegateStakeBalance,
 };
 use frame_support::assert_ok;
 use frame_support::traits::{Currency, OnInitialize};
@@ -42,9 +43,9 @@ fn is_even(num: u32) -> bool {
 // Simulated commit that bounces between 1e18 and 0.5e18
 fn get_commit(num: u32) -> (u128, Vec<u8>, sp_core::H256) {
     // default onode weights
-    let weights: Vec<u128> = vec![1000000000000000000, 500000000000000000];
+    let weights: Vec<u128> = vec![Network::percentage_factor_as_u128(), test_percent(1, 2)];
 
-    let mut weight: u128 = 1000000000000000000;
+    let mut weight: u128 = Network::percentage_factor_as_u128();
     if is_even(num) {
         weight = weights[0];
     } else {
@@ -192,14 +193,37 @@ fn test_on_initialize() {
                 if subnet_epoch == 0 {
                     return None;
                 }
-                if !FinalSubnetEmissionWeights::<Test>::get(current_epoch)
+                let subnet_emission_weights =
+                    FinalSubnetEmissionWeights::<Test>::get(current_epoch);
+                let Some(subnet_weight) = subnet_emission_weights
                     .subnet_weights
-                    .contains_key(&subnet_id)
-                {
+                    .get(&subnet_id)
+                    .copied()
+                else {
+                    return None;
+                };
+                let (rewards_data, _) = Network::calculate_rewards(
+                    subnet_id,
+                    subnet_emission_weights.subnets_emissions,
+                    subnet_weight,
+                );
+                if rewards_data.subnet_node_rewards == 0 {
                     return None;
                 }
-                if SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch.saturating_sub(1))
-                    .is_none()
+                let prev_subnet_epoch = subnet_epoch.saturating_sub(1);
+                if SubnetConsensusSubmission::<Test>::get(subnet_id, prev_subnet_epoch).is_none() {
+                    return None;
+                }
+                let (consensus_submission_data, _) = Network::precheck_subnet_consensus_submission(
+                    subnet_id,
+                    prev_subnet_epoch,
+                    current_epoch,
+                );
+                let Some(consensus_submission_data) = consensus_submission_data else {
+                    return None;
+                };
+                if consensus_submission_data.attestation_ratio
+                    < MinAttestationPercentage::<Test>::get()
                 {
                     return None;
                 }
@@ -348,7 +372,9 @@ fn test_on_initialize() {
             }
 
             for subnet_id in subnet_ids.iter().copied() {
-                assert!(SubnetReputation::<Test>::get(subnet_id) >= 990000000000000000);
+                assert!(
+                    SubnetReputation::<Test>::get(subnet_id) >= MinSubnetReputation::<Test>::get()
+                );
             }
         }
 

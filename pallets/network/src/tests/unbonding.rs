@@ -173,7 +173,7 @@ fn test_full_unbonding_ledger_blocks_node_unstake_without_debit() {
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
-            50000000000000000,
+            test_percent(1, 20),
             None,
             None,
         ));
@@ -184,10 +184,10 @@ fn test_full_unbonding_ledger_blocks_node_unstake_without_debit() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             node_stake,
@@ -462,7 +462,7 @@ fn test_register_remove_claim_stake_unbondings() {
         let starting_balance = Balances::free_balance(&coldkey.clone());
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -478,10 +478,10 @@ fn test_register_remove_claim_stake_unbondings() {
             current_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             amount,
@@ -489,7 +489,6 @@ fn test_register_remove_claim_stake_unbondings() {
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
@@ -756,7 +755,7 @@ fn test_register_activate_remove_claim_stake_unbondings() {
         let starting_balance = Balances::free_balance(&coldkey.clone());
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -772,10 +771,10 @@ fn test_register_activate_remove_claim_stake_unbondings() {
             current_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             amount,
@@ -783,7 +782,6 @@ fn test_register_activate_remove_claim_stake_unbondings() {
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
@@ -913,7 +911,7 @@ fn test_remove_stake_twice_in_epoch() {
         let starting_balance = Balances::free_balance(&coldkey.clone());
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -929,10 +927,10 @@ fn test_remove_stake_twice_in_epoch() {
             current_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             stake_amount,
@@ -940,7 +938,6 @@ fn test_remove_stake_twice_in_epoch() {
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
@@ -1094,7 +1091,7 @@ fn test_claim_stake_unbondings_no_unbondings_err() {
         let starting_balance = Balances::free_balance(&coldkey.clone());
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1110,10 +1107,10 @@ fn test_claim_stake_unbondings_no_unbondings_err() {
             current_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             stake_amount,
@@ -1121,7 +1118,6 @@ fn test_claim_stake_unbondings_no_unbondings_err() {
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
@@ -1196,7 +1192,7 @@ fn test_remove_to_stake_max_unlockings_reached_err() {
 
         let starting_balance = Balances::free_balance(&coldkey.clone());
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1212,10 +1208,10 @@ fn test_remove_to_stake_max_unlockings_reached_err() {
             current_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             deposit_amount,
@@ -1223,7 +1219,6 @@ fn test_remove_to_stake_max_unlockings_reached_err() {
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         let max_unlockings = MaxUnbondings::<Test>::get();

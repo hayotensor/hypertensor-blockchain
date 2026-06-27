@@ -480,15 +480,24 @@ impl<T: Config> Pallet<T> {
         let slot_list = if let Some(emergency_validator_data) =
             EmergencySubnetNodeElectionData::<T>::get(subnet_id)
         {
-            if emergency_validator_data.total_epochs
-                > emergency_validator_data.target_emergency_validators_epochs
-                || subnet_epoch > emergency_validator_data.max_emergency_validators_epoch
-            {
-                // Temporary emergency validators is complete, remove and return default election slots
-                EmergencySubnetNodeElectionData::<T>::remove(subnet_id);
+            if !emergency_validator_data.activated {
                 SubnetNodeElectionSlots::<T>::get(subnet_id)
             } else {
-                emergency_validator_data.subnet_node_ids
+                if Self::is_emergency_validator_set_expired(
+                    &emergency_validator_data,
+                    subnet_id,
+                    subnet_epoch,
+                ) {
+                    // Temporary emergency validators is complete, remove and return default election slots
+                    Self::finish_emergency_validator_set(subnet_id);
+                    SubnetNodeElectionSlots::<T>::get(subnet_id)
+                } else {
+                    Self::active_emergency_validator_ids(
+                        &emergency_validator_data,
+                        subnet_id,
+                        subnet_epoch,
+                    )
+                }
             }
         } else {
             SubnetNodeElectionSlots::<T>::get(subnet_id)

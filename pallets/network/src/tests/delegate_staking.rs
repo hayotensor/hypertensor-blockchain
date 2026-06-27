@@ -106,7 +106,7 @@ fn test_add_to_delegate_stake() {
         // The first depositor will lose a percentage of their deposit depending on the size
         // https://docs.openzeppelin.com/contracts/4.x/erc4626#inflation-attack
         assert!(
-            (delegate_balance >= Network::percent_mul(amount, 990000000000000000))
+            (delegate_balance >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (delegate_balance < amount)
         );
     });
@@ -264,7 +264,11 @@ fn test_add_to_delegate_stake_min_delegate_stake_deposit_not_reached_error() {
         );
 
         assert_err!(
-            Network::add_subnet_delegate_stake(RuntimeOrigin::signed(account(account_n)), subnet_id, 0,),
+            Network::add_subnet_delegate_stake(
+                RuntimeOrigin::signed(account(account_n)),
+                subnet_id,
+                0,
+            ),
             Error::<Test>::MinDelegateStakeDepositNotReached
         );
 
@@ -325,7 +329,7 @@ fn test_delegate_math() {
         // Ensure balance is within <= 0.01% of deposited balance, and less than deposited balance
         assert!(
             (delegate_balance
-                >= Network::percent_mul(delegate_stake_to_be_added, 990000000000000000))
+                >= Network::percent_mul(delegate_stake_to_be_added, test_percent(99, 100)))
                 && (delegate_balance < delegate_stake_to_be_added)
         );
 
@@ -374,7 +378,6 @@ fn check_balances() {
         //   total_subnet_delegate_stake_balance
         // );
         // // assert!(false);
-
 
         // let loss = 1.0 - user_balance as f64 / USER_INITIAL_TOKENS as f64;
 
@@ -463,7 +466,7 @@ fn test_delegate_math_with_storage_deposit() {
 
         // Ensure balance is within <= 0.01% of deposited balance, and less than deposited balance
         assert!(
-            (delegate_balance >= Network::percent_mul(amount, 990000000000000000))
+            (delegate_balance >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (delegate_balance < amount)
         );
 
@@ -560,7 +563,7 @@ fn test_remove_delegate_stake() {
 
         // Ensure balance is within <= 0.01% of deposited balance, and less than deposited balance
         assert!(
-            (delegate_balance >= Network::percent_mul(amount, 990000000000000000))
+            (delegate_balance >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (delegate_balance < amount)
         );
 
@@ -663,7 +666,7 @@ fn test_remove_delegate_stake_not_enough_stake_to_withdraw() {
 
         // Ensure balance is within <= 0.01% of deposited balance, and less than deposited balance
         assert!(
-            (delegate_balance >= Network::percent_mul(amount, 990000000000000000))
+            (delegate_balance >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (delegate_balance < amount)
         );
 
@@ -780,7 +783,7 @@ fn test_remove_claim_delegate_stake_after_remove_subnet() {
         );
         // assert_eq!(amount, delegate_balance);
         assert!(
-            (delegate_balance >= Network::percent_mul(amount, 990000000000000000))
+            (delegate_balance >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (delegate_balance < amount)
         );
 
@@ -822,7 +825,8 @@ fn test_remove_claim_delegate_stake_after_remove_subnet() {
         let post_balance = Balances::free_balance(&account(total_subnet_nodes + 1));
 
         assert!(
-            (post_balance >= Network::percent_mul(starting_delegator_balance, 990000000000000000))
+            (post_balance
+                >= Network::percent_mul(starting_delegator_balance, test_percent(99, 100)))
                 && (post_balance < starting_delegator_balance)
         );
 
@@ -911,7 +915,7 @@ fn test_add_to_delegate_stake_increase_pool_check_balance() {
         // https://docs.openzeppelin.com/contracts/4.x/erc4626#inflation-attack
         // assert_eq!(delegate_balance, delegate_stake_to_be_added_as_shares);
         assert!(
-            (delegate_balance >= Network::percent_mul(amount, 990000000000000000))
+            (delegate_balance >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (delegate_balance < amount)
         );
 
@@ -1010,7 +1014,7 @@ fn test_claim_removal_of_delegate_stake() {
         // https://docs.openzeppelin.com/contracts/4.x/erc4626#inflation-attack
         // assert_eq!(delegate_balance, delegate_stake_to_be_added_as_shares);
         assert!(
-            (delegate_balance >= Network::percent_mul(amount, 990000000000000000))
+            (delegate_balance >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (delegate_balance < amount)
         );
 
@@ -1266,7 +1270,7 @@ fn test_swap_delegate_stake() {
         // // Will lose about .01% of the transfer value on first transfer into a pool
         // // The balance should be about ~99% of the ``from`` subnet to the ``to`` subnet
         // assert!(
-        //   (to_delegate_balance >= Network::percent_mul(from_delegate_balance, 990000000000000000)) &&
+        //   (to_delegate_balance >= Network::percent_mul(from_delegate_balance, test_percent(99, 100))) &&
         //   (to_delegate_balance < from_delegate_balance)
         // );
 
@@ -1390,7 +1394,7 @@ fn test_switch_delegate_stake_not_enough_stake_err() {
 // //     // https://docs.openzeppelin.com/contracts/4.x/erc4626#inflation-attack
 // //     assert_eq!(delegate_balance, delegate_stake_to_be_added_as_shares);
 // //     assert!(
-// //       (delegate_balance >= Network::percent_mul(amount, 990000000000000000)) &&
+// //       (delegate_balance >= Network::percent_mul(amount, test_percent(99, 100))) &&
 // //       (delegate_balance < amount)
 // //     );
 
@@ -1473,7 +1477,7 @@ fn test_remove_delegate_stake_after_subnet_remove() {
         // https://docs.openzeppelin.com/contracts/4.x/erc4626#inflation-attack
         // assert_eq!(delegate_balance, delegate_stake_to_be_added_as_shares);
         assert!(
-            (delegate_balance >= Network::percent_mul(amount, 990000000000000000))
+            (delegate_balance >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (delegate_balance < amount)
         );
 
@@ -1521,7 +1525,8 @@ fn test_remove_delegate_stake_after_subnet_remove() {
         let post_balance = Balances::free_balance(&account(n_account));
 
         assert!(
-            (post_balance >= Network::percent_mul(starting_delegator_balance, 990000000000000000))
+            (post_balance
+                >= Network::percent_mul(starting_delegator_balance, test_percent(99, 100)))
                 && (post_balance < starting_delegator_balance)
         );
 
@@ -1674,7 +1679,11 @@ fn test_inflation_exploit_mitigation_dead_shares() {
         //   stake
         // ));
 
-        Network::do_add_subnet_delegate_stake(RuntimeOrigin::signed(first_user.clone()), subnet_id, stake);
+        Network::do_add_subnet_delegate_stake(
+            RuntimeOrigin::signed(first_user.clone()),
+            subnet_id,
+            stake,
+        );
 
         // Get shares after first stake
 
@@ -1900,7 +1909,7 @@ fn test_donation_attack_simulation() {
         );
 
         assert!(
-            (victim_balance >= Network::percent_mul(VICTIM_DEPOSIT, 990000000000000000))
+            (victim_balance >= Network::percent_mul(VICTIM_DEPOSIT, test_percent(99, 100)))
                 && (victim_balance <= VICTIM_DEPOSIT)
         );
 

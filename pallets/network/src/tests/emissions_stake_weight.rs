@@ -200,8 +200,8 @@ fn test_stake_and_node_dominance_is_dampened_2_nets() {
     TotalActiveNodes::<Test>::put(total_nodes);
 
     // Constants
-    let percentage_factor = 1_000_000_000_000_000_000u128;
-    let alpha =   500_000_000_000_000_000u128; // = 0.5
+    let percentage_factor = Network::percentage_factor_as_u128();
+    let alpha = test_percent(1, 2);
 
     // Calculate weights
     let weights = Network::calculate_emission_weights(
@@ -218,10 +218,10 @@ fn test_stake_and_node_dominance_is_dampened_2_nets() {
     assert_eq!(weight_a + weight_b, percentage_factor);
 
     // Subnet 1 has 90% stake/node ratio — but should get < 90% weight
-    assert!(weight_a < 900_000_000_000_000_000u128);
+    assert!(weight_a < test_percent(9, 10));
 
     // Subnet 2 has 10% — but should get > 10% weight
-    assert!(weight_b > 100_000_000_000_000_000u128);
+    assert!(weight_b > test_percent(1, 10));
   });
 }
 
@@ -254,8 +254,8 @@ fn test_stake_and_node_dominance_is_dampened_3_nets() {
     TotalActiveNodes::<Test>::put(total_nodes);
 
     // Constants
-    let percentage_factor = 1_000_000_000_000_000_000u128;
-    let alpha = 500_000_000_000_000_000u128; // = 0.5
+    let percentage_factor = Network::percentage_factor_as_u128();
+    let alpha = test_percent(1, 2);
 
     // Calculate weights
     let weights = Network::calculate_emission_weights(
@@ -277,12 +277,12 @@ fn test_stake_and_node_dominance_is_dampened_3_nets() {
     assert_eq!(weight_a + weight_b + weight_c, percentage_factor);
 
     // Subnet 1 has 90% stake/node ratio — but should get < 90% weight
-    assert!(weight_a < 900_000_000_000_000_000u128);
+    assert!(weight_a < test_percent(9, 10));
 
     // Subnet 2 has 5% — but should get > 5% weight
-    assert!(weight_b > 50_000_000_000_000_000u128);
+    assert!(weight_b > test_percent(1, 20));
 
     // Subnet 3 has 5% — but should get > 5% weight
-    assert!(weight_c > 50_000_000_000_000_000u128);
+    assert!(weight_c > test_percent(1, 20));
   });
 }

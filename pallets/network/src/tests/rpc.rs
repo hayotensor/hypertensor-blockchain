@@ -2,10 +2,10 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountNodeDelegateStakeShares, ColdkeyValidatorId, MaxSubnetNodes,
-    MaxSubnets, MinSubnetMinStake, OverwatchCommits, OverwatchReveals, PeerIdOverwatchNodeId,
-    PeerInfo, SubnetBootnodes, SubnetElectedValidator, SubnetName, SubnetNodeClass,
-    TotalActiveSubnets, TotalNodeDelegateStakeBalance, TotalNodeDelegateStakeShares,
+    AccountNodeDelegateStakeShares, ColdkeyValidatorId, MaxSubnetNodes, MaxSubnets,
+    MinSubnetMinStake, OverwatchCommits, OverwatchReveals, PeerIdOverwatchNodeId, PeerInfo,
+    SubnetBootnodes, SubnetElectedValidator, SubnetName, SubnetNodeClass, TotalActiveSubnets,
+    TotalNodeDelegateStakeBalance, TotalNodeDelegateStakeShares,
 };
 use frame_support::assert_ok;
 use frame_support::traits::{Currency, ExistenceRequirement};
@@ -163,10 +163,10 @@ fn test_proof_of_stake_all_peer_id_types() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             stake_amount,
@@ -174,7 +174,6 @@ fn test_proof_of_stake_all_peer_id_types() {
             None,
             u128::MAX,
         ));
-
         // Increase epoch by 1 to get to the registered node start epoch
         increase_epochs(1);
 
@@ -534,9 +533,9 @@ fn test_get_overwatch_commits_and_reveals_for_epoch_and_node() {
         let other_overwatch_node_id = 4;
         let subnet_id_1 = 21;
         let subnet_id_2 = 22;
-        let weight_1 = 100000000000000000;
-        let weight_2 = 200000000000000000;
-        let other_weight = 300000000000000000;
+        let weight_1 = test_percent(1, 10);
+        let weight_2 = test_percent(1, 5);
+        let other_weight = test_percent(3, 10);
 
         let commit_1 = make_commit(weight_1, b"salt-1".to_vec());
         let commit_2 = make_commit(weight_2, b"salt-2".to_vec());

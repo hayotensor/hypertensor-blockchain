@@ -2,12 +2,11 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    DelegateAccount,
-    DelegateAccountStake, Error, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs,
-    MinSubnetMinStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodes, PeerInfo,
-    StakeCooldownEpochs, StakeUnbondingLedger, SubnetName, SubnetNodeClass, SubnetState,
-    TotalAccountDelegateStake, TotalActiveSubnets, TotalSubnetNodes, TotalValidatorIds,
-    ValidatorsData,
+    DelegateAccount, DelegateAccountStake, Error, MaxSubnetNodes, MaxSubnets,
+    MinActiveNodeStakeEpochs, MinSubnetMinStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey,
+    OverwatchNodes, PeerInfo, StakeCooldownEpochs, StakeUnbondingLedger, SubnetName,
+    SubnetNodeClass, SubnetState, TotalAccountDelegateStake, TotalActiveSubnets, TotalSubnetNodes,
+    TotalValidatorIds, ValidatorsData,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
@@ -18,7 +17,7 @@ fn test_update_delegate_account() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -30,7 +29,7 @@ fn test_update_delegate_account() {
         let current_id = TotalValidatorIds::<Test>::get();
 
         let new_delegate_account_id = account(100);
-        let delegate_rate = 400000000000000000; // 40%
+        let delegate_rate = test_percent(2, 5);
         assert_ok!(Network::update_validator_delegate_account(
             RuntimeOrigin::signed(coldkey.clone()),
             current_id,
@@ -52,7 +51,7 @@ fn test_update_delegate_account_not_key_owner_error() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -68,7 +67,7 @@ fn test_update_delegate_account_not_key_owner_error() {
         assert_eq!(validator.delegate_account, None);
 
         let new_delegate_account_id = account(100);
-        let delegate_rate = 400000000000000000; // 40%
+        let delegate_rate = test_percent(2, 5);
         assert_err!(
             Network::update_validator_delegate_account(
                 RuntimeOrigin::signed(account(100)),
@@ -86,7 +85,7 @@ fn test_update_delegate_account_invalid_delegate_account_parameters_error() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -118,7 +117,7 @@ fn test_update_delegate_account_delegate_account_id_none_error() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -150,7 +149,7 @@ fn test_update_delegate_account_delegate_account_rate_none_error() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -182,7 +181,7 @@ fn test_update_delegate_account_delegate_account_cannot_be_hotkey_error() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -220,7 +219,7 @@ fn test_register_subnet_node_delegate_account_cannot_be_hotkey_error() {
             rate: 0,
         };
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_err!(
             Network::do_register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -239,7 +238,7 @@ fn test_update_delegate_account_delegate_account_cannot_be_coldkey_error() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -277,7 +276,7 @@ fn test_register_subnet_node_delegate_account_cannot_be_coldkey_error() {
         };
 
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_err!(
             Network::do_register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -296,7 +295,7 @@ fn test_update_delegate_account_invalid_delegate_account_rate_error() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -343,7 +342,7 @@ fn test_register_subnet_node_delegate_account_invalid_delegate_account_rate_erro
 
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_err!(
             Network::do_register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),

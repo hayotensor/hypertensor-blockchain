@@ -101,109 +101,6 @@ pub use overwatch_nodes::*;
 pub mod bank;
 pub use bank::*;
 
-pub mod migrations {
-    use super::*;
-    use frame_support::traits::{GetStorageVersion, OnRuntimeUpgrade, StorageVersion};
-    use frame_support::weights::Weight;
-    use sp_std::marker::PhantomData;
-    use sp_std::vec::Vec;
-
-    pub struct CleanupStaleValidatorColdkeys<T>(PhantomData<T>);
-    pub struct CleanupStaleValidatorHotkeys<T>(PhantomData<T>);
-
-    pub fn cleanup_stale_validator_coldkeys<T: pallet::Config>() -> Weight {
-        let on_chain_version = pallet::Pallet::<T>::on_chain_storage_version();
-        if on_chain_version >= StorageVersion::new(1) {
-            return T::DbWeight::get().reads(1);
-        }
-
-        let mut scanned = 0u64;
-        let mut stale_coldkeys = Vec::new();
-
-        for (coldkey, validator_id) in pallet::ColdkeyValidatorId::<T>::iter() {
-            scanned = scanned.saturating_add(1);
-
-            if pallet::ValidatorColdkey::<T>::get(validator_id).as_ref() != Some(&coldkey) {
-                stale_coldkeys.push(coldkey);
-            }
-        }
-
-        let removed = stale_coldkeys.len() as u64;
-        for coldkey in stale_coldkeys {
-            pallet::ColdkeyValidatorId::<T>::remove(&coldkey);
-        }
-
-        StorageVersion::new(1).put::<pallet::Pallet<T>>();
-
-        T::DbWeight::get().reads_writes(
-            scanned.saturating_mul(2).saturating_add(1),
-            removed.saturating_add(1),
-        )
-    }
-
-    impl<T: pallet::Config> OnRuntimeUpgrade for CleanupStaleValidatorColdkeys<T> {
-        fn on_runtime_upgrade() -> Weight {
-            cleanup_stale_validator_coldkeys::<T>()
-        }
-    }
-
-    pub fn cleanup_stale_validator_hotkeys<T: pallet::Config>() -> Weight {
-        let on_chain_version = pallet::Pallet::<T>::on_chain_storage_version();
-        if on_chain_version >= StorageVersion::new(2) || on_chain_version < StorageVersion::new(1) {
-            return T::DbWeight::get().reads(1);
-        }
-
-        let mut forward_scanned = 0u64;
-        let mut reverse_scanned = 0u64;
-        let mut forward_claims = Vec::new();
-        let mut stale_hotkeys = Vec::new();
-
-        for (validator_id, hotkey) in pallet::ValidatorIdHotkey::<T>::iter() {
-            forward_scanned = forward_scanned.saturating_add(1);
-            forward_claims.push((validator_id, hotkey));
-        }
-
-        for (hotkey, validator_id) in pallet::HotkeyValidatorId::<T>::iter() {
-            reverse_scanned = reverse_scanned.saturating_add(1);
-
-            let duplicate_forward_claim = forward_claims
-                .iter()
-                .filter(|(_, claimed_hotkey)| claimed_hotkey == &hotkey)
-                .take(2)
-                .count()
-                > 1;
-            let forward_matches =
-                pallet::ValidatorIdHotkey::<T>::get(validator_id).as_ref() == Some(&hotkey);
-            let data_matches = pallet::ValidatorsData::<T>::contains_key(validator_id)
-                && pallet::ValidatorsData::<T>::get(validator_id).hotkey == hotkey;
-
-            if duplicate_forward_claim || !forward_matches || !data_matches {
-                stale_hotkeys.push(hotkey);
-            }
-        }
-
-        let removed = stale_hotkeys.len() as u64;
-        for hotkey in stale_hotkeys {
-            pallet::HotkeyValidatorId::<T>::remove(&hotkey);
-        }
-
-        StorageVersion::new(2).put::<pallet::Pallet<T>>();
-
-        T::DbWeight::get().reads_writes(
-            forward_scanned
-                .saturating_add(reverse_scanned.saturating_mul(3))
-                .saturating_add(1),
-            removed.saturating_add(1),
-        )
-    }
-
-    impl<T: pallet::Config> OnRuntimeUpgrade for CleanupStaleValidatorHotkeys<T> {
-        fn on_runtime_upgrade() -> Weight {
-            cleanup_stale_validator_hotkeys::<T>()
-        }
-    }
-}
-
 // mod rewards;
 // mod rewards_v4;
 
@@ -220,7 +117,7 @@ pub mod pallet {
 
     // The `Pallet` struct serves as a placeholder to implement traits, methods and dispatchables
     // (`Call`s) in this pallet.
-    pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(2);
+    pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(0);
 
     #[pallet::pallet]
     #[pallet::storage_version(STORAGE_VERSION)]
@@ -364,7 +261,7 @@ pub mod pallet {
         SubnetNodeUpdatePeerInfo {
             subnet_id: u32,
             subnet_node_id: u32,
-            peer_info: PeerInfo<T>,
+            peer_info: Option<PeerInfo<T>>,
         },
         SubnetNodeUpdateBootnode {
             subnet_id: u32,
@@ -465,12 +362,16 @@ pub mod pallet {
         ValidatorDelegateStakeAdded {
             validator_id: u32,
             account_id: T::AccountId,
-            delegate_stake_to_be_added: u128
+            delegate_stake_to_be_added: u128,
         },
         ValidatorDelegateStakeRemoved {
             validator_id: u32,
             account_id: T::AccountId,
-            delegate_stake_to_be_removed: u128
+            delegate_stake_to_be_removed: u128,
+        },
+        SetValidatorNodeDelegateStakeWeights {
+            validator_id: u32,
+            total_weight: u128,
         },
         // Admin
         SetMaxSubnets(u32),
@@ -513,7 +414,8 @@ pub mod pallet {
         SetMaxRewardRateDecrease(u128),
         SetSubnetDistributionPower(u128),
         SetDelegateStakeWeightFactor(u128),
-        SetConsensusValidatorNodeCountDecay(u128),
+        SetConsensusValidatorNodeCountDecayUpdateInterval(u32),
+        SetValidatorNodeDelegateStakeWeightUpdateInterval(u32),
         SetInflationSigmoidMidpoint(u128),
         SetMaximumHooksWeight(u32),
         SetBaseNodeBurnAmount(u128),
@@ -541,6 +443,7 @@ pub mod pallet {
         SetMaxEmergencySubnetNodes(u32),
         SetOverwatchStakeWeightFactor(u128),
         SetSubnetWeightFactors(SubnetWeightFactorsData),
+        SetSubnetNetFlowSmoothingAlpha(u128),
         SetDefaultOverwatchSubnetWeight(u128),
         SetOverwatchValidatorWhitelist(u32, bool),
         SetValidatorRewardMidpoint(u128),
@@ -742,6 +645,11 @@ pub mod pallet {
             owner: T::AccountId,
             value: u32,
         },
+        ConsensusValidatorNodeCountDecayUpdate {
+            subnet_id: u32,
+            owner: T::AccountId,
+            value: u128,
+        },
         SubnetNodeMinWeightDecreaseReputationThresholdUpdate {
             subnet_id: u32,
             owner: T::AccountId,
@@ -777,6 +685,10 @@ pub mod pallet {
             account_id: T::AccountId,
             call: QueuedSwapCall<T::AccountId>,
         },
+        EmergencyValidatorSetExpired {
+            subnet_id: u32,
+        },
+        SetEmergencyValidatorCooldownEpochs(u32),
     }
 
     /// Errors that can be returned by this pallet.
@@ -882,6 +794,11 @@ pub mod pallet {
         InvalidMinDelegateStakePercentage,
         InvalidDelegateStakePercentage,
         DelegateStakePercentageUpdateTooSoon,
+        ValidatorNodeDelegateStakeWeightUpdateTooSoon,
+        ConsensusValidatorNodeCountDecayUpdateTooSoon,
+        ValidatorNodeDelegateStakeWeightsLengthMismatch,
+        DuplicateValidatorNodeDelegateStakeWeight,
+        InvalidValidatorNodeDelegateStakeWeightTotal,
         /// The distance between the current rate and new rate is too large, see MaxSubnetDelegateStakeRewardsPercentageChange
         DelegateStakePercentageAbsDiffTooLarge,
         /// Must unstake to register
@@ -916,6 +833,10 @@ pub mod pallet {
         InvalidSuperMajorityAttestationRatio,
         /// Invalid values
         InvalidValues,
+        EmergencyValidatorsActive,
+        EmergencyValidatorCooldownActive,
+        EmergencyQueueMutationNotAllowed,
+        InvalidEmergencyValidatorDuration,
         /// Invalid percent number, must be in 1e2 format. Used for elements that only require correct format
         InvalidPerbillPercent,
         InvalidMinNodeBurnRate,
@@ -1083,14 +1004,7 @@ pub mod pallet {
     /// * `state` - Registered, Active, or Paused.
     /// * `start_epoch` - Start epoch based on subnet state.
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebugNoBound,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     pub struct SubnetData {
         pub id: u32,
@@ -1186,14 +1100,7 @@ pub mod pallet {
     ///   the subnet owner and whitelisted accounts. This is informational metadata for
     ///   network coordination.
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebugNoBound,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct RegistrationSubnetData<T: Config> {
@@ -1378,6 +1285,25 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        Clone,
+        PartialEq,
+        Eq,
+        RuntimeDebugNoBound,
+        PartialOrd,
+        Ord,
+        scale_info::TypeInfo,
+    )]
+    pub struct EmergencyConsensusSnapshot {
+        pub subnet_node_ids: Vec<u32>,
+        pub reputation_factors: SubnetReputationFactors,
+        pub min_subnet_node_reputation: u128,
+        pub min_weight_decrease_reputation_threshold: u128,
+    }
+
+    #[derive(
+        Default,
+        Encode,
+        Decode,
         Copy,
         Clone,
         PartialOrd,
@@ -1419,7 +1345,14 @@ pub mod pallet {
     }
 
     #[derive(
-        Encode, Decode, Clone, PartialOrd, PartialEq, Eq, RuntimeDebugNoBound, Ord,
+        Encode,
+        Decode,
+        Clone,
+        PartialOrd,
+        PartialEq,
+        Eq,
+        RuntimeDebugNoBound,
+        Ord,
         scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
@@ -1478,15 +1411,7 @@ pub mod pallet {
     }
 
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        Ord,
-        PartialOrd,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, Ord, PartialOrd, scale_info::TypeInfo,
     )]
     pub struct DelegateAccount<AccountId> {
         pub account_id: AccountId,
@@ -1533,9 +1458,8 @@ pub mod pallet {
     /// * `hotkey` - The unique hotkey account associated with this node. The hotkey is used
     ///   for signing transactions and identifying the node operator.
     /// * `validator_id` - The validator identity ID that owns this subnet node.
-    /// * `peer_info` - The peer ID and multiaddress used for subnet communication and peer-to-peer
-    ///   networking. This identifier is used during proof-of-stake operations and network
-    ///   consensus.
+    /// * `peer_info` - The optional peer ID and multiaddress used for subnet communication and
+    ///   peer-to-peer networking.
     /// * `bootnode_peer_info` - The peer ID and multiaddress used when this node operates as a bootnode,
     ///   helping new nodes discover and connect to the subnet network.
     /// * `client_peer_info` - The peer ID and multiaddress used when this node operates in client-only
@@ -1565,7 +1489,7 @@ pub mod pallet {
     pub struct SubnetNode<T: Config> {
         pub id: u32,
         pub validator_id: u32,
-        pub peer_info: PeerInfo<T>,
+        pub peer_info: Option<PeerInfo<T>>,
         pub bootnode_peer_info: Option<PeerInfo<T>>,
         pub client_peer_info: Option<PeerInfo<T>>,
         pub classification: SubnetNodeClassification,
@@ -1576,14 +1500,7 @@ pub mod pallet {
     /// Subnet Node Info
     /// RPC helper
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebugNoBound,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct SubnetNodeInfo<T: Config> {
@@ -1592,7 +1509,7 @@ pub mod pallet {
         pub subnet_node_id: u32,
         pub coldkey: T::AccountId,
         pub hotkey: T::AccountId,
-        pub peer_info: PeerInfo<T>,
+        pub peer_info: Option<PeerInfo<T>>,
         pub bootnode_peer_info: Option<PeerInfo<T>>,
         pub client_peer_info: Option<PeerInfo<T>>,
         pub classification: SubnetNodeClassification,
@@ -1607,15 +1524,7 @@ pub mod pallet {
 
     /// RPC helper for node stakes
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, PartialOrd, Ord, scale_info::TypeInfo,
     )]
     pub struct SubnetNodeStakeInfo<AccountId> {
         pub subnet_id: Option<u32>,
@@ -1811,14 +1720,7 @@ pub mod pallet {
     ///
     /// Scoring is calculated off-chain between subnet nodes hosting AI subnets together
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebugNoBound,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     pub struct SubnetNodeConsensusData {
         pub subnet_node_id: u32,
@@ -1900,14 +1802,7 @@ pub mod pallet {
     ///   metadata, signatures, or other information for off-chain verification or
     ///   coordination purposes.
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebugNoBound,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct AttestEntry<T: Config> {
@@ -1935,9 +1830,9 @@ pub mod pallet {
     /// * `validator_epoch_progress` - The percent process of the epoch when the validator submitted
     ///   consensus data, represented as 1e18.
     /// * `validator_reward_factor` - The reward factor of the validator.
-    /// * `attestation_ratio` - The ratio of validators who have attested to this consensus
-    ///   submission, represented as a fixed-point number (where 1e18 = 100%). This indicates
-    ///   the level of agreement among validators for this submission.
+    /// * `attestation_ratio` - The snapshotted attestor-weight ratio that has attested to this
+    ///   consensus submission, represented as a fixed-point number (where 1e18 = 100%). This
+    ///   indicates the stake-weighted level of agreement among validators for this submission.
     /// * `weight_sum` - The total sum of all scores in the consensus data. This is used
     ///   for normalization during reward distribution and helps prevent overflow issues.
     /// * `data_length` - The number of peers included in the consensus data. This provides
@@ -1958,14 +1853,7 @@ pub mod pallet {
     ///   This is set by the proposing validator and executed during consensus finalization
     ///   if the submission is accepted and the node has passed its immunity period.
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebugNoBound,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct ConsensusSubmissionData<T: Config> {
@@ -1980,6 +1868,7 @@ pub mod pallet {
         pub subnet_nodes: Vec<SubnetNode<T>>,
         pub prioritize_queue_node_id: Option<u32>,
         pub remove_queue_node_id: Option<u32>,
+        pub emergency: Option<EmergencyConsensusSnapshot>,
     }
 
     /// Reasons for a subnet's removal from the network.
@@ -2056,14 +1945,7 @@ pub mod pallet {
     ///   This data is not used in any onchain logic but allows subnets to pass custom parameters
     ///   that validators can use for off-chain validation or coordination purposes.
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebugNoBound,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct ConsensusData<T: Config> {
@@ -2078,6 +1960,7 @@ pub mod pallet {
         pub remove_queue_node_id: Option<u32>,
         pub data: Vec<SubnetNodeConsensusData>, // Data submitted by chosen validator
         pub args: Option<ValidatorArgs<T>>, // Optional arguements to pass for subnet to validate
+        pub emergency: Option<EmergencyConsensusSnapshot>,
     }
 
     /// Subnet epoch data
@@ -2087,14 +1970,7 @@ pub mod pallet {
     /// * `subnet_epoch` - The subnet epoch
     /// * `subnet_epoch_progression` - The subnet epoch progression as a percentage using 1e18 as 1.0
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebugNoBound,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     pub struct SubnetEpochData {
         pub subnet_epoch: u32,
@@ -2124,14 +2000,7 @@ pub mod pallet {
     ///   among all active subnet nodes based on their consensus scores. This represents
     ///   the reward pool that will be split according to node performance.
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebugNoBound,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     pub struct RewardsData {
         pub overall_subnet_reward: u128,
@@ -2143,15 +2012,7 @@ pub mod pallet {
 
     // Overwatch nodes
 
-    #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        scale_info::TypeInfo,
-    )]
+    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, scale_info::TypeInfo)]
     pub struct OverwatchNodeInfo<AccountId> {
         pub overwatch_node_id: u32,
         pub hotkey: Option<AccountId>,
@@ -2173,15 +2034,7 @@ pub mod pallet {
     }
 
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, PartialOrd, Ord, scale_info::TypeInfo,
     )]
     pub struct OverwatchNode<AccountId> {
         pub id: u32,
@@ -2198,15 +2051,7 @@ pub mod pallet {
     }
 
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        PartialOrd,
-        Ord,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, PartialOrd, Ord, scale_info::TypeInfo,
     )]
     pub struct OverwatchCommit<Hash> {
         pub subnet_id: u32,
@@ -2241,14 +2086,7 @@ pub mod pallet {
     }
 
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebugNoBound,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     pub struct Reputation {
         /// Epoch when the node first elected subnet validator node to submit consensus.
@@ -2342,14 +2180,7 @@ pub mod pallet {
     /// bootnodes: List of official subnet bootnodes
     /// node_bootnodes: List of all node bootnodes
     #[derive(
-        Default,
-        Encode,
-        Decode,
-        Clone,
-        PartialEq,
-        Eq,
-        RuntimeDebugNoBound,
-        scale_info::TypeInfo,
+        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct AllSubnetBootnodes<T: Config> {
@@ -2456,10 +2287,7 @@ pub mod pallet {
         return SubnetNode {
             id: 0,
             validator_id: 0,
-            peer_info: PeerInfo::<T> {
-                peer_id: PeerId(Vec::new()),
-                multiaddr: None,
-            },
+            peer_info: None,
             bootnode_peer_info: None,
             client_peer_info: None,
             classification: SubnetNodeClassification {
@@ -2837,6 +2665,20 @@ pub mod pallet {
         1000000000000000000
     }
     /// This type value is referenced in:
+    /// - ConsensusValidatorNodeCountDecayUpdateInterval
+    #[pallet::type_value]
+    pub fn DefaultConsensusValidatorNodeCountDecayUpdateInterval() -> u32 {
+        // One global epoch between subnet owner decay updates.
+        1
+    }
+    /// This type value is referenced in:
+    /// - ValidatorNodeDelegateStakeWeightUpdateInterval
+    #[pallet::type_value]
+    pub fn DefaultValidatorNodeDelegateStakeWeightUpdateInterval() -> u32 {
+        // One global epoch between explicit validator allocation updates.
+        1
+    }
+    /// This type value is referenced in:
     /// - ValidatorReputationIncreaseFactor
     #[pallet::type_value]
     pub fn DefaultValidatorReputationIncreaseFactor() -> u128 {
@@ -3180,12 +3022,20 @@ pub mod pallet {
         64
     }
     #[pallet::type_value]
+    pub fn DefaultEmergencyValidatorCooldownEpochs<T: Config>() -> u32 {
+        T::EpochsPerYear::get() / 12
+    }
+    #[pallet::type_value]
     pub fn DefaultSubnetWeightFactors() -> SubnetWeightFactorsData {
         return SubnetWeightFactorsData {
             delegate_stake: 400000000000000000,
             node_count: 400000000000000000,
             net_flow: 200000000000000000,
         };
+    }
+    #[pallet::type_value]
+    pub fn DefaultSubnetNetFlowSmoothingAlpha() -> u128 {
+        250000000000000000
     }
     /// Starting subnet ID
     #[pallet::type_value]
@@ -3207,6 +3057,10 @@ pub mod pallet {
 
     #[pallet::storage]
     pub type SubnetNetFlow<T: Config> = StorageMap<_, Identity, u32, i128, ValueQuery>;
+
+    #[pallet::storage]
+    pub type SubnetNetFlowSmoothedWeight<T: Config> =
+        StorageMap<_, Identity, u32, u128, ValueQuery>;
 
     /// For informational purposes only, not used in conditinal logic
     /// Subnet Id -> Friendly UID
@@ -3345,6 +3199,11 @@ pub mod pallet {
         pub target_emergency_validators_epochs: u32,
         pub max_emergency_validators_epoch: u32,
         pub total_epochs: u32,
+        pub activated: bool,
+        pub started_subnet_epoch: u32,
+        pub reputation_factors: SubnetReputationFactors,
+        pub min_subnet_node_reputation: u128,
+        pub min_weight_decrease_reputation_threshold: u128,
     }
 
     #[pallet::storage]
@@ -3360,6 +3219,13 @@ pub mod pallet {
     #[pallet::storage]
     pub type MaxEmergencyValidatorEpochsMultiplier<T> =
         StorageValue<_, u128, ValueQuery, DefaultMaxEmergencyValidatorEpochsMultiplier>;
+
+    #[pallet::storage]
+    pub type LastEmergencyValidatorEndEpoch<T> = StorageMap<_, Identity, u32, u32, ValueQuery>;
+
+    #[pallet::storage]
+    pub type EmergencyValidatorCooldownEpochs<T: Config> =
+        StorageValue<_, u32, ValueQuery, DefaultEmergencyValidatorCooldownEpochs<T>>;
 
     /// Subnet count of electable nodes
     #[pallet::storage]
@@ -3666,10 +3532,21 @@ pub mod pallet {
     pub type DelegateStakeWeightFactor<T> =
         StorageValue<_, u128, ValueQuery, DefaultDelegateStakeWeightFactor>;
 
-    /// Factor used to diminish a validator's consensus weight for multiple eligible nodes in one subnet.
+    /// Per-subnet factor used to diminish a validator's consensus weight for multiple eligible nodes.
+    /// subnet_id => percentage in 1e18 format. A default of 1e18 applies no node-count decay.
     #[pallet::storage]
     pub type ConsensusValidatorNodeCountDecay<T> =
-        StorageValue<_, u128, ValueQuery, DefaultConsensusValidatorNodeCountDecay>;
+        StorageMap<_, Identity, u32, u128, ValueQuery, DefaultConsensusValidatorNodeCountDecay>;
+
+    /// Last global epoch a subnet owner updated the subnet's consensus validator node count decay.
+    #[pallet::storage]
+    pub type LastConsensusValidatorNodeCountDecayUpdate<T> =
+        StorageMap<_, Identity, u32, u32, OptionQuery>;
+
+    /// Minimum global epochs between subnet owner consensus validator node count decay updates.
+    #[pallet::storage]
+    pub type ConsensusValidatorNodeCountDecayUpdateInterval<T> =
+        StorageValue<_, u32, ValueQuery, DefaultConsensusValidatorNodeCountDecayUpdateInterval>;
 
     #[derive(
         Default,
@@ -3692,6 +3569,10 @@ pub mod pallet {
     #[pallet::storage]
     pub type SubnetWeightFactors<T: Config> =
         StorageValue<_, SubnetWeightFactorsData, ValueQuery, DefaultSubnetWeightFactors>;
+
+    #[pallet::storage]
+    pub type SubnetNetFlowSmoothingAlpha<T> =
+        StorageValue<_, u128, ValueQuery, DefaultSubnetNetFlowSmoothingAlpha>;
     //
     // Inflation helpers elements
     //
@@ -3724,13 +3605,8 @@ pub mod pallet {
     pub type PendingSubnetOwner<T: Config> = StorageMap<_, Identity, u32, T::AccountId>;
 
     #[pallet::storage]
-    pub type SubnetBootnodes<T> = StorageMap<
-        _,
-        Identity,
-        u32,
-        BTreeMap<PeerId, NetworkBytes<T>>,
-        ValueQuery,
-    >;
+    pub type SubnetBootnodes<T> =
+        StorageMap<_, Identity, u32, BTreeMap<PeerId, NetworkBytes<T>>, ValueQuery>;
 
     /// Set of accounts that have access to add bootnodes
     #[pallet::storage]
@@ -4045,14 +3921,8 @@ pub mod pallet {
     }
 
     #[pallet::storage]
-    pub type ValidatorsData<T: Config> = StorageMap<
-        _,
-        Identity,
-        u32,
-        ValidatorData<T>,
-        ValueQuery,
-        DefaultValidatorData<T>,
-    >;
+    pub type ValidatorsData<T: Config> =
+        StorageMap<_, Identity, u32, ValidatorData<T>, ValueQuery, DefaultValidatorData<T>>;
 
     #[pallet::storage]
     pub type ColdkeyValidatorId<T: Config> =
@@ -4115,6 +3985,22 @@ pub mod pallet {
     /// Total stake sum of all nodes in specified validator
     #[pallet::storage] // validator_id --> u128
     pub type ValidatorDelegateStakeBalance<T> = StorageMap<_, Identity, u32, u128, ValueQuery>;
+
+    /// Validator-defined percentage allocation of validator delegate stake across all owned subnet nodes.
+    /// validator_id => {(subnet_id, subnet_node_id) => percentage in 1e18 format}
+    #[pallet::storage]
+    pub type ValidatorNodeDelegateStakeWeights<T> =
+        StorageMap<_, Identity, u32, BTreeMap<(u32, u32), u128>, ValueQuery>;
+
+    /// Last global epoch a validator explicitly updated node delegate stake allocations.
+    #[pallet::storage]
+    pub type LastValidatorNodeDelegateStakeWeightUpdate<T> =
+        StorageMap<_, Identity, u32, u32, OptionQuery>;
+
+    /// Minimum global epochs between explicit validator node delegate stake allocation updates.
+    #[pallet::storage]
+    pub type ValidatorNodeDelegateStakeWeightUpdateInterval<T> =
+        StorageValue<_, u32, ValueQuery, DefaultValidatorNodeDelegateStakeWeightUpdateInterval>;
 
     /// An accounts delegate stake sharesper validator
     #[pallet::storage] // account --> validator_id --> u128
@@ -4786,6 +4672,243 @@ pub mod pallet {
             Ok(validator_id)
         }
 
+        pub fn validator_has_any_subnet_nodes(validator_id: u32) -> bool {
+            ValidatorSubnetNodes::<T>::get(validator_id)
+                .values()
+                .any(|nodes| !nodes.is_empty())
+        }
+
+        pub fn collect_validator_subnet_nodes(validator_id: u32) -> BTreeSet<(u32, u32)> {
+            let mut owned_nodes = BTreeSet::new();
+
+            for (subnet_id, subnet_node_ids) in ValidatorSubnetNodes::<T>::get(validator_id) {
+                for subnet_node_id in subnet_node_ids {
+                    owned_nodes.insert((subnet_id, subnet_node_id));
+                }
+            }
+
+            owned_nodes
+        }
+
+        pub fn set_default_validator_node_delegate_stake_weight_for_registration(
+            validator_id: u32,
+            subnet_id: u32,
+            subnet_node_id: u32,
+            has_existing_nodes: bool,
+        ) {
+            let default_weight = if has_existing_nodes {
+                0
+            } else {
+                Self::percentage_factor_as_u128()
+            };
+
+            ValidatorNodeDelegateStakeWeights::<T>::mutate(validator_id, |weights| {
+                weights.insert((subnet_id, subnet_node_id), default_weight);
+            });
+        }
+
+        fn equal_validator_node_delegate_stake_weights(
+            owned_nodes: &BTreeSet<(u32, u32)>,
+        ) -> BTreeMap<(u32, u32), u128> {
+            let mut weights = BTreeMap::new();
+            let node_count = owned_nodes.len() as u128;
+            if node_count == 0 {
+                return weights;
+            }
+
+            let percentage_factor = Self::percentage_factor_as_u128();
+            let base_weight = percentage_factor / node_count;
+            let remainder = percentage_factor % node_count;
+
+            for (index, node_key) in owned_nodes.iter().copied().enumerate() {
+                let mut weight = base_weight;
+                if (index as u128) < remainder {
+                    weight = weight.saturating_add(1);
+                }
+                weights.insert(node_key, weight);
+            }
+
+            weights
+        }
+
+        pub fn normalize_validator_node_delegate_stake_weights(validator_id: u32) {
+            let owned_nodes = Self::collect_validator_subnet_nodes(validator_id);
+            if owned_nodes.is_empty() {
+                ValidatorNodeDelegateStakeWeights::<T>::remove(validator_id);
+                return;
+            }
+
+            let percentage_factor = Self::percentage_factor_as_u128();
+            let stored_weights = ValidatorNodeDelegateStakeWeights::<T>::get(validator_id);
+            let mut current_weights = BTreeMap::new();
+            let mut total_weight = 0u128;
+
+            for node_key in owned_nodes.iter().copied() {
+                let weight = stored_weights
+                    .get(&node_key)
+                    .copied()
+                    .unwrap_or(0)
+                    .min(percentage_factor);
+
+                let Some(next_total_weight) = total_weight.checked_add(weight) else {
+                    ValidatorNodeDelegateStakeWeights::<T>::insert(
+                        validator_id,
+                        Self::equal_validator_node_delegate_stake_weights(&owned_nodes),
+                    );
+                    return;
+                };
+
+                total_weight = next_total_weight;
+                current_weights.insert(node_key, weight);
+            }
+
+            if total_weight == 0 {
+                ValidatorNodeDelegateStakeWeights::<T>::insert(
+                    validator_id,
+                    Self::equal_validator_node_delegate_stake_weights(&owned_nodes),
+                );
+                return;
+            }
+
+            if total_weight == percentage_factor {
+                ValidatorNodeDelegateStakeWeights::<T>::insert(validator_id, current_weights);
+                return;
+            }
+
+            let mut normalized_weights = BTreeMap::new();
+            let mut normalized_total = 0u128;
+
+            for node_key in owned_nodes.iter().copied() {
+                let weight = current_weights.get(&node_key).copied().unwrap_or(0);
+                let normalized_weight = Self::percent_div(weight, total_weight);
+
+                let Some(next_normalized_total) = normalized_total.checked_add(normalized_weight)
+                else {
+                    ValidatorNodeDelegateStakeWeights::<T>::insert(
+                        validator_id,
+                        Self::equal_validator_node_delegate_stake_weights(&owned_nodes),
+                    );
+                    return;
+                };
+
+                normalized_total = next_normalized_total;
+                normalized_weights.insert(node_key, normalized_weight);
+            }
+
+            if normalized_total > percentage_factor {
+                ValidatorNodeDelegateStakeWeights::<T>::insert(
+                    validator_id,
+                    Self::equal_validator_node_delegate_stake_weights(&owned_nodes),
+                );
+                return;
+            }
+
+            let remainder = percentage_factor.saturating_sub(normalized_total);
+            if remainder > 0 {
+                let node_count = owned_nodes.len() as u128;
+                let base_remainder = remainder / node_count;
+                let extra_remainder = remainder % node_count;
+
+                for (index, node_key) in owned_nodes.iter().copied().enumerate() {
+                    let mut extra_weight = base_remainder;
+                    if (index as u128) < extra_remainder {
+                        extra_weight = extra_weight.saturating_add(1);
+                    }
+                    normalized_weights
+                        .entry(node_key)
+                        .and_modify(|weight| *weight = weight.saturating_add(extra_weight));
+                }
+            }
+
+            ValidatorNodeDelegateStakeWeights::<T>::insert(validator_id, normalized_weights);
+        }
+
+        pub fn remove_validator_node_delegate_stake_weight(
+            validator_id: u32,
+            subnet_id: u32,
+            subnet_node_id: u32,
+        ) {
+            let mut weights = ValidatorNodeDelegateStakeWeights::<T>::take(validator_id);
+            weights.remove(&(subnet_id, subnet_node_id));
+
+            if !weights.is_empty() {
+                ValidatorNodeDelegateStakeWeights::<T>::insert(validator_id, weights);
+            }
+
+            Self::normalize_validator_node_delegate_stake_weights(validator_id);
+        }
+
+        pub fn do_set_validator_node_delegate_stake_weights(
+            coldkey: T::AccountId,
+            updates: Vec<(u32, u32, u128)>,
+        ) -> DispatchResult {
+            let validator_id = Self::get_canonical_validator_id_for_coldkey(&coldkey)?;
+            Self::clean_validator_subnet_nodes(validator_id);
+
+            let owned_nodes = Self::collect_validator_subnet_nodes(validator_id);
+            ensure!(
+                updates.len() == owned_nodes.len(),
+                Error::<T>::ValidatorNodeDelegateStakeWeightsLengthMismatch
+            );
+
+            let update_interval = ValidatorNodeDelegateStakeWeightUpdateInterval::<T>::get();
+            if update_interval > 0 {
+                if let Some(last_update_epoch) =
+                    LastValidatorNodeDelegateStakeWeightUpdate::<T>::get(validator_id)
+                {
+                    let current_epoch = Self::get_current_epoch_as_u32();
+                    ensure!(
+                        current_epoch >= last_update_epoch.saturating_add(update_interval),
+                        Error::<T>::ValidatorNodeDelegateStakeWeightUpdateTooSoon
+                    );
+                }
+            }
+
+            let percentage_factor = Self::percentage_factor_as_u128();
+            let mut seen_nodes = BTreeSet::new();
+            let mut weights = BTreeMap::new();
+            let mut total_weight = 0u128;
+
+            for (subnet_id, subnet_node_id, weight) in updates {
+                ensure!(weight <= percentage_factor, Error::<T>::InvalidPercent);
+                ensure!(
+                    owned_nodes.contains(&(subnet_id, subnet_node_id)),
+                    Error::<T>::NotKeyOwner
+                );
+                ensure!(
+                    seen_nodes.insert((subnet_id, subnet_node_id)),
+                    Error::<T>::DuplicateValidatorNodeDelegateStakeWeight
+                );
+
+                total_weight = total_weight
+                    .checked_add(weight)
+                    .ok_or(Error::<T>::InvalidValidatorNodeDelegateStakeWeightTotal)?;
+                weights.insert((subnet_id, subnet_node_id), weight);
+            }
+
+            ensure!(
+                seen_nodes.len() == owned_nodes.len(),
+                Error::<T>::ValidatorNodeDelegateStakeWeightsLengthMismatch
+            );
+            ensure!(
+                total_weight == percentage_factor,
+                Error::<T>::InvalidValidatorNodeDelegateStakeWeightTotal
+            );
+
+            ValidatorNodeDelegateStakeWeights::<T>::insert(validator_id, weights);
+            LastValidatorNodeDelegateStakeWeightUpdate::<T>::insert(
+                validator_id,
+                Self::get_current_epoch_as_u32(),
+            );
+
+            Self::deposit_event(Event::SetValidatorNodeDelegateStakeWeights {
+                validator_id,
+                total_weight,
+            });
+
+            Ok(())
+        }
+
         pub fn ensure_canonical_validator_hotkey(
             validator_id: u32,
             coldkey: &T::AccountId,
@@ -5228,11 +5351,11 @@ pub mod pallet {
         }
 
         #[pallet::call_index(31)]
-        #[pallet::weight({0})]
+        #[pallet::weight(T::WeightInfo::owner_set_emergency_validator_set())]
         pub fn owner_set_emergency_validator_set(
             origin: OriginFor<T>,
             subnet_id: u32,
-            mut subnet_node_ids: Vec<u32>,
+            subnet_node_ids: Vec<u32>,
         ) -> DispatchResult {
             Self::is_paused()?;
             Self::do_owner_set_emergency_validator_set(origin, subnet_id, subnet_node_ids)
@@ -5403,7 +5526,7 @@ pub mod pallet {
             validator_id: u32,
             subnet_id: u32,
             hotkey: Option<T::AccountId>,
-            peer_info: PeerInfo<T>,
+            peer_info: Option<PeerInfo<T>>,
             bootnode_peer_info: Option<PeerInfo<T>>,
             client_peer_info: Option<PeerInfo<T>>,
             stake_to_be_added: u128,
@@ -5483,7 +5606,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             subnet_id: u32,
             subnet_node_id: u32,
-            new_peer_info: PeerInfo<T>,
+            new_peer_info: Option<PeerInfo<T>>,
         ) -> DispatchResult {
             let coldkey: T::AccountId = ensure_signed(origin.clone())?;
 
@@ -7128,12 +7251,66 @@ pub mod pallet {
 
         #[pallet::call_index(170)]
         #[pallet::weight({0})]
-        pub fn set_consensus_validator_node_count_decay(
+        pub fn owner_update_consensus_validator_node_count_decay(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            value: u128,
+        ) -> DispatchResult {
+            Self::is_paused()?;
+            Self::do_owner_update_consensus_validator_node_count_decay(origin, subnet_id, value)
+        }
+
+        #[pallet::call_index(171)]
+        #[pallet::weight({0})]
+        pub fn set_emergency_validator_cooldown_epochs(
+            origin: OriginFor<T>,
+            value: u32,
+        ) -> DispatchResult {
+            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_emergency_validator_cooldown_epochs(value)
+        }
+
+        #[pallet::call_index(172)]
+        #[pallet::weight({0})]
+        pub fn set_validator_node_delegate_stake_weights(
+            origin: OriginFor<T>,
+            updates: Vec<(u32, u32, u128)>,
+        ) -> DispatchResult {
+            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+
+            Self::is_paused()?;
+
+            Self::do_set_validator_node_delegate_stake_weights(coldkey, updates)
+        }
+
+        #[pallet::call_index(173)]
+        #[pallet::weight({0})]
+        pub fn set_validator_node_delegate_stake_weight_update_interval(
+            origin: OriginFor<T>,
+            value: u32,
+        ) -> DispatchResult {
+            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_validator_node_delegate_stake_weight_update_interval(value)
+        }
+
+        #[pallet::call_index(174)]
+        #[pallet::weight({0})]
+        pub fn set_consensus_validator_node_count_decay_update_interval(
+            origin: OriginFor<T>,
+            value: u32,
+        ) -> DispatchResult {
+            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_consensus_validator_node_count_decay_update_interval(value)
+        }
+
+        #[pallet::call_index(175)]
+        #[pallet::weight({0})]
+        pub fn set_subnet_net_flow_smoothing_alpha(
             origin: OriginFor<T>,
             value: u128,
         ) -> DispatchResult {
-            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_consensus_validator_node_count_decay(value)
+            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_subnet_net_flow_smoothing_alpha(value)
         }
     }
 
@@ -7973,21 +8150,26 @@ pub mod pallet {
             NodeBurnRateAlpha::<T>::remove(subnet_id);
             CurrentNodeBurnRate::<T>::remove(subnet_id);
             QueueImmunityEpochs::<T>::remove(subnet_id);
+            ConsensusValidatorNodeCountDecay::<T>::remove(subnet_id);
+            LastConsensusValidatorNodeCountDecayUpdate::<T>::remove(subnet_id);
             SubnetBootnodeAccess::<T>::remove(subnet_id);
             SubnetBootnodes::<T>::remove(subnet_id);
             EmergencySubnetNodeElectionData::<T>::remove(subnet_id);
+            LastEmergencyValidatorEndEpoch::<T>::remove(subnet_id);
             SubnetReputation::<T>::remove(subnet_id);
             MinSubnetNodeReputation::<T>::remove(subnet_id);
             NodeRegistrationsThisEpoch::<T>::remove(subnet_id);
             SubnetNodeMinWeightDecreaseReputationThreshold::<T>::remove(subnet_id);
             SubnetReputationFactorSchedules::<T>::remove(subnet_id);
+            SubnetNetFlow::<T>::remove(subnet_id);
+            SubnetNetFlowSmoothedWeight::<T>::remove(subnet_id);
 
             if let Some(friendly_uid) = SubnetIdFriendlyUid::<T>::take(subnet_id) {
                 FriendlyUidSubnetId::<T>::remove(friendly_uid);
                 weight = weight.saturating_add(T::DbWeight::get().writes(1));
             }
 
-            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 26));
+            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 28));
 
             // Remove from slot
             Self::free_slot_of_subnet(subnet_id);
@@ -8194,7 +8376,7 @@ pub mod pallet {
         /// * `origin` - The origin of the transaction
         /// * `validator_id` - The ID of the validator registering the subnet node
         /// * `subnet_id` - The ID of the subnet to register the subnet node to
-        /// * `peer_info` - The peer info of the subnet node
+        /// * `peer_info` - The peer info of the subnet node (optional)
         /// * `bootnode_peer_info` - The bootnode peer info of the subnet node (optional)
         /// * `client_peer_info` - The client peer info of the subnet node (optional)
         /// * `stake_to_be_added` - The amount of stake to be added to the subnet node
@@ -8207,7 +8389,7 @@ pub mod pallet {
             validator_id: u32,
             subnet_id: u32,
             hotkey: Option<T::AccountId>,
-            peer_info: PeerInfo<T>,
+            peer_info: Option<PeerInfo<T>>,
             bootnode_peer_info: Option<PeerInfo<T>>,
             client_peer_info: Option<PeerInfo<T>>,
             stake_to_be_added: u128,
@@ -8383,12 +8565,13 @@ pub mod pallet {
 
             TotalSubnetNodeUids::<T>::insert(subnet_id, subnet_node_id);
 
-            // --- Insert peer info
-            PeerIdSubnetNodeId::<T>::insert(subnet_id, &peer_info.peer_id, subnet_node_id);
+            if let Some(peer_info) = &peer_info {
+                PeerIdSubnetNodeId::<T>::insert(subnet_id, &peer_info.peer_id, subnet_node_id);
 
-            if let Some(peer_multiaddr) = &peer_info.multiaddr {
-                // Validated in `validate_registration_peer_infos`
-                MultiaddrSubnetNodeId::<T>::insert(subnet_id, &peer_multiaddr, subnet_node_id);
+                if let Some(peer_multiaddr) = &peer_info.multiaddr {
+                    // Validated in `validate_registration_peer_infos`
+                    MultiaddrSubnetNodeId::<T>::insert(subnet_id, &peer_multiaddr, subnet_node_id);
+                }
             }
 
             if let Some(bootnode_peer_info) = &bootnode_peer_info {
@@ -8458,7 +8641,17 @@ pub mod pallet {
             TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
             TotalNodes::<T>::mutate(|n: &mut u32| *n += 1);
 
+            Self::clean_validator_subnet_nodes(validator_id);
+            let validator_has_existing_subnet_nodes =
+                Self::validator_has_any_subnet_nodes(validator_id);
+
             SubnetNodeValidatorId::<T>::insert(subnet_id, subnet_node_id, validator_id);
+            Self::set_default_validator_node_delegate_stake_weight_for_registration(
+                validator_id,
+                subnet_id,
+                subnet_node_id,
+                validator_has_existing_subnet_nodes,
+            );
 
             Self::increase_node_stake(subnet_node_id, subnet_id, stake_to_be_added);
             Self::set_last_tx_block(&coldkey, block);
