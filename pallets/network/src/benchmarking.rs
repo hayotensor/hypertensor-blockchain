@@ -1978,6 +1978,7 @@ mod benchmarks {
         let owner_coldkey = subnet_owner::<T>(subnet_id);
 
         let current_value = IdleClassificationEpochs::<T>::get(subnet_id);
+        let current_subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
 
         let new_value = current_value + 1;
 
@@ -1989,7 +1990,13 @@ mod benchmarks {
         );
 
         let value = IdleClassificationEpochs::<T>::get(subnet_id);
-        assert_eq!(value, new_value);
+        assert_eq!(value, current_value);
+        let pending = PendingIdleClassificationEpochs::<T>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(
+            pending.effective_subnet_epoch,
+            current_subnet_epoch.saturating_add(1)
+        );
     }
 
     #[benchmark]
@@ -2011,6 +2018,7 @@ mod benchmarks {
         let owner_coldkey = subnet_owner::<T>(subnet_id);
 
         let current_value = IncludedClassificationEpochs::<T>::get(subnet_id);
+        let current_subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
 
         let new_value = current_value + 1;
 
@@ -2022,7 +2030,13 @@ mod benchmarks {
         );
 
         let value = IncludedClassificationEpochs::<T>::get(subnet_id);
-        assert_eq!(value, new_value);
+        assert_eq!(value, current_value);
+        let pending = PendingIncludedClassificationEpochs::<T>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(
+            pending.effective_subnet_epoch,
+            current_subnet_epoch.saturating_add(1)
+        );
     }
 
     #[benchmark]
@@ -2228,8 +2242,11 @@ mod benchmarks {
             new_value,
         );
 
-        let value = SubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id);
-        assert_eq!(value, new_value);
+        let active_value = SubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id);
+        assert_eq!(active_value, current_value);
+        let pending_value = PendingSubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id)
+            .map(|pending| pending.value);
+        assert_eq!(pending_value, Some(new_value));
     }
 
     #[benchmark]
@@ -2253,6 +2270,7 @@ mod benchmarks {
         let current_value = MaxRegisteredNodes::<T>::get(subnet_id);
 
         let new_value = current_value - 1;
+        TargetNodeRegistrationsPerEpoch::<T>::insert(subnet_id, new_value);
 
         #[extrinsic_call]
         owner_update_max_registered_nodes(
@@ -2492,7 +2510,8 @@ mod benchmarks {
 
         let owner_coldkey = subnet_owner::<T>(subnet_id);
 
-        let new_value = QueueImmunityEpochs::<T>::get(subnet_id) - 1;
+        let new_value = MinQueueEpochs::<T>::get();
+        let current_subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
 
         #[extrinsic_call]
         owner_update_queue_immunity_epochs(
@@ -2501,7 +2520,12 @@ mod benchmarks {
             new_value,
         );
 
-        assert_eq!(QueueImmunityEpochs::<T>::get(subnet_id), new_value);
+        let pending = PendingQueueImmunityEpochs::<T>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(
+            pending.effective_subnet_epoch,
+            current_subnet_epoch.saturating_add(1)
+        );
     }
 
     #[benchmark]
@@ -2523,6 +2547,7 @@ mod benchmarks {
         let owner_coldkey = subnet_owner::<T>(subnet_id);
 
         let new_value = 1;
+        let current_subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
 
         #[extrinsic_call]
         owner_update_subnet_node_min_weight_decrease_reputation_threshold(
@@ -2531,9 +2556,12 @@ mod benchmarks {
             new_value,
         );
 
+        let pending =
+            PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
         assert_eq!(
-            SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
-            new_value
+            pending.effective_subnet_epoch,
+            current_subnet_epoch.saturating_add(1)
         );
     }
 
@@ -2556,6 +2584,8 @@ mod benchmarks {
     fn owner_update_min_subnet_node_reputation() {
         let (subnet_id, owner_coldkey) = build_owner_benchmark_subnet::<T>();
         let new_value = MinMinSubnetNodeReputation::<T>::get();
+        let current_value = MinSubnetNodeReputation::<T>::get(subnet_id);
+        let current_subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
 
         #[extrinsic_call]
         owner_update_min_subnet_node_reputation(
@@ -2564,7 +2594,13 @@ mod benchmarks {
             new_value,
         );
 
-        assert_eq!(MinSubnetNodeReputation::<T>::get(subnet_id), new_value);
+        assert_eq!(MinSubnetNodeReputation::<T>::get(subnet_id), current_value);
+        let pending = PendingMinSubnetNodeReputation::<T>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(
+            pending.effective_subnet_epoch,
+            current_subnet_epoch.saturating_add(1)
+        );
     }
 
     #[benchmark]

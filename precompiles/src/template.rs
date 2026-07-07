@@ -7,7 +7,7 @@ use pallet_evm::{ExitError, PrecompileFailure, PrecompileHandle};
 use precompile_utils::EvmResult;
 use precompile_utils::prelude::RuntimeHelper;
 use sp_core::U256;
-use sp_runtime::traits::{Dispatchable, StaticLookup, UniqueSaturatedInto};
+use sp_runtime::traits::{Dispatchable, StaticLookup};
 
 pub(crate) struct TemplatePrecompile<R>(PhantomData<R>);
 

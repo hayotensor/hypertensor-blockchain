@@ -410,7 +410,7 @@ fn test_subnet_removal_clears_net_flow_storage() {
 #[test]
 fn test_subnet_net_flow_large_amount_does_not_wrap_signed() {
     new_test_ext().execute_with(|| {
-        let subnet_id = 1;
+        let subnet_id = build_active_subnet_ids(1)[0];
 
         Network::increase_account_delegate_stake(&account(1), subnet_id, u128::MAX, 0);
         assert_eq!(SubnetNetFlow::<Test>::get(subnet_id), i128::MAX);
@@ -536,6 +536,45 @@ fn test_precheck_subnet_consensus_submission() {
         assert_eq!(subnet_nodes.len(), end as usize);
         assert_eq!(prioritize_queue_node_id, Some(last.id));
         assert_eq!(remove_queue_node_id, Some(first.id));
+    });
+}
+
+#[test]
+fn test_precheck_queue_removal_uses_saturating_immunity_epoch() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let max_subnets = MaxSubnets::<Test>::get();
+        let end = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        build_registered_nodes_in_queue(subnet_id, end, end + 4, deposit_amount, amount);
+
+        let mut queue = SubnetNodeQueue::<Test>::get(subnet_id);
+        let remove_id = queue.first().unwrap().id;
+        queue[0].classification.start_epoch = 10;
+        SubnetNodeQueue::<Test>::set(subnet_id, queue);
+        QueueImmunityEpochs::<Test>::insert(subnet_id, u32::MAX);
+
+        increase_epochs(20);
+        set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
+        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        assert!(subnet_epoch > 10);
+        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+        let validator_id = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch);
+        assert!(validator_id.is_some());
+
+        let prioritize_id = SubnetNodeQueue::<Test>::get(subnet_id).last().unwrap().id;
+        let _ = max_subnet_nodes;
+        let _ = max_subnets;
+        run_subnet_consensus_step_v2(subnet_id, Some(prioritize_id), Some(remove_id));
+
+        let submission = SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
+        assert_eq!(submission.remove_queue_node_id, None);
     });
 }
 

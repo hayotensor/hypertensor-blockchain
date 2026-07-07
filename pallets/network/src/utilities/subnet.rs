@@ -252,10 +252,13 @@ impl<T: Config> Pallet<T> {
 
         SubnetBootnodes::<T>::try_mutate(subnet_id, |bootnodes| -> DispatchResult {
             for item in remove.iter() {
+                Self::ensure_bootnode_peer_id_bounded(item)?;
                 bootnodes.remove(item);
             }
 
             for (peer_id, multiaddr) in add.iter() {
+                Self::ensure_bootnode_bounded(peer_id, multiaddr)?;
+
                 // Verify new bootnode
                 let addr: &[u8] = &multiaddr.clone();
 
@@ -281,6 +284,81 @@ impl<T: Config> Pallet<T> {
             removed: remove,
         });
 
+        Ok(())
+    }
+
+    pub fn ensure_subnet_registration_metadata_bounded(
+        subnet_registration_data: &RegistrationSubnetData<T>,
+    ) -> DispatchResult {
+        Self::ensure_subnet_name_bounded(&subnet_registration_data.name)?;
+        Self::ensure_subnet_repo_bounded(&subnet_registration_data.repo)?;
+        Self::ensure_subnet_description_bounded(&subnet_registration_data.description)?;
+        Self::ensure_subnet_misc_bounded(&subnet_registration_data.misc)?;
+        Self::ensure_bootnodes_bounded(&subnet_registration_data.bootnodes)
+    }
+
+    pub fn ensure_subnet_name_bounded(value: &[u8]) -> DispatchResult {
+        ensure!(
+            value.len() <= T::MaxVectorLength::get() as usize,
+            Error::<T>::SubnetNameTooLong
+        );
+        Ok(())
+    }
+
+    pub fn ensure_subnet_repo_bounded(value: &[u8]) -> DispatchResult {
+        ensure!(
+            value.len() <= T::MaxUrlLength::get() as usize,
+            Error::<T>::SubnetRepoTooLong
+        );
+        Ok(())
+    }
+
+    pub fn ensure_subnet_description_bounded(value: &[u8]) -> DispatchResult {
+        ensure!(
+            value.len() <= T::MaxVectorLength::get() as usize,
+            Error::<T>::SubnetDescriptionTooLong
+        );
+        Ok(())
+    }
+
+    pub fn ensure_subnet_misc_bounded(value: &[u8]) -> DispatchResult {
+        ensure!(
+            value.len() <= T::MaxVectorLength::get() as usize,
+            Error::<T>::SubnetMiscTooLong
+        );
+        Ok(())
+    }
+
+    pub fn ensure_bootnodes_bounded(
+        bootnodes: &BTreeMap<PeerId, NetworkBytes<T>>,
+    ) -> DispatchResult {
+        for (peer_id, multiaddr) in bootnodes.iter() {
+            Self::ensure_bootnode_bounded(peer_id, multiaddr)?;
+        }
+        Ok(())
+    }
+
+    pub fn ensure_bootnode_bounded(
+        peer_id: &PeerId,
+        multiaddr: &NetworkBytes<T>,
+    ) -> DispatchResult {
+        Self::ensure_bootnode_peer_id_bounded(peer_id)?;
+        ensure!(
+            multiaddr.len() <= T::MaxUrlLength::get() as usize,
+            Error::<T>::SubnetBootnodeTooLong
+        );
+        Ok(())
+    }
+
+    pub fn ensure_bootnode_peer_id_bounded(peer_id: &PeerId) -> DispatchResult {
+        ensure!(
+            peer_id.0.len() <= T::MaxVectorLength::get() as usize,
+            Error::<T>::InvalidBootnodePeerId
+        );
+        ensure!(
+            Self::validate_peer_id(peer_id),
+            Error::<T>::InvalidBootnodePeerId
+        );
         Ok(())
     }
 

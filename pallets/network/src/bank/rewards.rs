@@ -49,10 +49,12 @@ impl<T: Config> Pallet<T> {
         let min_validator_reputation = emergency_snapshot
             .as_ref()
             .map(|snapshot| snapshot.min_subnet_node_reputation)
-            .unwrap_or_else(|| MinSubnetNodeReputation::<T>::get(subnet_id));
+            .unwrap_or_else(|| {
+                Self::get_min_subnet_node_reputation_for_epoch(subnet_id, evaluated_subnet_epoch)
+            });
         let subnet_reputation = SubnetReputation::<T>::get(subnet_id);
-        // MinSubnetNodeReputation | SubnetReputation
-        weight_meter.consume(db_weight.reads(2));
+        // MinSubnetNodeReputation | PendingMinSubnetNodeReputation | SubnetReputation
+        weight_meter.consume(db_weight.reads(3));
 
         let forked_subnet_node_ids: Option<BTreeSet<u32>> =
             Self::maybe_get_forked_subnet_node_ids(weight_meter, subnet_id, &emergency_snapshot);
@@ -60,12 +62,70 @@ impl<T: Config> Pallet<T> {
         let electable_nodes_count = SubnetNodeElectionSlots::<T>::get(subnet_id).len() as u32;
         weight_meter.consume(db_weight.reads(1));
 
-        // --- If under minimum attestation ratio, penalize validator, skip rewards
-        if consensus_submission_data.attestation_ratio < min_attestation_percentage {
+        let min_node_attestation_percentage =
+            Self::get_min_consensus_node_attestation_percentage_for_epoch(
+                subnet_id,
+                evaluated_subnet_epoch,
+            );
+        let effective_node_attestation_threshold =
+            Self::effective_min_consensus_node_attestation_percentage(
+                consensus_submission_data.eligible_validator_count,
+                min_node_attestation_percentage,
+            );
+        let min_node_attestation_count = Self::min_consensus_node_attestation_count(
+            consensus_submission_data.eligible_validator_count,
+            min_node_attestation_percentage,
+        );
+        weight_meter.consume(db_weight.reads(2));
+
+        let stake_quorum_failed =
+            consensus_submission_data.attestation_ratio < min_attestation_percentage;
+        let node_quorum_failed =
+            consensus_submission_data.node_attestation_count < min_node_attestation_count;
+
+        // --- If under either minimum attestation ratio, penalize validator, skip rewards
+        if stake_quorum_failed || node_quorum_failed {
+            let stake_shortfall = if stake_quorum_failed {
+                percentage_factor.saturating_sub(
+                    Self::percent_div(
+                        consensus_submission_data.attestation_ratio,
+                        min_attestation_percentage,
+                    )
+                    .min(percentage_factor),
+                )
+            } else {
+                0
+            };
+            let node_shortfall = if node_quorum_failed {
+                percentage_factor.saturating_sub(
+                    Self::percent_div(
+                        consensus_submission_data.node_attestation_ratio,
+                        effective_node_attestation_threshold,
+                    )
+                    .min(percentage_factor),
+                )
+            } else {
+                0
+            };
+
+            let (penalty_attestation_ratio, penalty_attestation_threshold) =
+                if node_shortfall > stake_shortfall {
+                    (
+                        consensus_submission_data.node_attestation_ratio,
+                        effective_node_attestation_threshold,
+                    )
+                } else {
+                    (
+                        consensus_submission_data.attestation_ratio,
+                        min_attestation_percentage,
+                    )
+                };
+
             Self::handle_non_consensus(
                 subnet_id,
                 consensus_submission_data,
-                min_attestation_percentage,
+                penalty_attestation_ratio,
+                penalty_attestation_threshold,
                 coldkey_reputation_decrease_factor,
                 min_validator_reputation,
                 electable_nodes_count,
@@ -112,12 +172,19 @@ impl<T: Config> Pallet<T> {
         // --- We are now in consensus (>=66% attestation ratio)
         //
 
-        let idle_epochs = IdleClassificationEpochs::<T>::get(subnet_id);
-        let included_epochs = IncludedClassificationEpochs::<T>::get(subnet_id);
+        let idle_epochs =
+            Self::get_idle_classification_epochs_for_epoch(subnet_id, evaluated_subnet_epoch);
+        let included_epochs =
+            Self::get_included_classification_epochs_for_epoch(subnet_id, evaluated_subnet_epoch);
         let weight_threshold = emergency_snapshot
             .as_ref()
             .map(|snapshot| snapshot.min_weight_decrease_reputation_threshold)
-            .unwrap_or_else(|| SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id));
+            .unwrap_or_else(|| {
+                Self::get_subnet_node_min_weight_decrease_reputation_threshold_for_epoch(
+                    subnet_id,
+                    evaluated_subnet_epoch,
+                )
+            });
         let reputation_factors = emergency_snapshot
             .as_ref()
             .map(|snapshot| snapshot.reputation_factors)
@@ -128,7 +195,7 @@ impl<T: Config> Pallet<T> {
         let included_factor = reputation_factors.included_increase;
         let min_weight_factor = reputation_factors.below_min_weight_decrease;
         let non_attestor_factor = reputation_factors.non_attestor_decrease;
-        weight_meter.consume(db_weight.reads(4));
+        weight_meter.consume(db_weight.reads(7));
 
         // Super majority, update queue to prioritize node ID that subnet form a consensus to cut the line
         // and or update queue to remove a node ID the subnet forms a consensus to be removed (if passed immunity period)
@@ -511,7 +578,8 @@ impl<T: Config> Pallet<T> {
     pub fn handle_non_consensus(
         subnet_id: u32,
         consensus_submission_data: ConsensusSubmissionData<T>,
-        min_attestation_percentage: u128,
+        penalty_attestation_ratio: u128,
+        penalty_attestation_threshold: u128,
         coldkey_reputation_decrease_factor: u128,
         min_validator_reputation: u128,
         electable_nodes_count: u32,
@@ -530,8 +598,8 @@ impl<T: Config> Pallet<T> {
         let slash_validator_weight = Self::slash_validator(
             subnet_id,
             consensus_submission_data.validator_subnet_node_id,
-            consensus_submission_data.attestation_ratio,
-            min_attestation_percentage,
+            penalty_attestation_ratio,
+            penalty_attestation_threshold,
             coldkey_reputation_decrease_factor,
             min_validator_reputation,
             electable_nodes_count,
@@ -542,8 +610,8 @@ impl<T: Config> Pallet<T> {
 
         // Decrease subnet reputation
         let factor_2 = percentage_factor.saturating_sub(Self::percent_div(
-            consensus_submission_data.attestation_ratio,
-            min_attestation_percentage,
+            penalty_attestation_ratio,
+            penalty_attestation_threshold,
         ));
 
         Self::decrease_subnet_reputation(
@@ -557,8 +625,8 @@ impl<T: Config> Pallet<T> {
         // Get the decrease factor based on the attestation ratio
         let non_consensus_attestor_factor = Self::get_non_consensus_attestor_factor(
             reputation_factors.non_consensus_attestor_decrease,
-            consensus_submission_data.attestation_ratio,
-            min_attestation_percentage,
+            penalty_attestation_ratio,
+            penalty_attestation_threshold,
             percentage_factor,
         );
 

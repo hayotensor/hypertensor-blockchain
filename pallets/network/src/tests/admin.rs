@@ -12,17 +12,19 @@ use crate::{
     MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes, MaxMinDelegateStakeMultiplier,
     MaxMinSubnetNodeReputation, MaxNodeBurnRate, MaxNodeReputationFactor, MaxOverwatchNodes,
     MaxPauseEpochsSubnetReputationFactor, MaxQueueEpochs, MaxRewardRateDecrease, MaxSlashAmount,
-    MaxSubnetBootnodeAccess, MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
+    MaxSubnetBootnodeAccess, MaxSubnetConsensusNodeAttestationPercentage,
+    MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
     MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnetPauseEpochs,
     MaxSubnetRemovalInterval, MaxSubnets, MaxSwapQueueCallsPerBlock, MaxUnbondings,
     MaximumHooksWeightV2, MinActiveNodeStakeEpochs, MinAttestationPercentage, MinChurnLimit,
     MinChurnLimitMultiplier, MinDelegateStakeDeposit, MinDelegateStakePercentage,
     MinIdleClassificationEpochs, MinIncludedClassificationEpochs, MinMaxRegisteredNodes,
     MinMinSubnetNodeReputation, MinNodeBurnRate, MinNodeReputationFactor, MinQueueEpochs,
-    MinRegistrationCost, MinSubnetDelegateStakeFactor, MinSubnetMinStake, MinSubnetNodes,
-    MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
-    NetworkMaxStakeBalance, NewRegistrationCostMultiplier, NodeDelegateStakeCooldownEpochs,
-    NodeRewardRateUpdatePeriod, NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
+    MinRegistrationCost, MinSubnetConsensusNodeAttestationPercentage, MinSubnetDelegateStakeFactor,
+    MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetRemovalInterval,
+    MinSubnetReputation, NetworkMaxStakeBalance, NewRegistrationCostMultiplier,
+    NodeDelegateStakeCooldownEpochs, NodeRewardRateUpdatePeriod,
+    NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
     OverwatchEpochLengthMultiplier, OverwatchMinAge, OverwatchMinAvgAttestationRatio,
     OverwatchMinDiversificationRatio, OverwatchMinRepScore, OverwatchMinStakeBalance,
     OverwatchNodeBlacklist, OverwatchStakeWeightFactor, OverwatchValidatorWhitelist,
@@ -821,6 +823,80 @@ fn test_set_min_attestation_percentage() {
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SetMinAttestationPercentage(new_value)
+        );
+    });
+}
+
+#[test]
+fn test_set_min_max_consensus_node_attestation_percentage() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(System::block_number() + 1);
+
+        assert_eq!(
+            MinSubnetConsensusNodeAttestationPercentage::<Test>::get(),
+            test_percent(1, 10)
+        );
+        assert_eq!(
+            MaxSubnetConsensusNodeAttestationPercentage::<Test>::get(),
+            test_percent(33, 100)
+        );
+
+        let min = test_percent(15, 100);
+        let max = test_percent(30, 100);
+
+        assert_ok!(Network::set_min_max_consensus_node_attestation_percentage(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+            min,
+            max
+        ));
+
+        assert_eq!(
+            MinSubnetConsensusNodeAttestationPercentage::<Test>::get(),
+            min
+        );
+        assert_eq!(
+            MaxSubnetConsensusNodeAttestationPercentage::<Test>::get(),
+            max
+        );
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::SetMinMaxConsensusNodeAttestationPercentage(min, max)
+        );
+
+        assert_err!(
+            Network::set_min_max_consensus_node_attestation_percentage(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                0,
+                max
+            ),
+            Error::<Test>::InvalidValues
+        );
+
+        assert_err!(
+            Network::set_min_max_consensus_node_attestation_percentage(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                max,
+                min
+            ),
+            Error::<Test>::InvalidValues
+        );
+
+        assert_err!(
+            Network::set_min_max_consensus_node_attestation_percentage(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                min,
+                Network::percentage_factor_as_u128() + 1
+            ),
+            Error::<Test>::InvalidPercent
+        );
+
+        assert_err!(
+            Network::set_min_max_consensus_node_attestation_percentage(
+                RuntimeOrigin::signed(account(1)),
+                min,
+                max
+            ),
+            sp_runtime::DispatchError::BadOrigin
         );
     });
 }

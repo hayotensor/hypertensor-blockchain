@@ -1,18 +1,11 @@
 use core::marker::PhantomData;
-use fp_evm::Log;
 use frame_support::dispatch::{GetDispatchInfo, PostDispatchInfo};
 use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, ExitError, PrecompileFailure, PrecompileHandle};
 use pallet_network::QueuedSwapCall;
-use precompile_utils::{EvmResult, prelude::*, solidity::Codec};
-use sp_core::Decode;
-use sp_core::{H160, H256, U256};
-use sp_runtime::traits::{Dispatchable, StaticLookup, UniqueSaturatedInto};
-use sp_std::vec;
-
-/// Alias for the Balance type for the provided Runtime and Instance.
-pub type BalanceOf<Runtime, Instance = ()> =
-    <Runtime as pallet_balances::Config<Instance>>::Balance;
+use precompile_utils::{EvmResult, prelude::*};
+use sp_core::U256;
+use sp_runtime::traits::{Dispatchable, StaticLookup};
 
 pub(crate) struct StakingPrecompile<R>(PhantomData<R>);
 
@@ -46,7 +39,7 @@ where
         subnet_node_id: U256,
         stake_to_be_added: U256,
     ) -> EvmResult<()> {
-        let stake_to_be_added = stake_to_be_added.unique_saturated_into();
+        let stake_to_be_added = try_u256_to_u128(stake_to_be_added)?;
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
 
@@ -75,7 +68,7 @@ where
         subnet_node_id: U256,
         stake_to_be_removed: U256,
     ) -> EvmResult<()> {
-        let stake_to_be_removed = stake_to_be_removed.unique_saturated_into();
+        let stake_to_be_removed = try_u256_to_u128(stake_to_be_removed)?;
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
 
@@ -122,7 +115,7 @@ where
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
 
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let stake_to_be_added: u128 = stake_to_be_added.unique_saturated_into();
+        let stake_to_be_added = try_u256_to_u128(stake_to_be_added)?;
 
         let call = pallet_network::Call::<R>::add_subnet_delegate_stake {
             subnet_id,
@@ -147,7 +140,7 @@ where
         to_subnet_id: U256,
         delegate_stake_shares_to_swap: U256,
     ) -> EvmResult<()> {
-        let delegate_stake_shares_to_swap = delegate_stake_shares_to_swap.unique_saturated_into();
+        let delegate_stake_shares_to_swap = try_u256_to_u128(delegate_stake_shares_to_swap)?;
         let from_subnet_id = try_u256_to_u32(from_subnet_id)?;
         let to_subnet_id = try_u256_to_u32(to_subnet_id)?;
 
@@ -177,7 +170,7 @@ where
         delegate_stake_shares_to_transfer: U256,
     ) -> EvmResult<()> {
         let delegate_stake_shares_to_transfer =
-            delegate_stake_shares_to_transfer.unique_saturated_into();
+            try_u256_to_u128(delegate_stake_shares_to_transfer)?;
         let subnet_id = try_u256_to_u32(subnet_id)?;
         let to_account_id = R::AddressMapping::into_account_id(to_account_id.into());
 
@@ -205,7 +198,7 @@ where
         subnet_id: U256,
         shares_to_be_removed: U256,
     ) -> EvmResult<()> {
-        let shares_to_be_removed = shares_to_be_removed.unique_saturated_into();
+        let shares_to_be_removed = try_u256_to_u128(shares_to_be_removed)?;
         let subnet_id = try_u256_to_u32(subnet_id)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
@@ -231,7 +224,7 @@ where
         subnet_id: U256,
         amount: U256,
     ) -> EvmResult<()> {
-        let amount = amount.unique_saturated_into();
+        let amount = try_u256_to_u128(amount)?;
         let subnet_id = try_u256_to_u32(subnet_id)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
@@ -254,7 +247,7 @@ where
         validator_id: U256,
         delegate_stake_to_be_added: U256,
     ) -> EvmResult<()> {
-        let delegate_stake_to_be_added = delegate_stake_to_be_added.unique_saturated_into();
+        let delegate_stake_to_be_added = try_u256_to_u128(delegate_stake_to_be_added)?;
         let validator_id = try_u256_to_u32(validator_id)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
@@ -281,7 +274,7 @@ where
         to_validator_id: U256,
         stake_to_be_removed: U256,
     ) -> EvmResult<()> {
-        let stake_to_be_removed = stake_to_be_removed.unique_saturated_into();
+        let stake_to_be_removed = try_u256_to_u128(stake_to_be_removed)?;
         let from_validator_id = try_u256_to_u32(from_validator_id)?;
         let to_validator_id = try_u256_to_u32(to_validator_id)?;
 
@@ -311,7 +304,7 @@ where
         validator_delegate_stake_shares_to_transfer: U256,
     ) -> EvmResult<()> {
         let validator_delegate_stake_shares_to_transfer =
-            validator_delegate_stake_shares_to_transfer.unique_saturated_into();
+            try_u256_to_u128(validator_delegate_stake_shares_to_transfer)?;
         let validator_id = try_u256_to_u32(validator_id)?;
         let to_account_id = R::AddressMapping::into_account_id(to_account_id.into());
 
@@ -340,7 +333,7 @@ where
         validator_delegate_stake_shares_to_be_removed: U256,
     ) -> EvmResult<()> {
         let validator_delegate_stake_shares_to_be_removed =
-            validator_delegate_stake_shares_to_be_removed.unique_saturated_into();
+            try_u256_to_u128(validator_delegate_stake_shares_to_be_removed)?;
         let validator_id = try_u256_to_u32(validator_id)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
@@ -366,7 +359,7 @@ where
         validator_id: U256,
         amount: U256,
     ) -> EvmResult<()> {
-        let amount = amount.unique_saturated_into();
+        let amount = try_u256_to_u128(amount)?;
         let validator_id = try_u256_to_u32(validator_id)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
@@ -394,7 +387,7 @@ where
         node_delegate_stake_shares_to_swap: U256,
     ) -> EvmResult<()> {
         let node_delegate_stake_shares_to_swap =
-            node_delegate_stake_shares_to_swap.unique_saturated_into();
+            try_u256_to_u128(node_delegate_stake_shares_to_swap)?;
         let from_validator_id = try_u256_to_u32(from_validator_id)?;
         let to_subnet_id = try_u256_to_u32(to_subnet_id)?;
 
@@ -424,7 +417,7 @@ where
         subnet_delegate_stake_shares_to_swap: U256,
     ) -> EvmResult<()> {
         let subnet_delegate_stake_shares_to_swap =
-            subnet_delegate_stake_shares_to_swap.unique_saturated_into();
+            try_u256_to_u128(subnet_delegate_stake_shares_to_swap)?;
         let from_subnet_id = try_u256_to_u32(from_subnet_id)?;
         let to_validator_id = try_u256_to_u32(to_validator_id)?;
 
@@ -445,7 +438,7 @@ where
         Ok(())
     }
 
-    #[precompile::public("updateSwapQueue(uint256,uint256,uint256,uint256,uint256)")]
+    #[precompile::public("updateSwapQueue(uint256,uint256,uint256,uint256)")]
     #[precompile::payable]
     fn update_swap_queue(
         handle: &mut impl PrecompileHandle,
@@ -453,13 +446,11 @@ where
         call_type: U256,
         to_validator_id: U256,
         to_subnet_id: U256,
-        to_subnet_node_id: U256,
     ) -> EvmResult<()> {
         let id = try_u256_to_u32(id)?;
         let call_type = try_u256_to_u32(call_type)?;
         let to_validator_id = try_u256_to_u32(to_validator_id)?;
         let to_subnet_id = try_u256_to_u32(to_subnet_id)?;
-        let to_subnet_node_id = try_u256_to_u32(to_subnet_node_id)?;
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
 
         let new_call = match call_type {
@@ -498,7 +489,7 @@ where
         handle: &mut impl PrecompileHandle,
         amount_to_remove: U256,
     ) -> EvmResult<()> {
-        let amount_to_remove = amount_to_remove.unique_saturated_into();
+        let amount_to_remove = try_u256_to_u128(amount_to_remove)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::remove_delegate_account_balance { amount_to_remove };
@@ -609,7 +600,7 @@ where
         let subnet_id = try_u256_to_u32(subnet_id)?;
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
         let total_subnet_delegate_stake_shares: u128 =
-            pallet_network::TotalSubnetDelegateStakeBalance::<R>::get(subnet_id);
+            pallet_network::TotalSubnetDelegateStakeShares::<R>::get(subnet_id);
 
         Ok(total_subnet_delegate_stake_shares)
     }
@@ -721,5 +712,11 @@ where
 fn try_u256_to_u32(value: U256) -> Result<u32, PrecompileFailure> {
     value.try_into().map_err(|_| PrecompileFailure::Error {
         exit_status: ExitError::Other("u32 out of bounds".into()),
+    })
+}
+
+fn try_u256_to_u128(value: U256) -> Result<u128, PrecompileFailure> {
+    value.try_into().map_err(|_| PrecompileFailure::Error {
+        exit_status: ExitError::Other("u128 out of bounds".into()),
     })
 }

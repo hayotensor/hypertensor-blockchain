@@ -376,6 +376,23 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
+    pub fn do_set_min_max_consensus_node_attestation_percentage(
+        min: u128,
+        max: u128,
+    ) -> DispatchResult {
+        ensure!(min > 0 && min <= max, Error::<T>::InvalidValues);
+        ensure!(
+            max <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+
+        MinSubnetConsensusNodeAttestationPercentage::<T>::set(min);
+        MaxSubnetConsensusNodeAttestationPercentage::<T>::set(max);
+
+        Self::deposit_event(Event::SetMinMaxConsensusNodeAttestationPercentage(min, max));
+
+        Ok(())
+    }
     pub fn do_set_validator_node_delegate_stake_weight_update_interval(
         value: u32,
     ) -> DispatchResult {

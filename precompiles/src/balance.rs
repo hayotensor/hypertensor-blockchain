@@ -2,12 +2,11 @@ use core::marker::PhantomData;
 
 use frame_support::dispatch::{GetDispatchInfo, PostDispatchInfo};
 use frame_system::RawOrigin;
-use pallet_evm::AddressMapping;
-use pallet_evm::PrecompileHandle;
+use pallet_evm::{AddressMapping, ExitError, PrecompileFailure, PrecompileHandle};
 use precompile_utils::EvmResult;
 use precompile_utils::prelude::RuntimeHelper;
 use sp_core::{H256, U256};
-use sp_runtime::traits::{Dispatchable, StaticLookup, UniqueSaturatedInto};
+use sp_runtime::traits::{Dispatchable, StaticLookup};
 
 pub(crate) struct ERC20BalancePrecompile<R>(PhantomData<R>);
 
@@ -50,9 +49,15 @@ where
 
         let dest = R::AddressMapping::into_account_id(address.into());
 
+        let value = <R as pallet_balances::Config>::Balance::try_from(amount).map_err(|_| {
+            PrecompileFailure::Error {
+                exit_status: ExitError::Other("balance out of bounds".into()),
+            }
+        })?;
+
         let call = pallet_balances::Call::<R>::transfer_allow_death {
             dest: dest.into(),
-            value: amount.unique_saturated_into(),
+            value,
         };
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);

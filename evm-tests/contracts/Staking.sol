@@ -2,129 +2,149 @@
 
 pragma solidity ^0.8.0;
 
-interface Staking  {
-  function addToStake(
-    uint256 subnetId,
-    uint256 subnetNodeId,
-    address hotkey,
-    uint256 stakeToBeAdded
-  ) external payable;
+interface Staking {
+    struct QueuedSwapData {
+        uint32 id;
+        address accountId;
+        uint8 callType;
+        uint32 toValidatorId;
+        uint32 toSubnetId;
+        uint128 balance;
+        uint32 queuedAtBlock;
+        uint32 executeAfterBlocks;
+    }
 
-  function removeStake(
-    uint256 subnetId,
-    address hotkey,
-    uint256 stakeToBeRemoved
-  ) external;
+    function addNodeStake(
+        uint256 subnetId,
+        uint256 subnetNodeId,
+        uint256 stakeToBeAdded
+    ) external payable;
 
-  function claimUnbondings() external;
+    function removeNodeStake(
+        uint256 subnetId,
+        uint256 subnetNodeId,
+        uint256 stakeToBeRemoved
+    ) external payable;
 
-  function addToDelegateStake(
-    uint256 subnetId,
-    uint256 stakeToBeAdded
-  ) external payable;
+    function claimUnbondings() external payable;
 
-  function swapDelegateStake(
-    uint256 fromSubnetId,
-    uint256 toSubnetId,
-    uint256 delegateStakeSharesToSwap
-  ) external;
-  
-  function transferDelegateStake(
-    uint256 subnetId,
-    address toAccount,
-    uint256 delegateStakeSharesToTransfer
-  ) external;
+    function addToDelegateStake(
+        uint256 subnetId,
+        uint256 stakeToBeAdded
+    ) external payable;
 
-  function removeDelegateStake(
-    uint256 subnetId,
-    uint256 sharesToBeRemoved
-  ) external;
+    function swapDelegateStake(
+        uint256 fromSubnetId,
+        uint256 toSubnetId,
+        uint256 delegateStakeSharesToSwap
+    ) external payable;
 
-  function increaseDelegateStake(
-    uint256 subnetId,
-    uint256 amount
-  ) external payable;
+    function transferDelegateStake(
+        uint256 subnetId,
+        address toAccount,
+        uint256 delegateStakeSharesToTransfer
+    ) external payable;
 
-  function addToNodeDelegateStake(
-    uint256 subnetId,
-    uint256 subnetNodeId,
-    uint256 nodeDelegateStakeToBeAdded
-  ) external payable;
+    function removeDelegateStake(
+        uint256 subnetId,
+        uint256 sharesToBeRemoved
+    ) external payable;
 
-  function swapNodeDelegateStake(
-    uint256 fromSubnetId,
-    uint256 fromSubnetNodeId,
-    uint256 toSubnetId,
-    uint256 toSubnetNodeId,
-    uint256 nodeDelegateStakeSharesToSwap
-  ) external;
+    function increaseDelegateStake(
+        uint256 subnetId,
+        uint256 amount
+    ) external payable;
 
-  function transferNodeDelegateStake(
-    uint256 subnetId,
-    uint256 subnetNodeId,
-    address toAccount,
-    uint256 delegateStakeSharesToTransfer
-  ) external;
+    function addValidatorDelegateStake(
+        uint256 validatorId,
+        uint256 delegateStakeToBeAdded
+    ) external payable;
 
-  function removeNodeDelegateStake(
-    uint256 subnetId,
-    uint256 subnetNodeId,
-    uint256 nodeDelegateStakeSharesToBeRemoved
-  ) external;
+    function swapNodeDelegateStake(
+        uint256 fromValidatorId,
+        uint256 toValidatorId,
+        uint256 stakeToBeRemoved
+    ) external payable;
 
-  function increaseNodeDelegateStake(
-    uint256 subnetId,
-    uint256 subnetNodeId,
-    uint256 amount
-  ) external payable;
+    function transferValidatorDelegateStake(
+        uint256 validatorId,
+        address toAccount,
+        uint256 validatorDelegateStakeSharesToTransfer
+    ) external payable;
 
-  function transferFromNodeToSubnet(
-    uint256 fromSubnetId,
-    uint256 fromSubnetNodeId,
-    uint256 toSubnetId,
-    uint256 nodeDelegateStakeSharesToSwap
-  ) external;
+    function removeValidatorDelegateStake(
+        uint256 validatorId,
+        uint256 validatorDelegateStakeSharesToBeRemoved
+    ) external payable;
 
-  function transferFromSubnetToNode(
-    uint256 fromSubnetId,
-    uint256 toSubnetId,
-    uint256 toSubnetNodeId,
-    uint256 nodeDelegateStakeSharesToSwap
-  ) external;
+    function donateValidatorDelegateStake(
+        uint256 validatorId,
+        uint256 amount
+    ) external payable;
 
-  function updateSwapQueue(
-    uint256 id,
-    uint256 callType,
-    uint256 toSubnetId,
-    uint256 toSubnetNodeId
-  ) external;
+    function transferFromValidatorToSubnet(
+        uint256 fromValidatorId,
+        uint256 toSubnetId,
+        uint256 nodeDelegateStakeSharesToSwap
+    ) external payable;
 
-  struct QueuedSwapData {
-    uint32 id;
-    address accountId;
-    uint8 callType;
-    uint32 toSubnetId;
-    uint32 toSubnetNodeId;
-    uint128 balance;
-    uint32 queuedAtBlock;
-    uint32 executeAfterBlocks;
-  }
+    function transferFromSubnetToValidator(
+        uint256 fromSubnetId,
+        uint256 toValidatorId,
+        uint256 subnetDelegateStakeSharesToSwap
+    ) external payable;
 
-  function getQueuedSwapCall(uint256 id) external view returns (QueuedSwapData memory);
+    function updateSwapQueue(
+        uint256 id,
+        uint256 callType,
+        uint256 toValidatorId,
+        uint256 toSubnetId
+    ) external payable;
 
-  function totalSubnetStake(uint256 subnetId) external view returns (uint256);
+    function removeDelegateAccountBalance(
+        uint256 amountToRemove
+    ) external payable;
 
-  function accountSubnetStake(address hotkey, uint256 subnetId) external view returns (uint256);
+    function getQueuedSwapCall(
+        uint256 id
+    ) external view returns (QueuedSwapData memory);
 
-  function totalSubnetDelegateStakeBalance(uint256 subnetId) external view returns (uint256);
+    function totalSubnetStake(
+        uint256 subnetId
+    ) external view returns (uint256);
 
-  function totalSubnetDelegateStakeShares(uint256 subnetId) external view returns (uint256);
+    function nodeSubnetStake(
+        uint256 subnetNodeId,
+        uint256 subnetId
+    ) external view returns (uint256);
 
-  function accountSubnetDelegateStakeShares(address hotkey, uint256 subnetId) external view returns (uint256);
+    function totalSubnetDelegateStakeBalance(
+        uint256 subnetId
+    ) external view returns (uint256);
 
-  function accountSubnetDelegateStakeBalance(address hotkey, uint256 subnetId) external view returns (uint256);
+    function totalSubnetDelegateStakeShares(
+        uint256 subnetId
+    ) external view returns (uint256);
 
-  function accountNodeDelegateStakeShares(address hotkey, uint256 subnetId, uint256 subnetNodeId) external view returns (uint256);
+    function accountSubnetDelegateStakeShares(
+        address account,
+        uint256 subnetId
+    ) external view returns (uint256);
 
-  function accountNodeDelegateStakeBalance(address hotkey, uint256 subnetId, uint256 subnetNodeId) external view returns (uint256);
+    function accountSubnetDelegateStakeBalance(
+        address account,
+        uint256 subnetId
+    ) external view returns (uint256);
+
+    function accountNodeDelegateStakeShares(
+        address account,
+        uint256 subnetId,
+        uint256 subnetNodeId
+    ) external view returns (uint256);
+
+    function accountNodeDelegateStakeBalance(
+        address account,
+        uint256 subnetId,
+        uint256 subnetNodeId
+    ) external view returns (uint256);
 }

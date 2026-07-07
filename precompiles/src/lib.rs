@@ -10,11 +10,10 @@ use frame_support::dispatch::{GetDispatchInfo, PostDispatchInfo};
 use pallet_evm_precompile_modexp::Modexp;
 use pallet_evm_precompile_sha3fips::Sha3FIPS256;
 use pallet_evm_precompile_simple::{ECRecover, ECRecoverPublicKey, Identity, Ripemd160, Sha256};
-use sp_core::{H160, H256, U256, crypto::ByteArray};
+use sp_core::{H160, H256, U256};
 use sp_runtime::traits::{Dispatchable, StaticLookup};
 
 use crate::admin::*;
-use crate::balance::*;
 use crate::overwatch_nodes::*;
 use crate::staking::*;
 use crate::subnet::*;

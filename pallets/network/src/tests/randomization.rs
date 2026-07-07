@@ -52,6 +52,7 @@ fn test_randomness_v1() {
 #[test]
 fn test_random_number_is_deterministic_with_mocked_randomness() {
     new_test_ext().execute_with(|| {
+        setup_blocks(38);
         let r1 = Network::generate_random_number(111);
         let r2 = Network::generate_random_number(111);
         assert_eq!(r1, r2); // StaticRandomness always returns same result
@@ -69,6 +70,7 @@ fn test_bounded_random_index_handles_zero_total() {
 #[test]
 fn test_bounded_random_index_is_deterministic_and_bounded() {
     new_test_ext().execute_with(|| {
+        setup_blocks(38);
         let upper_bound = 13;
         let first = Network::get_bounded_random_index((1, 2, 3), upper_bound).unwrap();
         let second = Network::get_bounded_random_index((1, 2, 3), upper_bound).unwrap();

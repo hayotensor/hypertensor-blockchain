@@ -1,23 +1,13 @@
 use core::marker::PhantomData;
-use fp_evm::Log;
 use frame_support::dispatch::{GetDispatchInfo, PostDispatchInfo};
 use frame_support::traits::ConstU32;
 use frame_system::RawOrigin;
 use pallet_evm::{AddressMapping, ExitError, PrecompileFailure, PrecompileHandle};
-use pallet_network::QueuedSwapCall;
 use pallet_network::{OverwatchCommit, OverwatchReveal};
-use precompile_utils::{EvmResult, prelude::*, solidity::Codec};
-use sp_core::Decode;
-use sp_core::Get;
-use sp_core::{H160, H256, OpaquePeerId, U256};
-use sp_runtime::SaturatedConversion;
+use precompile_utils::{EvmResult, prelude::*};
+use sp_core::{H256, OpaquePeerId, U256};
 use sp_runtime::Vec;
-use sp_runtime::traits::{Dispatchable, StaticLookup, UniqueSaturatedInto};
-use sp_std::vec;
-
-/// Alias for the Balance type for the provided Runtime and Instance.
-pub type BalanceOf<Runtime, Instance = ()> =
-    <Runtime as pallet_balances::Config<Instance>>::Balance;
+use sp_runtime::traits::{Dispatchable, StaticLookup};
 
 pub(crate) struct OverwatchNodePrecompile<R>(PhantomData<R>);
 
@@ -50,7 +40,7 @@ where
         stake_to_be_added: U256,
     ) -> EvmResult<()> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let stake_to_be_added = stake_to_be_added.unique_saturated_into();
+        let stake_to_be_added = try_u256_to_u128(stake_to_be_added)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::register_overwatch_node { stake_to_be_added };
@@ -229,7 +219,7 @@ where
     ) -> EvmResult<()> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
-        let stake_to_be_added = stake_to_be_added.unique_saturated_into();
+        let stake_to_be_added = try_u256_to_u128(stake_to_be_added)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::add_overwatch_node_stake {
@@ -255,7 +245,7 @@ where
     ) -> EvmResult<()> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
-        let stake_to_be_removed = stake_to_be_removed.unique_saturated_into();
+        let stake_to_be_removed = try_u256_to_u128(stake_to_be_removed)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::remove_overwatch_node_stake {
@@ -562,10 +552,7 @@ where
     #[precompile::view]
     fn get_current_overwatch_epoch_as_u32(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let current_block: u32 = frame_system::Pallet::<R>::block_number().saturated_into::<u32>();
-        let epoch_length: u32 = R::EpochLength::get();
-        let multiplier = pallet_network::OverwatchEpochLengthMultiplier::<R>::get();
-        let overwatch_epoch = current_block.saturating_div(epoch_length.saturating_mul(multiplier));
+        let overwatch_epoch = pallet_network::Pallet::<R>::get_current_overwatch_epoch_as_u32();
 
         let value = try_u32_to_u256(overwatch_epoch)?;
 

@@ -382,10 +382,12 @@ impl<T: Config> Pallet<T> {
 
         TotalDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
 
-        let flow_delta = i128::try_from(amount).unwrap_or(i128::MAX);
-        SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
-            *flow = flow.saturating_add(flow_delta);
-        });
+        if SubnetsData::<T>::contains_key(subnet_id) {
+            let flow_delta = i128::try_from(amount).unwrap_or(i128::MAX);
+            SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
+                *flow = flow.saturating_add(flow_delta);
+            });
+        }
     }
 
     pub fn decrease_account_delegate_stake(
@@ -409,10 +411,12 @@ impl<T: Config> Pallet<T> {
 
         TotalDelegateStake::<T>::mutate(|mut n| n.saturating_reduce(amount));
 
-        let flow_delta = i128::try_from(amount).unwrap_or(i128::MAX);
-        SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
-            *flow = flow.saturating_sub(flow_delta);
-        });
+        if SubnetsData::<T>::contains_key(subnet_id) {
+            let flow_delta = i128::try_from(amount).unwrap_or(i128::MAX);
+            SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
+                *flow = flow.saturating_sub(flow_delta);
+            });
+        }
     }
 
     /// Rewards are deposited here from the ``rewards.rs`` or by donations

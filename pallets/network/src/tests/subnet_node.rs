@@ -520,7 +520,7 @@ fn test_register_subnet_max_registered_nodes_error_v2() {
                 amount + burn_amount + 500,
                 ExistenceRequirement::KeepAlive,
             ));
-            if _n - end > max_registered_nodes + 1 {
+            if _n - end > max_registered_nodes {
                 touched = true;
                 assert_err!(
                     Network::register_subnet_node(
@@ -3988,6 +3988,9 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
             attestation_ratio: super_majority_threshold,
+            node_attestation_ratio: super_majority_threshold,
+            node_attestation_count: 1,
+            eligible_validator_count: 1,
             weight_sum: 0,
             data_length: 0,
             data: Vec::new(),
@@ -4026,6 +4029,9 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
             attestation_ratio: super_majority_threshold,
+            node_attestation_ratio: super_majority_threshold,
+            node_attestation_count: 1,
+            eligible_validator_count: 1,
             weight_sum: 0,
             data_length: 0,
             data: Vec::new(),

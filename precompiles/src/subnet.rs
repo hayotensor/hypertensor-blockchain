@@ -11,18 +11,13 @@ use pallet_network::{
     SubnetReputationFactorUpdates,
 };
 use precompile_utils::{EvmResult, prelude::*};
-use sp_core::{H160, H256, OpaquePeerId, U256};
+use sp_core::{H160, OpaquePeerId, U256};
 use sp_runtime::{
     Vec,
-    traits::{Dispatchable, StaticLookup, UniqueSaturatedInto},
+    traits::{Dispatchable, StaticLookup},
 };
 use sp_std::collections::btree_map::BTreeMap;
 use sp_std::collections::btree_set::BTreeSet;
-use sp_std::vec;
-
-/// Alias for the Balance type for the provided Runtime and Instance.
-pub type BalanceOf<Runtime, Instance = ()> =
-    <Runtime as pallet_balances::Config<Instance>>::Balance;
 
 pub(crate) struct SubnetPrecompile<R>(PhantomData<R>);
 
@@ -275,10 +270,10 @@ where
     ) -> EvmResult<()> {
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
 
-        let max_cost: u128 = max_cost.unique_saturated_into();
-        let min_stake: u128 = min_stake.unique_saturated_into();
-        let max_stake: u128 = max_stake.unique_saturated_into();
-        let delegate_stake_percentage: u128 = delegate_stake_percentage.unique_saturated_into();
+        let max_cost = try_u256_to_u128(max_cost)?;
+        let min_stake = try_u256_to_u128(min_stake)?;
+        let max_stake = try_u256_to_u128(max_stake)?;
+        let delegate_stake_percentage = try_u256_to_u128(delegate_stake_percentage)?;
         let initial_validators: BTreeMap<u32, u32> = initial_validators
             .into_iter()
             .map(|(id, count)| {
@@ -325,7 +320,7 @@ where
     #[precompile::public("getCurrentRegistrationCost(uint256)")]
     #[precompile::view]
     fn get_current_registration_cost(
-        handle: &mut impl PrecompileHandle,
+        _handle: &mut impl PrecompileHandle,
         block: U256,
     ) -> EvmResult<u128> {
         let block = try_u256_to_u32(block)?;
@@ -412,7 +407,7 @@ where
         let client_peer_info =
             peer_info_to_option::<R>(&client_peer_info, "Client multiaddr too long")?;
 
-        let stake_to_be_added: u128 = stake_to_be_added.unique_saturated_into();
+        let stake_to_be_added = try_u256_to_u128(stake_to_be_added)?;
         let unique: Option<NetworkBytes<R>> = bounded_string_to_option_bounded_vec::<
             1024,
             <R as pallet_network::Config>::MaxVectorLength,
@@ -421,7 +416,7 @@ where
             1024,
             <R as pallet_network::Config>::MaxVectorLength,
         >(&non_unique)?;
-        let max_burn_amount: u128 = max_burn_amount.unique_saturated_into();
+        let max_burn_amount = try_u256_to_u128(max_burn_amount)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
 
@@ -482,7 +477,7 @@ where
         new_delegate_reward_rate: U256,
     ) -> EvmResult<()> {
         let validator_id = try_u256_to_u32(validator_id)?;
-        let new_delegate_reward_rate = new_delegate_reward_rate.unique_saturated_into();
+        let new_delegate_reward_rate = try_u256_to_u128(new_delegate_reward_rate)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::update_validator_delegate_reward_rate {
@@ -1160,7 +1155,7 @@ where
         Ok(())
     }
 
-    #[precompile::public("ownerAddOrUpdateInitialColdkeys(uint256,(uint256,uint256)[])")]
+    #[precompile::public("ownerAddOrUpdateInitialValidators(uint256,(uint256,uint256)[])")]
     fn owner_add_or_update_initial_validators(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
@@ -1190,7 +1185,7 @@ where
         Ok(())
     }
 
-    #[precompile::public("ownerRemoveInitialColdkeys(uint256,uint256[])")]
+    #[precompile::public("ownerRemoveInitialValidators(uint256,uint256[])")]
     fn owner_remove_initial_validators(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
@@ -1226,8 +1221,8 @@ where
         max: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let min: u128 = min.unique_saturated_into();
-        let max: u128 = max.unique_saturated_into();
+        let min = try_u256_to_u128(min)?;
+        let max = try_u256_to_u128(max)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::owner_update_min_max_stake {
@@ -1253,7 +1248,7 @@ where
         value: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let value: u128 = value.unique_saturated_into();
+        let value = try_u256_to_u128(value)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call =
@@ -1337,6 +1332,26 @@ where
         Ok(())
     }
 
+    #[precompile::public("cancelSubnetOwnershipTransfer(uint256)")]
+    fn cancel_subnet_ownership_transfer(
+        handle: &mut impl PrecompileHandle,
+        subnet_id: U256,
+    ) -> EvmResult<()> {
+        let origin = R::AddressMapping::into_account_id(handle.context().caller);
+
+        let subnet_id = try_u256_to_u32(subnet_id)?;
+        let call = pallet_network::Call::<R>::cancel_subnet_ownership_transfer { subnet_id };
+
+        RuntimeHelper::<R>::try_dispatch(
+            handle,
+            RawOrigin::Signed(origin.clone()).into(),
+            call,
+            0,
+        )?;
+
+        Ok(())
+    }
+
     #[precompile::public("ownerUpdateTargetNodeRegistrationsPerEpoch(uint256,uint256)")]
     fn owner_update_target_node_registrations_per_epoch(
         handle: &mut impl PrecompileHandle,
@@ -1369,7 +1384,7 @@ where
         value: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let value: u128 = value.unique_saturated_into();
+        let value = try_u256_to_u128(value)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call =
@@ -1415,11 +1430,37 @@ where
         value: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let value = value.unique_saturated_into();
+        let value = try_u256_to_u128(value)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call =
             pallet_network::Call::<R>::owner_update_min_subnet_node_reputation { subnet_id, value };
+
+        RuntimeHelper::<R>::try_dispatch(
+            handle,
+            RawOrigin::Signed(origin.clone()).into(),
+            call,
+            0,
+        )?;
+
+        Ok(())
+    }
+
+    #[precompile::public("ownerUpdateMinConsensusNodeAttestationPercentage(uint256,uint256)")]
+    fn owner_update_min_consensus_node_attestation_percentage(
+        handle: &mut impl PrecompileHandle,
+        subnet_id: U256,
+        value: U256,
+    ) -> EvmResult<()> {
+        let subnet_id = try_u256_to_u32(subnet_id)?;
+        let value = try_u256_to_u128(value)?;
+
+        let origin = R::AddressMapping::into_account_id(handle.context().caller);
+        let call =
+            pallet_network::Call::<R>::owner_update_min_consensus_node_attestation_percentage {
+                subnet_id,
+                value,
+            };
 
         RuntimeHelper::<R>::try_dispatch(
             handle,
@@ -1440,7 +1481,7 @@ where
         value: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let value = value.unique_saturated_into();
+        let value = try_u256_to_u128(value)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::owner_update_subnet_node_min_weight_decrease_reputation_threshold {
@@ -1465,7 +1506,7 @@ where
         value: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let value = value.unique_saturated_into();
+        let value = try_u256_to_u128(value)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::owner_update_reputation_factors {
@@ -1493,7 +1534,7 @@ where
         value: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let value = value.unique_saturated_into();
+        let value = try_u256_to_u128(value)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::owner_update_reputation_factors {
@@ -1514,14 +1555,14 @@ where
         Ok(())
     }
 
-    #[precompile::public("ownerUpdatBelowMinWeightDecreaseReputationFactor(uint256,uint256)")]
+    #[precompile::public("ownerUpdateBelowMinWeightDecreaseReputationFactor(uint256,uint256)")]
     fn owner_update_below_min_weight_decrease_reputation_factor(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
         value: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let value = value.unique_saturated_into();
+        let value = try_u256_to_u128(value)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::owner_update_reputation_factors {
@@ -1542,14 +1583,14 @@ where
         Ok(())
     }
 
-    #[precompile::public("ownerUpdatNonAttestorDecreaseReputationFactor(uint256,uint256)")]
+    #[precompile::public("ownerUpdateNonAttestorDecreaseReputationFactor(uint256,uint256)")]
     fn owner_update_non_attestor_decrease_reputation_factor(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
         value: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let value = value.unique_saturated_into();
+        let value = try_u256_to_u128(value)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::owner_update_reputation_factors {
@@ -1570,14 +1611,16 @@ where
         Ok(())
     }
 
-    #[precompile::public("ownerUpdatNonConsensusAttestorDecreaseReputationFactor(uint256,uint256)")]
+    #[precompile::public(
+        "ownerUpdateNonConsensusAttestorDecreaseReputationFactor(uint256,uint256)"
+    )]
     fn owner_update_non_consensus_attestor_decrease_reputation_factor(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
         value: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let value = value.unique_saturated_into();
+        let value = try_u256_to_u128(value)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::owner_update_reputation_factors {
@@ -1605,7 +1648,7 @@ where
         value: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let value = value.unique_saturated_into();
+        let value = try_u256_to_u128(value)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::owner_update_reputation_factors {
@@ -1635,7 +1678,7 @@ where
         value: U256,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let value = value.unique_saturated_into();
+        let value = try_u256_to_u128(value)?;
 
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::owner_update_reputation_factors {
@@ -1910,7 +1953,7 @@ where
 
     #[precompile::public("getInitialValidators(uint256)")]
     #[precompile::view]
-    fn get_initial_vaildators(
+    fn get_initial_validators(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
     ) -> EvmResult<Vec<(U256, U256)>> {
@@ -2252,7 +2295,7 @@ where
 
     #[precompile::public("getValidatorAbsentDecreaseReputationFactor(uint256)")]
     #[precompile::view]
-    fn get_validator_absent_subnet_node_reputation_factor(
+    fn get_validator_absent_decrease_reputation_factor(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
     ) -> EvmResult<u128> {
@@ -2267,9 +2310,9 @@ where
         Ok(result)
     }
 
-    #[precompile::public("getValidatorNonConsensusSubnetNodeReputationFactor(uint256)")]
+    #[precompile::public("getValidatorNonConsensusDecreaseReputationFactor(uint256)")]
     #[precompile::view]
-    fn get_validator_non_consensus_subnet_node_reputation_factor(
+    fn get_validator_non_consensus_decrease_reputation_factor(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
     ) -> EvmResult<u128> {
@@ -2422,12 +2465,6 @@ fn try_u256_to_u128(value: U256) -> Result<u128, PrecompileFailure> {
     })
 }
 
-fn try_u32_to_u256(value: u32) -> Result<U256, PrecompileFailure> {
-    value.try_into().map_err(|_| PrecompileFailure::Error {
-        exit_status: ExitError::Other("u32 out of bounds".into()),
-    })
-}
-
 fn identity_data_from_inputs<R>(
     has_identity: bool,
     name: &BoundedString<ConstU32<1024>>,
@@ -2544,18 +2581,4 @@ where
             .map_err(|_| revert("String too long"))?;
         Ok(Some(vec))
     }
-}
-
-fn bounded_string_to_bounded_vec<const N: u32, T>(
-    s: &BoundedString<ConstU32<N>>,
-) -> Result<BoundedVec<u8, T>, PrecompileFailure>
-where
-    T: sp_runtime::traits::Get<u32>,
-{
-    let vec: BoundedVec<u8, T> = s
-        .as_bytes()
-        .to_vec()
-        .try_into()
-        .map_err(|_| revert("String too long"))?;
-    Ok(vec)
 }

@@ -5,8 +5,9 @@ use crate::{
     AccountSubnetDelegateStakeShares, AccountValidatorDelegateStakeShares,
     DelegateStakeCooldownEpochs, Error, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     NextSwapQueueId, QueuedSwapCall, QueuedSwapItem, StakeUnbondingLedger, SubnetName,
-    SwapCallQueue, SwapQueueOrder, TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeShares,
-    ValidatorDelegateStakeBalance, ValidatorDelegateStakeShares,
+    SubnetRemovalReason, SubnetsData, SwapCallQueue, SwapQueueOrder,
+    TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeShares, ValidatorDelegateStakeBalance,
+    ValidatorDelegateStakeShares,
 };
 use frame_support::assert_err;
 use frame_support::assert_ok;
@@ -648,5 +649,80 @@ fn test_execute_ready_swap_calls() {
                 assert!(user_shares > 0);
             }
         }
+    });
+}
+
+#[test]
+fn test_execute_ready_swap_refunds_when_destination_subnet_removed() {
+    new_test_ext().execute_with(|| {
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let end = 4;
+
+        let from_subnet_name: Vec<u8> = "from-subnet".into();
+        build_activated_subnet(
+            from_subnet_name.clone(),
+            0,
+            end,
+            deposit_amount,
+            stake_amount,
+        );
+        let from_subnet_id = SubnetName::<Test>::get(from_subnet_name.clone()).unwrap();
+
+        let to_subnet_name: Vec<u8> = "to-subnet".into();
+        build_activated_subnet(to_subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        let to_subnet_id = SubnetName::<Test>::get(to_subnet_name.clone()).unwrap();
+
+        let staker = account(255);
+        let _ = Balances::deposit_creating(&staker, amount + 500);
+
+        assert_ok!(Network::add_subnet_delegate_stake(
+            RuntimeOrigin::signed(staker.clone()),
+            from_subnet_id,
+            amount,
+        ));
+
+        let from_delegate_shares =
+            AccountSubnetDelegateStakeShares::<Test>::get(&staker, from_subnet_id);
+        assert!(from_delegate_shares > 0);
+
+        let queue_id = NextSwapQueueId::<Test>::get();
+        assert_ok!(Network::swap_from_subnet_to_subnet(
+            RuntimeOrigin::signed(staker.clone()),
+            from_subnet_id,
+            to_subnet_id,
+            from_delegate_shares,
+        ));
+
+        let queued_balance = SwapCallQueue::<Test>::get(queue_id)
+            .unwrap()
+            .call
+            .get_queue_balance();
+        assert!(queued_balance > 0);
+        assert!(StakeUnbondingLedger::<Test>::get(&staker).is_empty());
+
+        Network::do_remove_subnet(to_subnet_id, SubnetRemovalReason::Owner);
+        assert!(!SubnetsData::<Test>::contains_key(to_subnet_id));
+
+        System::set_block_number(System::block_number() + EpochLength::get() + 1);
+        let execution_block = System::block_number();
+        Network::execute_ready_swap_calls(execution_block, &mut WeightMeter::new());
+
+        assert!(SwapCallQueue::<Test>::get(queue_id).is_none());
+        assert!(SwapQueueOrder::<Test>::get().is_empty());
+        assert_eq!(
+            AccountSubnetDelegateStakeShares::<Test>::get(&staker, to_subnet_id),
+            0
+        );
+
+        let unbondings = StakeUnbondingLedger::<Test>::get(&staker);
+        assert_eq!(unbondings.len(), 1);
+        let (claim_block, ledger_balance) = unbondings.iter().next().unwrap();
+        assert_eq!(
+            *claim_block,
+            execution_block + DelegateStakeCooldownEpochs::<Test>::get() * EpochLength::get()
+        );
+        assert_eq!(*ledger_balance, queued_balance);
     });
 }

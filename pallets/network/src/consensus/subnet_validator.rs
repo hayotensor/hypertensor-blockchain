@@ -343,7 +343,8 @@ impl<T: Config> Pallet<T> {
         // Check if validator sent through queue priority or removal node IDs
         if prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some() {
             let queue = SubnetNodeQueue::<T>::get(subnet_id);
-            let immunity_epochs = QueueImmunityEpochs::<T>::get(subnet_id); // Move outside loop
+            let immunity_epochs =
+                Self::get_queue_immunity_epochs_for_epoch(subnet_id, subnet_epoch);
 
             let mut prioritize_exists = prioritize_queue_node_id.is_none();
             let mut remove_allowed = remove_queue_node_id.is_none(); // Rename for clarity
@@ -359,8 +360,11 @@ impl<T: Config> Pallet<T> {
                 if let Some(node_id) = remove_queue_node_id {
                     if node.id == node_id {
                         // Node exists AND has passed immunity period
-                        remove_allowed =
-                            node.classification.start_epoch + immunity_epochs <= subnet_epoch;
+                        remove_allowed = node
+                            .classification
+                            .start_epoch
+                            .saturating_add(immunity_epochs)
+                            <= subnet_epoch;
                     }
                 }
 

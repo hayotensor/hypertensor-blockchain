@@ -17,7 +17,125 @@
 // See all storage elements for docs in `lib.rs`
 
 use super::*;
+use libm::{ceil, log};
+
 impl<T: Config> Pallet<T> {
+    pub const MAX_EMERGENCY_VALIDATOR_DURATION_STEPS: u32 = 10_000;
+
+    fn prepare_pending_owner_u32_update(
+        current_subnet_epoch: u32,
+        pending: Option<PendingOwnerU32Update<T>>,
+        materialize: impl FnOnce(u32),
+    ) -> DispatchResult {
+        if let Some(pending) = pending {
+            ensure!(
+                pending.effective_subnet_epoch != current_subnet_epoch,
+                Error::<T>::OwnerParameterUpdatePendingActivation
+            );
+
+            if pending.effective_subnet_epoch < current_subnet_epoch {
+                materialize(pending.value);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn prepare_pending_owner_u128_update(
+        current_subnet_epoch: u32,
+        pending: Option<PendingOwnerU128Update<T>>,
+        materialize: impl FnOnce(u128),
+    ) -> DispatchResult {
+        if let Some(pending) = pending {
+            ensure!(
+                pending.effective_subnet_epoch != current_subnet_epoch,
+                Error::<T>::OwnerParameterUpdatePendingActivation
+            );
+
+            if pending.effective_subnet_epoch < current_subnet_epoch {
+                materialize(pending.value);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn pending_owner_u32_value_for_epoch(
+        live_value: u32,
+        pending: Option<PendingOwnerU32Update<T>>,
+        subnet_epoch: u32,
+    ) -> u32 {
+        pending
+            .filter(|pending| pending.effective_subnet_epoch <= subnet_epoch)
+            .map(|pending| pending.value)
+            .unwrap_or(live_value)
+    }
+
+    fn pending_owner_u128_value_for_epoch(
+        live_value: u128,
+        pending: Option<PendingOwnerU128Update<T>>,
+        subnet_epoch: u32,
+    ) -> u128 {
+        pending
+            .filter(|pending| pending.effective_subnet_epoch <= subnet_epoch)
+            .map(|pending| pending.value)
+            .unwrap_or(live_value)
+    }
+
+    pub fn get_min_subnet_node_reputation_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u128 {
+        Self::pending_owner_u128_value_for_epoch(
+            MinSubnetNodeReputation::<T>::get(subnet_id),
+            PendingMinSubnetNodeReputation::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
+    pub fn get_subnet_node_min_weight_decrease_reputation_threshold_for_epoch(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> u128 {
+        Self::pending_owner_u128_value_for_epoch(
+            SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
+            PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
+    pub fn get_min_consensus_node_attestation_percentage_for_epoch(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> u128 {
+        Self::pending_owner_u128_value_for_epoch(
+            SubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id),
+            PendingSubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
+    pub fn get_idle_classification_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
+        Self::pending_owner_u32_value_for_epoch(
+            IdleClassificationEpochs::<T>::get(subnet_id),
+            PendingIdleClassificationEpochs::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
+    pub fn get_included_classification_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
+        Self::pending_owner_u32_value_for_epoch(
+            IncludedClassificationEpochs::<T>::get(subnet_id),
+            PendingIncludedClassificationEpochs::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
+    pub fn get_queue_immunity_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
+        Self::pending_owner_u32_value_for_epoch(
+            QueueImmunityEpochs::<T>::get(subnet_id),
+            PendingQueueImmunityEpochs::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
     /// Owner pause subnet for up to max period
     ///
     /// This will pause the following logic on the next subnet epoch start block step:
@@ -44,7 +162,8 @@ impl<T: Config> Pallet<T> {
 
         // Ensure subnet pause period has been reached to pause again
         ensure!(
-            PreviousSubnetPauseEpoch::<T>::get(subnet_id) + SubnetPauseCooldownEpochs::<T>::get()
+            PreviousSubnetPauseEpoch::<T>::get(subnet_id)
+                .saturating_add(SubnetPauseCooldownEpochs::<T>::get())
                 <= epoch,
             Error::<T>::SubnetPauseCooldownActive
         );
@@ -90,6 +209,23 @@ impl<T: Config> Pallet<T> {
         );
 
         let epoch = Self::get_current_epoch_as_u32();
+        let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+
+        Self::maybe_finish_expired_emergency_validator_set(subnet_id, subnet_epoch);
+
+        if let Some(data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id) {
+            if !data.activated {
+                let validated_ids = Self::validate_emergency_validator_ids(
+                    subnet_id,
+                    subnet_epoch,
+                    data.subnet_node_ids.clone(),
+                )?;
+                ensure!(
+                    validated_ids == data.subnet_node_ids,
+                    Error::<T>::InvalidEmergencySubnetNodeId
+                );
+            }
+        }
 
         // If the subnet is passed the max pause epochs, validators via on_initialize already
         // unpaused it. If not, we allow the owner to unpause
@@ -118,7 +254,7 @@ impl<T: Config> Pallet<T> {
             // We start them on the next epoch following the current epoch
             // This protects the network against an owner pausing a subnet and then unpausing it in a single epoch to manipulate
             // the attestation ratios (see ``precheck_subnet_consensus_submission`` `max_attestors`)
-            params.start_epoch = epoch + 1;
+            params.start_epoch = epoch.saturating_add(1);
 
             Ok(())
         })?;
@@ -130,16 +266,15 @@ impl<T: Config> Pallet<T> {
         EmergencySubnetNodeElectionData::<T>::mutate_exists(subnet_id, |maybe_data| {
             if let Some(data) = maybe_data {
                 if !data.activated {
-                    let start_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
                     let max_emergency_delta = Self::percent_mul(
                         data.target_emergency_validators_epochs as u128,
                         MaxEmergencyValidatorEpochsMultiplier::<T>::get(),
                     )
                     .min(u32::MAX as u128) as u32;
                     data.activated = true;
-                    data.started_subnet_epoch = start_epoch;
+                    data.started_subnet_epoch = subnet_epoch;
                     data.max_emergency_validators_epoch =
-                        start_epoch.saturating_add(max_emergency_delta);
+                        subnet_epoch.saturating_add(max_emergency_delta);
                 }
             }
         });
@@ -182,21 +317,10 @@ impl<T: Config> Pallet<T> {
             Self::validate_emergency_validator_ids(subnet_id, subnet_epoch, subnet_node_ids)?;
 
         let reputation_factors = Self::get_reputation_factors_for_epoch(subnet_id, subnet_epoch);
-        ensure!(
-            reputation_factors.absent_decrease > 0,
-            Error::<T>::InvalidEmergencyValidatorDuration
-        );
+        let min_subnet_node_reputation =
+            Self::get_min_subnet_node_reputation_for_epoch(subnet_id, subnet_epoch);
 
-        let min_subnet_node_reputation = MinSubnetNodeReputation::<T>::get(subnet_id);
-        ensure!(
-            min_subnet_node_reputation > 0,
-            Error::<T>::InvalidEmergencyValidatorDuration
-        );
-
-        // Calculate the target emergency epochs
-        let target_emergency_epochs = Self::get_max_steps_for_node_removal(
-            subnet_id,
-            &subnet_node_ids,
+        let target_emergency_epochs = Self::get_emergency_validator_duration_epochs(
             reputation_factors.absent_decrease,
             min_subnet_node_reputation,
         )?;
@@ -214,7 +338,10 @@ impl<T: Config> Pallet<T> {
                 reputation_factors,
                 min_subnet_node_reputation,
                 min_weight_decrease_reputation_threshold:
-                    SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
+                    Self::get_subnet_node_min_weight_decrease_reputation_threshold_for_epoch(
+                        subnet_id,
+                        subnet_epoch,
+                    ),
             },
         );
 
@@ -235,41 +362,37 @@ impl<T: Config> Pallet<T> {
         Self::do_owner_set_emergency_validator_set(origin, subnet_id, subnet_node_ids)
     }
 
-    /// Get the required epochs to have a node removed based on not being in consensus data
-    /// based on the `AbsentDecreaseReputationFactor`
-    /// i.e. if a node is not in consensus data, it will be removed after this many epochs
-    fn get_max_steps_for_node_removal(
-        subnet_id: u32,
-        emergency_subnet_node_ids: &Vec<u32>,
+    /// Calculate emergency validator duration from the absent decrease factor.
+    ///
+    /// The duration is conservative: every removed validator is assumed to start at 100%
+    /// reputation, so current per-node reputation does not affect dispatch cost.
+    pub fn get_emergency_validator_duration_epochs(
         absent_decrease_factor: u128,
         min_reputation: u128,
     ) -> Result<u32, Error<T>> {
-        let emergency_ids: BTreeSet<u32> = emergency_subnet_node_ids.iter().cloned().collect();
-        let mut max_steps = 0u32;
+        let one = Self::percentage_factor_as_u128();
 
-        for subnet_node_id in SubnetNodeElectionSlots::<T>::get(subnet_id) {
-            if emergency_ids.contains(&subnet_node_id) {
-                continue;
-            }
+        ensure!(
+            absent_decrease_factor > 0 && min_reputation > 0,
+            Error::<T>::InvalidEmergencyValidatorDuration
+        );
 
-            let mut reputation =
-                SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id).unwrap_or(0);
-            let mut steps = 0u32;
-
-            while reputation >= min_reputation {
-                reputation = Self::decrease_rep(reputation, absent_decrease_factor, None);
-                steps = steps.saturating_add(1);
-
-                ensure!(
-                    steps <= 10_000,
-                    Error::<T>::InvalidEmergencyValidatorDuration
-                );
-            }
-
-            max_steps = max_steps.max(steps);
+        if absent_decrease_factor >= one || min_reputation >= one {
+            return Ok(1u32.saturating_add(1));
         }
 
-        Ok(max_steps.saturating_add(1))
+        let retained_ratio = (one.saturating_sub(absent_decrease_factor)) as f64 / one as f64;
+        let threshold_ratio = min_reputation as f64 / one as f64;
+
+        let steps = ceil(log(threshold_ratio) / log(retained_ratio));
+        ensure!(
+            steps.is_finite()
+                && steps >= 1.0
+                && steps <= Self::MAX_EMERGENCY_VALIDATOR_DURATION_STEPS as f64,
+            Error::<T>::InvalidEmergencyValidatorDuration
+        );
+
+        Ok((steps as u32).saturating_add(1))
     }
 
     fn validate_emergency_validator_ids(
@@ -475,16 +598,20 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
-        ensure!(
-            !SubnetName::<T>::contains_key(&value),
-            Error::<T>::SubnetNameExist
-        );
+        Self::ensure_subnet_name_bounded(&value)?;
 
-        let mut prev_name: Vec<u8> = Vec::new();
+        let subnet = SubnetsData::<T>::get(subnet_id).ok_or(Error::<T>::InvalidSubnetId)?;
+        if subnet.name == value {
+            return Ok(());
+        }
+
+        if let Some(existing_subnet_id) = SubnetName::<T>::get(&value) {
+            ensure!(existing_subnet_id == subnet_id, Error::<T>::SubnetNameExist);
+        }
+
+        let prev_name = subnet.name;
         SubnetsData::<T>::try_mutate_exists(subnet_id, |maybe_params| -> DispatchResult {
             let params = maybe_params.as_mut().ok_or(Error::<T>::InvalidSubnetId)?;
-
-            prev_name = params.name.clone();
 
             SubnetName::<T>::remove(&prev_name);
 
@@ -517,16 +644,20 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
-        ensure!(
-            !SubnetRepo::<T>::contains_key(&value),
-            Error::<T>::SubnetRepoExist
-        );
+        Self::ensure_subnet_repo_bounded(&value)?;
 
-        let mut prev_repo: Vec<u8> = Vec::new();
+        let subnet = SubnetsData::<T>::get(subnet_id).ok_or(Error::<T>::InvalidSubnetId)?;
+        if subnet.repo == value {
+            return Ok(());
+        }
+
+        if let Some(existing_subnet_id) = SubnetRepo::<T>::get(&value) {
+            ensure!(existing_subnet_id == subnet_id, Error::<T>::SubnetRepoExist);
+        }
+
+        let prev_repo = subnet.repo;
         SubnetsData::<T>::try_mutate_exists(subnet_id, |maybe_params| -> DispatchResult {
             let params = maybe_params.as_mut().ok_or(Error::<T>::InvalidSubnetId)?;
-
-            prev_repo = params.repo.clone();
 
             SubnetRepo::<T>::remove(&prev_repo);
 
@@ -559,6 +690,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
+        Self::ensure_subnet_description_bounded(&value)?;
+
         let mut prev_description: Vec<u8> = Vec::new();
         SubnetsData::<T>::try_mutate_exists(subnet_id, |maybe_params| -> DispatchResult {
             let params = maybe_params.as_mut().ok_or(Error::<T>::InvalidSubnetId)?;
@@ -590,6 +723,8 @@ impl<T: Config> Pallet<T> {
             Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
             Error::<T>::NotSubnetOwner
         );
+
+        Self::ensure_subnet_misc_bounded(&value)?;
 
         let mut prev_misc: Vec<u8> = Vec::new();
         SubnetsData::<T>::try_mutate_exists(subnet_id, |maybe_params| -> DispatchResult {
@@ -714,12 +849,27 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidIdleClassificationEpochs
         );
 
-        IdleClassificationEpochs::<T>::insert(subnet_id, value);
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::prepare_pending_owner_u32_update(
+            current_subnet_epoch,
+            PendingIdleClassificationEpochs::<T>::get(subnet_id),
+            |value| IdleClassificationEpochs::<T>::insert(subnet_id, value),
+        )?;
+        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        PendingIdleClassificationEpochs::<T>::insert(
+            subnet_id,
+            PendingOwnerU32Update {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
 
-        Self::deposit_event(Event::IdleClassificationEpochsUpdate {
+        Self::deposit_event(Event::IdleClassificationEpochsUpdateScheduled {
             subnet_id: subnet_id,
             owner: coldkey,
             value: value,
+            effective_subnet_epoch,
         });
 
         Ok(())
@@ -743,12 +893,27 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidIncludedClassificationEpochs
         );
 
-        IncludedClassificationEpochs::<T>::insert(subnet_id, value);
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::prepare_pending_owner_u32_update(
+            current_subnet_epoch,
+            PendingIncludedClassificationEpochs::<T>::get(subnet_id),
+            |value| IncludedClassificationEpochs::<T>::insert(subnet_id, value),
+        )?;
+        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        PendingIncludedClassificationEpochs::<T>::insert(
+            subnet_id,
+            PendingOwnerU32Update {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
 
-        Self::deposit_event(Event::IncludedClassificationEpochsUpdate {
+        Self::deposit_event(Event::IncludedClassificationEpochsUpdateScheduled {
             subnet_id: subnet_id,
             owner: coldkey,
             value: value,
+            effective_subnet_epoch,
         });
 
         Ok(())
@@ -903,11 +1068,13 @@ impl<T: Config> Pallet<T> {
         let update_period = SubnetDelegateStakeRewardsUpdatePeriod::<T>::get();
 
         ensure!(
-            last_update + update_period < block,
+            last_update.saturating_add(update_period) < block,
             Error::<T>::DelegateStakePercentageUpdateTooSoon
         );
 
-        let current_rate = SubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id);
+        let current_rate = PendingSubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id)
+            .map(|pending| pending.value)
+            .unwrap_or_else(|| SubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id));
         let max_change = MaxSubnetDelegateStakeRewardsPercentageChange::<T>::get();
 
         ensure!(
@@ -922,13 +1089,24 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidDelegateStakePercentage
         );
 
-        LastSubnetDelegateStakeRewardsUpdate::<T>::insert(subnet_id, block);
-        SubnetDelegateStakeRewardsPercentage::<T>::insert(subnet_id, value);
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
 
-        Self::deposit_event(Event::SubnetDelegateStakeRewardsPercentageUpdate {
+        LastSubnetDelegateStakeRewardsUpdate::<T>::insert(subnet_id, block);
+        PendingSubnetDelegateStakeRewardsPercentage::<T>::insert(
+            subnet_id,
+            PendingSubnetDelegateStakeRewardsPercentageUpdate {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
+
+        Self::deposit_event(Event::SubnetDelegateStakeRewardsPercentageUpdateScheduled {
             subnet_id: subnet_id,
             owner: coldkey,
             value: value,
+            effective_subnet_epoch,
         });
 
         Ok(())
@@ -961,7 +1139,7 @@ impl<T: Config> Pallet<T> {
         ensure!(
             value >= MinMaxRegisteredNodes::<T>::get()
                 && value <= MaxMaxRegisteredNodes::<T>::get()
-                && value <= TargetNodeRegistrationsPerEpoch::<T>::get(subnet_id),
+                && value >= TargetNodeRegistrationsPerEpoch::<T>::get(subnet_id),
             Error::<T>::InvalidMaxRegisteredNodes
         );
 
@@ -987,12 +1165,9 @@ impl<T: Config> Pallet<T> {
     /// - `subnet_id`: The ID of the subnet.
     /// - `new_owner`: The `AccountId` of the new proposed owner.
     ///
-    /// # Undoing a Transfer
-    /// To cancel a pending transfer, the current owner may call this function
-    /// again with a zero address, effectively invalidating the pending owner.
-    ///
     /// # Errors
     /// - [`NotSubnetOwner`]: Caller is not the owner of the subnet.
+    /// - [`InvalidPendingSubnetOwner`]: New owner is the zero account.
     pub fn do_transfer_subnet_ownership(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
@@ -1005,12 +1180,55 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
+        let zero_owner = T::AccountId::decode(&mut TrailingZeroInput::zeroes()).unwrap();
+        ensure!(
+            new_owner != zero_owner,
+            Error::<T>::InvalidPendingSubnetOwner
+        );
+
         PendingSubnetOwner::<T>::insert(subnet_id, &new_owner);
 
         Self::deposit_event(Event::TransferPendingSubnetOwner {
             subnet_id: subnet_id,
             owner: coldkey,
             new_owner: new_owner,
+        });
+
+        Ok(())
+    }
+
+    /// Cancels a pending subnet ownership transfer.
+    ///
+    /// This function can only be called by the current owner of the subnet.
+    ///
+    /// # Parameters
+    /// - `origin`: The caller, must be the current subnet owner.
+    /// - `subnet_id`: The ID of the subnet.
+    ///
+    /// # Errors
+    /// - [`NotSubnetOwner`]: Caller is not the owner of the subnet.
+    /// - [`NoPendingSubnetOwner`]: No transfer is pending.
+    pub fn do_cancel_subnet_ownership_transfer(
+        origin: T::RuntimeOrigin,
+        subnet_id: u32,
+    ) -> DispatchResult {
+        let coldkey: T::AccountId = ensure_signed(origin)?;
+
+        ensure!(
+            Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
+            Error::<T>::NotSubnetOwner
+        );
+
+        ensure!(
+            PendingSubnetOwner::<T>::contains_key(subnet_id),
+            Error::<T>::NoPendingSubnetOwner
+        );
+
+        PendingSubnetOwner::<T>::remove(subnet_id);
+
+        Self::deposit_event(Event::CancelPendingSubnetOwner {
+            subnet_id,
+            owner: coldkey,
         });
 
         Ok(())
@@ -1070,14 +1288,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
-        Self::deposit_event(Event::AddSubnetBootnodeAccess {
-            subnet_id: subnet_id,
-            owner: coldkey,
-            new_account: new_account.clone(),
-        });
-
-        SubnetBootnodeAccess::<T>::try_mutate(subnet_id, |access_list| {
-            if !access_list.insert(new_account) {
+        SubnetBootnodeAccess::<T>::try_mutate(subnet_id, |access_list| -> DispatchResult {
+            if !access_list.insert(new_account.clone()) {
                 return Err(Error::<T>::InBootnodeAccessList.into());
             }
             ensure!(
@@ -1085,7 +1297,15 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::MaxSubnetBootnodeAccess
             );
             Ok(())
-        })
+        })?;
+
+        Self::deposit_event(Event::AddSubnetBootnodeAccess {
+            subnet_id: subnet_id,
+            owner: coldkey,
+            new_account,
+        });
+
+        Ok(())
     }
 
     pub fn do_owner_remove_bootnode_access(
@@ -1100,18 +1320,20 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
-        Self::deposit_event(Event::RemoveSubnetBootnodeAccess {
-            subnet_id: subnet_id,
-            owner: coldkey,
-            remove_account: remove_account.clone(),
-        });
-
-        SubnetBootnodeAccess::<T>::try_mutate(subnet_id, |access_list| {
+        SubnetBootnodeAccess::<T>::try_mutate(subnet_id, |access_list| -> DispatchResult {
             if !access_list.remove(&remove_account) {
                 return Err(Error::<T>::NotInAccessList.into());
             }
             Ok(())
-        })
+        })?;
+
+        Self::deposit_event(Event::RemoveSubnetBootnodeAccess {
+            subnet_id: subnet_id,
+            owner: coldkey,
+            remove_account,
+        });
+
+        Ok(())
     }
 
     pub fn do_owner_update_target_node_registrations_per_epoch(
@@ -1155,11 +1377,6 @@ impl<T: Config> Pallet<T> {
         );
 
         ensure!(
-            !EmergencySubnetNodeElectionData::<T>::contains_key(subnet_id),
-            Error::<T>::EmergencyValidatorsSet
-        );
-
-        ensure!(
             value <= Self::percentage_factor_as_u128(),
             Error::<T>::InvalidPercent
         );
@@ -1187,12 +1404,32 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
-        QueueImmunityEpochs::<T>::insert(subnet_id, value);
+        ensure!(
+            value >= MinQueueEpochs::<T>::get() && value <= MaxQueueEpochs::<T>::get(),
+            Error::<T>::InvalidQueueImmunityEpochs
+        );
 
-        Self::deposit_event(Event::QueueImmunityEpochsUpdate {
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::prepare_pending_owner_u32_update(
+            current_subnet_epoch,
+            PendingQueueImmunityEpochs::<T>::get(subnet_id),
+            |value| QueueImmunityEpochs::<T>::insert(subnet_id, value),
+        )?;
+        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        PendingQueueImmunityEpochs::<T>::insert(
+            subnet_id,
+            PendingOwnerU32Update {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
+
+        Self::deposit_event(Event::QueueImmunityEpochsUpdateScheduled {
             subnet_id: subnet_id,
             owner: coldkey,
             value,
+            effective_subnet_epoch,
         });
 
         Ok(())
@@ -1237,6 +1474,52 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    pub fn do_owner_update_min_consensus_node_attestation_percentage(
+        origin: T::RuntimeOrigin,
+        subnet_id: u32,
+        value: u128,
+    ) -> DispatchResult {
+        let coldkey: T::AccountId = ensure_signed(origin)?;
+
+        ensure!(
+            Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
+            Error::<T>::NotSubnetOwner
+        );
+
+        ensure!(
+            value >= MinSubnetConsensusNodeAttestationPercentage::<T>::get()
+                && value <= MaxSubnetConsensusNodeAttestationPercentage::<T>::get(),
+            Error::<T>::InvalidPercent
+        );
+
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::prepare_pending_owner_u128_update(
+            current_subnet_epoch,
+            PendingSubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id),
+            |value| SubnetMinConsensusNodeAttestationPercentage::<T>::insert(subnet_id, value),
+        )?;
+        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        PendingSubnetMinConsensusNodeAttestationPercentage::<T>::insert(
+            subnet_id,
+            PendingOwnerU128Update {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
+
+        Self::deposit_event(
+            Event::MinConsensusNodeAttestationPercentageUpdateScheduled {
+                subnet_id,
+                owner: coldkey,
+                value,
+                effective_subnet_epoch,
+            },
+        );
+
+        Ok(())
+    }
+
     pub fn do_owner_update_min_subnet_node_reputation(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
@@ -1270,12 +1553,27 @@ impl<T: Config> Pallet<T> {
             Error::<T>::MinSubnetNodeReputation
         );
 
-        MinSubnetNodeReputation::<T>::insert(subnet_id, value);
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::prepare_pending_owner_u128_update(
+            current_subnet_epoch,
+            PendingMinSubnetNodeReputation::<T>::get(subnet_id),
+            |value| MinSubnetNodeReputation::<T>::insert(subnet_id, value),
+        )?;
+        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        PendingMinSubnetNodeReputation::<T>::insert(
+            subnet_id,
+            PendingOwnerU128Update {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
 
-        Self::deposit_event(Event::MinSubnetNodeReputationUpdate {
+        Self::deposit_event(Event::MinSubnetNodeReputationUpdateScheduled {
             subnet_id: subnet_id,
             owner: coldkey,
             value,
+            effective_subnet_epoch,
         });
 
         Ok(())
@@ -1308,13 +1606,28 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidPercent
         );
 
-        SubnetNodeMinWeightDecreaseReputationThreshold::<T>::insert(subnet_id, value);
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::prepare_pending_owner_u128_update(
+            current_subnet_epoch,
+            PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
+            |value| SubnetNodeMinWeightDecreaseReputationThreshold::<T>::insert(subnet_id, value),
+        )?;
+        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::insert(
+            subnet_id,
+            PendingOwnerU128Update {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
 
         Self::deposit_event(
-            Event::SubnetNodeMinWeightDecreaseReputationThresholdUpdate {
+            Event::SubnetNodeMinWeightDecreaseReputationThresholdUpdateScheduled {
                 subnet_id: subnet_id,
                 owner: coldkey,
                 value,
+                effective_subnet_epoch,
             },
         );
 
