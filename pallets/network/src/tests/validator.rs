@@ -3,11 +3,10 @@ use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
     BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ColdkeyValidatorId, CurrentNodeBurnRate,
-    DelegateAccount, Error,
-    HotkeyValidatorId, IdentityData, MaxDelegateStakePercentage, MaxRegisteredNodes,
-    MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes,
-    MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex, NodeSubnetStake,
-    OverwatchNodeValidatorId, OverwatchNodes, PeerIdSubnetNodeId, PeerInfo,
+    DelegateAccount, Error, HotkeyValidatorId, IdentityData, MaxDelegateStakePercentage,
+    MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
+    MinSubnetNodes, MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex,
+    NodeSubnetStake, OverwatchNodeValidatorId, OverwatchNodes, PeerIdSubnetNodeId, PeerInfo,
     RegisteredSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName,
     SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
     SubnetNodeIdHotkey, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId,
@@ -18,9 +17,7 @@ use crate::{
     UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey, ValidatorData,
     ValidatorIdHotkey, ValidatorsData,
 };
-use frame_support::traits::{
-    Currency, ExistenceRequirement, GetStorageVersion, OnRuntimeUpgrade, StorageVersion,
-};
+use frame_support::traits::{Currency, ExistenceRequirement};
 use frame_support::weights::WeightMeter;
 use frame_support::BoundedVec;
 use frame_support::{assert_err, assert_ok};
@@ -113,7 +110,7 @@ fn test_register_validator_invalid_delegate_account_does_not_commit_partial_stat
             Network::do_register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
                 hotkey.clone(),
-                50000000000000000,
+                test_percent(1, 20),
                 Some(delegate_account),
                 None,
             ),
@@ -150,7 +147,7 @@ fn test_register_validator() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -396,10 +393,10 @@ fn test_stale_old_coldkey_index_does_not_authorize_validator_owner_calls() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: register_peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 1,
@@ -534,65 +531,6 @@ fn test_update_validator_coldkey_rejects_collisions_without_mutating_state() {
         );
         assert_failed_rotation_preserves_state(second_coldkey.clone(), Error::<Test>::NotKeyOwner);
         assert_failed_rotation_preserves_state(second_hotkey.clone(), Error::<Test>::NotKeyOwner);
-    })
-}
-
-#[test]
-fn test_cleanup_stale_validator_coldkeys_migration_removes_only_stale_entries() {
-    new_test_ext().execute_with(|| {
-        let canonical_coldkey = account(10_060);
-        let canonical_hotkey = account(10_061);
-        let stale_coldkey = account(10_062);
-        let missing_validator_coldkey = account(10_063);
-
-        let validator_id = register_validator_for_rotation(&canonical_coldkey, &canonical_hotkey);
-        let missing_validator_id = TotalValidatorIds::<Test>::get().saturating_add(1);
-
-        ColdkeyValidatorId::<Test>::insert(stale_coldkey.clone(), validator_id);
-        ColdkeyValidatorId::<Test>::insert(missing_validator_coldkey.clone(), missing_validator_id);
-        StorageVersion::new(0).put::<Network>();
-
-        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(0));
-
-        let _ =
-            <crate::migrations::CleanupStaleValidatorColdkeys<Test> as OnRuntimeUpgrade>::on_runtime_upgrade();
-
-        assert_eq!(
-            ColdkeyValidatorId::<Test>::get(&canonical_coldkey),
-            Some(validator_id)
-        );
-        assert_eq!(ColdkeyValidatorId::<Test>::get(&stale_coldkey), None);
-        assert_eq!(
-            ColdkeyValidatorId::<Test>::get(&missing_validator_coldkey),
-            None
-        );
-        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(1));
-
-        let entries_after_first_run = ColdkeyValidatorId::<Test>::iter().collect::<Vec<_>>();
-        let snapshot_after_first_run = validator_storage_snapshot(
-            validator_id,
-            &[
-                canonical_coldkey.clone(),
-                stale_coldkey.clone(),
-                missing_validator_coldkey.clone(),
-            ],
-        );
-
-        let _ =
-            <crate::migrations::CleanupStaleValidatorColdkeys<Test> as OnRuntimeUpgrade>::on_runtime_upgrade();
-
-        assert_eq!(
-            ColdkeyValidatorId::<Test>::iter().collect::<Vec<_>>(),
-            entries_after_first_run
-        );
-        assert_eq!(
-            validator_storage_snapshot(
-                validator_id,
-                &[canonical_coldkey, stale_coldkey, missing_validator_coldkey]
-            ),
-            snapshot_after_first_run
-        );
-        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(1));
     })
 }
 
@@ -803,100 +741,11 @@ fn test_update_validator_hotkey_allows_noop_without_mutating_state() {
 }
 
 #[test]
-fn test_cleanup_stale_validator_hotkeys_migration_removes_stale_and_disputed_indexes() {
-    new_test_ext().execute_with(|| {
-        let canonical_coldkey = account(10_130);
-        let canonical_hotkey_input = account(10_131);
-        let stale_reverse_hotkey = account(10_132);
-        let duplicate_owner_coldkey = account(10_133);
-        let duplicate_owner_hotkey_input = account(10_134);
-        let duplicate_claimant_coldkey = account(10_135);
-        let duplicate_claimant_hotkey_input = account(10_136);
-
-        let canonical_validator_id =
-            register_validator_for_rotation(&canonical_coldkey, &canonical_hotkey_input);
-        let duplicate_owner_validator_id =
-            register_validator_for_rotation(&duplicate_owner_coldkey, &duplicate_owner_hotkey_input);
-        let duplicate_claimant_validator_id = register_validator_for_rotation(
-            &duplicate_claimant_coldkey,
-            &duplicate_claimant_hotkey_input,
-        );
-
-        let canonical_hotkey =
-            ValidatorIdHotkey::<Test>::get(canonical_validator_id).unwrap();
-        let duplicate_hotkey =
-            ValidatorIdHotkey::<Test>::get(duplicate_owner_validator_id).unwrap();
-        let duplicate_claimant_original_hotkey =
-            ValidatorIdHotkey::<Test>::get(duplicate_claimant_validator_id).unwrap();
-
-        HotkeyValidatorId::<Test>::insert(stale_reverse_hotkey.clone(), canonical_validator_id);
-        ValidatorIdHotkey::<Test>::insert(duplicate_claimant_validator_id, duplicate_hotkey.clone());
-        let mut duplicate_claimant_data =
-            ValidatorsData::<Test>::get(duplicate_claimant_validator_id);
-        duplicate_claimant_data.hotkey = duplicate_hotkey.clone();
-        ValidatorsData::<Test>::insert(duplicate_claimant_validator_id, duplicate_claimant_data);
-        StorageVersion::new(1).put::<Network>();
-
-        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(1));
-
-        let _ =
-            <crate::migrations::CleanupStaleValidatorHotkeys<Test> as OnRuntimeUpgrade>::on_runtime_upgrade();
-
-        assert_eq!(
-            HotkeyValidatorId::<Test>::get(&canonical_hotkey),
-            Some(canonical_validator_id)
-        );
-        assert_eq!(HotkeyValidatorId::<Test>::get(&stale_reverse_hotkey), None);
-        assert_eq!(HotkeyValidatorId::<Test>::get(&duplicate_hotkey), None);
-        assert_eq!(
-            HotkeyValidatorId::<Test>::get(&duplicate_claimant_original_hotkey),
-            None
-        );
-        assert_eq!(
-            ValidatorIdHotkey::<Test>::get(duplicate_owner_validator_id),
-            Some(duplicate_hotkey.clone())
-        );
-        assert_eq!(
-            ValidatorIdHotkey::<Test>::get(duplicate_claimant_validator_id),
-            Some(duplicate_hotkey.clone())
-        );
-        assert_eq!(
-            ValidatorsData::<Test>::get(duplicate_claimant_validator_id).hotkey,
-            duplicate_hotkey
-        );
-        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(2));
-
-        let hotkey_entries_after_first_run = HotkeyValidatorId::<Test>::iter().collect::<Vec<_>>();
-        let owner_forward_after_first_run =
-            ValidatorIdHotkey::<Test>::get(duplicate_owner_validator_id);
-        let claimant_forward_after_first_run =
-            ValidatorIdHotkey::<Test>::get(duplicate_claimant_validator_id);
-
-        let _ =
-            <crate::migrations::CleanupStaleValidatorHotkeys<Test> as OnRuntimeUpgrade>::on_runtime_upgrade();
-
-        assert_eq!(
-            HotkeyValidatorId::<Test>::iter().collect::<Vec<_>>(),
-            hotkey_entries_after_first_run
-        );
-        assert_eq!(
-            ValidatorIdHotkey::<Test>::get(duplicate_owner_validator_id),
-            owner_forward_after_first_run
-        );
-        assert_eq!(
-            ValidatorIdHotkey::<Test>::get(duplicate_claimant_validator_id),
-            claimant_forward_after_first_run
-        );
-        assert_eq!(Network::on_chain_storage_version(), StorageVersion::new(2));
-    })
-}
-
-#[test]
 fn test_register_validator_subnet_node() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -956,10 +805,10 @@ fn test_register_validator_subnet_node() {
                 current_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer(1),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 stake_amount,
@@ -977,10 +826,10 @@ fn test_register_validator_subnet_node() {
                 999,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer(1),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 stake_amount,
@@ -998,10 +847,10 @@ fn test_register_validator_subnet_node() {
                 current_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer(1),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 stake_amount,
@@ -1017,10 +866,10 @@ fn test_register_validator_subnet_node() {
             current_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             stake_amount,
@@ -1028,17 +877,16 @@ fn test_register_validator_subnet_node() {
             None,
             burn_amount + 100000000,
         ));
-
         let node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         let node = RegisteredSubnetNodesData::<Test>::get(subnet_id, node_id);
         assert_eq!(node.id, node_id);
         assert_eq!(node.validator_id, current_id);
         assert_eq!(
             node.peer_info,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
-            }
+            })
         );
         assert_eq!(node.bootnode_peer_info, None);
         assert_eq!(node.client_peer_info, None);
@@ -1076,10 +924,10 @@ fn test_get_hotkey_associated_subnet_node_prefers_subnet_node_hotkey_override() 
             SubnetNode::<Test> {
                 id: subnet_node_id,
                 validator_id,
-                peer_info: PeerInfo::<Test> {
+                peer_info: Some(PeerInfo::<Test> {
                     peer_id: peer(1),
                     multiaddr: None,
-                },
+                }),
                 bootnode_peer_info: None,
                 client_peer_info: None,
                 classification: SubnetNodeClassification {
@@ -1126,10 +974,10 @@ fn test_get_hotkey_associated_subnet_node_uses_validator_hotkey_without_override
             SubnetNode::<Test> {
                 id: subnet_node_id,
                 validator_id,
-                peer_info: PeerInfo::<Test> {
+                peer_info: Some(PeerInfo::<Test> {
                     peer_id: peer(2),
                     multiaddr: None,
-                },
+                }),
                 bootnode_peer_info: None,
                 client_peer_info: None,
                 classification: SubnetNodeClassification {
@@ -1201,7 +1049,7 @@ fn test_update_validator_hotkey() {
         let hotkey = account(1);
         let new_hotkey = account(2);
         let new_hotkey_2 = account(3);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1271,7 +1119,7 @@ fn test_update_validator_delegate_reward_rate() {
         let hotkey = account(1);
         let new_hotkey = account(2);
         let new_hotkey_2 = account(3);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         let new_reward_rate = 59000000000000000; // 5.9%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -1398,7 +1246,7 @@ fn test_update_validator_identity() {
     new_test_ext().execute_with(|| {
         let coldkey = account(0);
         let hotkey = account(1);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,

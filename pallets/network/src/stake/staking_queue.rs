@@ -48,9 +48,7 @@ impl<T: Config> Pallet<T> {
         };
 
         SwapQueueOrder::<T>::try_mutate(|queue| -> DispatchResult {
-            queue
-                .try_push(id)
-                .map_err(|_| Error::<T>::SwapQueueFull)?;
+            queue.try_push(id).map_err(|_| Error::<T>::SwapQueueFull)?;
             Ok(())
         })?;
 

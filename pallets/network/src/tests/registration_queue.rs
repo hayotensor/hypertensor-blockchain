@@ -65,7 +65,7 @@ fn test_register_subnet_node_v2() {
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         let queue_epochs = SubnetNodeQueueEpochs::<Test>::get(subnet_id);
 
-        let v_reward_rate = 50000000000000000; // 5%
+        let v_reward_rate = test_percent(1, 20); // 5%
 
         assert_ok!(Network::register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -81,10 +81,10 @@ fn test_register_subnet_node_v2() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             amount,
@@ -92,7 +92,6 @@ fn test_register_subnet_node_v2() {
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
@@ -180,10 +179,10 @@ fn test_register_subnet_node_duplicate_request_peer_does_not_commit_partial_stat
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: duplicate_peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 Some(PeerInfo::<Test> {
                     peer_id: duplicate_peer_id.clone(),
                     multiaddr: None,
@@ -287,10 +286,10 @@ fn test_register_subnet_node_stake_failure_does_not_commit_partial_state() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 amount,
@@ -379,7 +378,7 @@ fn test_register_subnet_node_v2_and_activate() {
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         let queue_epochs = SubnetNodeQueueEpochs::<Test>::get(subnet_id);
 
-        let v_reward_rate = 50000000000000000; // 5%
+        let v_reward_rate = test_percent(1, 20); // 5%
 
         assert_ok!(Network::register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -395,10 +394,10 @@ fn test_register_subnet_node_v2_and_activate() {
             validator_id,
             subnet_id,
             None,
-            PeerInfo::<Test> {
+            Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: None,
-            },
+            }),
             None,
             None,
             amount,
@@ -406,7 +405,6 @@ fn test_register_subnet_node_v2_and_activate() {
             None,
             u128::MAX,
         ));
-
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
@@ -525,7 +523,7 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
             let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
             let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-            let v_reward_rate = 50000000000000000; // 5%
+            let v_reward_rate = test_percent(1, 20); // 5%
 
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -541,10 +539,10 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 amount,
@@ -552,7 +550,6 @@ fn test_register_subnet_node_v2_and_activate_max_churn_limit() {
                 None,
                 u128::MAX,
             ));
-
             let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
             let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
@@ -695,7 +692,7 @@ fn test_register_subnet_node_v2_with_max_nodes() {
                         max_subnets,
                         expected_validator_id,
                     );
-                    let v_reward_rate = 50000000000000000; // 5%
+                    let v_reward_rate = test_percent(1, 20); // 5%
 
                     assert_ok!(Network::register_validator(
                         RuntimeOrigin::signed(coldkey.clone()),
@@ -729,10 +726,10 @@ fn test_register_subnet_node_v2_with_max_nodes() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 amount,
@@ -740,7 +737,6 @@ fn test_register_subnet_node_v2_with_max_nodes() {
                 None,
                 u128::MAX,
             ));
-
             let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
             let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
@@ -878,7 +874,7 @@ fn test_register_subnet_node_v2_activate_up_to_max_nodes() {
             let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
             let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-            let v_reward_rate = 50000000000000000; // 5%
+            let v_reward_rate = test_percent(1, 20); // 5%
 
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -894,10 +890,10 @@ fn test_register_subnet_node_v2_activate_up_to_max_nodes() {
                 validator_id,
                 subnet_id,
                 None,
-                PeerInfo::<Test> {
+                Some(PeerInfo::<Test> {
                     peer_id: peer_id.clone(),
                     multiaddr: None,
-                },
+                }),
                 None,
                 None,
                 amount,
@@ -905,7 +901,6 @@ fn test_register_subnet_node_v2_activate_up_to_max_nodes() {
                 None,
                 u128::MAX,
             ));
-
             let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
             let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);

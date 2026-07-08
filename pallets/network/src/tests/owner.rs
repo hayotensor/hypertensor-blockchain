@@ -2,26 +2,40 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    ChurnLimit, ChurnLimitMultiplier, EmergencySubnetNodeElectionData,
-    EmergencySubnetValidatorData, Error, IdleClassificationEpochs, IncludedClassificationEpochs,
+    ChurnLimit, ChurnLimitMultiplier, ConsensusValidatorNodeCountDecay,
+    ConsensusValidatorNodeCountDecayUpdateInterval, EmergencySubnetNodeElectionData,
+    EmergencySubnetValidatorData, EmergencyValidatorCooldownEpochs, Error,
+    IdleClassificationEpochs, IncludedClassificationEpochs,
+    LastConsensusValidatorNodeCountDecayUpdate, LastEmergencyValidatorEndEpoch,
     LastSubnetDelegateStakeRewardsUpdate, MaxChurnLimit, MaxChurnLimitMultiplier,
-    MaxDelegateStakePercentage, MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs,
-    MaxMaxRegisteredNodes, MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetBootnodeAccess,
-    MaxSubnetMinStake, MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes,
-    MaxSubnets, MinChurnLimit, MinChurnLimitMultiplier, MinDelegateStakePercentage,
-    MinIdleClassificationEpochs, MinIncludedClassificationEpochs, MinMaxRegisteredNodes,
-    MinNodeReputationFactor, MinQueueEpochs, MinSubnetMinStake, MinSubnetNodeReputation,
-    NetworkMaxStakeBalance, NodeBurnRateAlpha, NodeRegistrationInitialValidatorIds, PeerInfo,
-    PendingSubnetOwner, QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess,
+    MaxDelegateStakePercentage, MaxEmergencySubnetNodes, MaxIdleClassificationEpochs,
+    MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes, MaxQueueEpochs, MaxRegisteredNodes,
+    MaxSubnetBootnodeAccess, MaxSubnetConsensusNodeAttestationPercentage, MaxSubnetMinStake,
+    MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnets, MinChurnLimit,
+    MinChurnLimitMultiplier, MinDelegateStakePercentage, MinIdleClassificationEpochs,
+    MinIncludedClassificationEpochs, MinMaxRegisteredNodes, MinNodeReputationFactor,
+    MinQueueEpochs, MinSubnetConsensusNodeAttestationPercentage, MinSubnetMinStake,
+    MinSubnetNodeReputation, MinSubnetNodes, NetworkMaxStakeBalance, NodeBurnRateAlpha,
+    NodeRegistrationInitialValidatorIds, PeerInfo, PendingIdleClassificationEpochs,
+    PendingIncludedClassificationEpochs, PendingMinSubnetNodeReputation,
+    PendingQueueImmunityEpochs, PendingSubnetDelegateStakeRewardsPercentage,
+    PendingSubnetMinConsensusNodeAttestationPercentage,
+    PendingSubnetNodeMinWeightDecreaseReputationThreshold, PendingSubnetOwner,
+    PreviousSubnetPauseEpoch, QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess,
     SubnetData, SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod,
-    SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
-    SubnetNodeClassification, SubnetNodeMinWeightDecreaseReputationThreshold,
-    SubnetNodeQueueEpochs, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
-    SubnetRemovalReason, SubnetRepo, SubnetReputationFactorSchedules,
-    SubnetReputationFactorUpdates, SubnetState, SubnetsData, TargetNodeRegistrationsPerEpoch,
+    SubnetMaxStakeBalance, SubnetMinConsensusNodeAttestationPercentage, SubnetMinStakeBalance,
+    SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
+    SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeQueueEpochs, SubnetNodeReputation,
+    SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs, SubnetRemovalReason, SubnetRepo,
+    SubnetReputationFactorSchedules, SubnetReputationFactorUpdates, SubnetState, SubnetsData,
+    TargetNodeRegistrationsPerEpoch, TotalElectableNodes, TotalSubnetElectableNodes,
 };
 use codec::Decode;
-use frame_support::{assert_err, assert_ok};
+use frame_support::{
+    assert_err, assert_ok,
+    traits::{Get, Hooks, StorageVersion},
+};
+use sp_core::OpaquePeerId as PeerId;
 use sp_runtime::traits::TrailingZeroInput;
 use sp_runtime::BoundedVec;
 use sp_std::collections::btree_map::BTreeMap;
@@ -158,6 +172,53 @@ fn test_do_owner_update_misc() {
 }
 
 #[test]
+fn test_owner_metadata_updates_reject_oversized_native_values() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        let too_long_vector =
+            vec![b'a'; (<Test as crate::Config>::MaxVectorLength::get() + 1) as usize];
+        let too_long_url = vec![b'a'; (<Test as crate::Config>::MaxUrlLength::get() + 1) as usize];
+
+        assert_err!(
+            Network::owner_update_name(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                too_long_vector.clone()
+            ),
+            Error::<Test>::SubnetNameTooLong
+        );
+        assert_err!(
+            Network::owner_update_repo(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                too_long_url
+            ),
+            Error::<Test>::SubnetRepoTooLong
+        );
+        assert_err!(
+            Network::owner_update_description(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                too_long_vector.clone()
+            ),
+            Error::<Test>::SubnetDescriptionTooLong
+        );
+        assert_err!(
+            Network::owner_update_misc(
+                RuntimeOrigin::signed(original_owner),
+                subnet_id,
+                too_long_vector
+            ),
+            Error::<Test>::SubnetMiscTooLong
+        );
+    })
+}
+
+#[test]
 fn test_do_owner_update_churn_limit() {
     new_test_ext().execute_with(|| {
         let subnet_id = 1;
@@ -241,6 +302,8 @@ fn test_do_owner_update_idle_classification_epochs() {
         let original_owner = account(1);
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
+        let old_value = IdleClassificationEpochs::<Test>::get(subnet_id);
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         let new_value = IdleClassificationEpochs::<Test>::get(subnet_id) + 1;
 
         assert_ok!(Network::owner_update_idle_classification_epochs(
@@ -249,7 +312,21 @@ fn test_do_owner_update_idle_classification_epochs() {
             new_value
         ));
 
-        assert_eq!(IdleClassificationEpochs::<Test>::get(subnet_id), new_value);
+        assert_eq!(IdleClassificationEpochs::<Test>::get(subnet_id), old_value);
+        assert_eq!(
+            Network::get_idle_classification_epochs_for_epoch(subnet_id, current_subnet_epoch),
+            old_value
+        );
+        assert_eq!(
+            Network::get_idle_classification_epochs_for_epoch(subnet_id, current_subnet_epoch + 1),
+            new_value
+        );
+        assert_eq!(
+            PendingIdleClassificationEpochs::<Test>::get(subnet_id)
+                .unwrap()
+                .value,
+            new_value
+        );
 
         assert_err!(
             Network::owner_update_idle_classification_epochs(
@@ -279,6 +356,8 @@ fn test_do_owner_update_included_classification_epochs() {
         let original_owner = account(1);
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
+        let old_value = IncludedClassificationEpochs::<Test>::get(subnet_id);
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         let new_value = IncludedClassificationEpochs::<Test>::get(subnet_id) + 1;
 
         assert_ok!(Network::owner_update_included_classification_epochs(
@@ -289,6 +368,23 @@ fn test_do_owner_update_included_classification_epochs() {
 
         assert_eq!(
             IncludedClassificationEpochs::<Test>::get(subnet_id),
+            old_value
+        );
+        assert_eq!(
+            Network::get_included_classification_epochs_for_epoch(subnet_id, current_subnet_epoch),
+            old_value
+        );
+        assert_eq!(
+            Network::get_included_classification_epochs_for_epoch(
+                subnet_id,
+                current_subnet_epoch + 1
+            ),
+            new_value
+        );
+        assert_eq!(
+            PendingIncludedClassificationEpochs::<Test>::get(subnet_id)
+                .unwrap()
+                .value,
             new_value
         );
 
@@ -383,6 +479,34 @@ fn test_do_owner_update_node_burn_rate_alpha() {
 }
 
 #[test]
+fn test_owner_update_node_burn_rate_alpha_allows_pending_emergency_set() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        EmergencySubnetNodeElectionData::<Test>::insert(
+            subnet_id,
+            EmergencySubnetValidatorData {
+                subnet_node_ids: vec![1, 2, 3],
+                target_emergency_validators_epochs: 1,
+                activated: false,
+                ..Default::default()
+            },
+        );
+
+        let new_value = NodeBurnRateAlpha::<Test>::get(subnet_id) - 1;
+        assert_ok!(Network::owner_update_node_burn_rate_alpha(
+            RuntimeOrigin::signed(original_owner),
+            subnet_id,
+            new_value
+        ));
+        assert_eq!(NodeBurnRateAlpha::<Test>::get(subnet_id), new_value);
+    })
+}
+
+#[test]
 fn test_do_owner_update_queue_immunity_epochs() {
     new_test_ext().execute_with(|| {
         let subnet_id = 1;
@@ -390,15 +514,98 @@ fn test_do_owner_update_queue_immunity_epochs() {
         let original_owner = account(1);
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
-        let new_value = QueueImmunityEpochs::<Test>::get(subnet_id) - 1;
+        assert_err!(
+            Network::owner_update_queue_immunity_epochs(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                MinQueueEpochs::<Test>::get() - 1
+            ),
+            Error::<Test>::InvalidQueueImmunityEpochs
+        );
+
+        assert_err!(
+            Network::owner_update_queue_immunity_epochs(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                MaxQueueEpochs::<Test>::get() + 1
+            ),
+            Error::<Test>::InvalidQueueImmunityEpochs
+        );
+
+        let old_value = QueueImmunityEpochs::<Test>::get(subnet_id);
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        let new_value = MinQueueEpochs::<Test>::get();
 
         assert_ok!(Network::owner_update_queue_immunity_epochs(
-            RuntimeOrigin::signed(original_owner),
+            RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
             new_value
         ));
 
-        assert_eq!(QueueImmunityEpochs::<Test>::get(subnet_id), new_value);
+        assert_eq!(QueueImmunityEpochs::<Test>::get(subnet_id), old_value);
+        assert_eq!(
+            Network::get_queue_immunity_epochs_for_epoch(subnet_id, current_subnet_epoch),
+            old_value
+        );
+        assert_eq!(
+            Network::get_queue_immunity_epochs_for_epoch(subnet_id, current_subnet_epoch + 1),
+            new_value
+        );
+
+        let pending = PendingQueueImmunityEpochs::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
+        assert_eq!(pending.owner, original_owner.clone());
+
+        let replacement_value = new_value + 1;
+        assert_ok!(Network::owner_update_queue_immunity_epochs(
+            RuntimeOrigin::signed(original_owner),
+            subnet_id,
+            replacement_value
+        ));
+        let pending = PendingQueueImmunityEpochs::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, replacement_value);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
+    })
+}
+
+#[test]
+fn test_owner_pending_parameter_update_cannot_be_replaced_during_activation_epoch() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+        let owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
+
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        let value = MinQueueEpochs::<Test>::get();
+
+        assert_ok!(Network::owner_update_queue_immunity_epochs(
+            RuntimeOrigin::signed(owner.clone()),
+            subnet_id,
+            value
+        ));
+
+        PendingQueueImmunityEpochs::<Test>::mutate(subnet_id, |pending| {
+            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
+        });
+
+        assert_err!(
+            Network::owner_update_queue_immunity_epochs(
+                RuntimeOrigin::signed(owner),
+                subnet_id,
+                value + 1
+            ),
+            Error::<Test>::OwnerParameterUpdatePendingActivation
+        );
+
+        let pending = PendingQueueImmunityEpochs::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, value);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch);
+        assert_eq!(
+            Network::get_queue_immunity_epochs_for_epoch(subnet_id, current_subnet_epoch),
+            value
+        );
     })
 }
 
@@ -412,9 +619,12 @@ fn do_owner_update_subnet_node_min_weight_decrease_reputation_threshold() {
 
         let new_value = 1;
 
+        let old_value = SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::get(subnet_id);
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+
         assert_ok!(
             Network::owner_update_subnet_node_min_weight_decrease_reputation_threshold(
-                RuntimeOrigin::signed(original_owner),
+                RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
                 new_value
             )
@@ -422,8 +632,40 @@ fn do_owner_update_subnet_node_min_weight_decrease_reputation_threshold() {
 
         assert_eq!(
             SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::get(subnet_id),
+            old_value
+        );
+        assert_eq!(
+            Network::get_subnet_node_min_weight_decrease_reputation_threshold_for_epoch(
+                subnet_id,
+                current_subnet_epoch
+            ),
+            old_value
+        );
+        assert_eq!(
+            Network::get_subnet_node_min_weight_decrease_reputation_threshold_for_epoch(
+                subnet_id,
+                current_subnet_epoch + 1
+            ),
             new_value
         );
+        let pending =
+            PendingSubnetNodeMinWeightDecreaseReputationThreshold::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
+        assert_eq!(pending.owner, original_owner.clone());
+
+        let replacement_value = new_value + 1;
+        assert_ok!(
+            Network::owner_update_subnet_node_min_weight_decrease_reputation_threshold(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                replacement_value
+            )
+        );
+        let pending =
+            PendingSubnetNodeMinWeightDecreaseReputationThreshold::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, replacement_value);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
 
         assert_err!(
             Network::owner_update_subnet_node_min_weight_decrease_reputation_threshold(
@@ -432,6 +674,36 @@ fn do_owner_update_subnet_node_min_weight_decrease_reputation_threshold() {
                 MaxSubnetNodeMinWeightDecreaseReputationThreshold::<Test>::get() + 1
             ),
             Error::<Test>::InvalidPercent
+        );
+    })
+}
+
+#[test]
+fn test_owner_logic_storage_migration_clamps_registration_and_queue_immunity() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+
+        MaxRegisteredNodes::<Test>::insert(subnet_id, 4);
+        TargetNodeRegistrationsPerEpoch::<Test>::insert(subnet_id, 10);
+        QueueImmunityEpochs::<Test>::insert(subnet_id, MaxQueueEpochs::<Test>::get() + 1);
+
+        StorageVersion::new(0).put::<Network>();
+        <Network as Hooks<BlockNumber>>::on_runtime_upgrade();
+
+        assert_eq!(MaxRegisteredNodes::<Test>::get(subnet_id), 4);
+        assert_eq!(TargetNodeRegistrationsPerEpoch::<Test>::get(subnet_id), 4);
+        assert_eq!(
+            QueueImmunityEpochs::<Test>::get(subnet_id),
+            MaxQueueEpochs::<Test>::get()
+        );
+        assert_eq!(StorageVersion::get::<Network>(), StorageVersion::new(1));
+
+        <Network as Hooks<BlockNumber>>::on_runtime_upgrade();
+        assert_eq!(TargetNodeRegistrationsPerEpoch::<Test>::get(subnet_id), 4);
+        assert_eq!(
+            QueueImmunityEpochs::<Test>::get(subnet_id),
+            MaxQueueEpochs::<Test>::get()
         );
     })
 }
@@ -542,10 +814,10 @@ fn test_owner_unpause_subnet() {
             SubnetNode::<Test> {
                 id: hotkey_subnet_node_id,
                 validator_id: validator_id,
-                peer_info: PeerInfo::<Test> {
+                peer_info: Some(PeerInfo::<Test> {
                     peer_id: peer(0),
                     multiaddr: None,
-                },
+                }),
                 bootnode_peer_info: None,
                 client_peer_info: None,
                 classification: SubnetNodeClassification {
@@ -597,6 +869,87 @@ fn test_owner_unpause_subnet() {
 }
 
 #[test]
+fn test_owner_unpause_rejects_invalid_pending_emergency_set() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        increase_epochs(SubnetPauseCooldownEpochs::<Test>::get() + 1);
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+
+        EmergencySubnetNodeElectionData::<Test>::insert(
+            subnet_id,
+            EmergencySubnetValidatorData {
+                subnet_node_ids: vec![1, 2, 999],
+                target_emergency_validators_epochs: 1,
+                ..Default::default()
+            },
+        );
+
+        assert_err!(
+            Network::owner_unpause_subnet(RuntimeOrigin::signed(original_owner), subnet_id),
+            Error::<Test>::InvalidEmergencySubnetNodeId
+        );
+        assert_eq!(
+            SubnetsData::<Test>::get(subnet_id).unwrap().state,
+            SubnetState::Paused
+        );
+    });
+}
+
+#[test]
+fn test_owner_unpause_finishes_expired_active_emergency_set() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        EmergencySubnetNodeElectionData::<Test>::insert(
+            subnet_id,
+            EmergencySubnetValidatorData {
+                subnet_node_ids: vec![1, 2, 3],
+                target_emergency_validators_epochs: 1,
+                total_epochs: 1,
+                activated: true,
+                started_subnet_epoch: Network::get_current_subnet_epoch_as_u32(subnet_id),
+                max_emergency_validators_epoch: u32::MAX,
+                ..Default::default()
+            },
+        );
+
+        increase_epochs(SubnetPauseCooldownEpochs::<Test>::get() + 1);
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+        assert_ok!(Network::owner_unpause_subnet(
+            RuntimeOrigin::signed(original_owner),
+            subnet_id,
+        ));
+
+        assert!(EmergencySubnetNodeElectionData::<Test>::get(subnet_id).is_none());
+        assert_eq!(
+            LastEmergencyValidatorEndEpoch::<Test>::get(subnet_id),
+            Network::get_current_epoch_as_u32()
+        );
+    });
+}
+
+#[test]
 fn test_owner_unpause_subnet_repause_cooldown_error() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
@@ -630,10 +983,10 @@ fn test_owner_unpause_subnet_repause_cooldown_error() {
             SubnetNode::<Test> {
                 id: hotkey_subnet_node_id,
                 validator_id: validator_id,
-                peer_info: PeerInfo::<Test> {
+                peer_info: Some(PeerInfo::<Test> {
                     peer_id: peer(0),
                     multiaddr: None,
-                },
+                }),
                 bootnode_peer_info: None,
                 client_peer_info: None,
                 classification: SubnetNodeClassification {
@@ -694,6 +1047,34 @@ fn test_owner_unpause_subnet_repause_cooldown_error() {
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
         ));
+    });
+}
+
+#[test]
+fn test_owner_pause_subnet_cooldown_uses_saturating_add() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        SubnetPauseCooldownEpochs::<Test>::put(10);
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        increase_epochs(20);
+        PreviousSubnetPauseEpoch::<Test>::insert(subnet_id, u32::MAX - 5);
+
+        assert_err!(
+            Network::owner_pause_subnet(RuntimeOrigin::signed(original_owner), subnet_id),
+            Error::<Test>::SubnetPauseCooldownActive
+        );
+        assert_eq!(
+            SubnetsData::<Test>::get(subnet_id).unwrap().state,
+            SubnetState::Active
+        );
     });
 }
 
@@ -764,9 +1145,6 @@ fn test_owner_unpause_subnet_verify_queue_updated() {
         let end = start + churn_limit;
         build_registered_nodes_in_queue(subnet_id, start, end, deposit_amount, stake_amount);
 
-        let max_subnets = MaxSubnets::<Test>::get();
-        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-
         // Store data
         let mut registered_nodes_data: BTreeMap<u32, u32> = BTreeMap::new(); // node ID => start_epoch
         for n in start..end {
@@ -775,6 +1153,24 @@ fn test_owner_unpause_subnet_verify_queue_updated() {
             let subnet_node_data =
                 RegisteredSubnetNodesData::<Test>::try_get(subnet_id, _n).unwrap();
             registered_nodes_data.insert(_n, subnet_node_data.classification.start_epoch);
+        }
+
+        let other_subnet_name: Vec<u8> = "other-subnet-name".into();
+        build_activated_subnet(
+            other_subnet_name.clone(),
+            0,
+            4,
+            deposit_amount,
+            stake_amount,
+        );
+        let other_subnet_id = SubnetName::<Test>::get(other_subnet_name.clone()).unwrap();
+        build_registered_nodes_in_queue(other_subnet_id, start, end, deposit_amount, stake_amount);
+        let mut other_registered_nodes_data: BTreeMap<u32, u32> = BTreeMap::new();
+        for n in start..end {
+            let _n = n + 1;
+            let subnet_node_data =
+                RegisteredSubnetNodesData::<Test>::try_get(other_subnet_id, _n).unwrap();
+            other_registered_nodes_data.insert(_n, subnet_node_data.classification.start_epoch);
         }
 
         let original_owner = account(1);
@@ -817,6 +1213,100 @@ fn test_owner_unpause_subnet_verify_queue_updated() {
                 assert!(false);
             }
         }
+
+        for n in start..end {
+            let _n = n + 1;
+            let subnet_node_data =
+                RegisteredSubnetNodesData::<Test>::try_get(other_subnet_id, _n).unwrap();
+
+            assert_eq!(
+                other_registered_nodes_data.get(&_n).copied().unwrap(),
+                subnet_node_data.classification.start_epoch
+            );
+        }
+    });
+}
+
+#[test]
+fn test_emergency_validator_duration_formula() {
+    new_test_ext().execute_with(|| {
+        assert_eq!(
+            Network::get_emergency_validator_duration_epochs(
+                test_percent(1, 10),
+                test_percent(1, 10)
+            )
+            .unwrap(),
+            23
+        );
+        assert_eq!(
+            Network::get_emergency_validator_duration_epochs(
+                test_percent(1, 20),
+                test_percent(1, 10)
+            )
+            .unwrap(),
+            46
+        );
+        assert_eq!(
+            Network::get_emergency_validator_duration_epochs(
+                test_percent(1, 2),
+                test_percent(1, 10)
+            )
+            .unwrap(),
+            5
+        );
+        assert_eq!(
+            Network::get_emergency_validator_duration_epochs(
+                test_percent(1, 10),
+                test_percent(1, 20)
+            )
+            .unwrap(),
+            30
+        );
+        assert_eq!(
+            Network::get_emergency_validator_duration_epochs(
+                test_percent(1, 10),
+                test_percent(1, 2)
+            )
+            .unwrap(),
+            8
+        );
+        assert_eq!(
+            Network::get_emergency_validator_duration_epochs(
+                Network::percentage_factor_as_u128(),
+                test_percent(1, 10)
+            )
+            .unwrap(),
+            2
+        );
+        assert_eq!(
+            Network::get_emergency_validator_duration_epochs(
+                test_percent(1, 10),
+                Network::percentage_factor_as_u128()
+            )
+            .unwrap(),
+            2
+        );
+    });
+}
+
+#[test]
+fn test_emergency_validator_duration_formula_rejects_invalid_values() {
+    new_test_ext().execute_with(|| {
+        assert!(matches!(
+            Network::get_emergency_validator_duration_epochs(0, test_percent(1, 10)),
+            Err(Error::<Test>::InvalidEmergencyValidatorDuration)
+        ));
+        assert!(matches!(
+            Network::get_emergency_validator_duration_epochs(test_percent(1, 10), 0),
+            Err(Error::<Test>::InvalidEmergencyValidatorDuration)
+        ));
+        assert!(matches!(
+            Network::get_emergency_validator_duration_epochs(
+                test_percent(1, 100_000),
+                test_percent(1, 10)
+            ),
+            Err(Error::<Test>::InvalidEmergencyValidatorDuration)
+        ));
     });
 }
 
@@ -878,67 +1368,47 @@ fn test_owner_set_emergency_validator_subnet() {
             subnet_node_ids.clone()
         ));
 
-        let emergency_validator_data = EmergencySubnetNodeElectionData::<Test>::get(subnet_id);
-        assert!(emergency_validator_data.is_some());
-        assert_eq!(
-            emergency_validator_data.clone().unwrap().subnet_node_ids,
-            subnet_node_ids
-        );
+        let emergency_validator_data =
+            EmergencySubnetNodeElectionData::<Test>::get(subnet_id).unwrap();
+        let expected_target_emergency_epochs = Network::get_emergency_validator_duration_epochs(
+            emergency_validator_data.reputation_factors.absent_decrease,
+            emergency_validator_data.min_subnet_node_reputation,
+        )
+        .unwrap();
+        assert_eq!(emergency_validator_data.subnet_node_ids, subnet_node_ids);
         assert_ne!(
-            emergency_validator_data.clone().unwrap().subnet_node_ids,
+            emergency_validator_data.subnet_node_ids,
             original_subnet_node_ids
         );
-        assert_ne!(
-            emergency_validator_data
-                .clone()
-                .unwrap()
-                .target_emergency_validators_epochs,
-            0
-        );
         assert_eq!(
-            emergency_validator_data
-                .clone()
-                .unwrap()
-                .max_emergency_validators_epoch,
-            0
+            emergency_validator_data.target_emergency_validators_epochs,
+            expected_target_emergency_epochs
         );
-        assert_eq!(emergency_validator_data.clone().unwrap().total_epochs, 0);
+        assert_eq!(emergency_validator_data.max_emergency_validators_epoch, 0);
+        assert_eq!(emergency_validator_data.total_epochs, 0);
 
         assert_ok!(Network::owner_unpause_subnet(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
         ));
 
-        let emergency_validator_data = EmergencySubnetNodeElectionData::<Test>::get(subnet_id);
-        assert_eq!(
-            emergency_validator_data.clone().unwrap().subnet_node_ids,
-            subnet_node_ids
-        );
+        let emergency_validator_data =
+            EmergencySubnetNodeElectionData::<Test>::get(subnet_id).unwrap();
+        assert_eq!(emergency_validator_data.subnet_node_ids, subnet_node_ids);
         assert_ne!(
-            emergency_validator_data.clone().unwrap().subnet_node_ids,
+            emergency_validator_data.subnet_node_ids,
             original_subnet_node_ids
         );
-        assert_ne!(
-            emergency_validator_data
-                .clone()
-                .unwrap()
-                .target_emergency_validators_epochs,
-            0
+        assert_eq!(
+            emergency_validator_data.target_emergency_validators_epochs,
+            expected_target_emergency_epochs
         );
-        assert_ne!(
-            emergency_validator_data
-                .clone()
-                .unwrap()
-                .max_emergency_validators_epoch,
-            0
-        );
-        assert_eq!(emergency_validator_data.clone().unwrap().total_epochs, 0);
+        assert_ne!(emergency_validator_data.max_emergency_validators_epoch, 0);
+        assert_eq!(emergency_validator_data.total_epochs, 0);
 
         // EmergencySubnetNodeElectionData removes after being greater than total epochs
         // so use += 2 here
         for _ in 0..emergency_validator_data
-            .clone()
-            .unwrap()
             .target_emergency_validators_epochs
             .saturating_add(2)
         {
@@ -967,6 +1437,58 @@ fn test_owner_set_emergency_validator_subnet() {
             EmergencySubnetNodeElectionData::<Test>::try_get(subnet_id),
             Err(())
         );
+    });
+}
+
+#[test]
+fn test_owner_set_emergency_validator_duration_ignores_current_node_reputations() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let max = 12;
+
+        build_activated_subnet(subnet_name.clone(), 0, max, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let original_owner = account(1);
+
+        let pause_cooldown_epochs = SubnetPauseCooldownEpochs::<Test>::get();
+        increase_epochs(pause_cooldown_epochs + 1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+
+        let selected_len = MinSubnetNodes::<Test>::get() as usize;
+        let election_slots = SubnetNodeElectionSlots::<Test>::get(subnet_id);
+        let subnet_node_ids: Vec<u32> = election_slots.iter().take(selected_len).copied().collect();
+
+        for subnet_node_id in election_slots.iter().skip(selected_len) {
+            SubnetNodeReputation::<Test>::insert(subnet_id, subnet_node_id, 0);
+        }
+
+        assert_ok!(Network::owner_set_emergency_validator_set(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            subnet_node_ids.clone()
+        ));
+
+        let emergency_validator_data =
+            EmergencySubnetNodeElectionData::<Test>::get(subnet_id).unwrap();
+        let expected_target_emergency_epochs = Network::get_emergency_validator_duration_epochs(
+            emergency_validator_data.reputation_factors.absent_decrease,
+            emergency_validator_data.min_subnet_node_reputation,
+        )
+        .unwrap();
+
+        assert_eq!(emergency_validator_data.subnet_node_ids, subnet_node_ids);
+        assert_eq!(
+            emergency_validator_data.target_emergency_validators_epochs,
+            expected_target_emergency_epochs
+        );
+        assert_eq!(expected_target_emergency_epochs, 23);
     });
 }
 
@@ -1108,6 +1630,228 @@ fn test_owner_fork_subnet_max_fork_epoch() {
 }
 
 #[test]
+fn test_owner_set_emergency_validator_set_strictly_validates_unique_ids() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let max = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, max, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+
+        MaxEmergencySubnetNodes::<Test>::put(3);
+        assert_err!(
+            Network::owner_set_emergency_validator_set(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                vec![1, 2, 3, 4],
+            ),
+            Error::<Test>::InvalidMaxEmergencySubnetNodes
+        );
+
+        MaxEmergencySubnetNodes::<Test>::put(10);
+        assert_err!(
+            Network::owner_set_emergency_validator_set(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                vec![1, 999, 1, 998, 1],
+            ),
+            Error::<Test>::InvalidEmergencySubnetNodeId
+        );
+
+        assert_err!(
+            Network::owner_set_emergency_validator_set(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                vec![1, 2, 1],
+            ),
+            Error::<Test>::InvalidMinEmergencySubnetNodes
+        );
+
+        assert_ok!(Network::owner_set_emergency_validator_set(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            vec![3, 2, 1],
+        ));
+
+        let emergency_data = EmergencySubnetNodeElectionData::<Test>::get(subnet_id).unwrap();
+        assert_eq!(emergency_data.subnet_node_ids, vec![1, 2, 3]);
+        assert!(!emergency_data.activated);
+    });
+}
+
+#[test]
+fn test_active_emergency_validator_set_cannot_be_reset_by_pause_cycle() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let max = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, max, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+        assert_ok!(Network::owner_set_emergency_validator_set(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            vec![1, 2, 3],
+        ));
+        assert_ok!(Network::owner_unpause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+
+        let activated_data = EmergencySubnetNodeElectionData::<Test>::get(subnet_id).unwrap();
+        assert!(activated_data.activated);
+        let max_emergency_epoch = activated_data.max_emergency_validators_epoch;
+        let started_subnet_epoch = activated_data.started_subnet_epoch;
+
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+        assert_err!(
+            Network::owner_set_emergency_validator_set(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                vec![1, 2, 4],
+            ),
+            Error::<Test>::EmergencyValidatorsActive
+        );
+
+        let data_after_failed_reset =
+            EmergencySubnetNodeElectionData::<Test>::get(subnet_id).unwrap();
+        assert_eq!(
+            data_after_failed_reset.max_emergency_validators_epoch,
+            max_emergency_epoch
+        );
+        assert_eq!(
+            data_after_failed_reset.started_subnet_epoch,
+            started_subnet_epoch
+        );
+        assert_eq!(data_after_failed_reset.total_epochs, 0);
+    });
+}
+
+#[test]
+fn test_emergency_validator_cooldown_blocks_immediate_reactivation() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let max = 4;
+
+        EmergencyValidatorCooldownEpochs::<Test>::put(5);
+        build_activated_subnet(subnet_name.clone(), 0, max, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+        assert_ok!(Network::owner_set_emergency_validator_set(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            vec![1, 2, 3],
+        ));
+        assert_ok!(Network::owner_unpause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+
+        Network::finish_emergency_validator_set(subnet_id);
+        let ended_epoch = Network::get_current_epoch_as_u32();
+        assert_eq!(
+            LastEmergencyValidatorEndEpoch::<Test>::get(subnet_id),
+            ended_epoch
+        );
+
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+        assert_err!(
+            Network::owner_set_emergency_validator_set(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                vec![1, 2, 3],
+            ),
+            Error::<Test>::EmergencyValidatorCooldownActive
+        );
+
+        increase_epochs(EmergencyValidatorCooldownEpochs::<Test>::get());
+        assert_ok!(Network::owner_set_emergency_validator_set(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            vec![1, 2, 3],
+        ));
+    });
+}
+
+#[test]
+fn test_emergency_validator_set_freezes_owner_reputation_removal_knobs() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let max = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, max, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+        assert_ok!(Network::owner_set_emergency_validator_set(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            vec![1, 2, 3],
+        ));
+        assert_ok!(Network::owner_unpause_subnet(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+        ));
+
+        assert_err!(
+            Network::owner_update_min_subnet_node_reputation(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                MinSubnetNodeReputation::<Test>::get(subnet_id),
+            ),
+            Error::<Test>::EmergencyValidatorsSet
+        );
+
+        assert_err!(
+            Network::owner_update_subnet_node_min_weight_decrease_reputation_threshold(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::get(subnet_id),
+            ),
+            Error::<Test>::EmergencyValidatorsSet
+        );
+    });
+}
+
+#[test]
 fn test_owner_deactivate_subnet() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
@@ -1123,7 +1867,14 @@ fn test_owner_deactivate_subnet() {
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
-        // Transfer to new owner
+        let removed_electable_nodes = SubnetNodeElectionSlots::<Test>::get(subnet_id).len() as u32;
+        assert!(removed_electable_nodes > 0);
+        assert_eq!(
+            TotalSubnetElectableNodes::<Test>::get(subnet_id),
+            removed_electable_nodes
+        );
+        let previous_total_electable_nodes = TotalElectableNodes::<Test>::get();
+
         assert_ok!(Network::owner_deactivate_subnet(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
@@ -1138,6 +1889,11 @@ fn test_owner_deactivate_subnet() {
         );
 
         assert_eq!(SubnetsData::<Test>::try_get(subnet_id), Err(()));
+        assert_eq!(TotalSubnetElectableNodes::<Test>::get(subnet_id), 0);
+        assert_eq!(
+            TotalElectableNodes::<Test>::get(),
+            previous_total_electable_nodes.saturating_sub(removed_electable_nodes)
+        );
     });
 }
 
@@ -1226,11 +1982,10 @@ fn test_owner_update_name() {
 }
 
 #[test]
-fn test_owner_update_name_name_exists_error() {
+fn test_owner_update_name_allows_same_value_noop_and_rejects_other_subnet_name() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
         build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
@@ -1242,13 +1997,36 @@ fn test_owner_update_name_name_exists_error() {
 
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-        let epoch = Network::get_current_epoch_as_u32();
+
+        let other_subnet_name: Vec<u8> = "other-subnet-name".into();
+        build_activated_subnet(
+            other_subnet_name.clone(),
+            0,
+            4,
+            deposit_amount,
+            stake_amount,
+        );
+
+        let event_count = network_events().len();
+
+        assert_ok!(Network::owner_update_name(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            prev_name.clone()
+        ));
+
+        assert_eq!(network_events().len(), event_count);
+        assert_eq!(
+            SubnetsData::<Test>::get(subnet_id).unwrap().name,
+            prev_name.clone()
+        );
+        assert_eq!(SubnetName::<Test>::get(&prev_name), Some(subnet_id));
 
         assert_err!(
             Network::owner_update_name(
                 RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
-                prev_name.clone()
+                other_subnet_name.clone()
             ),
             Error::<Test>::SubnetNameExist
         );
@@ -1338,11 +2116,10 @@ fn test_owner_update_repo() {
 }
 
 #[test]
-fn test_owner_update_name_repo_exists_error() {
+fn test_owner_update_repo_allows_same_value_noop_and_rejects_other_subnet_repo() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
         build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
@@ -1354,13 +2131,38 @@ fn test_owner_update_name_repo_exists_error() {
 
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-        let epoch = Network::get_current_epoch_as_u32();
+
+        let other_subnet_name: Vec<u8> = "other-subnet-name".into();
+        build_activated_subnet(
+            other_subnet_name.clone(),
+            0,
+            4,
+            deposit_amount,
+            stake_amount,
+        );
+        let other_subnet_id = SubnetName::<Test>::get(other_subnet_name).unwrap();
+        let other_repo = SubnetsData::<Test>::get(other_subnet_id).unwrap().repo;
+
+        let event_count = network_events().len();
+
+        assert_ok!(Network::owner_update_repo(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            prev_repo.clone()
+        ));
+
+        assert_eq!(network_events().len(), event_count);
+        assert_eq!(
+            SubnetsData::<Test>::get(subnet_id).unwrap().repo,
+            prev_repo.clone()
+        );
+        assert_eq!(SubnetRepo::<Test>::get(&prev_repo), Some(subnet_id));
 
         assert_err!(
             Network::owner_update_repo(
                 RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
-                prev_repo.clone()
+                other_repo
             ),
             Error::<Test>::SubnetRepoExist
         );
@@ -1645,7 +2447,7 @@ fn test_owner_update_idle_classification_epochs() {
 
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-        let epoch = Network::get_current_epoch_as_u32();
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
         let idle_epochs = IdleClassificationEpochs::<Test>::get(subnet_id);
 
@@ -1656,17 +2458,43 @@ fn test_owner_update_idle_classification_epochs() {
             new_idle_epochs
         ));
 
-        let idle_epochs = IdleClassificationEpochs::<Test>::get(subnet_id);
-        assert_eq!(idle_epochs, new_idle_epochs);
+        assert_eq!(
+            IdleClassificationEpochs::<Test>::get(subnet_id),
+            idle_epochs
+        );
+        assert_eq!(
+            Network::get_idle_classification_epochs_for_epoch(subnet_id, current_subnet_epoch),
+            idle_epochs
+        );
+        assert_eq!(
+            Network::get_idle_classification_epochs_for_epoch(subnet_id, current_subnet_epoch + 1),
+            new_idle_epochs
+        );
+
+        let pending = PendingIdleClassificationEpochs::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_idle_epochs);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
+        assert_eq!(pending.owner, original_owner.clone());
 
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::IdleClassificationEpochsUpdate {
+            Event::IdleClassificationEpochsUpdateScheduled {
                 subnet_id: subnet_id,
                 owner: original_owner.clone(),
-                value: idle_epochs
+                value: new_idle_epochs,
+                effective_subnet_epoch: current_subnet_epoch + 1
             }
         );
+
+        let replacement_idle_epochs = MaxIdleClassificationEpochs::<Test>::get();
+        assert_ok!(Network::owner_update_idle_classification_epochs(
+            RuntimeOrigin::signed(original_owner),
+            subnet_id,
+            replacement_idle_epochs
+        ));
+        let pending = PendingIdleClassificationEpochs::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, replacement_idle_epochs);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
     });
 }
 
@@ -1725,7 +2553,7 @@ fn test_owner_update_included_classification_epochs() {
 
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-        let epoch = Network::get_current_epoch_as_u32();
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
         let included_epochs = IncludedClassificationEpochs::<Test>::get(subnet_id);
 
@@ -1736,17 +2564,46 @@ fn test_owner_update_included_classification_epochs() {
             new_included_epochs
         ));
 
-        let included_epochs = IncludedClassificationEpochs::<Test>::get(subnet_id);
-        assert_eq!(included_epochs, new_included_epochs);
+        assert_eq!(
+            IncludedClassificationEpochs::<Test>::get(subnet_id),
+            included_epochs
+        );
+        assert_eq!(
+            Network::get_included_classification_epochs_for_epoch(subnet_id, current_subnet_epoch),
+            included_epochs
+        );
+        assert_eq!(
+            Network::get_included_classification_epochs_for_epoch(
+                subnet_id,
+                current_subnet_epoch + 1
+            ),
+            new_included_epochs
+        );
+
+        let pending = PendingIncludedClassificationEpochs::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_included_epochs);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
+        assert_eq!(pending.owner, original_owner.clone());
 
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::IncludedClassificationEpochsUpdate {
+            Event::IncludedClassificationEpochsUpdateScheduled {
                 subnet_id: subnet_id,
                 owner: original_owner.clone(),
-                value: included_epochs
+                value: new_included_epochs,
+                effective_subnet_epoch: current_subnet_epoch + 1
             }
         );
+
+        let replacement_included_epochs = MaxIncludedClassificationEpochs::<Test>::get();
+        assert_ok!(Network::owner_update_included_classification_epochs(
+            RuntimeOrigin::signed(original_owner),
+            subnet_id,
+            replacement_included_epochs
+        ));
+        let pending = PendingIncludedClassificationEpochs::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, replacement_included_epochs);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
     });
 }
 
@@ -2388,23 +3245,131 @@ fn test_owner_update_delegate_stake_percentage() {
         let dstake_perc = SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id);
 
         let new_dstake_perc = dstake_perc + 1;
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         assert_ok!(Network::owner_update_delegate_stake_percentage(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
             new_dstake_perc
         ));
 
-        let dstake_perc = SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id);
-        assert_eq!(dstake_perc, new_dstake_perc);
+        assert_eq!(
+            SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id),
+            dstake_perc
+        );
+        let pending = PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_dstake_perc);
+        assert_eq!(
+            pending.effective_subnet_epoch,
+            current_subnet_epoch.saturating_add(1)
+        );
+        assert_eq!(pending.owner, original_owner.clone());
 
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::SubnetDelegateStakeRewardsPercentageUpdate {
+            Event::SubnetDelegateStakeRewardsPercentageUpdateScheduled {
                 subnet_id: subnet_id,
                 owner: original_owner.clone(),
-                value: dstake_perc
+                value: new_dstake_perc,
+                effective_subnet_epoch: current_subnet_epoch.saturating_add(1)
             }
         );
+    });
+}
+
+#[test]
+fn test_owner_delegate_stake_percentage_applies_to_next_consensus_epoch_rewards() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        let last_update = LastSubnetDelegateStakeRewardsUpdate::<Test>::get(subnet_id);
+        let update_period = SubnetDelegateStakeRewardsUpdatePeriod::<Test>::get();
+        System::set_block_number(last_update + update_period + 1);
+
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        let active_rate = SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id);
+        let new_rate = active_rate + 1;
+
+        assert_ok!(Network::owner_update_delegate_stake_percentage(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            new_rate
+        ));
+
+        let (current_epoch_rewards, _) = Network::calculate_rewards_for_epoch(
+            subnet_id,
+            1_000_000_000_000_000_000,
+            Network::percentage_factor_as_u128(),
+            current_subnet_epoch.saturating_add(1),
+        );
+        assert_eq!(
+            current_epoch_rewards.delegate_stake_rewards,
+            Network::percent_mul(current_epoch_rewards.subnet_rewards, active_rate)
+        );
+        assert_eq!(
+            SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id),
+            active_rate
+        );
+        assert!(PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id).is_some());
+
+        let (next_epoch_rewards, _) = Network::calculate_rewards_for_epoch(
+            subnet_id,
+            1_000_000_000_000_000_000,
+            Network::percentage_factor_as_u128(),
+            current_subnet_epoch.saturating_add(2),
+        );
+        assert_eq!(
+            next_epoch_rewards.delegate_stake_rewards,
+            Network::percent_mul(next_epoch_rewards.subnet_rewards, new_rate)
+        );
+        assert_eq!(
+            SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id),
+            new_rate
+        );
+        assert!(PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id).is_none());
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::SubnetDelegateStakeRewardsPercentageUpdate {
+                subnet_id,
+                owner: original_owner,
+                value: new_rate,
+            }
+        );
+    });
+}
+
+#[test]
+fn test_remove_subnet_clears_pending_delegate_stake_percentage_update() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        let last_update = LastSubnetDelegateStakeRewardsUpdate::<Test>::get(subnet_id);
+        let update_period = SubnetDelegateStakeRewardsUpdatePeriod::<Test>::get();
+        System::set_block_number(last_update + update_period + 1);
+
+        let new_rate = SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id) + 1;
+        assert_ok!(Network::owner_update_delegate_stake_percentage(
+            RuntimeOrigin::signed(original_owner),
+            subnet_id,
+            new_rate
+        ));
+        assert!(PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id).is_some());
+
+        Network::do_remove_subnet(subnet_id, SubnetRemovalReason::Owner);
+        assert!(PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id).is_none());
     });
 }
 
@@ -2454,6 +3419,36 @@ fn test_owner_update_delegate_stake_percentage_update_too_soon() {
             ),
             Error::<Test>::DelegateStakePercentageUpdateTooSoon
         );
+    });
+}
+
+#[test]
+fn test_owner_update_delegate_stake_percentage_period_uses_saturating_add() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        SubnetDelegateStakeRewardsUpdatePeriod::<Test>::put(10);
+        LastSubnetDelegateStakeRewardsUpdate::<Test>::insert(subnet_id, u32::MAX - 5);
+        System::set_block_number(20);
+
+        let new_dstake_perc = SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id) + 1;
+
+        assert_err!(
+            Network::owner_update_delegate_stake_percentage(
+                RuntimeOrigin::signed(original_owner),
+                subnet_id,
+                new_dstake_perc
+            ),
+            Error::<Test>::DelegateStakePercentageUpdateTooSoon
+        );
+        assert!(PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id).is_none());
     });
 }
 
@@ -2509,7 +3504,7 @@ fn test_owner_update_delegate_stake_percentage_update_too_large() {
             Network::owner_update_delegate_stake_percentage(
                 RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
-                950000000000000000
+                test_percent(95, 100)
             ),
             Error::<Test>::DelegateStakePercentageAbsDiffTooLarge
         );
@@ -2524,6 +3519,7 @@ fn test_owner_update_delegate_stake_percentage_update_too_large() {
         );
 
         // insert to max
+        PendingSubnetDelegateStakeRewardsPercentage::<Test>::remove(subnet_id);
         SubnetDelegateStakeRewardsPercentage::<Test>::insert(
             subnet_id,
             MaxDelegateStakePercentage::<Test>::get(),
@@ -2537,6 +3533,7 @@ fn test_owner_update_delegate_stake_percentage_update_too_large() {
             Error::<Test>::InvalidDelegateStakePercentage
         );
 
+        PendingSubnetDelegateStakeRewardsPercentage::<Test>::remove(subnet_id);
         SubnetDelegateStakeRewardsPercentage::<Test>::insert(
             subnet_id,
             MinDelegateStakePercentage::<Test>::get(),
@@ -2572,6 +3569,11 @@ fn test_owner_update_max_registered_nodes() {
         let max_reg_nodes = MaxRegisteredNodes::<Test>::get(subnet_id);
 
         let new_max_reg_nodes = max_reg_nodes - 1;
+        assert_ok!(Network::owner_update_target_node_registrations_per_epoch(
+            RuntimeOrigin::signed(original_owner.clone()),
+            subnet_id,
+            new_max_reg_nodes
+        ));
         assert_ok!(Network::owner_update_max_registered_nodes(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
@@ -2622,6 +3624,16 @@ fn test_owner_update_max_registered_nodes_invalid_max_registered_nodes() {
 
         let value = MaxMaxRegisteredNodes::<Test>::get() + 1;
 
+        assert_err!(
+            Network::owner_update_max_registered_nodes(
+                RuntimeOrigin::signed(original_owner.clone()),
+                subnet_id,
+                value
+            ),
+            Error::<Test>::InvalidMaxRegisteredNodes
+        );
+
+        let value = TargetNodeRegistrationsPerEpoch::<Test>::get(subnet_id) - 1;
         assert_err!(
             Network::owner_update_max_registered_nodes(
                 RuntimeOrigin::signed(original_owner.clone()),
@@ -2705,14 +3717,13 @@ fn test_transfer_cannot_be_accepted_by_wrong_account() {
 }
 
 #[test]
-fn test_owner_can_cancel_transfer_by_resetting_owner() {
+fn test_owner_can_cancel_transfer() {
     new_test_ext().execute_with(|| {
+        increase_epochs(1);
+
         let subnet_id = 1;
         let original_owner = account(6);
         let new_owner = account(7);
-        let zero_address =
-            <Test as frame_system::Config>::AccountId::decode(&mut TrailingZeroInput::zeroes())
-                .unwrap();
 
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
@@ -2722,16 +3733,54 @@ fn test_owner_can_cancel_transfer_by_resetting_owner() {
             new_owner.clone()
         ));
 
-        assert_ok!(Network::transfer_subnet_ownership(
+        assert_eq!(
+            PendingSubnetOwner::<Test>::get(subnet_id),
+            Some(new_owner.clone())
+        );
+
+        assert_ok!(Network::cancel_subnet_ownership_transfer(
             RuntimeOrigin::signed(original_owner.clone()),
-            subnet_id,
-            zero_address
+            subnet_id
         ));
+
+        assert_eq!(PendingSubnetOwner::<Test>::try_get(subnet_id), Err(()));
+
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::CancelPendingSubnetOwner {
+                subnet_id,
+                owner: original_owner.clone()
+            }
+        );
 
         assert_err!(
             Network::accept_subnet_ownership(RuntimeOrigin::signed(new_owner.clone()), subnet_id),
-            Error::<Test>::NotPendingSubnetOwner
+            Error::<Test>::NoPendingSubnetOwner
         );
+    });
+}
+
+#[test]
+fn test_transfer_subnet_ownership_rejects_zero_owner() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        let original_owner = account(6);
+        let zero_address =
+            <Test as frame_system::Config>::AccountId::decode(&mut TrailingZeroInput::zeroes())
+                .unwrap();
+
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        assert_err!(
+            Network::transfer_subnet_ownership(
+                RuntimeOrigin::signed(original_owner),
+                subnet_id,
+                zero_address
+            ),
+            Error::<Test>::InvalidPendingSubnetOwner
+        );
+
+        assert_eq!(PendingSubnetOwner::<Test>::try_get(subnet_id), Err(()));
     });
 }
 
@@ -2745,6 +3794,46 @@ fn test_accept_without_pending_transfer_should_fail() {
             Network::accept_subnet_ownership(RuntimeOrigin::signed(user), subnet_id),
             Error::<Test>::NoPendingSubnetOwner
         );
+    });
+}
+
+#[test]
+fn test_cancel_without_pending_transfer_should_fail() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        let owner = account(8);
+
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
+
+        assert_err!(
+            Network::cancel_subnet_ownership_transfer(RuntimeOrigin::signed(owner), subnet_id),
+            Error::<Test>::NoPendingSubnetOwner
+        );
+    });
+}
+
+#[test]
+fn test_non_owner_cannot_cancel_transfer() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        let actual_owner = account(9);
+        let new_owner = account(10);
+        let fake_owner = account(11);
+
+        SubnetOwner::<Test>::insert(subnet_id, &actual_owner);
+
+        assert_ok!(Network::transfer_subnet_ownership(
+            RuntimeOrigin::signed(actual_owner.clone()),
+            subnet_id,
+            new_owner.clone()
+        ));
+
+        assert_err!(
+            Network::cancel_subnet_ownership_transfer(RuntimeOrigin::signed(fake_owner), subnet_id),
+            Error::<Test>::NotSubnetOwner
+        );
+
+        assert_eq!(PendingSubnetOwner::<Test>::get(subnet_id), Some(new_owner));
     });
 }
 
@@ -2897,6 +3986,32 @@ fn test_owner_add_bootnode_access() {
         }
 
         assert!(touched);
+    });
+}
+
+#[test]
+fn test_update_bootnodes_rejects_oversized_native_peer_id() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+        let original_owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+
+        let oversized_peer_id = PeerId(vec![
+            b'a';
+            (<Test as crate::Config>::MaxVectorLength::get() + 1)
+                as usize
+        ]);
+
+        assert_err!(
+            Network::update_bootnodes(
+                RuntimeOrigin::signed(original_owner),
+                subnet_id,
+                BTreeMap::new(),
+                BTreeSet::from([oversized_peer_id])
+            ),
+            Error::<Test>::InvalidBootnodePeerId
+        );
     });
 }
 
@@ -3133,6 +4248,7 @@ fn test_owner_revert_emergency_validator_set() {
             target_emergency_validators_epochs: 0,
             max_emergency_validators_epoch: 0,
             total_epochs: 0,
+            ..Default::default()
         };
 
         EmergencySubnetNodeElectionData::<Test>::insert(subnet_id, validator_data);
@@ -3194,7 +4310,8 @@ fn test_owner_update_min_subnet_node_reputation() {
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
 
         let old_value = MinSubnetNodeReputation::<Test>::get(subnet_id);
-        let new_value = 500000000000000000;
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        let new_value = test_percent(1, 2);
 
         assert_ok!(Network::owner_update_min_subnet_node_reputation(
             RuntimeOrigin::signed(original_owner.clone()),
@@ -3203,16 +4320,40 @@ fn test_owner_update_min_subnet_node_reputation() {
         ));
 
         let result_value = MinSubnetNodeReputation::<Test>::get(subnet_id);
-        assert_eq!(result_value, new_value);
+        assert_eq!(result_value, old_value);
+        assert_eq!(
+            Network::get_min_subnet_node_reputation_for_epoch(subnet_id, current_subnet_epoch),
+            old_value
+        );
+        assert_eq!(
+            Network::get_min_subnet_node_reputation_for_epoch(subnet_id, current_subnet_epoch + 1),
+            new_value
+        );
+
+        let pending = PendingMinSubnetNodeReputation::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
+        assert_eq!(pending.owner, original_owner.clone());
 
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::MinSubnetNodeReputationUpdate {
+            Event::MinSubnetNodeReputationUpdateScheduled {
                 subnet_id: subnet_id,
                 owner: original_owner.clone(),
-                value: new_value
+                value: new_value,
+                effective_subnet_epoch: current_subnet_epoch + 1
             }
         );
+
+        let replacement_value = test_percent(1, 4);
+        assert_ok!(Network::owner_update_min_subnet_node_reputation(
+            RuntimeOrigin::signed(original_owner),
+            subnet_id,
+            replacement_value
+        ));
+        let pending = PendingMinSubnetNodeReputation::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, replacement_value);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
     });
 }
 
@@ -3269,6 +4410,251 @@ fn test_owner_update_reputation_factors_schedules_single_factor() {
                 factors: pending.factors,
                 effective_subnet_epoch: current_epoch + 1
             }
+        );
+    });
+}
+
+#[test]
+fn test_owner_update_consensus_validator_node_count_decay() {
+    new_test_ext().execute_with(|| {
+        increase_epochs(1);
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+
+        let owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
+
+        let percentage_factor = Network::percentage_factor_as_u128();
+        let new_value = test_percent(1, 2);
+
+        assert_eq!(
+            ConsensusValidatorNodeCountDecay::<Test>::get(subnet_id),
+            percentage_factor
+        );
+
+        assert_ok!(Network::owner_update_consensus_validator_node_count_decay(
+            RuntimeOrigin::signed(owner.clone()),
+            subnet_id,
+            new_value
+        ));
+
+        assert_eq!(
+            ConsensusValidatorNodeCountDecay::<Test>::get(subnet_id),
+            new_value
+        );
+        assert_eq!(
+            LastConsensusValidatorNodeCountDecayUpdate::<Test>::get(subnet_id),
+            Some(Network::get_current_epoch_as_u32())
+        );
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::ConsensusValidatorNodeCountDecayUpdate {
+                subnet_id,
+                owner: owner.clone(),
+                value: new_value,
+            }
+        );
+
+        assert_eq!(
+            ConsensusValidatorNodeCountDecay::<Test>::get(subnet_id + 1),
+            percentage_factor
+        );
+
+        assert_err!(
+            Network::owner_update_consensus_validator_node_count_decay(
+                RuntimeOrigin::signed(account(99)),
+                subnet_id,
+                0
+            ),
+            Error::<Test>::NotSubnetOwner
+        );
+
+        assert_err!(
+            Network::owner_update_consensus_validator_node_count_decay(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                percentage_factor + 1
+            ),
+            Error::<Test>::InvalidPercent
+        );
+
+        assert_err!(
+            Network::owner_update_consensus_validator_node_count_decay(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                0
+            ),
+            Error::<Test>::ConsensusValidatorNodeCountDecayUpdateTooSoon
+        );
+
+        increase_epochs(ConsensusValidatorNodeCountDecayUpdateInterval::<Test>::get());
+
+        assert_ok!(Network::owner_update_consensus_validator_node_count_decay(
+            RuntimeOrigin::signed(owner),
+            subnet_id,
+            0
+        ));
+        assert_eq!(ConsensusValidatorNodeCountDecay::<Test>::get(subnet_id), 0);
+    });
+}
+
+#[test]
+fn test_owner_update_consensus_validator_node_count_decay_respects_admin_interval() {
+    new_test_ext().execute_with(|| {
+        increase_epochs(1);
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+
+        let owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
+        ConsensusValidatorNodeCountDecayUpdateInterval::<Test>::set(2);
+
+        assert_ok!(Network::owner_update_consensus_validator_node_count_decay(
+            RuntimeOrigin::signed(owner.clone()),
+            subnet_id,
+            test_percent(1, 2)
+        ));
+
+        increase_epochs(1);
+        assert_err!(
+            Network::owner_update_consensus_validator_node_count_decay(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                0
+            ),
+            Error::<Test>::ConsensusValidatorNodeCountDecayUpdateTooSoon
+        );
+
+        increase_epochs(1);
+        assert_ok!(Network::owner_update_consensus_validator_node_count_decay(
+            RuntimeOrigin::signed(owner),
+            subnet_id,
+            0
+        ));
+    });
+}
+
+#[test]
+fn test_owner_update_min_consensus_node_attestation_percentage() {
+    new_test_ext().execute_with(|| {
+        increase_epochs(1);
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+
+        let owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
+
+        let new_value = test_percent(25, 100);
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+
+        assert_eq!(
+            SubnetMinConsensusNodeAttestationPercentage::<Test>::get(subnet_id),
+            test_percent(20, 100)
+        );
+        assert_eq!(
+            MinSubnetConsensusNodeAttestationPercentage::<Test>::get(),
+            test_percent(10, 100)
+        );
+        assert_eq!(
+            MaxSubnetConsensusNodeAttestationPercentage::<Test>::get(),
+            test_percent(33, 100)
+        );
+
+        assert_ok!(
+            Network::owner_update_min_consensus_node_attestation_percentage(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                new_value
+            )
+        );
+
+        assert_eq!(
+            SubnetMinConsensusNodeAttestationPercentage::<Test>::get(subnet_id),
+            test_percent(20, 100)
+        );
+        assert_eq!(
+            Network::get_min_consensus_node_attestation_percentage_for_epoch(
+                subnet_id,
+                current_subnet_epoch
+            ),
+            test_percent(20, 100)
+        );
+        assert_eq!(
+            Network::get_min_consensus_node_attestation_percentage_for_epoch(
+                subnet_id,
+                current_subnet_epoch + 1
+            ),
+            new_value
+        );
+        assert_eq!(
+            SubnetMinConsensusNodeAttestationPercentage::<Test>::get(subnet_id + 1),
+            test_percent(20, 100)
+        );
+        let pending =
+            PendingSubnetMinConsensusNodeAttestationPercentage::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
+        assert_eq!(pending.owner, owner.clone());
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::MinConsensusNodeAttestationPercentageUpdateScheduled {
+                subnet_id,
+                owner: owner.clone(),
+                value: new_value,
+                effective_subnet_epoch: current_subnet_epoch + 1
+            }
+        );
+
+        let replacement_value = test_percent(30, 100);
+        assert_ok!(
+            Network::owner_update_min_consensus_node_attestation_percentage(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                replacement_value
+            )
+        );
+        let pending =
+            PendingSubnetMinConsensusNodeAttestationPercentage::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, replacement_value);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
+
+        assert_err!(
+            Network::owner_update_min_consensus_node_attestation_percentage(
+                RuntimeOrigin::signed(account(99)),
+                subnet_id,
+                new_value
+            ),
+            Error::<Test>::NotSubnetOwner
+        );
+
+        assert_err!(
+            Network::owner_update_min_consensus_node_attestation_percentage(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                test_percent(9, 100)
+            ),
+            Error::<Test>::InvalidPercent
+        );
+
+        assert_err!(
+            Network::owner_update_min_consensus_node_attestation_percentage(
+                RuntimeOrigin::signed(owner),
+                subnet_id,
+                test_percent(34, 100)
+            ),
+            Error::<Test>::InvalidPercent
         );
     });
 }

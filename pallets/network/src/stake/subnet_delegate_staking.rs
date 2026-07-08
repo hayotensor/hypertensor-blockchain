@@ -19,14 +19,14 @@ use super::*;
 use sp_runtime::Saturating;
 
 impl<T: Config> Pallet<T> {
-    pub fn do_add_delegate_stake(
+    pub fn do_add_subnet_delegate_stake(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
         delegate_stake_to_be_added: u128,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
-        let (result, balance, shares) = Self::perform_do_add_delegate_stake(
+        let (result, balance, shares) = Self::perform_do_add_subnet_delegate_stake(
             &account_id,
             subnet_id,
             delegate_stake_to_be_added,
@@ -60,7 +60,7 @@ impl<T: Config> Pallet<T> {
     ///              - True: Don't remove balance from users account
     ///              - False: Check user balance is withdrawable and withdraw balance
     ///
-    pub fn perform_do_add_delegate_stake(
+    pub fn perform_do_add_subnet_delegate_stake(
         account_id: &T::AccountId,
         subnet_id: u32,
         delegate_stake_to_be_added: u128,
@@ -382,9 +382,12 @@ impl<T: Config> Pallet<T> {
 
         TotalDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
 
-        SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
-            *flow = flow.saturating_add(amount as i128);
-        });
+        if SubnetsData::<T>::contains_key(subnet_id) {
+            let flow_delta = i128::try_from(amount).unwrap_or(i128::MAX);
+            SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
+                *flow = flow.saturating_add(flow_delta);
+            });
+        }
     }
 
     pub fn decrease_account_delegate_stake(
@@ -408,9 +411,12 @@ impl<T: Config> Pallet<T> {
 
         TotalDelegateStake::<T>::mutate(|mut n| n.saturating_reduce(amount));
 
-        SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
-            *flow = flow.saturating_sub(amount as i128);
-        });
+        if SubnetsData::<T>::contains_key(subnet_id) {
+            let flow_delta = i128::try_from(amount).unwrap_or(i128::MAX);
+            SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
+                *flow = flow.saturating_sub(flow_delta);
+            });
+        }
     }
 
     /// Rewards are deposited here from the ``rewards.rs`` or by donations

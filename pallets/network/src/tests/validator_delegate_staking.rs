@@ -123,7 +123,7 @@ fn test_add_to_node_delegate_stake() {
         // Ensure user balance changed and is expected
         assert!(
             (account_node_delegate_stake_balance
-                >= Network::percent_mul(amount, 990000000000000000))
+                >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (account_node_delegate_stake_balance <= amount)
         );
     })
@@ -414,7 +414,7 @@ fn test_remove_validator_delegate_stake() {
 
         assert!(
             (account_node_delegate_stake_balance
-                >= Network::percent_mul(amount, 990000000000000000))
+                >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (account_node_delegate_stake_balance <= amount)
         );
 
@@ -637,7 +637,7 @@ fn test_swap_validator_delegate_stake() {
 
         assert!(
             (account_node_delegate_stake_balance
-                >= Network::percent_mul(amount, 990000000000000000))
+                >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (account_node_delegate_stake_balance <= amount)
         );
 
@@ -775,7 +775,7 @@ fn test_transfer_validator_delegate_stake() {
 
         assert!(
             (account_node_delegate_stake_balance
-                >= Network::percent_mul(amount, 990000000000000000))
+                >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (account_node_delegate_stake_balance <= amount)
         );
 
@@ -878,7 +878,7 @@ fn test_transfer_validator_delegate_stake_partial_balance() {
 
         assert!(
             (account_node_delegate_stake_balance
-                >= Network::percent_mul(amount, 990000000000000000))
+                >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (account_node_delegate_stake_balance <= amount)
         );
 
@@ -1176,7 +1176,7 @@ fn test_donation_attack_simulation() {
         );
 
         assert!(
-            (victim_balance >= Network::percent_mul(VICTIM_DEPOSIT, 990000000000000000))
+            (victim_balance >= Network::percent_mul(VICTIM_DEPOSIT, test_percent(99, 100)))
                 && (victim_balance <= VICTIM_DEPOSIT)
         );
 
@@ -1364,7 +1364,7 @@ fn test_swap_from_validator_to_subnet() {
 
         assert!(
             (account_node_delegate_stake_balance
-                >= Network::percent_mul(amount, 990000000000000000))
+                >= Network::percent_mul(amount, test_percent(99, 100)))
                 && (account_node_delegate_stake_balance < amount)
         );
 

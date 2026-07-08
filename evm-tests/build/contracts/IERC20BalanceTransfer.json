@@ -24,7 +24,7 @@
   "sourceMap": "",
   "deployedSourceMap": "",
   "source": "// SPDX-License-Identifier: MIT\n\npragma solidity ^0.8.0;\n\ninterface IERC20BalanceTransfer {\n    function transfer(bytes32 data) external payable;\n}",
-  "sourcePath": "/home/bob/hypertensor-blockchain/evm-tests/contracts/IERC20BalanceTransfer.sol",
+  "sourcePath": "/home/bob/hypertensor-blockchain-weighted/evm-tests/contracts/IERC20BalanceTransfer.sol",
   "ast": {
     "absolutePath": "project:/contracts/IERC20BalanceTransfer.sol",
     "exportedSymbols": {
@@ -132,7 +132,7 @@
   },
   "networks": {},
   "schemaVersion": "3.4.16",
-  "updatedAt": "2026-01-29T21:56:54.657Z",
+  "updatedAt": "2026-07-06T19:58:53.916Z",
   "devdoc": {
     "kind": "dev",
     "methods": {},

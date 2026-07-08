@@ -144,14 +144,7 @@ pub type CheckedExtrinsic =
 /// The payload being signed in transactions.
 pub type SignedPayload = generic::SignedPayload<RuntimeCall, SignedExtra>;
 
-/// All migrations of the runtime, aside from the ones declared in the pallets.
-///
-/// This can be a tuple of types, each implementing `OnRuntimeUpgrade`.
-#[allow(unused_parens)]
-type Migrations = (
-    pallet_network::migrations::CleanupStaleValidatorColdkeys<Runtime>,
-    pallet_network::migrations::CleanupStaleValidatorHotkeys<Runtime>,
-);
+type Migrations = ();
 
 /// Executive: handles dispatch to the various modules.
 pub type Executive = frame_executive::Executive<
@@ -214,7 +207,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: Cow::Borrowed("hypertensor-node"),
     impl_name: Cow::Borrowed("hypertensor-node"),
     authoring_version: 1,
-    spec_version: 1,
+    spec_version: 2,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -441,7 +434,7 @@ fn is_network_value_call(call: &pallet_network::Call<Runtime>) -> bool {
             | pallet_network::Call::remove_subnet_node { .. }
             | pallet_network::Call::add_node_stake { .. }
             | pallet_network::Call::remove_node_stake { .. }
-            | pallet_network::Call::add_delegate_stake { .. }
+            | pallet_network::Call::add_subnet_delegate_stake { .. }
             | pallet_network::Call::swap_from_subnet_to_subnet { .. }
             | pallet_network::Call::transfer_delegate_stake { .. }
             | pallet_network::Call::remove_delegate_stake { .. }
@@ -484,7 +477,7 @@ fn is_network_staking_call(call: &pallet_network::Call<Runtime>) -> bool {
 fn is_network_delegate_staking_call(call: &pallet_network::Call<Runtime>) -> bool {
     matches!(
         call,
-        pallet_network::Call::add_delegate_stake { .. }
+        pallet_network::Call::add_subnet_delegate_stake { .. }
             | pallet_network::Call::swap_from_subnet_to_subnet { .. }
             | pallet_network::Call::remove_delegate_stake { .. }
             | pallet_network::Call::add_validator_delegate_stake { .. }
@@ -1721,10 +1714,10 @@ mod tests {
                 validator_id: 1,
                 subnet_id: 1,
                 hotkey: Some(account(3)),
-                peer_info: pallet_network::PeerInfo::<Runtime> {
+                peer_info: Some(pallet_network::PeerInfo::<Runtime> {
                     peer_id: sp_core::OpaquePeerId(Vec::new()),
                     multiaddr: None,
-                },
+                }),
                 bootnode_peer_info: None,
                 client_peer_info: None,
                 stake_to_be_added: 10,
@@ -1746,7 +1739,7 @@ mod tests {
                 subnet_node_id: 1,
                 stake_to_be_removed: 10,
             }),
-            network_call(pallet_network::Call::add_delegate_stake {
+            network_call(pallet_network::Call::add_subnet_delegate_stake {
                 subnet_id: 1,
                 stake_to_be_added: 10,
             }),
@@ -1834,7 +1827,7 @@ mod tests {
 
     #[test]
     fn non_transfer_rejects_utility_and_proxy_escalation() {
-        let blocked_network_call = network_call(pallet_network::Call::add_delegate_stake {
+        let blocked_network_call = network_call(pallet_network::Call::add_subnet_delegate_stake {
             subnet_id: 1,
             stake_to_be_added: 10,
         });
@@ -1869,7 +1862,7 @@ mod tests {
             to_account_id: account(2),
             delegate_stake_shares_to_transfer: 10,
         });
-        let delegate_stake = network_call(pallet_network::Call::add_delegate_stake {
+        let delegate_stake = network_call(pallet_network::Call::add_subnet_delegate_stake {
             subnet_id: 1,
             stake_to_be_added: 10,
         });

@@ -8,23 +8,24 @@ fn test_increase_coldkey_reputation_with_weight_factor() {
         let coldkey: AccountId = account(1);
         let validator_id = 1;
         let epoch = 1;
-        let min_attestation = 660_000_000_000_000_000u128; // 66%
-        let attestation = 900_000_000_000_000_000u128; // 90%
-        let weight_factor = 500_000_000_000_000_000u128; // 0.5
+        let min_attestation = test_percent(66, 100);
+        let attestation = test_percent(9, 10);
+        let weight_factor = test_percent(1, 2);
+        let starting_score = test_percent(1, 2);
 
         // Set initial reputation
         ValidatorReputation::<Test>::insert(
             validator_id,
             Reputation {
                 start_epoch: 0,
-                score: 500_000_000_000_000_000,
+                score: starting_score,
                 lifetime_node_count: 0,
                 total_active_nodes: 0,
                 total_increases: 0,
                 total_decreases: 0,
                 average_attestation: 0,
                 last_validator_epoch: 0,
-                ow_score: 500_000_000_000_000_000,
+                ow_score: starting_score,
             },
         );
 
@@ -41,7 +42,7 @@ fn test_increase_coldkey_reputation_with_weight_factor() {
         assert_eq!(rep.total_increases, 1);
         assert_eq!(rep.last_validator_epoch, epoch);
         assert_eq!(rep.average_attestation, attestation);
-        assert!(rep.score > 500_000_000_000_000_000); // score increased
+        assert!(rep.score > starting_score);
     });
 }
 
@@ -50,8 +51,9 @@ fn test_average_attestation_over_multiple_increases() {
     new_test_ext().execute_with(|| {
         let coldkey: AccountId = account(1);
         let validator_id = 1;
-        let min_attestation = 660_000_000_000_000_000u128;
-        let weight_factor = 500_000_000_000_000_000u128; // 0.5
+        let min_attestation = test_percent(66, 100);
+        let weight_factor = test_percent(1, 2);
+        let starting_score = test_percent(1, 2);
         let perc = Network::percentage_factor_as_u128(); // 1e18
 
         // Step 1: insert initial rep
@@ -59,19 +61,19 @@ fn test_average_attestation_over_multiple_increases() {
             validator_id,
             Reputation {
                 start_epoch: 0,
-                score: 500_000_000_000_000_000,
+                score: starting_score,
                 lifetime_node_count: 0,
                 total_active_nodes: 0,
                 total_increases: 0,
                 total_decreases: 0,
                 average_attestation: 0,
                 last_validator_epoch: 0,
-                ow_score: 500_000_000_000_000_000,
+                ow_score: starting_score,
             },
         );
 
         // Step 1: 90%
-        let att1 = 900_000_000_000_000_000u128;
+        let att1 = test_percent(9, 10);
         Network::increase_validator_reputation(
             validator_id,
             att1,
@@ -84,7 +86,7 @@ fn test_average_attestation_over_multiple_increases() {
         assert_eq!(rep1.total_increases, 1);
 
         // Step 2: 70%
-        let att2 = 700_000_000_000_000_000u128;
+        let att2 = test_percent(7, 10);
         Network::increase_validator_reputation(
             validator_id,
             att2,
@@ -98,7 +100,7 @@ fn test_average_attestation_over_multiple_increases() {
         assert_eq!(rep2.total_increases, 2);
 
         // Step 3: 100%
-        let att3 = 1_000_000_000_000_000_000u128;
+        let att3 = Network::percentage_factor_as_u128();
         Network::increase_validator_reputation(
             validator_id,
             att3,
@@ -112,7 +114,7 @@ fn test_average_attestation_over_multiple_increases() {
         assert_eq!(rep3.total_increases, 3);
 
         // Step 4: 80%
-        let att4 = 800_000_000_000_000_000u128;
+        let att4 = test_percent(4, 5);
         Network::increase_validator_reputation(
             validator_id,
             att4,
@@ -132,10 +134,10 @@ fn test_single_decrease_updates_average_and_weight() {
     new_test_ext().execute_with(|| {
         let coldkey: AccountId = account(1);
         let validator_id = 1;
-        let min_attestation = 660_000_000_000_000_000u128;
-        let attestation = 500_000_000_000_000_000u128; // 50%
-        let weight_factor = 500_000_000_000_000_000u128; // 0.5
-        let start_score = 800_000_000_000_000_000u128;
+        let min_attestation = test_percent(66, 100);
+        let attestation = test_percent(1, 2);
+        let weight_factor = test_percent(1, 2);
+        let start_score = test_percent(4, 5);
 
         ValidatorReputation::<Test>::insert(
             validator_id,
@@ -148,7 +150,7 @@ fn test_single_decrease_updates_average_and_weight() {
                 total_decreases: 0,
                 average_attestation: 0,
                 last_validator_epoch: 0,
-                ow_score: 500_000_000_000_000_000,
+                ow_score: test_percent(1, 2),
             },
         );
 
@@ -173,9 +175,9 @@ fn test_average_attestation_over_multiple_decreases() {
     new_test_ext().execute_with(|| {
         let coldkey: AccountId = account(1);
         let validator_id = 1;
-        let min_attestation = 660_000_000_000_000_000u128;
-        let weight_factor = 500_000_000_000_000_000u128; // 0.5
-        let start_score = 900_000_000_000_000_000u128;
+        let min_attestation = test_percent(66, 100);
+        let weight_factor = test_percent(1, 2);
+        let start_score = test_percent(9, 10);
 
         // Initial insert
         ValidatorReputation::<Test>::insert(
@@ -189,12 +191,12 @@ fn test_average_attestation_over_multiple_decreases() {
                 total_decreases: 0,
                 average_attestation: 0,
                 last_validator_epoch: 0,
-                ow_score: 500_000_000_000_000_000,
+                ow_score: test_percent(1, 2),
             },
         );
 
         // Step 1: 50%
-        let att1 = 500_000_000_000_000_000u128;
+        let att1 = test_percent(1, 2);
         Network::decrease_validator_reputation(
             validator_id,
             att1,
@@ -241,15 +243,15 @@ fn test_average_attestation_over_multiple_decreases() {
 // #[test]
 // fn test_increase_node_reputation_basic() {
 //     new_test_ext().execute_with(|| {
-//         let new = Network::get_increase_reputation(500000000000000000, 100000000000000000);
+//         let new = Network::get_increase_reputation(test_percent(1, 2), test_percent(1, 10));
 //         assert_eq!(new, 550000000000000000);
 
-//         let new = Network::get_increase_reputation(900000000000000000, 500000000000000000);
-//         assert_eq!(new, 950000000000000000);
+//         let new = Network::get_increase_reputation(test_percent(9, 10), test_percent(1, 2));
+//         assert_eq!(new, test_percent(95, 100));
 
 //         let new = Network::get_increase_reputation(
 //             Network::percentage_factor_as_u128(),
-//             500000000000000000,
+//             test_percent(1, 2),
 //         );
 //         assert_eq!(new, Network::percentage_factor_as_u128());
 
@@ -261,10 +263,10 @@ fn test_average_attestation_over_multiple_decreases() {
 // #[test]
 // fn test_decrease_node_reputation_basic() {
 //     new_test_ext().execute_with(|| {
-//         let new = Network::get_decrease_reputation(500000000000000000, 100000000000000000);
+//         let new = Network::get_decrease_reputation(test_percent(1, 2), test_percent(1, 10));
 //         assert_eq!(new, 450000000000000000);
 
-//         let new = Network::get_decrease_reputation(900000000000000000, 500000000000000000);
+//         let new = Network::get_decrease_reputation(test_percent(9, 10), test_percent(1, 2));
 //         assert_eq!(new, 450000000000000000);
 
 //         let new = Network::get_decrease_reputation(
@@ -273,7 +275,7 @@ fn test_average_attestation_over_multiple_decreases() {
 //         );
 //         assert_eq!(new, 0);
 
-//         let new = Network::get_decrease_reputation(0, 800000000000000000);
+//         let new = Network::get_decrease_reputation(0, test_percent(4, 5));
 //         assert_eq!(new, 0);
 //     });
 // }
@@ -296,8 +298,8 @@ fn test_average_attestation_over_multiple_decreases() {
 // fn test_factor_clamping() {
 //     new_test_ext().execute_with(|| {
 //         let over_factor = Network::percentage_factor_as_u128() * 10;
-//         let new_inc = Network::get_increase_reputation(500000000000000000, over_factor);
-//         let new_dec = Network::get_decrease_reputation(500000000000000000, over_factor);
+//         let new_inc = Network::get_increase_reputation(test_percent(1, 2), over_factor);
+//         let new_dec = Network::get_decrease_reputation(test_percent(1, 2), over_factor);
 //         assert_eq!(new_inc, Network::percentage_factor_as_u128());
 //         assert_eq!(new_dec, 0);
 //     });
@@ -306,15 +308,15 @@ fn test_average_attestation_over_multiple_decreases() {
 #[test]
 fn test_get_increase_reputation_v2() {
     new_test_ext().execute_with(|| {
-        let factor = 50000000000000000; // 5%
-        let mut reputation = 100000000000000000; // 10%
+        let factor = test_percent(1, 20); // 5%
+        let mut reputation = test_percent(1, 10); // 10%
 
         for i in 0..64 {
             reputation = Network::increase_rep(reputation, factor, None);
             log::error!(
                 "new {:?}, {:?}",
                 i + 1,
-                (reputation as f64 / 1000000000000000000.0)
+                (reputation as f64 / Network::percentage_factor_as_u128() as f64)
             );
         }
 
@@ -325,15 +327,15 @@ fn test_get_increase_reputation_v2() {
 #[test]
 fn test_get_decrease_reputation_v2() {
     new_test_ext().execute_with(|| {
-        let factor = 50000000000000000; // 5%
-        let mut reputation = 1000000000000000000; // 100%
+        let factor = test_percent(1, 20); // 5%
+        let mut reputation = Network::percentage_factor_as_u128();
 
         for i in 0..64 {
             reputation = Network::decrease_rep(reputation, factor, None);
             log::error!(
                 "new {:?}, {:?}",
                 i + 1,
-                (reputation as f64 / 1000000000000000000.0)
+                (reputation as f64 / Network::percentage_factor_as_u128() as f64)
             );
         }
 

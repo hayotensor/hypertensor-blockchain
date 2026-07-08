@@ -15,7 +15,7 @@ use frame_support::weights::WeightMeter;
 #[test]
 fn test_do_epoch_preliminaries_remove_expired_pause() {
     new_test_ext().execute_with(|| {
-        NewRegistrationCostMultiplier::<Test>::put(1000000000000000000);
+        NewRegistrationCostMultiplier::<Test>::put(Network::percentage_factor_as_u128());
 
         let target = Network::get_percent_as_f64(MinSubnetReputation::<Test>::get());
         let factor =
@@ -79,7 +79,7 @@ fn test_do_epoch_preliminaries_remove_expired_pause() {
                     );
                 }
 
-                assert_ok!(Network::add_delegate_stake(
+                assert_ok!(Network::add_subnet_delegate_stake(
                     RuntimeOrigin::signed(account(0)),
                     subnet_id,
                     total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -108,7 +108,7 @@ fn test_do_epoch_preliminaries_remove_expired_pause() {
 #[test]
 fn test_do_epoch_preliminaries_remove_under_min_delegate_stake() {
     new_test_ext().execute_with(|| {
-        NewRegistrationCostMultiplier::<Test>::put(1000000000000000000);
+        NewRegistrationCostMultiplier::<Test>::put(Network::percentage_factor_as_u128());
 
         let dstake_epoch_interval = DelegateStakeSubnetRemovalInterval::<Test>::get();
 
@@ -141,7 +141,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake() {
             TotalSubnetDelegateStakeBalance::<Test>::get(first_subnet_id);
         let min_subnet_delegate_stake =
             Network::get_min_subnet_delegate_stake_balance(first_subnet_id);
-        assert_ok!(Network::add_delegate_stake(
+        assert_ok!(Network::add_subnet_delegate_stake(
             RuntimeOrigin::signed(account(0)),
             first_subnet_id,
             total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -176,7 +176,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake() {
 #[test]
 fn test_do_epoch_preliminaries_remove_under_min_delegate_stake_fail() {
     new_test_ext().execute_with(|| {
-        NewRegistrationCostMultiplier::<Test>::put(1000000000000000000);
+        NewRegistrationCostMultiplier::<Test>::put(Network::percentage_factor_as_u128());
 
         let dstake_epoch_interval = DelegateStakeSubnetRemovalInterval::<Test>::get();
 
@@ -209,7 +209,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake_fail() {
             TotalSubnetDelegateStakeBalance::<Test>::get(first_subnet_id);
         let min_subnet_delegate_stake =
             Network::get_min_subnet_delegate_stake_balance(first_subnet_id);
-        assert_ok!(Network::add_delegate_stake(
+        assert_ok!(Network::add_subnet_delegate_stake(
             RuntimeOrigin::signed(account(0)),
             first_subnet_id,
             total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -237,7 +237,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake_fail() {
 #[test]
 fn test_do_epoch_preliminaries_remove_under_min_reputation() {
     new_test_ext().execute_with(|| {
-        NewRegistrationCostMultiplier::<Test>::put(1000000000000000000);
+        NewRegistrationCostMultiplier::<Test>::put(Network::percentage_factor_as_u128());
 
         let deposit_amount: u128 = 1000000000000000000000;
         let amount: u128 = 100000000000000000000;
@@ -270,7 +270,7 @@ fn test_do_epoch_preliminaries_remove_under_min_reputation() {
                 TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
             let min_subnet_delegate_stake =
                 Network::get_min_subnet_delegate_stake_balance(subnet_id);
-            assert_ok!(Network::add_delegate_stake(
+            assert_ok!(Network::add_subnet_delegate_stake(
                 RuntimeOrigin::signed(account(0)),
                 subnet_id,
                 total_delegate_stake_balance - min_subnet_delegate_stake,
@@ -302,7 +302,7 @@ fn test_do_epoch_preliminaries_remove_under_min_reputation() {
 #[test]
 fn test_do_epoch_preliminaries_remove_max_subnets() {
     new_test_ext().execute_with(|| {
-        NewRegistrationCostMultiplier::<Test>::put(1000000000000000000);
+        NewRegistrationCostMultiplier::<Test>::put(Network::percentage_factor_as_u128());
 
         let deposit_amount: u128 = 1000000000000000000000;
         let amount: u128 = 100000000000000000000;
@@ -364,7 +364,7 @@ fn test_do_epoch_preliminaries_remove_max_subnets() {
                     } else {
                         total_delegate_stake_balance - min_subnet_delegate_stake + 100
                     };
-                    assert_ok!(Network::add_delegate_stake(
+                    assert_ok!(Network::add_subnet_delegate_stake(
                         RuntimeOrigin::signed(account(0)),
                         subnet_id,
                         add,
@@ -400,7 +400,7 @@ fn test_do_epoch_preliminaries_remove_max_subnets() {
 #[test]
 fn test_do_epoch_preliminaries_remove_registered_min_nodes() {
     new_test_ext().execute_with(|| {
-        NewRegistrationCostMultiplier::<Test>::put(1000000000000000000);
+        NewRegistrationCostMultiplier::<Test>::put(Network::percentage_factor_as_u128());
 
         let subnet_registration_epochs = SubnetRegistrationEpochs::<Test>::get();
         let subnet_enactment_epochs = SubnetEnactmentEpochs::<Test>::get();
@@ -458,7 +458,7 @@ fn test_do_epoch_preliminaries_remove_registered_min_nodes() {
 #[test]
 fn test_do_epoch_preliminaries_remove_past_enactment_phase() {
     new_test_ext().execute_with(|| {
-        NewRegistrationCostMultiplier::<Test>::put(1000000000000000000);
+        NewRegistrationCostMultiplier::<Test>::put(Network::percentage_factor_as_u128());
 
         let subnet_registration_epochs = SubnetRegistrationEpochs::<Test>::get();
         let subnet_enactment_epochs = SubnetEnactmentEpochs::<Test>::get();

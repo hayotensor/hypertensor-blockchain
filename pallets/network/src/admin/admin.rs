@@ -365,6 +365,45 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
+    pub fn do_set_consensus_validator_node_count_decay_update_interval(
+        value: u32,
+    ) -> DispatchResult {
+        ConsensusValidatorNodeCountDecayUpdateInterval::<T>::set(value);
+
+        Self::deposit_event(Event::SetConsensusValidatorNodeCountDecayUpdateInterval(
+            value,
+        ));
+
+        Ok(())
+    }
+    pub fn do_set_min_max_consensus_node_attestation_percentage(
+        min: u128,
+        max: u128,
+    ) -> DispatchResult {
+        ensure!(min > 0 && min <= max, Error::<T>::InvalidValues);
+        ensure!(
+            max <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+
+        MinSubnetConsensusNodeAttestationPercentage::<T>::set(min);
+        MaxSubnetConsensusNodeAttestationPercentage::<T>::set(max);
+
+        Self::deposit_event(Event::SetMinMaxConsensusNodeAttestationPercentage(min, max));
+
+        Ok(())
+    }
+    pub fn do_set_validator_node_delegate_stake_weight_update_interval(
+        value: u32,
+    ) -> DispatchResult {
+        ValidatorNodeDelegateStakeWeightUpdateInterval::<T>::set(value);
+
+        Self::deposit_event(Event::SetValidatorNodeDelegateStakeWeightUpdateInterval(
+            value,
+        ));
+
+        Ok(())
+    }
     pub fn do_set_inflation_sigmoid_steepness(value: u128) -> DispatchResult {
         InflationSigmoidSteepness::<T>::set(value);
 
@@ -862,6 +901,14 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    pub fn do_set_emergency_validator_cooldown_epochs(value: u32) -> DispatchResult {
+        EmergencyValidatorCooldownEpochs::<T>::put(value);
+
+        Self::deposit_event(Event::SetEmergencyValidatorCooldownEpochs(value));
+
+        Ok(())
+    }
+
     pub fn do_set_overwatch_stake_weight_factor(value: u128) -> DispatchResult {
         // Must be greater than or equal to 1.0
         ensure!(
@@ -890,6 +937,19 @@ impl<T: Config> Pallet<T> {
         SubnetWeightFactors::<T>::put(&value);
 
         Self::deposit_event(Event::SetSubnetWeightFactors(value));
+
+        Ok(())
+    }
+
+    pub fn do_set_subnet_net_flow_smoothing_alpha(value: u128) -> DispatchResult {
+        ensure!(
+            value <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+
+        SubnetNetFlowSmoothingAlpha::<T>::put(value);
+
+        Self::deposit_event(Event::SetSubnetNetFlowSmoothingAlpha(value));
 
         Ok(())
     }

@@ -40,7 +40,7 @@ fn test_register_overwatch_node() {
         let hotkey = account(2);
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -97,7 +97,7 @@ fn test_register_overwatch_node_blacklisted() {
 
         let coldkey = account(1);
         let hotkey = account(2);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -122,7 +122,7 @@ fn test_register_overwatch_node_min_stake_error() {
         let coldkey = account(1);
         let hotkey = account(2);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -178,7 +178,7 @@ fn test_register_overwatch_node_stake_failure_does_not_commit_partial_state_or_c
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
-            50000000000000000,
+            test_percent(1, 20),
             None,
             None,
         ));
@@ -255,7 +255,7 @@ fn test_register_overwatch_node_errors() {
         let coldkey = account(1);
         let hotkey = account(2);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -329,7 +329,7 @@ fn test_set_overwatch_peer_id_v2() {
         let hotkey = account(2);
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -395,7 +395,7 @@ fn test_update_overwatch_hotkey_override_and_clear() {
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_hotkey.clone(),
-            50000000000000000,
+            test_percent(1, 20),
             None,
             None,
         ));
@@ -468,7 +468,7 @@ fn test_set_overwatch_peer_id_errors() {
         let coldkey = account(1);
         let hotkey = account(2);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -551,7 +551,7 @@ fn test_set_overwatch_peer_id_errors() {
         let snn_hotkey = get_hotkey(subnet_id_key_offset, max_subnet_nodes, max_subnets, end);
 
         let subnet_node_data = SubnetNodesData::<Test>::try_get(subnet_id, end).unwrap();
-        let snn_peer_id = subnet_node_data.peer_info.peer_id;
+        let snn_peer_id = subnet_node_data.peer_info.as_ref().unwrap().peer_id.clone();
 
         assert_err!(
             Network::set_overwatch_node_peer_id(
@@ -582,7 +582,7 @@ fn test_remove_overwatch_node() {
         let coldkey = account(1);
         let hotkey = account(2);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -669,8 +669,8 @@ fn test_equal_stake_equal_weights_v3() {
         set_overwatch_node_stake(1, 100);
         set_overwatch_node_stake(2, 100);
 
-        submit_weight(epoch, subnet_id, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id, node_id_2, 500000000000000000);
+        submit_weight(epoch, subnet_id, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id, node_id_2, test_percent(1, 2));
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..2 {
@@ -694,15 +694,15 @@ fn test_equal_stake_equal_weights_v3() {
 
         let subnet_weight = OverwatchSubnetWeights::<Test>::get(epoch, subnet_id);
 
-        assert_eq!(subnet_weight, Some(500000000000000000_u128));
+        assert_eq!(subnet_weight, Some(test_percent(1, 2)));
 
         let score_1 = OverwatchNodeWeights::<Test>::get(epoch, node_id_1);
         let score_2 = OverwatchNodeWeights::<Test>::get(epoch, node_id_2);
 
         // Same scores submitted, same rewards
         assert_eq!(score_1, score_2);
-        assert_eq!(score_1, Some(500000000000000000_u128));
-        assert_eq!(score_2, Some(500000000000000000_u128));
+        assert_eq!(score_1, Some(test_percent(1, 2)));
+        assert_eq!(score_2, Some(test_percent(1, 2)));
 
         let mut score_sum = 0;
         for (id, _) in OverwatchNodes::<Test>::iter() {
@@ -710,14 +710,14 @@ fn test_equal_stake_equal_weights_v3() {
             score_sum += weight.unwrap();
         }
 
-        assert_eq!(score_sum, 1000000000000000000);
+        assert_eq!(score_sum, Network::percentage_factor_as_u128());
     });
 }
 
 #[test]
 fn test_stake_no_dampening_effect() {
     new_test_ext().execute_with(|| {
-        OverwatchStakeWeightFactor::<Test>::set(900000000000000000);
+        OverwatchStakeWeightFactor::<Test>::set(test_percent(9, 10));
         let subnet_id = 1;
         let epoch = Network::get_current_overwatch_epoch_as_u32();
 
@@ -733,8 +733,8 @@ fn test_stake_no_dampening_effect() {
         set_overwatch_node_stake(1, 90);
         set_overwatch_node_stake(2, 10);
 
-        submit_weight(epoch, subnet_id, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id, node_id_2, 500000000000000000);
+        submit_weight(epoch, subnet_id, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id, node_id_2, test_percent(1, 2));
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..2 {
@@ -758,7 +758,7 @@ fn test_stake_no_dampening_effect() {
         let subnet_weight = OverwatchSubnetWeights::<Test>::get(epoch, subnet_id);
 
         // Both users submitted the same score, subnet should be the score
-        assert_eq!(subnet_weight, Some(499999999999999999));
+        assert_eq!(subnet_weight, Some(test_percent(1, 2).saturating_sub(1)));
 
         let score_1 = OverwatchNodeWeights::<Test>::get(epoch, node_id_1);
         let score_2 = OverwatchNodeWeights::<Test>::get(epoch, node_id_2);
@@ -772,7 +772,7 @@ fn test_stake_no_dampening_effect() {
             score_sum += weight.unwrap();
         }
 
-        assert_eq!(score_sum, 1000000000000000000);
+        assert_eq!(score_sum, Network::percentage_factor_as_u128());
     });
 }
 
@@ -794,7 +794,7 @@ fn test_two_noces_same_stake_dif_weights_v3() {
         set_overwatch_node_stake(1, 50);
         set_overwatch_node_stake(2, 50);
 
-        submit_weight(epoch, subnet_id, node_id_1, 500000000000000000);
+        submit_weight(epoch, subnet_id, node_id_1, test_percent(1, 2));
         submit_weight(epoch, subnet_id, node_id_2, 100);
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
@@ -818,7 +818,7 @@ fn test_two_noces_same_stake_dif_weights_v3() {
 
         let subnet_weight = OverwatchSubnetWeights::<Test>::get(epoch, subnet_id);
 
-        assert_eq!(subnet_weight, Some((500000000000000000 + 100) / 2));
+        assert_eq!(subnet_weight, Some((test_percent(1, 2) + 100) / 2));
 
         let score_1 = OverwatchNodeWeights::<Test>::get(epoch, node_id_1);
         let score_2 = OverwatchNodeWeights::<Test>::get(epoch, node_id_2);
@@ -832,14 +832,14 @@ fn test_two_noces_same_stake_dif_weights_v3() {
             score_sum += weight.unwrap();
         }
 
-        assert_eq!(score_sum, 1000000000000000000);
+        assert_eq!(score_sum, Network::percentage_factor_as_u128());
     });
 }
 
 #[test]
 fn test_multiple_subnets_score_accumulation_v3() {
     new_test_ext().execute_with(|| {
-        OverwatchStakeWeightFactor::<Test>::set(900000000000000000);
+        OverwatchStakeWeightFactor::<Test>::set(test_percent(9, 10));
         let subnet_id_1 = 1;
         let subnet_id_2 = 2;
         let epoch = Network::get_current_overwatch_epoch_as_u32();
@@ -857,11 +857,11 @@ fn test_multiple_subnets_score_accumulation_v3() {
         set_overwatch_node_stake(2, 100);
 
         // Subnet 1
-        submit_weight(epoch, subnet_id_1, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id_1, node_id_2, 500000000000000000);
+        submit_weight(epoch, subnet_id_1, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_1, node_id_2, test_percent(1, 2));
         // Subnet 2
-        submit_weight(epoch, subnet_id_2, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id_2, node_id_2, 600000000000000000); // Node 2 slightly deviates
+        submit_weight(epoch, subnet_id_2, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_2, node_id_2, test_percent(3, 5)); // Node 2 slightly deviates
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..2 {
@@ -885,7 +885,7 @@ fn test_multiple_subnets_score_accumulation_v3() {
         let subnet_weight_1 = OverwatchSubnetWeights::<Test>::get(epoch, subnet_id_1);
         let subnet_weight_2 = OverwatchSubnetWeights::<Test>::get(epoch, subnet_id_2);
 
-        assert_eq!(subnet_weight_1, Some(499999999999999999)); // Rounding err
+        assert_eq!(subnet_weight_1, Some(test_percent(1, 2).saturating_sub(1))); // Rounding err
         assert_eq!(subnet_weight_2, Some(565108967975413320)); // Rounding err
 
         let score_1 = OverwatchNodeWeights::<Test>::get(epoch, node_id_1);
@@ -901,7 +901,7 @@ fn test_multiple_subnets_score_accumulation_v3() {
         }
 
         assert!(
-            score_sum <= 1000000000000000000
+            score_sum <= Network::percentage_factor_as_u128()
                 && score_sum.abs_diff(Network::percentage_factor_as_u128()) <= 10
         );
     });
@@ -927,11 +927,11 @@ fn test_multiple_subnets_score_accumulation_v3_2() {
         set_overwatch_node_stake(2, 50);
 
         // Subnet 1
-        submit_weight(epoch, subnet_id_1, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id_1, node_id_2, 500000000000000000);
+        submit_weight(epoch, subnet_id_1, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_1, node_id_2, test_percent(1, 2));
         // Subnet 2
-        submit_weight(epoch, subnet_id_2, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id_2, node_id_2, 600000000000000000); // Node 2 slightly deviates
+        submit_weight(epoch, subnet_id_2, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_2, node_id_2, test_percent(3, 5)); // Node 2 slightly deviates
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..2 {
@@ -965,7 +965,7 @@ fn test_multiple_subnets_score_accumulation_v3_2() {
         }
 
         assert!(
-            score_sum <= 1000000000000000000
+            score_sum <= Network::percentage_factor_as_u128()
                 && score_sum.abs_diff(Network::percentage_factor_as_u128()) <= 10
         );
     });
@@ -991,11 +991,11 @@ fn test_multiple_subnets_score_accumulation_v3_2_v2() {
         set_overwatch_node_stake(2, 50);
 
         // Subnet 1
-        submit_weight(epoch, subnet_id_1, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id_1, node_id_2, 500000000000000000);
+        submit_weight(epoch, subnet_id_1, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_1, node_id_2, test_percent(1, 2));
         // Subnet 2
-        submit_weight(epoch, subnet_id_2, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id_2, node_id_2, 600000000000000000); // Node 2 slightly deviates
+        submit_weight(epoch, subnet_id_2, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_2, node_id_2, test_percent(3, 5)); // Node 2 slightly deviates
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..2 {
@@ -1029,7 +1029,7 @@ fn test_multiple_subnets_score_accumulation_v3_2_v2() {
         }
 
         assert!(
-            score_sum <= 1000000000000000000
+            score_sum <= Network::percentage_factor_as_u128()
                 && score_sum.abs_diff(Network::percentage_factor_as_u128()) <= 10
         );
     });
@@ -1084,50 +1084,50 @@ fn test_multiple_subnets_check_percent_acccuracy() {
         set_overwatch_node_stake(8, 9);
 
         // Subnet 1
-        submit_weight(epoch, subnet_id_1, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id_1, node_id_2, 400000000000000000);
-        submit_weight(epoch, subnet_id_1, node_id_3, 600000000000000000);
-        submit_weight(epoch, subnet_id_1, node_id_4, 500000000000000000);
-        submit_weight(epoch, subnet_id_1, node_id_5, 400000000000000000);
-        submit_weight(epoch, subnet_id_1, node_id_6, 600000000000000000);
-        submit_weight(epoch, subnet_id_1, node_id_7, 600000000000000000);
-        submit_weight(epoch, subnet_id_1, node_id_8, 300000000000000000);
+        submit_weight(epoch, subnet_id_1, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_1, node_id_2, test_percent(2, 5));
+        submit_weight(epoch, subnet_id_1, node_id_3, test_percent(3, 5));
+        submit_weight(epoch, subnet_id_1, node_id_4, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_1, node_id_5, test_percent(2, 5));
+        submit_weight(epoch, subnet_id_1, node_id_6, test_percent(3, 5));
+        submit_weight(epoch, subnet_id_1, node_id_7, test_percent(3, 5));
+        submit_weight(epoch, subnet_id_1, node_id_8, test_percent(3, 10));
         // Subnet 2
-        submit_weight(epoch, subnet_id_2, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id_2, node_id_2, 600000000000000000);
-        submit_weight(epoch, subnet_id_2, node_id_3, 800000000000000000);
-        submit_weight(epoch, subnet_id_2, node_id_4, 900000000000000000);
-        submit_weight(epoch, subnet_id_2, node_id_5, 600000000000000000);
-        submit_weight(epoch, subnet_id_2, node_id_6, 800000000000000000);
-        submit_weight(epoch, subnet_id_2, node_id_7, 900000000000000000);
-        submit_weight(epoch, subnet_id_2, node_id_8, 600000000000000000);
+        submit_weight(epoch, subnet_id_2, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_2, node_id_2, test_percent(3, 5));
+        submit_weight(epoch, subnet_id_2, node_id_3, test_percent(4, 5));
+        submit_weight(epoch, subnet_id_2, node_id_4, test_percent(9, 10));
+        submit_weight(epoch, subnet_id_2, node_id_5, test_percent(3, 5));
+        submit_weight(epoch, subnet_id_2, node_id_6, test_percent(4, 5));
+        submit_weight(epoch, subnet_id_2, node_id_7, test_percent(9, 10));
+        submit_weight(epoch, subnet_id_2, node_id_8, test_percent(3, 5));
         // Subnet 3
-        submit_weight(epoch, subnet_id_3, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id_3, node_id_2, 600000000000000000);
-        submit_weight(epoch, subnet_id_3, node_id_3, 800000000000000000);
-        submit_weight(epoch, subnet_id_3, node_id_4, 900000000000000000);
-        submit_weight(epoch, subnet_id_3, node_id_5, 600000000000000000);
-        submit_weight(epoch, subnet_id_3, node_id_6, 800000000000000000);
-        submit_weight(epoch, subnet_id_3, node_id_7, 900000000000000000);
-        submit_weight(epoch, subnet_id_3, node_id_8, 600000000000000000);
+        submit_weight(epoch, subnet_id_3, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_3, node_id_2, test_percent(3, 5));
+        submit_weight(epoch, subnet_id_3, node_id_3, test_percent(4, 5));
+        submit_weight(epoch, subnet_id_3, node_id_4, test_percent(9, 10));
+        submit_weight(epoch, subnet_id_3, node_id_5, test_percent(3, 5));
+        submit_weight(epoch, subnet_id_3, node_id_6, test_percent(4, 5));
+        submit_weight(epoch, subnet_id_3, node_id_7, test_percent(9, 10));
+        submit_weight(epoch, subnet_id_3, node_id_8, test_percent(3, 5));
         // Subnet 4
-        submit_weight(epoch, subnet_id_4, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id_4, node_id_2, 600000000000000000);
-        submit_weight(epoch, subnet_id_4, node_id_3, 800000000000000000);
-        submit_weight(epoch, subnet_id_4, node_id_4, 900000000000000000);
-        submit_weight(epoch, subnet_id_4, node_id_5, 600000000000000000);
-        submit_weight(epoch, subnet_id_4, node_id_6, 800000000000000000);
-        submit_weight(epoch, subnet_id_4, node_id_7, 900000000000000000);
-        submit_weight(epoch, subnet_id_4, node_id_8, 600000000000000000);
+        submit_weight(epoch, subnet_id_4, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_4, node_id_2, test_percent(3, 5));
+        submit_weight(epoch, subnet_id_4, node_id_3, test_percent(4, 5));
+        submit_weight(epoch, subnet_id_4, node_id_4, test_percent(9, 10));
+        submit_weight(epoch, subnet_id_4, node_id_5, test_percent(3, 5));
+        submit_weight(epoch, subnet_id_4, node_id_6, test_percent(4, 5));
+        submit_weight(epoch, subnet_id_4, node_id_7, test_percent(9, 10));
+        submit_weight(epoch, subnet_id_4, node_id_8, test_percent(3, 5));
         // Subnet 5
-        submit_weight(epoch, subnet_id_5, node_id_1, 500000000000000000);
-        submit_weight(epoch, subnet_id_5, node_id_2, 600000000000000000);
-        submit_weight(epoch, subnet_id_5, node_id_3, 800000000000000000);
-        submit_weight(epoch, subnet_id_5, node_id_4, 900000000000000000);
-        submit_weight(epoch, subnet_id_5, node_id_5, 600000000000000000);
-        submit_weight(epoch, subnet_id_5, node_id_6, 800000000000000000);
-        submit_weight(epoch, subnet_id_5, node_id_7, 900000000000000000);
-        submit_weight(epoch, subnet_id_5, node_id_8, 600000000000000000);
+        submit_weight(epoch, subnet_id_5, node_id_1, test_percent(1, 2));
+        submit_weight(epoch, subnet_id_5, node_id_2, test_percent(3, 5));
+        submit_weight(epoch, subnet_id_5, node_id_3, test_percent(4, 5));
+        submit_weight(epoch, subnet_id_5, node_id_4, test_percent(9, 10));
+        submit_weight(epoch, subnet_id_5, node_id_5, test_percent(3, 5));
+        submit_weight(epoch, subnet_id_5, node_id_6, test_percent(4, 5));
+        submit_weight(epoch, subnet_id_5, node_id_7, test_percent(9, 10));
+        submit_weight(epoch, subnet_id_5, node_id_8, test_percent(3, 5));
 
         let mut ostake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
         for n in 0..8 {
@@ -1164,7 +1164,7 @@ fn test_multiple_subnets_check_percent_acccuracy() {
 
         assert_eq!(nodes, 8);
         assert!(
-            score_sum <= 1000000000000000000
+            score_sum <= Network::percentage_factor_as_u128()
                 && score_sum.abs_diff(Network::percentage_factor_as_u128()) <= 10
         );
     });
@@ -1178,7 +1178,7 @@ fn test_add_to_overwatch_stake() {
         let coldkey = account(1);
         let hotkey = account(2);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1240,7 +1240,7 @@ fn test_add_to_overwatch_stake_errors() {
         let coldkey = account(1);
         let hotkey = account(2);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1294,7 +1294,7 @@ fn test_add_to_remove_overwatch_stake() {
 
         let coldkey = account(1);
         let hotkey = account(2);
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1370,7 +1370,7 @@ fn test_add_to_remove_overwatch_stake_unbond() {
         let coldkey = account(1);
         let hotkey = account(2);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1462,7 +1462,7 @@ fn test_remove_overwatch_stake_after_removing_overwatch_node() {
         let coldkey = account(1);
         let hotkey = account(2);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1531,7 +1531,7 @@ fn test_add_to_remove_overwatch_stake_errors() {
         let coldkey = account(1);
         let hotkey = account(2);
 
-        let reward_rate = 50000000000000000; // 5%
+        let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1602,7 +1602,7 @@ fn test_add_to_remove_overwatch_stake_errors() {
 #[test]
 fn test_zero_score() {
     new_test_ext().execute_with(|| {
-        OverwatchStakeWeightFactor::<Test>::set(900000000000000000);
+        OverwatchStakeWeightFactor::<Test>::set(test_percent(9, 10));
         let subnet_id = 1;
         let epoch = Network::get_current_overwatch_epoch_as_u32();
 
@@ -1613,7 +1613,12 @@ fn test_zero_score() {
         set_overwatch_node_stake(2, 10);
 
         submit_weight(epoch, subnet_id, node_id_1, 0);
-        submit_weight(epoch, subnet_id, node_id_2, 1000000000000000000);
+        submit_weight(
+            epoch,
+            subnet_id,
+            node_id_2,
+            Network::percentage_factor_as_u128(),
+        );
 
         let block_weight = Network::calculate_overwatch_rewards();
 
@@ -1638,7 +1643,7 @@ fn test_zero_score() {
 
         assert_eq!(nodes, 2);
         assert!(
-            score_sum <= 1000000000000000000
+            score_sum <= Network::percentage_factor_as_u128()
                 && score_sum.abs_diff(Network::percentage_factor_as_u128()) <= 10
         );
     });

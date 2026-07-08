@@ -37,14 +37,30 @@ impl<T: Config> Pallet<T> {
             churn_limit_multiplier: ChurnLimitMultiplier::<T>::get(subnet_id),
             min_stake: SubnetMinStakeBalance::<T>::get(subnet_id),
             max_stake: SubnetMaxStakeBalance::<T>::get(subnet_id),
-            queue_immunity_epochs: QueueImmunityEpochs::<T>::get(subnet_id),
+            queue_immunity_epochs: Self::get_queue_immunity_epochs_for_epoch(
+                subnet_id,
+                current_subnet_epoch,
+            ),
+            pending_queue_immunity_epochs: PendingQueueImmunityEpochs::<T>::get(subnet_id),
             target_node_registrations_per_epoch: TargetNodeRegistrationsPerEpoch::<T>::get(
                 subnet_id,
             ),
             node_registrations_this_epoch: NodeRegistrationsThisEpoch::<T>::get(subnet_id),
             subnet_node_queue_epochs: SubnetNodeQueueEpochs::<T>::get(subnet_id),
-            idle_classification_epochs: IdleClassificationEpochs::<T>::get(subnet_id),
-            included_classification_epochs: IncludedClassificationEpochs::<T>::get(subnet_id),
+            idle_classification_epochs: Self::get_idle_classification_epochs_for_epoch(
+                subnet_id,
+                current_subnet_epoch,
+            ),
+            pending_idle_classification_epochs: PendingIdleClassificationEpochs::<T>::get(
+                subnet_id,
+            ),
+            included_classification_epochs: Self::get_included_classification_epochs_for_epoch(
+                subnet_id,
+                current_subnet_epoch,
+            ),
+            pending_included_classification_epochs: PendingIncludedClassificationEpochs::<T>::get(
+                subnet_id,
+            ),
             delegate_stake_percentage: SubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id),
             last_delegate_stake_rewards_update: LastSubnetDelegateStakeRewardsUpdate::<T>::get(
                 subnet_id,
@@ -61,9 +77,25 @@ impl<T: Config> Pallet<T> {
             slot_index: SubnetSlot::<T>::get(subnet_id),
             slot_assignment: SlotAssignment::<T>::get(subnet_id),
             subnet_node_min_weight_decrease_reputation_threshold:
-                SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
+                Self::get_subnet_node_min_weight_decrease_reputation_threshold_for_epoch(
+                    subnet_id,
+                    current_subnet_epoch,
+                ),
+            pending_subnet_node_min_weight_decrease_reputation_threshold:
+                PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
             reputation: SubnetReputation::<T>::get(subnet_id),
-            min_subnet_node_reputation: MinSubnetNodeReputation::<T>::get(subnet_id),
+            min_subnet_node_reputation: Self::get_min_subnet_node_reputation_for_epoch(
+                subnet_id,
+                current_subnet_epoch,
+            ),
+            pending_min_subnet_node_reputation: PendingMinSubnetNodeReputation::<T>::get(subnet_id),
+            min_consensus_node_attestation_percentage:
+                Self::get_min_consensus_node_attestation_percentage_for_epoch(
+                    subnet_id,
+                    current_subnet_epoch,
+                ),
+            pending_min_consensus_node_attestation_percentage:
+                PendingSubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id),
             absent_decrease_reputation_factor: reputation_factors.absent_decrease,
             included_increase_reputation_factor: reputation_factors.included_increase,
             below_min_weight_decrease_reputation_factor: reputation_factors
@@ -102,10 +134,7 @@ impl<T: Config> Pallet<T> {
         infos
     }
 
-    pub fn get_subnet_node_info(
-        subnet_id: u32,
-        subnet_node_id: u32,
-    ) -> Option<SubnetNodeInfo<T>> {
+    pub fn get_subnet_node_info(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNodeInfo<T>> {
         let subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::get(subnet_id, subnet_node_id)
         } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
