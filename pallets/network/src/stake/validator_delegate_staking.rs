@@ -294,6 +294,14 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotEnoughStakeToWithdraw
         );
 
+        let account_validator_delegate_stake_shares: u128 =
+            AccountValidatorDelegateStakeShares::<T>::get(&account_id, validator_id);
+
+        ensure!(
+            account_validator_delegate_stake_shares >= delegate_stake_shares_to_transfer,
+            Error::<T>::NotEnoughStakeToWithdraw
+        );
+
         let total_validator_delegated_stake_shares =
             ValidatorDelegateStakeShares::<T>::get(validator_id);
         let total_validator_delegated_stake_balance =

@@ -652,6 +652,64 @@ fn test_remove_overwatch_node() {
 }
 
 #[test]
+fn test_add_overwatch_node_stake_rejects_removed_overwatch_node() {
+    new_test_ext().execute_with(|| {
+        let amount = 100000000000000000000;
+        let increase_amount = 50000000000000000000;
+
+        let coldkey = account(1);
+        let hotkey = account(2);
+
+        let reward_rate = test_percent(1, 20);
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
+            None,
+            None,
+        ));
+
+        let validator_id = TotalValidatorIds::<Test>::get();
+        OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
+
+        let _ = Balances::deposit_creating(&coldkey, amount + increase_amount + 500);
+
+        increase_epochs(OverwatchEpochLengthMultiplier::<Test>::get() as u32);
+
+        let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
+        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+
+        assert_ok!(Network::register_overwatch_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            amount,
+        ));
+
+        let node_stake = OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id);
+        let total_stake = TotalOverwatchNodeStakeBalance::<Test>::get();
+
+        assert_ok!(Network::remove_overwatch_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            overwatch_node_id,
+        ));
+
+        assert_err!(
+            Network::add_overwatch_node_stake(
+                RuntimeOrigin::signed(coldkey),
+                overwatch_node_id,
+                increase_amount,
+            ),
+            Error::<Test>::InvalidOverwatchNodeId
+        );
+
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
+            node_stake
+        );
+        assert_eq!(TotalOverwatchNodeStakeBalance::<Test>::get(), total_stake);
+    });
+}
+
+#[test]
 fn test_equal_stake_equal_weights_v3() {
     new_test_ext().execute_with(|| {
         let subnet_id = 1;

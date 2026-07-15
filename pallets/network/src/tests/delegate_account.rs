@@ -2,7 +2,7 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    DelegateAccount, DelegateAccountStake, Error, MaxSubnetNodes, MaxSubnets,
+    ColdkeyValidatorId, DelegateAccount, DelegateAccountStake, Error, MaxSubnetNodes, MaxSubnets,
     MinActiveNodeStakeEpochs, MinSubnetMinStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey,
     OverwatchNodes, PeerInfo, StakeCooldownEpochs, StakeUnbondingLedger, SubnetName,
     SubnetNodeClass, SubnetState, TotalAccountDelegateStake, TotalActiveSubnets, TotalSubnetNodes,
@@ -77,6 +77,41 @@ fn test_update_delegate_account_not_key_owner_error() {
             ),
             Error::<Test>::NotKeyOwner
         );
+    })
+}
+
+#[test]
+fn test_update_delegate_account_requires_canonical_validator_coldkey() {
+    new_test_ext().execute_with(|| {
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = test_percent(1, 20); // 5%
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
+            None,
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
+        let new_delegate_account_id = account(100);
+        let delegate_rate = test_percent(2, 5);
+
+        ColdkeyValidatorId::<Test>::remove(&coldkey);
+
+        assert_err!(
+            Network::update_validator_delegate_account(
+                RuntimeOrigin::signed(coldkey),
+                current_id,
+                Some(new_delegate_account_id),
+                Some(delegate_rate),
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+
+        let validator = ValidatorsData::<Test>::get(current_id);
+        assert_eq!(validator.delegate_account, None);
     })
 }
 

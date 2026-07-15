@@ -1221,7 +1221,6 @@ pub fn run_subnet_consensus_step<T: Config>(
     assert_ok!(Network::<T>::propose_attestation(
         RawOrigin::Signed(validator.clone()).into(),
         subnet_id,
-        validator_node_id.unwrap(),
         subnet_node_data_vec.clone(),
         prioritize_queue_node_id,
         remove_queue_node_id,
@@ -3707,6 +3706,11 @@ mod benchmarks {
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
         let subnet = SubnetsData::<T>::get(subnet_id).unwrap();
 
+        ConsensusValidatorStakeWeightPower::<T>::insert(
+            subnet_id,
+            Network::<T>::percentage_factor_as_u128() / 2,
+        );
+
         let epoch_length = T::EpochLength::get();
         let epoch = get_current_block_as_u32::<T>() / epoch_length as u32;
 
@@ -3738,7 +3742,6 @@ mod benchmarks {
         propose_attestation(
             RawOrigin::Signed(hotkey.clone()),
             subnet_id,
-            subnet_node_id.unwrap(),
             subnet_node_data_vec.clone(),
             None,
             None,
@@ -3811,7 +3814,6 @@ mod benchmarks {
         assert_ok!(Network::<T>::propose_attestation(
             RawOrigin::Signed(hotkey.clone()).into(),
             subnet_id,
-            subnet_node_id.unwrap(),
             subnet_node_data_vec.clone(),
             None,
             None,
@@ -5059,19 +5061,94 @@ mod benchmarks {
         );
         let subnet_id = SubnetName::<T>::get(subnet_name).unwrap();
         let owner = subnet_owner::<T>(subnet_id);
+        let current_value = ConsensusValidatorNodeCountDecay::<T>::get(subnet_id);
+        let current_subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
         let new_value = Network::<T>::percentage_factor_as_u128() / 2;
 
         #[extrinsic_call]
         owner_update_consensus_validator_node_count_decay(
-            RawOrigin::Signed(owner),
+            RawOrigin::Signed(owner.clone()),
             subnet_id,
             new_value,
         );
 
         assert_eq!(
             ConsensusValidatorNodeCountDecay::<T>::get(subnet_id),
+            current_value
+        );
+        let pending = PendingConsensusValidatorNodeCountDecay::<T>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
+        assert_eq!(pending.owner, owner);
+    }
+
+    #[benchmark]
+    fn owner_update_consensus_validator_stake_weight_power() {
+        let subnet_name = DEFAULT_SUBNET_NAME.as_bytes().to_vec();
+        build_activated_subnet::<T>(
+            subnet_name.clone(),
+            0,
+            MinSubnetNodes::<T>::get(),
+            DEFAULT_DEPOSIT_AMOUNT,
+            DEFAULT_SUBNET_NODE_STAKE,
+        );
+        let subnet_id = SubnetName::<T>::get(subnet_name).unwrap();
+        let owner = subnet_owner::<T>(subnet_id);
+        let current_value = ConsensusValidatorStakeWeightPower::<T>::get(subnet_id);
+        let current_subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
+        let new_value = Network::<T>::percentage_factor_as_u128() / 2;
+
+        #[extrinsic_call]
+        owner_update_consensus_validator_stake_weight_power(
+            RawOrigin::Signed(owner.clone()),
+            subnet_id,
+            new_value,
+        );
+
+        assert_eq!(
+            ConsensusValidatorStakeWeightPower::<T>::get(subnet_id),
+            current_value
+        );
+        let pending = PendingConsensusValidatorStakeWeightPower::<T>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(pending.effective_subnet_epoch, current_subnet_epoch + 1);
+        assert_eq!(pending.owner, owner);
+    }
+
+    #[benchmark]
+    fn set_consensus_validator_stake_weight_power_update_interval() {
+        let value = ConsensusValidatorStakeWeightPowerUpdateInterval::<T>::get();
+        let new_value = value.saturating_add(1);
+
+        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
+            .expect("try_successful_origin failed");
+
+        #[extrinsic_call]
+        set_consensus_validator_stake_weight_power_update_interval(
+            origin as T::RuntimeOrigin,
+            new_value,
+        );
+
+        assert_eq!(
+            ConsensusValidatorStakeWeightPowerUpdateInterval::<T>::get(),
             new_value
         );
+    }
+
+    #[benchmark]
+    fn set_min_max_consensus_validator_stake_weight_power() {
+        let percentage_factor = Network::<T>::percentage_factor_as_u128();
+        let min = percentage_factor / 4;
+        let max = percentage_factor.saturating_mul(3) / 4;
+
+        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
+            .expect("try_successful_origin failed");
+
+        #[extrinsic_call]
+        set_min_max_consensus_validator_stake_weight_power(origin as T::RuntimeOrigin, min, max);
+
+        assert_eq!(MinConsensusValidatorStakeWeightPower::<T>::get(), min);
+        assert_eq!(MaxConsensusValidatorStakeWeightPower::<T>::get(), max);
     }
 
     #[benchmark]
@@ -6646,8 +6723,12 @@ mod benchmarks {
         let validator_ids = Network::<T>::canonicalize_consensus_validator_ids(
             consensus_data.validator_ids.clone(),
         );
-        let snapshot =
-            Network::<T>::snapshot_consensus_attestor_weights(subnet_id, &validator_ids).unwrap();
+        let snapshot = Network::<T>::snapshot_consensus_attestor_weights(
+            subnet_id,
+            subnet_epoch - 1,
+            &validator_ids,
+        )
+        .unwrap();
         SubnetConsensusSubmission::<T>::insert(subnet_id, subnet_epoch - 1, consensus_data);
         SubnetConsensusAttestorWeights::<T>::insert(subnet_id, subnet_epoch - 1, snapshot);
 

@@ -3,9 +3,9 @@ use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
     AccountSubnetDelegateStakeShares, AccountValidatorDelegateStakeShares,
-    DelegateStakeCooldownEpochs, Error, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
-    NextSwapQueueId, QueuedSwapCall, QueuedSwapItem, StakeUnbondingLedger, SubnetName,
-    SubnetRemovalReason, SubnetsData, SwapCallQueue, SwapQueueOrder,
+    DelegateStakeCooldownEpochs, Error, MaxSubnetNodes, MaxSubnets, MinDelegateStakeDeposit,
+    MinSubnetMinStake, NextSwapQueueId, QueuedSwapCall, QueuedSwapItem, StakeUnbondingLedger,
+    SubnetName, SubnetRemovalReason, SubnetsData, SwapCallQueue, SwapQueueOrder,
     TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeShares, ValidatorDelegateStakeBalance,
     ValidatorDelegateStakeShares,
 };
@@ -87,6 +87,63 @@ fn insert_to_validator_swap_call_queue(
     });
 
     NextSwapQueueId::<Test>::mutate(|next_id| *next_id = next_id.saturating_add(1));
+}
+
+#[test]
+fn test_update_swap_queue_requires_existing_queue_owner() {
+    new_test_ext().execute_with(|| {
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+
+        let owner = account(10);
+        let attacker = account(11);
+        let balance = MinDelegateStakeDeposit::<Test>::get();
+
+        let subnet_queue_id = NextSwapQueueId::<Test>::get();
+        insert_to_subnet_swap_call_queue(owner.clone(), subnet_id, balance);
+        let original_subnet_item = SwapCallQueue::<Test>::get(subnet_queue_id).unwrap();
+
+        assert_err!(
+            Network::update_swap_queue(
+                RuntimeOrigin::signed(attacker.clone()),
+                subnet_queue_id,
+                QueuedSwapCall::SwapToSubnetDelegateStake {
+                    account_id: attacker.clone(),
+                    to_subnet_id: subnet_id,
+                    balance: u128::MAX,
+                },
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+        assert_eq!(
+            SwapCallQueue::<Test>::get(subnet_queue_id).unwrap(),
+            original_subnet_item
+        );
+
+        let validator_queue_id = NextSwapQueueId::<Test>::get();
+        insert_to_validator_swap_call_queue(owner, 1, balance);
+        let original_validator_item = SwapCallQueue::<Test>::get(validator_queue_id).unwrap();
+
+        assert_err!(
+            Network::update_swap_queue(
+                RuntimeOrigin::signed(attacker.clone()),
+                validator_queue_id,
+                QueuedSwapCall::SwapToValidatorDelegateStake {
+                    account_id: attacker,
+                    to_validator_id: 1,
+                    balance: u128::MAX,
+                },
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+        assert_eq!(
+            SwapCallQueue::<Test>::get(validator_queue_id).unwrap(),
+            original_validator_item
+        );
+    });
 }
 
 #[test]

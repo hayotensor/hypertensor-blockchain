@@ -31,11 +31,12 @@ pub trait NetworkCustomApi<BlockHash> {
     fn get_subnet_nodes_info(&self, subnet_id: u32, at: Option<BlockHash>) -> RpcResult<Vec<u8>>;
     #[method(name = "network_getAllSubnetNodesInfo")]
     fn get_all_subnet_nodes_info(&self, at: Option<BlockHash>) -> RpcResult<Vec<u8>>;
-    #[method(name = "network_proofOfStake")]
-    fn proof_of_stake(
+    #[method(name = "network_proofOfStakeV2")]
+    fn proof_of_stake_v2(
         &self,
         subnet_id: u32,
-        peer_id: Vec<u8>,
+        peer_id: Option<Vec<u8>>,
+        hotkey: Option<AccountId20>,
         min_class: u8,
         min_stake: Option<u128>,
         at: Option<BlockHash>,
@@ -192,23 +193,20 @@ where
         })
     }
 
-    fn proof_of_stake(
+    fn proof_of_stake_v2(
         &self,
         subnet_id: u32,
-        peer_id: Vec<u8>,
+        peer_id: Option<Vec<u8>>,
+        hotkey: Option<AccountId20>,
         min_class: u8,
         min_stake: Option<u128>,
         at: Option<<Block as BlockT>::Hash>,
     ) -> RpcResult<bool> {
         let api = self.client.runtime_api();
         let at = at.unwrap_or_else(|| self.client.info().best_hash);
-        api.proof_of_stake(at, subnet_id, peer_id, min_class, min_stake)
+        api.proof_of_stake_v2(at, subnet_id, peer_id, hotkey, min_class, min_stake)
             .map_err(|e| {
-                Error::RuntimeError(format!(
-                    "Unable to get subnet nodes by a parameter: {:?}",
-                    e
-                ))
-                .into()
+                Error::RuntimeError(format!("Unable to verify proof of stake: {:?}", e)).into()
             })
     }
 

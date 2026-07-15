@@ -324,6 +324,14 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotEnoughStakeToWithdraw
         );
 
+        let account_delegate_stake_shares: u128 =
+            AccountSubnetDelegateStakeShares::<T>::get(&account_id, subnet_id);
+
+        ensure!(
+            account_delegate_stake_shares >= delegate_stake_shares_to_transfer,
+            Error::<T>::NotEnoughStakeToWithdraw
+        );
+
         let total_subnet_delegated_stake_shares =
             TotalSubnetDelegateStakeShares::<T>::get(subnet_id);
         let total_subnet_delegated_stake_balance =

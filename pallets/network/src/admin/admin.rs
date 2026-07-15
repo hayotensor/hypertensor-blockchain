@@ -376,6 +376,36 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
+    pub fn do_set_consensus_validator_stake_weight_power_update_interval(
+        value: u32,
+    ) -> DispatchResult {
+        ConsensusValidatorStakeWeightPowerUpdateInterval::<T>::set(value);
+
+        Self::deposit_event(Event::SetConsensusValidatorStakeWeightPowerUpdateInterval(
+            value,
+        ));
+
+        Ok(())
+    }
+    pub fn do_set_min_max_consensus_validator_stake_weight_power(
+        min: u128,
+        max: u128,
+    ) -> DispatchResult {
+        ensure!(min <= max, Error::<T>::InvalidValues);
+        ensure!(
+            max <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+
+        MinConsensusValidatorStakeWeightPower::<T>::set(min);
+        MaxConsensusValidatorStakeWeightPower::<T>::set(max);
+
+        Self::deposit_event(Event::SetMinMaxConsensusValidatorStakeWeightPower(
+            min, max,
+        ));
+
+        Ok(())
+    }
     pub fn do_set_min_max_consensus_node_attestation_percentage(
         min: u128,
         max: u128,

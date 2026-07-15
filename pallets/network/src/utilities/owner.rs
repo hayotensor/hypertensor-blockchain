@@ -136,6 +136,38 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    pub fn get_subnet_delegate_stake_rewards_percentage_for_epoch(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> u128 {
+        PendingSubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id)
+            .filter(|pending| pending.effective_subnet_epoch <= subnet_epoch)
+            .map(|pending| pending.value)
+            .unwrap_or_else(|| SubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id))
+    }
+
+    pub fn get_consensus_validator_node_count_decay_for_epoch(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> u128 {
+        Self::pending_owner_u128_value_for_epoch(
+            ConsensusValidatorNodeCountDecay::<T>::get(subnet_id),
+            PendingConsensusValidatorNodeCountDecay::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
+    pub fn get_consensus_validator_stake_weight_power_for_epoch(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> u128 {
+        Self::pending_owner_u128_value_for_epoch(
+            ConsensusValidatorStakeWeightPower::<T>::get(subnet_id),
+            PendingConsensusValidatorStakeWeightPower::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
     /// Owner pause subnet for up to max period
     ///
     /// This will pause the following logic on the next subnet epoch start block step:
@@ -1462,13 +1494,84 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        ConsensusValidatorNodeCountDecay::<T>::insert(subnet_id, value);
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::prepare_pending_owner_u128_update(
+            current_subnet_epoch,
+            PendingConsensusValidatorNodeCountDecay::<T>::get(subnet_id),
+            |value| ConsensusValidatorNodeCountDecay::<T>::insert(subnet_id, value),
+        )?;
+        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        PendingConsensusValidatorNodeCountDecay::<T>::insert(
+            subnet_id,
+            PendingOwnerU128Update {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
         LastConsensusValidatorNodeCountDecayUpdate::<T>::insert(subnet_id, current_epoch);
 
-        Self::deposit_event(Event::ConsensusValidatorNodeCountDecayUpdate {
+        Self::deposit_event(Event::ConsensusValidatorNodeCountDecayUpdateScheduled {
             subnet_id,
             owner: coldkey,
             value,
+            effective_subnet_epoch,
+        });
+
+        Ok(())
+    }
+
+    pub fn do_owner_update_consensus_validator_stake_weight_power(
+        origin: T::RuntimeOrigin,
+        subnet_id: u32,
+        value: u128,
+    ) -> DispatchResult {
+        let coldkey: T::AccountId = ensure_signed(origin)?;
+
+        ensure!(
+            Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
+            Error::<T>::NotSubnetOwner
+        );
+
+        ensure!(
+            value >= MinConsensusValidatorStakeWeightPower::<T>::get()
+                && value <= MaxConsensusValidatorStakeWeightPower::<T>::get(),
+            Error::<T>::InvalidPercent
+        );
+
+        let current_epoch = Self::get_current_epoch_as_u32();
+        let update_interval = ConsensusValidatorStakeWeightPowerUpdateInterval::<T>::get();
+
+        if let Some(last_update) = LastConsensusValidatorStakeWeightPowerUpdate::<T>::get(subnet_id)
+        {
+            ensure!(
+                last_update.saturating_add(update_interval) <= current_epoch,
+                Error::<T>::ConsensusValidatorStakeWeightPowerUpdateTooSoon
+            );
+        }
+
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::prepare_pending_owner_u128_update(
+            current_subnet_epoch,
+            PendingConsensusValidatorStakeWeightPower::<T>::get(subnet_id),
+            |value| ConsensusValidatorStakeWeightPower::<T>::insert(subnet_id, value),
+        )?;
+        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        PendingConsensusValidatorStakeWeightPower::<T>::insert(
+            subnet_id,
+            PendingOwnerU128Update {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
+        LastConsensusValidatorStakeWeightPowerUpdate::<T>::insert(subnet_id, current_epoch);
+
+        Self::deposit_event(Event::ConsensusValidatorStakeWeightPowerUpdateScheduled {
+            subnet_id,
+            owner: coldkey,
+            value,
+            effective_subnet_epoch,
         });
 
         Ok(())

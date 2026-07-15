@@ -2064,7 +2064,6 @@ pub fn run_subnet_consensus_step_v2(
     assert_ok!(Network::propose_attestation(
         RuntimeOrigin::signed(validator_hotkey.clone()),
         subnet_id,
-        elected_node_id.unwrap(),
         subnet_node_data_vec.clone(),
         prioritize_queue_node_id,
         remove_queue_node_id,

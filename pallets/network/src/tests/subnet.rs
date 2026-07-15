@@ -4,22 +4,24 @@ use crate::Event;
 use crate::{
     AccountSubnetDelegateStakeShares, AssignedSlots, BootnodePeerIdSubnetNodeId, ChurnLimit,
     ChurnLimitMultiplier, ClientPeerIdSubnetNodeId, ConsensusAttestorWeightSnapshot, ConsensusData,
-    ConsensusValidatorNodeCountDecay, CurrentNodeBurnRate, DistributionData,
-    EmergencySubnetNodeElectionData, EmergencySubnetValidatorData, Error,
+    ConsensusValidatorNodeCountDecay, ConsensusValidatorStakeWeightPower, CurrentNodeBurnRate,
+    DistributionData, EmergencySubnetNodeElectionData, EmergencySubnetValidatorData, Error,
     FinalSubnetEmissionWeights, FriendlyUidSubnetId, IdleClassificationEpochs,
     IncludedClassificationEpochs, InitialValidatorData, LastConsensusValidatorNodeCountDecayUpdate,
-    LastEmergencyValidatorEndEpoch, LastRegistrationCost, LastSubnetDelegateStakeRewardsUpdate,
-    LastSubnetRegistrationBlock, MaxBootnodes, MaxChurnLimit, MaxDelegateStakePercentage,
-    MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes,
-    MaxMinDelegateStakeMultiplier, MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetMinStake,
-    MaxSubnetNodes, MaxSubnetPauseEpochs, MaxSubnetRemovalInterval, MaxSubnets, MinChurnLimit,
-    MinDelegateStakeDeposit, MinDelegateStakePercentage, MinIdleClassificationEpochs,
-    MinIncludedClassificationEpochs, MinMaxRegisteredNodes, MinQueueEpochs, MinRegistrationCost,
-    MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetRemovalInterval,
-    MinSubnetReputation, MultiaddrSubnetNodeId, NetworkBytes, NetworkMaxStakeBalance,
-    NodeBurnRateAlpha, NodeRegistrationInitialValidatorIds, NodeRegistrationsThisEpoch,
-    NodeSlotIndex, NodeSubnetStake, OverwatchNodeIndex, OverwatchSubnetWeights,
-    PeerIdOverwatchNodeId, PeerIdSubnetNodeId, PeerInfo, PendingIdleClassificationEpochs,
+    LastConsensusValidatorStakeWeightPowerUpdate, LastEmergencyValidatorEndEpoch,
+    LastRegistrationCost, LastSubnetDelegateStakeRewardsUpdate, LastSubnetRegistrationBlock,
+    MaxBootnodes, MaxChurnLimit, MaxDelegateStakePercentage, MaxIdleClassificationEpochs,
+    MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes, MaxMinDelegateStakeMultiplier,
+    MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetMinStake, MaxSubnetNodes, MaxSubnetPauseEpochs,
+    MaxSubnetRemovalInterval, MaxSubnets, MinChurnLimit, MinDelegateStakeDeposit,
+    MinDelegateStakePercentage, MinIdleClassificationEpochs, MinIncludedClassificationEpochs,
+    MinMaxRegisteredNodes, MinQueueEpochs, MinRegistrationCost, MinSubnetMinStake, MinSubnetNodes,
+    MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
+    MultiaddrSubnetNodeId, NetworkBytes, NetworkMaxStakeBalance, NodeBurnRateAlpha,
+    NodeRegistrationInitialValidatorIds, NodeRegistrationsThisEpoch, NodeSlotIndex,
+    NodeSubnetStake, OverwatchNodeIndex, OverwatchSubnetWeights, PeerIdOverwatchNodeId,
+    PeerIdSubnetNodeId, PeerInfo, PendingConsensusValidatorNodeCountDecay,
+    PendingConsensusValidatorStakeWeightPower, PendingIdleClassificationEpochs,
     PendingIncludedClassificationEpochs, PendingMinSubnetNodeReputation, PendingOwnerU128Update,
     PendingOwnerU32Update, PendingQueueImmunityEpochs, PendingSubnetDelegateStakeRewardsPercentage,
     PendingSubnetDelegateStakeRewardsPercentageUpdate,
@@ -413,7 +415,12 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
             subnet_id,
             pending_u128.clone(),
         );
-        PendingSubnetMinConsensusNodeAttestationPercentage::<Test>::insert(subnet_id, pending_u128);
+        PendingSubnetMinConsensusNodeAttestationPercentage::<Test>::insert(
+            subnet_id,
+            pending_u128.clone(),
+        );
+        PendingConsensusValidatorNodeCountDecay::<Test>::insert(subnet_id, pending_u128.clone());
+        PendingConsensusValidatorStakeWeightPower::<Test>::insert(subnet_id, pending_u128);
 
         let mut initial_validators = BTreeMap::new();
         initial_validators.insert(active_validator_id, 2);
@@ -434,17 +441,19 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
         CurrentNodeBurnRate::<Test>::insert(subnet_id, 13);
         ConsensusValidatorNodeCountDecay::<Test>::insert(subnet_id, 14);
         LastConsensusValidatorNodeCountDecayUpdate::<Test>::insert(subnet_id, 15);
-        LastEmergencyValidatorEndEpoch::<Test>::insert(subnet_id, 16);
-        SubnetMinConsensusNodeAttestationPercentage::<Test>::insert(subnet_id, 17);
-        SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::insert(subnet_id, 18);
-        SubnetReputation::<Test>::insert(subnet_id, 19);
+        ConsensusValidatorStakeWeightPower::<Test>::insert(subnet_id, 16);
+        LastConsensusValidatorStakeWeightPowerUpdate::<Test>::insert(subnet_id, 17);
+        LastEmergencyValidatorEndEpoch::<Test>::insert(subnet_id, 18);
+        SubnetMinConsensusNodeAttestationPercentage::<Test>::insert(subnet_id, 19);
+        SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::insert(subnet_id, 20);
+        SubnetReputation::<Test>::insert(subnet_id, 21);
         SubnetReputationFactorSchedules::<Test>::insert(
             subnet_id,
             SubnetReputationFactorSchedule::default(),
         );
-        SubnetNetFlow::<Test>::insert(subnet_id, -20);
-        SubnetNetFlowSmoothedWeight::<Test>::insert(subnet_id, 21);
-        RewardsCapacitor::<Test>::insert(subnet_id, 22);
+        SubnetNetFlow::<Test>::insert(subnet_id, -22);
+        SubnetNetFlowSmoothedWeight::<Test>::insert(subnet_id, 23);
+        RewardsCapacitor::<Test>::insert(subnet_id, 24);
         EmergencySubnetNodeElectionData::<Test>::insert(
             subnet_id,
             EmergencySubnetValidatorData {
@@ -565,7 +574,13 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
         assert!(!ConsensusValidatorNodeCountDecay::<Test>::contains_key(
             subnet_id
         ));
+        assert!(!PendingConsensusValidatorNodeCountDecay::<Test>::contains_key(subnet_id));
         assert!(!LastConsensusValidatorNodeCountDecayUpdate::<Test>::contains_key(subnet_id));
+        assert!(!ConsensusValidatorStakeWeightPower::<Test>::contains_key(
+            subnet_id
+        ));
+        assert!(!PendingConsensusValidatorStakeWeightPower::<Test>::contains_key(subnet_id));
+        assert!(!LastConsensusValidatorStakeWeightPowerUpdate::<Test>::contains_key(subnet_id));
         assert!(!LastEmergencyValidatorEndEpoch::<Test>::contains_key(
             subnet_id
         ));

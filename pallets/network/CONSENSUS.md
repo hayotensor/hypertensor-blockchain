@@ -32,7 +32,7 @@ The validator identity itself is not elected. A specific subnet node owned by th
 
 ### Subnet Owners
 
-Subnet owners configure subnet-level policy inside network bounds. For consensus, the most important owner controls are the minimum node-count attestation percentage, validator node-count decay, reputation factors, classification timing, queue settings, and emergency validator sets.
+Subnet owners configure subnet-level policy inside network bounds. For consensus, the most important owner controls are the minimum node-count attestation percentage, validator node-count decay, per-node validator stake-weight power, reputation factors, classification timing, queue settings, and emergency validator sets.
 
 ### Delegators
 
@@ -124,7 +124,7 @@ For each eligible attestor node, the pallet snapshots an attestor weight:
 allocated_weight = validator_delegate_stake * node_allocation
 ```
 
-`validator_delegate_stake` is the total delegated stake assigned to the validator identity. `node_allocation` is the validator-defined percentage allocation for that specific `(subnet_id, subnet_node_id)`. A validator's node allocations are normalized to a complete 100% allocation across its owned subnet nodes, so the same delegated stake is not counted in full for every node.
+`validator_delegate_stake` is the total delegated stake assigned to the validator identity. `node_allocation` is the validator-defined percentage allocation for that specific `(subnet_id, subnet_node_id)`. A validator's node allocations must form a complete 100% allocation across all nodes it owns, including nodes in different subnets, so the same delegated stake is not counted in full for every node. The validator controls this allocation; the subnet owner controls the optional node-count decay and stake-weight power applied afterward.
 
 If the validator has multiple nodes in the same subnet, the subnet's validator node-count decay can reduce each node's effective attestor weight:
 
@@ -132,9 +132,76 @@ If the validator has multiple nodes in the same subnet, the subnet's validator n
 effective_weight = allocated_weight / node_count ^ (1 - node_count_decay)
 ```
 
-`node_count_decay` is a subnet owner setting in the same fixed-point percentage format. The default is `1.0`, which means no decay. A lower value applies stronger reduction to validators with multiple nodes in the subnet.
+`node_count` is the number of nodes the validator owns in that subnet, with the snapshotted eligible node count used as a floor. `node_count_decay` is a subnet owner setting in the same fixed-point percentage format. The default is `1e18` (1.0), which means no decay. A lower value applies stronger reduction to validators with multiple nodes in the subnet.
 
-The attestation ratio is:
+### Configuring Validator Node-Count Decay
+
+The on-chain name for this optional diminishing factor is `ConsensusValidatorNodeCountDecay`. There is no separate feature flag. The subnet owner sets or disables the policy by submitting the signed pallet extrinsic:
+
+```text
+owner_update_consensus_validator_node_count_decay(subnet_id, value)
+```
+
+The extrinsic accepts an integer `value` between `0` and `1e18`, inclusive. Convert a decimal or percentage factor before submitting it:
+
+```text
+value = decimal_factor * 1e18
+      = percentage_factor * 1e16
+```
+
+- `1000000000000000000` (100%) is the default and disables decay;
+- `500000000000000000` (50%) divides allocated weight by `sqrt(node_count)`;
+- `0` applies the strongest decay and divides allocated weight by `node_count`.
+
+Any value below `1e18` enables the policy, and lower values diminish a multi-node validator's effective consensus weight more strongly. A validator with only one node in the subnet is not diminished, even when the value is `0`. The setting changes only how validator delegate stake contributes to the stake-weighted quorum; it does not reduce the validator's actual delegated stake balance or change the node-count quorum.
+
+Owner updates are rate-limited by `ConsensusValidatorNodeCountDecayUpdateInterval`, which defaults to one global epoch. A successful update is scheduled for the next subnet epoch: if it is submitted in subnet epoch `S`, the live value remains unchanged for `S` and the pending value is used beginning with subnet epoch `S + 1`. This is a next-epoch boundary, not a guaranteed full epoch of elapsed notice: depending on where the call lands in `S`, activation is between roughly one block and one epoch away. The owner may replace a future schedule before it becomes effective, but cannot replace it during its activation epoch. On a later update, the pallet materializes the already-effective value before scheduling the replacement for the following subnet epoch.
+
+The global-epoch rate limit and subnet-epoch activation delay are separate checks. Scheduling never rewrites an attestor-weight snapshot that was already stored for a proposal.
+
+### Configuring Per-Node Validator Stake-Weight Power
+
+`ConsensusValidatorStakeWeightPower` is a separate, optional subnet policy. It does not depend on how many nodes a validator owns. Instead, it applies the subnet's exponent independently to each eligible node's existing effective weight after allocation and node-count decay.
+
+The pallet first converts the existing effective weights into shares, applies the power, and then uses the powered weights in the final attestation normalization:
+
+```text
+base_share_i = effective_weight_i / sum(effective_weight of all eligible nodes)
+powered_weight_i = base_share_i ^ stake_weight_power
+
+attestation_ratio = sum(powered_weight of attesting nodes)
+                  / sum(powered_weight of all eligible nodes)
+```
+
+Both normalization steps are automatic. Applying the power to shares makes the result independent of the stake unit, while the final attested-to-total division ensures the powered shares sum to 100%. No stake is transferred: diminishing a dominant node increases the other positive-weight nodes' relative consensus shares through normalization.
+
+The subnet owner configures the exponent with:
+
+```text
+owner_update_consensus_validator_stake_weight_power(subnet_id, value)
+```
+
+`value` uses the same `1e18` fixed-point format. The default is `1000000000000000000` (1.0), so `share ^ 1` preserves the current stake-weighted result exactly and the feature has no impact unless the owner changes it. Lower powers flatten the distribution among nodes with positive effective weight:
+
+- with positive effective weights in a 90/10 split and power `500000000000000000` (0.5), the powered values are `sqrt(0.9)` and `sqrt(0.1)`; final normalization changes their shares to 75/25;
+- with power `0`, every positive base share becomes the same powered weight, so the same two nodes normalize to 50/50. A zero effective weight remains zero.
+
+Subnet owner values must be within the inclusive `MinConsensusValidatorStakeWeightPower` and `MaxConsensusValidatorStakeWeightPower` bounds. These collective-controlled bounds default to `0` and `1e18`. A supermajority collective updates them with `set_min_max_consensus_validator_stake_weight_power(min, max)`.
+
+Owner updates are rate-limited by `ConsensusValidatorStakeWeightPowerUpdateInterval`, which defaults to one global epoch. A supermajority collective can change that interval with `set_consensus_validator_stake_weight_power_update_interval(value)`. A successful update is scheduled for the next subnet epoch: an update submitted in subnet epoch `S` leaves the live value unchanged in `S` and becomes the effective power in `S + 1`. As with node-count decay, this means the remainder of `S`, not a guaranteed full epoch of elapsed notice. A future schedule may be replaced before activation, is locked during its activation epoch, and is materialized before a later replacement is scheduled.
+
+The global-epoch rate limit and subnet-epoch activation delay are independent. The scheduled power is selected by the subnet epoch when a proposal's attestor weights are snapshotted, and an existing snapshot is never rewritten.
+
+### Final Attestation Normalization
+
+After applying node-count decay and the optional stake-weight power, the pallet automatically normalizes weights across the eligible attestor snapshot:
+
+```text
+normalized_weight = powered_weight / sum(powered_weight of all eligible attestor nodes)
+attestation_ratio = sum(normalized_weight of attesting nodes)
+```
+
+Normalization is always part of stake-weighted attestation and does not require another owner call. It converts the configured weights into relative quorum shares; it does not restore the amount removed by node-count decay or move stake between accounts. When the stake-weight power is the default `1e18`, the attestation ratio is equivalently:
 
 ```text
 attestation_ratio = sum(effective_weight of attesting nodes)

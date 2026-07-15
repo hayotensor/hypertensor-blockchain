@@ -3,22 +3,26 @@ use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
     ChurnLimit, ChurnLimitMultiplier, ConsensusValidatorNodeCountDecay,
-    ConsensusValidatorNodeCountDecayUpdateInterval, EmergencySubnetNodeElectionData,
+    ConsensusValidatorNodeCountDecayUpdateInterval, ConsensusValidatorStakeWeightPower,
+    ConsensusValidatorStakeWeightPowerUpdateInterval, EmergencySubnetNodeElectionData,
     EmergencySubnetValidatorData, EmergencyValidatorCooldownEpochs, Error,
     IdleClassificationEpochs, IncludedClassificationEpochs,
-    LastConsensusValidatorNodeCountDecayUpdate, LastEmergencyValidatorEndEpoch,
-    LastSubnetDelegateStakeRewardsUpdate, MaxChurnLimit, MaxChurnLimitMultiplier,
-    MaxDelegateStakePercentage, MaxEmergencySubnetNodes, MaxIdleClassificationEpochs,
-    MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes, MaxQueueEpochs, MaxRegisteredNodes,
-    MaxSubnetBootnodeAccess, MaxSubnetConsensusNodeAttestationPercentage, MaxSubnetMinStake,
+    LastConsensusValidatorNodeCountDecayUpdate, LastConsensusValidatorStakeWeightPowerUpdate,
+    LastEmergencyValidatorEndEpoch, LastSubnetDelegateStakeRewardsUpdate, MaxChurnLimit,
+    MaxChurnLimitMultiplier, MaxConsensusValidatorStakeWeightPower, MaxDelegateStakePercentage,
+    MaxEmergencySubnetNodes, MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs,
+    MaxMaxRegisteredNodes, MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetBootnodeAccess,
+    MaxSubnetConsensusNodeAttestationPercentage, MaxSubnetMinStake,
     MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnets, MinChurnLimit,
-    MinChurnLimitMultiplier, MinDelegateStakePercentage, MinIdleClassificationEpochs,
-    MinIncludedClassificationEpochs, MinMaxRegisteredNodes, MinNodeReputationFactor,
-    MinQueueEpochs, MinSubnetConsensusNodeAttestationPercentage, MinSubnetMinStake,
-    MinSubnetNodeReputation, MinSubnetNodes, NetworkMaxStakeBalance, NodeBurnRateAlpha,
-    NodeRegistrationInitialValidatorIds, PeerInfo, PendingIdleClassificationEpochs,
-    PendingIncludedClassificationEpochs, PendingMinSubnetNodeReputation,
-    PendingQueueImmunityEpochs, PendingSubnetDelegateStakeRewardsPercentage,
+    MinChurnLimitMultiplier, MinConsensusValidatorStakeWeightPower, MinDelegateStakePercentage,
+    MinIdleClassificationEpochs, MinIncludedClassificationEpochs, MinMaxRegisteredNodes,
+    MinNodeReputationFactor, MinQueueEpochs, MinSubnetConsensusNodeAttestationPercentage,
+    MinSubnetMinStake, MinSubnetNodeReputation, MinSubnetNodes, NetworkMaxStakeBalance,
+    NodeBurnRateAlpha, NodeRegistrationInitialValidatorIds, PeerInfo,
+    PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
+    PendingIdleClassificationEpochs, PendingIncludedClassificationEpochs,
+    PendingMinSubnetNodeReputation, PendingQueueImmunityEpochs,
+    PendingSubnetDelegateStakeRewardsPercentage,
     PendingSubnetMinConsensusNodeAttestationPercentage,
     PendingSubnetNodeMinWeightDecreaseReputationThreshold, PendingSubnetOwner,
     PreviousSubnetPauseEpoch, QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess,
@@ -4430,6 +4434,7 @@ fn test_owner_update_consensus_validator_node_count_decay() {
 
         let percentage_factor = Network::percentage_factor_as_u128();
         let new_value = test_percent(1, 2);
+        let scheduled_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
         assert_eq!(
             ConsensusValidatorNodeCountDecay::<Test>::get(subnet_id),
@@ -4444,18 +4449,37 @@ fn test_owner_update_consensus_validator_node_count_decay() {
 
         assert_eq!(
             ConsensusValidatorNodeCountDecay::<Test>::get(subnet_id),
+            percentage_factor
+        );
+        assert_eq!(
+            Network::get_consensus_validator_node_count_decay_for_epoch(
+                subnet_id,
+                scheduled_subnet_epoch,
+            ),
+            percentage_factor
+        );
+        assert_eq!(
+            Network::get_consensus_validator_node_count_decay_for_epoch(
+                subnet_id,
+                scheduled_subnet_epoch + 1,
+            ),
             new_value
         );
+        let pending = PendingConsensusValidatorNodeCountDecay::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(pending.effective_subnet_epoch, scheduled_subnet_epoch + 1);
+        assert_eq!(pending.owner, owner.clone());
         assert_eq!(
             LastConsensusValidatorNodeCountDecayUpdate::<Test>::get(subnet_id),
             Some(Network::get_current_epoch_as_u32())
         );
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::ConsensusValidatorNodeCountDecayUpdate {
+            Event::ConsensusValidatorNodeCountDecayUpdateScheduled {
                 subnet_id,
                 owner: owner.clone(),
                 value: new_value,
+                effective_subnet_epoch: scheduled_subnet_epoch + 1,
             }
         );
 
@@ -4493,12 +4517,45 @@ fn test_owner_update_consensus_validator_node_count_decay() {
 
         increase_epochs(ConsensusValidatorNodeCountDecayUpdateInterval::<Test>::get());
 
+        assert_err!(
+            Network::owner_update_consensus_validator_node_count_decay(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                0
+            ),
+            Error::<Test>::OwnerParameterUpdatePendingActivation
+        );
+
+        increase_epochs(1);
+
         assert_ok!(Network::owner_update_consensus_validator_node_count_decay(
-            RuntimeOrigin::signed(owner),
+            RuntimeOrigin::signed(owner.clone()),
             subnet_id,
             0
         ));
-        assert_eq!(ConsensusValidatorNodeCountDecay::<Test>::get(subnet_id), 0);
+        assert_eq!(
+            ConsensusValidatorNodeCountDecay::<Test>::get(subnet_id),
+            new_value
+        );
+        let replacement_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        let pending = PendingConsensusValidatorNodeCountDecay::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, 0);
+        assert_eq!(pending.effective_subnet_epoch, replacement_subnet_epoch + 1);
+        assert_eq!(pending.owner, owner);
+        assert_eq!(
+            Network::get_consensus_validator_node_count_decay_for_epoch(
+                subnet_id,
+                replacement_subnet_epoch,
+            ),
+            new_value
+        );
+        assert_eq!(
+            Network::get_consensus_validator_node_count_decay_for_epoch(
+                subnet_id,
+                replacement_subnet_epoch + 1,
+            ),
+            0
+        );
     });
 }
 
@@ -4539,6 +4596,207 @@ fn test_owner_update_consensus_validator_node_count_decay_respects_admin_interva
             subnet_id,
             0
         ));
+    });
+}
+
+#[test]
+fn test_owner_update_consensus_validator_stake_weight_power() {
+    new_test_ext().execute_with(|| {
+        increase_epochs(1);
+        let subnet_name: Vec<u8> = "stake-weight-power-subnet".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
+
+        let percentage_factor = Network::percentage_factor_as_u128();
+        let new_value = test_percent(1, 2);
+        let scheduled_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+
+        assert_eq!(
+            ConsensusValidatorStakeWeightPower::<Test>::get(subnet_id),
+            percentage_factor
+        );
+        assert_eq!(
+            ConsensusValidatorStakeWeightPower::<Test>::get(subnet_id + 1),
+            percentage_factor
+        );
+        assert_eq!(
+            LastConsensusValidatorStakeWeightPowerUpdate::<Test>::get(subnet_id),
+            None
+        );
+
+        assert_ok!(
+            Network::owner_update_consensus_validator_stake_weight_power(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                new_value
+            )
+        );
+
+        assert_eq!(
+            ConsensusValidatorStakeWeightPower::<Test>::get(subnet_id),
+            percentage_factor
+        );
+        assert_eq!(
+            Network::get_consensus_validator_stake_weight_power_for_epoch(
+                subnet_id,
+                scheduled_subnet_epoch,
+            ),
+            percentage_factor
+        );
+        assert_eq!(
+            Network::get_consensus_validator_stake_weight_power_for_epoch(
+                subnet_id,
+                scheduled_subnet_epoch + 1,
+            ),
+            new_value
+        );
+        let pending = PendingConsensusValidatorStakeWeightPower::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, new_value);
+        assert_eq!(pending.effective_subnet_epoch, scheduled_subnet_epoch + 1);
+        assert_eq!(pending.owner, owner.clone());
+        assert_eq!(
+            LastConsensusValidatorStakeWeightPowerUpdate::<Test>::get(subnet_id),
+            Some(Network::get_current_epoch_as_u32())
+        );
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::ConsensusValidatorStakeWeightPowerUpdateScheduled {
+                subnet_id,
+                owner: owner.clone(),
+                value: new_value,
+                effective_subnet_epoch: scheduled_subnet_epoch + 1,
+            }
+        );
+
+        assert_err!(
+            Network::owner_update_consensus_validator_stake_weight_power(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                0
+            ),
+            Error::<Test>::ConsensusValidatorStakeWeightPowerUpdateTooSoon
+        );
+
+        increase_epochs(ConsensusValidatorStakeWeightPowerUpdateInterval::<Test>::get());
+        assert_err!(
+            Network::owner_update_consensus_validator_stake_weight_power(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                0
+            ),
+            Error::<Test>::OwnerParameterUpdatePendingActivation
+        );
+
+        increase_epochs(1);
+        assert_ok!(
+            Network::owner_update_consensus_validator_stake_weight_power(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                0
+            )
+        );
+        assert_eq!(
+            ConsensusValidatorStakeWeightPower::<Test>::get(subnet_id),
+            new_value
+        );
+        let replacement_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        let pending = PendingConsensusValidatorStakeWeightPower::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, 0);
+        assert_eq!(pending.effective_subnet_epoch, replacement_subnet_epoch + 1);
+        assert_eq!(pending.owner, owner);
+        assert_eq!(
+            Network::get_consensus_validator_stake_weight_power_for_epoch(
+                subnet_id,
+                replacement_subnet_epoch,
+            ),
+            new_value
+        );
+        assert_eq!(
+            Network::get_consensus_validator_stake_weight_power_for_epoch(
+                subnet_id,
+                replacement_subnet_epoch + 1,
+            ),
+            0
+        );
+    });
+}
+
+#[test]
+fn test_owner_update_consensus_validator_stake_weight_power_bounds_and_authorization() {
+    new_test_ext().execute_with(|| {
+        increase_epochs(1);
+        let subnet_name: Vec<u8> = "stake-weight-power-bounds-subnet".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
+
+        let min = test_percent(1, 4);
+        let max = test_percent(3, 4);
+        MinConsensusValidatorStakeWeightPower::<Test>::set(min);
+        MaxConsensusValidatorStakeWeightPower::<Test>::set(max);
+        ConsensusValidatorStakeWeightPowerUpdateInterval::<Test>::set(0);
+
+        assert_err!(
+            Network::owner_update_consensus_validator_stake_weight_power(
+                RuntimeOrigin::signed(account(99)),
+                subnet_id,
+                min
+            ),
+            Error::<Test>::NotSubnetOwner
+        );
+        assert_err!(
+            Network::owner_update_consensus_validator_stake_weight_power(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                min - 1
+            ),
+            Error::<Test>::InvalidPercent
+        );
+        assert_err!(
+            Network::owner_update_consensus_validator_stake_weight_power(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                max + 1
+            ),
+            Error::<Test>::InvalidPercent
+        );
+
+        assert_ok!(
+            Network::owner_update_consensus_validator_stake_weight_power(
+                RuntimeOrigin::signed(owner.clone()),
+                subnet_id,
+                min
+            )
+        );
+        assert_ok!(
+            Network::owner_update_consensus_validator_stake_weight_power(
+                RuntimeOrigin::signed(owner),
+                subnet_id,
+                max
+            )
+        );
+        assert_eq!(
+            ConsensusValidatorStakeWeightPower::<Test>::get(subnet_id),
+            Network::percentage_factor_as_u128()
+        );
+        let pending = PendingConsensusValidatorStakeWeightPower::<Test>::get(subnet_id).unwrap();
+        assert_eq!(pending.value, max);
+        assert_eq!(
+            Network::get_consensus_validator_stake_weight_power_for_epoch(
+                subnet_id,
+                pending.effective_subnet_epoch,
+            ),
+            max
+        );
     });
 }
 

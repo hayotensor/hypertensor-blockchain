@@ -1541,6 +1541,35 @@ impl<T: Config> Pallet<T> {
         Ok(subnet_node_id)
     }
 
+    pub fn ensure_hotkey_owns_subnet_node(
+        subnet_id: u32,
+        subnet_node_id: u32,
+        hotkey: &T::AccountId,
+    ) -> Result<SubnetNode<T>, DispatchError> {
+        let subnet_node = SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
+            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
+
+        let validator_id = SubnetNodeValidatorId::<T>::try_get(subnet_id, subnet_node_id)
+            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
+
+        ensure!(
+            subnet_node.validator_id == validator_id,
+            Error::<T>::InvalidValidator
+        );
+
+        if let Some(subnet_node_hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node_id) {
+            ensure!(&subnet_node_hotkey == hotkey, Error::<T>::InvalidValidator);
+            return Ok(subnet_node);
+        }
+
+        let validator_hotkey =
+            ValidatorIdHotkey::<T>::get(validator_id).ok_or(Error::<T>::InvalidValidator)?;
+
+        ensure!(&validator_hotkey == hotkey, Error::<T>::InvalidValidator);
+
+        Ok(subnet_node)
+    }
+
     /// Get a hotkeys associated subnet node.
     /// The first check is to see if the subnet node has a hotkey which overrides the validator hotkey.
     /// If there is no hotkey associated with the subnet node, then we check if the validator ID has a

@@ -79,6 +79,7 @@ impl<T: Config> Pallet<T> {
 
     pub(crate) fn snapshot_consensus_attestor_weights(
         subnet_id: u32,
+        subnet_epoch: u32,
         validator_ids: &[u32],
     ) -> Result<ConsensusAttestorWeightSnapshot, Error<T>> {
         let mut validator_nodes: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
@@ -94,7 +95,8 @@ impl<T: Config> Pallet<T> {
 
         let mut weights = BTreeMap::new();
         let mut total_weight = 0u128;
-        let node_count_decay = ConsensusValidatorNodeCountDecay::<T>::get(subnet_id);
+        let node_count_decay =
+            Self::get_consensus_validator_node_count_decay_for_epoch(subnet_id, subnet_epoch);
         let percentage_factor = Self::percentage_factor_as_u128();
 
         for (validator_id, subnet_node_ids) in validator_nodes {
@@ -144,9 +146,41 @@ impl<T: Config> Pallet<T> {
             }
         }
 
+        let stake_weight_power =
+            Self::get_consensus_validator_stake_weight_power_for_epoch(subnet_id, subnet_epoch)
+                .min(percentage_factor);
+
+        // Preserve the existing integer weights exactly when stake-weight diminishing is disabled.
+        if stake_weight_power == percentage_factor || total_weight == 0 {
+            return Ok(ConsensusAttestorWeightSnapshot {
+                weights,
+                total_weight,
+            });
+        }
+
+        let exponent = Self::get_percent_as_f64(stake_weight_power);
+        let raw_total_weight = total_weight as f64;
+        let mut powered_total_weight = 0u128;
+
+        for node_weight in weights.values_mut() {
+            if *node_weight == 0 {
+                continue;
+            }
+
+            let normalized_weight = *node_weight as f64 / raw_total_weight;
+            let powered_weight =
+                Self::get_f64_as_percentage(Self::pow(normalized_weight, exponent))
+                    .min(percentage_factor);
+
+            powered_total_weight = powered_total_weight
+                .checked_add(powered_weight)
+                .ok_or(Error::<T>::AttestorWeightOverflow)?;
+            *node_weight = powered_weight;
+        }
+
         Ok(ConsensusAttestorWeightSnapshot {
             weights,
-            total_weight,
+            total_weight: powered_total_weight,
         })
     }
 
@@ -203,7 +237,6 @@ impl<T: Config> Pallet<T> {
     pub fn do_propose_attestation(
         hotkey: T::AccountId,
         subnet_id: u32,
-        subnet_node_id: u32,
         data: Vec<SubnetNodeConsensusData>,
         mut prioritize_queue_node_id: Option<u32>,
         mut remove_queue_node_id: Option<u32>,
@@ -214,17 +247,6 @@ impl<T: Config> Pallet<T> {
         // Each subnet epoch overlaps with the blockchains epochs, and can submit consensus data for epoch
         // 2 on subnet epoch 1 (if after slot) or 2 (if before slot).
         // If a subnet is on slot 3 of 5 slots, we make sure it can submit on the current blockchains epoch.
-
-        // 1. Ensure caller owns the hotkey of the subnet node ID entered
-        // 2. Ensure the subnet node Id owned by the caller is the elected validator
-
-        // Ensure caller (hotkey) is the hotkey for the subnet node ID
-        ensure!(
-            Self::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id,)? == hotkey,
-            Error::<T>::InvalidValidator
-        );
-
-        // Ensure the subnet node ID is the elected validator
 
         // Get the current subnet epoch and subnet epoch progression for this specific subnet
         let subnet_epoch_data = Self::get_current_subnet_epoch_data(subnet_id)
@@ -237,22 +259,9 @@ impl<T: Config> Pallet<T> {
         let validator_subnet_node_id = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
             .ok_or(Error::<T>::NoElectedValidator)?;
 
-        ensure!(
-            subnet_node_id == validator_subnet_node_id,
-            Error::<T>::InvalidSubnetNodeId
-        );
-
-        // // The elected validator can act with its node-specific override hotkey, or with the
-        // // validator hotkey when no node-specific override exists.
-        // ensure!(
-        //     Self::get_hotkey_associated_subnet_node(
-        //         subnet_id,
-        //         subnet_node_id,
-        //         validator_id,
-        //         hotkey.clone(),
-        //     )? == subnet_node_id,
-        //     Error::<T>::InvalidValidator
-        // );
+        // The caller does not supply authority-bearing node identity. The elected subnet node is
+        // derived from storage, then the signed hotkey must own that exact node.
+        Self::ensure_hotkey_owns_subnet_node(subnet_id, validator_subnet_node_id, &hotkey)?;
 
         // - Note: we don't check stake balance here. It's up to subnets to come to a consensus
         // to remove nodes that are not meeting the subnet's requirements. Stake balance only matters
@@ -338,7 +347,7 @@ impl<T: Config> Pallet<T> {
         };
         let validator_ids = Self::canonicalize_consensus_validator_ids(validator_ids);
         let attestor_weight_snapshot =
-            Self::snapshot_consensus_attestor_weights(subnet_id, &validator_ids)?;
+            Self::snapshot_consensus_attestor_weights(subnet_id, subnet_epoch, &validator_ids)?;
 
         // Check if validator sent through queue priority or removal node IDs
         if prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some() {
@@ -427,24 +436,13 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResultWithPostInfo {
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
-        // --- Ensure subnet node is authorized under either its override hotkey or the
-        //     validator hotkey when no override exists.
-        ensure!(
-            Self::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id,)? == hotkey,
-            Error::<T>::InvalidValidator
-        );
+        let subnet_node = Self::ensure_hotkey_owns_subnet_node(subnet_id, subnet_node_id, &hotkey)?;
 
         // --- Ensure node classified to attest
-        // This is redundant because we check this later.
-        match SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id) {
-            Ok(subnet_node) => {
-                ensure!(
-                    subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch),
-                    Error::<T>::InvalidSubnetNodeClassification
-                );
-            }
-            Err(()) => return Err(Error::<T>::InvalidSubnetNodeId.into()),
-        };
+        ensure!(
+            subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch),
+            Error::<T>::InvalidSubnetNodeClassification
+        );
 
         // - Note: we don't check stake balance here
 

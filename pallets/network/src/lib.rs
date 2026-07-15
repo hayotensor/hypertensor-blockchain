@@ -415,6 +415,8 @@ pub mod pallet {
         SetSubnetDistributionPower(u128),
         SetDelegateStakeWeightFactor(u128),
         SetConsensusValidatorNodeCountDecayUpdateInterval(u32),
+        SetMinMaxConsensusValidatorStakeWeightPower(u128, u128),
+        SetConsensusValidatorStakeWeightPowerUpdateInterval(u32),
         SetMinMaxConsensusNodeAttestationPercentage(u128, u128),
         SetValidatorNodeDelegateStakeWeightUpdateInterval(u32),
         SetInflationSigmoidMidpoint(u128),
@@ -674,10 +676,17 @@ pub mod pallet {
             value: u32,
             effective_subnet_epoch: u32,
         },
-        ConsensusValidatorNodeCountDecayUpdate {
+        ConsensusValidatorNodeCountDecayUpdateScheduled {
             subnet_id: u32,
             owner: T::AccountId,
             value: u128,
+            effective_subnet_epoch: u32,
+        },
+        ConsensusValidatorStakeWeightPowerUpdateScheduled {
+            subnet_id: u32,
+            owner: T::AccountId,
+            value: u128,
+            effective_subnet_epoch: u32,
         },
         MinConsensusNodeAttestationPercentageUpdate {
             subnet_id: u32,
@@ -861,6 +870,7 @@ pub mod pallet {
         DelegateStakePercentageUpdateTooSoon,
         ValidatorNodeDelegateStakeWeightUpdateTooSoon,
         ConsensusValidatorNodeCountDecayUpdateTooSoon,
+        ConsensusValidatorStakeWeightPowerUpdateTooSoon,
         /// A pending owner parameter update is active this subnet epoch and cannot be replaced until the next subnet epoch.
         OwnerParameterUpdatePendingActivation,
         ValidatorNodeDelegateStakeWeightsLengthMismatch,
@@ -1446,7 +1456,15 @@ pub mod pallet {
         pub included_classification_epochs: u32,
         pub pending_included_classification_epochs: Option<PendingOwnerU32Update<T>>,
         pub delegate_stake_percentage: u128,
+        pub pending_delegate_stake_percentage:
+            Option<PendingSubnetDelegateStakeRewardsPercentageUpdate<T>>,
         pub last_delegate_stake_rewards_update: u32,
+        pub consensus_validator_node_count_decay: u128,
+        pub pending_consensus_validator_node_count_decay: Option<PendingOwnerU128Update<T>>,
+        pub last_consensus_validator_node_count_decay_update: Option<u32>,
+        pub consensus_validator_stake_weight_power: u128,
+        pub pending_consensus_validator_stake_weight_power: Option<PendingOwnerU128Update<T>>,
+        pub last_consensus_validator_stake_weight_power_update: Option<u32>,
         pub node_burn_rate_alpha: u128,
         pub current_node_burn_rate: u128,
         pub initial_validators: Option<BTreeMap<u32, u32>>,
@@ -2091,7 +2109,17 @@ pub mod pallet {
         pub subnet_node_rewards: u128,
     }
 
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo)]
+    #[derive(
+        Encode,
+        Decode,
+        Clone,
+        PartialOrd,
+        PartialEq,
+        Eq,
+        RuntimeDebugNoBound,
+        Ord,
+        scale_info::TypeInfo,
+    )]
     #[scale_info(skip_type_params(T))]
     pub struct PendingSubnetDelegateStakeRewardsPercentageUpdate<T: Config> {
         pub value: u128,
@@ -2815,6 +2843,27 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultConsensusValidatorNodeCountDecayUpdateInterval() -> u32 {
         // One global epoch between subnet owner decay updates.
+        1
+    }
+    /// This type value is referenced in:
+    /// - ConsensusValidatorStakeWeightPower
+    /// - MaxConsensusValidatorStakeWeightPower
+    #[pallet::type_value]
+    pub fn DefaultConsensusValidatorStakeWeightPower() -> u128 {
+        // 1.0, leaving each node's allocated stake weight unchanged.
+        1_000_000_000_000_000_000
+    }
+    /// This type value is referenced in:
+    /// - MinConsensusValidatorStakeWeightPower
+    #[pallet::type_value]
+    pub fn DefaultMinConsensusValidatorStakeWeightPower() -> u128 {
+        0
+    }
+    /// This type value is referenced in:
+    /// - ConsensusValidatorStakeWeightPowerUpdateInterval
+    #[pallet::type_value]
+    pub fn DefaultConsensusValidatorStakeWeightPowerUpdateInterval() -> u32 {
+        // One global epoch between subnet owner stake-weight power updates.
         1
     }
     /// This type value is referenced in:
@@ -3709,6 +3758,11 @@ pub mod pallet {
     pub type ConsensusValidatorNodeCountDecay<T> =
         StorageMap<_, Identity, u32, u128, ValueQuery, DefaultConsensusValidatorNodeCountDecay>;
 
+    /// A subnet owner's node-count decay update scheduled for a future subnet epoch.
+    #[pallet::storage]
+    pub type PendingConsensusValidatorNodeCountDecay<T: Config> =
+        StorageMap<_, Identity, u32, PendingOwnerU128Update<T>, OptionQuery>;
+
     /// Last global epoch a subnet owner updated the subnet's consensus validator node count decay.
     #[pallet::storage]
     pub type LastConsensusValidatorNodeCountDecayUpdate<T> =
@@ -3718,6 +3772,37 @@ pub mod pallet {
     #[pallet::storage]
     pub type ConsensusValidatorNodeCountDecayUpdateInterval<T> =
         StorageValue<_, u32, ValueQuery, DefaultConsensusValidatorNodeCountDecayUpdateInterval>;
+
+    /// Per-subnet exponent applied to each eligible node's allocated validator stake weight.
+    /// subnet_id => fixed-point exponent in 1e18 format. A default of 1e18 is the identity.
+    #[pallet::storage]
+    pub type ConsensusValidatorStakeWeightPower<T> =
+        StorageMap<_, Identity, u32, u128, ValueQuery, DefaultConsensusValidatorStakeWeightPower>;
+
+    /// A subnet owner's stake-weight power update scheduled for a future subnet epoch.
+    #[pallet::storage]
+    pub type PendingConsensusValidatorStakeWeightPower<T: Config> =
+        StorageMap<_, Identity, u32, PendingOwnerU128Update<T>, OptionQuery>;
+
+    /// Network lower bound for subnet owner stake-weight power updates.
+    #[pallet::storage]
+    pub type MinConsensusValidatorStakeWeightPower<T> =
+        StorageValue<_, u128, ValueQuery, DefaultMinConsensusValidatorStakeWeightPower>;
+
+    /// Network upper bound for subnet owner stake-weight power updates.
+    #[pallet::storage]
+    pub type MaxConsensusValidatorStakeWeightPower<T> =
+        StorageValue<_, u128, ValueQuery, DefaultConsensusValidatorStakeWeightPower>;
+
+    /// Last global epoch a subnet owner updated the subnet's stake-weight power.
+    #[pallet::storage]
+    pub type LastConsensusValidatorStakeWeightPowerUpdate<T> =
+        StorageMap<_, Identity, u32, u32, OptionQuery>;
+
+    /// Minimum global epochs between subnet owner stake-weight power updates.
+    #[pallet::storage]
+    pub type ConsensusValidatorStakeWeightPowerUpdateInterval<T> =
+        StorageValue<_, u32, ValueQuery, DefaultConsensusValidatorStakeWeightPowerUpdateInterval>;
 
     #[derive(
         Default,
@@ -4813,6 +4898,13 @@ pub mod pallet {
                 QueuedSwapCall::SwapToValidatorDelegateStake { balance, .. } => *balance,
             }
         }
+
+        pub fn get_queue_account(&self) -> &AccountId {
+            match self {
+                QueuedSwapCall::SwapToSubnetDelegateStake { account_id, .. } => account_id,
+                QueuedSwapCall::SwapToValidatorDelegateStake { account_id, .. } => account_id,
+            }
+        }
     }
 
     /// List of current swaps in order
@@ -5311,14 +5403,11 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
-                .map_err(|_| Error::<T>::InvalidValidatorId)?;
-
-            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+            Self::ensure_canonical_validator_coldkey(&coldkey, validator_id)?;
 
             Self::do_update_validator_delegate_account(
                 validator_id,
-                validator_coldkey,
+                coldkey,
                 delegate_account_id,
                 delegate_rate,
             )
@@ -6423,7 +6512,6 @@ pub mod pallet {
         pub fn propose_attestation(
             origin: OriginFor<T>,
             subnet_id: u32,
-            subnet_node_id: u32,
             data: Vec<SubnetNodeConsensusData>,
             prioritize_queue_node_id: Option<u32>,
             remove_queue_node_id: Option<u32>,
@@ -6437,7 +6525,6 @@ pub mod pallet {
             Self::do_propose_attestation(
                 hotkey,
                 subnet_id,
-                subnet_node_id,
                 data,
                 prioritize_queue_node_id,
                 remove_queue_node_id,
@@ -7557,6 +7644,38 @@ pub mod pallet {
             T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
             Self::do_set_min_max_consensus_node_attestation_percentage(min, max)
         }
+
+        #[pallet::call_index(179)]
+        #[pallet::weight({0})]
+        pub fn owner_update_consensus_validator_stake_weight_power(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            value: u128,
+        ) -> DispatchResult {
+            Self::is_paused()?;
+            Self::do_owner_update_consensus_validator_stake_weight_power(origin, subnet_id, value)
+        }
+
+        #[pallet::call_index(180)]
+        #[pallet::weight({0})]
+        pub fn set_consensus_validator_stake_weight_power_update_interval(
+            origin: OriginFor<T>,
+            value: u32,
+        ) -> DispatchResult {
+            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_consensus_validator_stake_weight_power_update_interval(value)
+        }
+
+        #[pallet::call_index(181)]
+        #[pallet::weight({0})]
+        pub fn set_min_max_consensus_validator_stake_weight_power(
+            origin: OriginFor<T>,
+            min: u128,
+            max: u128,
+        ) -> DispatchResult {
+            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_min_max_consensus_validator_stake_weight_power(min, max)
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -8404,7 +8523,11 @@ pub mod pallet {
             SubnetMinConsensusNodeAttestationPercentage::<T>::remove(subnet_id);
             PendingSubnetMinConsensusNodeAttestationPercentage::<T>::remove(subnet_id);
             ConsensusValidatorNodeCountDecay::<T>::remove(subnet_id);
+            PendingConsensusValidatorNodeCountDecay::<T>::remove(subnet_id);
             LastConsensusValidatorNodeCountDecayUpdate::<T>::remove(subnet_id);
+            ConsensusValidatorStakeWeightPower::<T>::remove(subnet_id);
+            PendingConsensusValidatorStakeWeightPower::<T>::remove(subnet_id);
+            LastConsensusValidatorStakeWeightPowerUpdate::<T>::remove(subnet_id);
             SubnetBootnodeAccess::<T>::remove(subnet_id);
             SubnetBootnodes::<T>::remove(subnet_id);
             EmergencySubnetNodeElectionData::<T>::remove(subnet_id);
@@ -8425,7 +8548,7 @@ pub mod pallet {
                 weight = weight.saturating_add(T::DbWeight::get().writes(1));
             }
 
-            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 30));
+            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 34));
 
             // Remove from slot
             Self::free_slot_of_subnet(subnet_id);
@@ -9557,21 +9680,21 @@ pub mod pallet {
 
             // [TESTING: TESTNET HOSKINSON]
             // Enable subnets to register right when conditions are met
-            MinSubnetRegistrationEpochs::<T>::set(0);
-            OverwatchEpochLengthMultiplier::<T>::set(1);
-            OverwatchMinDiversificationRatio::<T>::set(0);
-            OverwatchMinRepScore::<T>::set(0);
-            OverwatchMinAvgAttestationRatio::<T>::set(0);
-            OverwatchMinAge::<T>::set(0);
-            DelegateStakeCooldownEpochs::<T>::set(1);
-            NodeDelegateStakeCooldownEpochs::<T>::put(1);
-            StakeCooldownEpochs::<T>::put(1);
-            MinActiveNodeStakeEpochs::<T>::put(1);
-            SubnetDelegateStakeRewardsUpdatePeriod::<T>::put(0);
-            NodeRewardRateUpdatePeriod::<T>::put(0);
-            MinSubnetDelegateStakeFactor::<T>::put(0);
-            MaxMinDelegateStakeMultiplier::<T>::put(1000000000000000000); // 100%
-            SubnetPauseCooldownEpochs::<T>::put(0);
+            // MinSubnetRegistrationEpochs::<T>::set(0);
+            // OverwatchEpochLengthMultiplier::<T>::set(1);
+            // OverwatchMinDiversificationRatio::<T>::set(0);
+            // OverwatchMinRepScore::<T>::set(0);
+            // OverwatchMinAvgAttestationRatio::<T>::set(0);
+            // OverwatchMinAge::<T>::set(0);
+            // DelegateStakeCooldownEpochs::<T>::set(1);
+            // NodeDelegateStakeCooldownEpochs::<T>::put(1);
+            // StakeCooldownEpochs::<T>::put(1);
+            // MinActiveNodeStakeEpochs::<T>::put(1);
+            // SubnetDelegateStakeRewardsUpdatePeriod::<T>::put(0);
+            // NodeRewardRateUpdatePeriod::<T>::put(0);
+            // MinSubnetDelegateStakeFactor::<T>::put(0);
+            // MaxMinDelegateStakeMultiplier::<T>::put(1000000000000000000); // 100%
+            // SubnetPauseCooldownEpochs::<T>::put(0);
 
             // use fp_account::AccountId20;
             // use sp_core::H160;

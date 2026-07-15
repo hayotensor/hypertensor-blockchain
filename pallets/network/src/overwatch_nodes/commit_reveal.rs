@@ -11,6 +11,11 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResultWithPostInfo {
         let hotkey: T::AccountId = ensure_signed(origin)?;
 
+        ensure!(
+            OverwatchNodes::<T>::contains_key(overwatch_node_id),
+            Error::<T>::InvalidOverwatchNodeId
+        );
+
         // Ensure the caller is coming from the overwatch hotkey or validator hotkey
         let overwatch_hotkey = Self::get_overwatch_node_associated_hotkey(overwatch_node_id)?;
 
@@ -85,6 +90,11 @@ impl<T: Config> Pallet<T> {
         reveals: Vec<OverwatchReveal>,
     ) -> DispatchResultWithPostInfo {
         let hotkey: T::AccountId = ensure_signed(origin)?;
+
+        ensure!(
+            OverwatchNodes::<T>::contains_key(overwatch_node_id),
+            Error::<T>::InvalidOverwatchNodeId
+        );
 
         let overwatch_hotkey = Self::get_overwatch_node_associated_hotkey(overwatch_node_id)?;
 

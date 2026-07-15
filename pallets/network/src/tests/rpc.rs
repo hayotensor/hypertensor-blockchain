@@ -2,9 +2,21 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountNodeDelegateStakeShares, ColdkeyValidatorId, MaxSubnetNodes, MaxSubnets,
-    MinSubnetMinStake, OverwatchCommits, OverwatchReveals, PeerIdOverwatchNodeId, PeerInfo,
-    SubnetBootnodes, SubnetElectedValidator, SubnetName, SubnetNodeClass, TotalActiveSubnets,
+    AccountNodeDelegateStakeShares, ColdkeyValidatorId, ConsensusValidatorNodeCountDecay,
+    ConsensusValidatorStakeWeightPower, IdleClassificationEpochs, IncludedClassificationEpochs,
+    LastConsensusValidatorNodeCountDecayUpdate, LastConsensusValidatorStakeWeightPowerUpdate,
+    LastSubnetDelegateStakeRewardsUpdate, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
+    MinSubnetNodeReputation, OverwatchCommits, OverwatchReveals, PeerIdOverwatchNodeId, PeerInfo,
+    PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
+    PendingIdleClassificationEpochs, PendingIncludedClassificationEpochs,
+    PendingMinSubnetNodeReputation, PendingOwnerU128Update, PendingOwnerU32Update,
+    PendingQueueImmunityEpochs, PendingSubnetDelegateStakeRewardsPercentage,
+    PendingSubnetDelegateStakeRewardsPercentageUpdate,
+    PendingSubnetMinConsensusNodeAttestationPercentage,
+    PendingSubnetNodeMinWeightDecreaseReputationThreshold, QueueImmunityEpochs, SubnetBootnodes,
+    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator,
+    SubnetMinConsensusNodeAttestationPercentage, SubnetName, SubnetNodeClass, SubnetNodeIdHotkey,
+    SubnetNodeMinWeightDecreaseReputationThreshold, SubnetOwner, TotalActiveSubnets,
     TotalNodeDelegateStakeBalance, TotalNodeDelegateStakeShares,
 };
 use frame_support::assert_ok;
@@ -40,7 +52,7 @@ fn test_get_validator_subnet_nodes_info() {
 }
 
 #[test]
-fn test_proof_of_stake() {
+fn test_proof_of_stake_peer() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -63,14 +75,14 @@ fn test_proof_of_stake() {
         let bootnode_peer_id = get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end);
         let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end);
 
-        let rpc_results = Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 1, None);
+        let rpc_results = Network::proof_of_stake_peer(subnet_id, peer_id.0.to_vec(), 1, None);
 
         assert!(rpc_results);
     })
 }
 
 #[test]
-fn test_proof_of_stake_all_peer_id_types() {
+fn test_proof_of_stake_peer_all_peer_id_types() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -87,21 +99,21 @@ fn test_proof_of_stake_all_peer_id_types() {
         // Test with main peer_id
         let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end);
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0, None),
+            Network::proof_of_stake_peer(subnet_id, peer_id.0.to_vec(), 0, None),
             "Proof of stake should work with main peer_id"
         );
 
         // Test with bootnode_peer_id
         let bootnode_peer_id = get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end);
         assert!(
-            Network::proof_of_stake(subnet_id, bootnode_peer_id.0.to_vec(), 0, None),
+            Network::proof_of_stake_peer(subnet_id, bootnode_peer_id.0.to_vec(), 0, None),
             "Proof of stake should work with bootnode_peer_id"
         );
 
         // Test with client_peer_id
         let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end);
         assert!(
-            Network::proof_of_stake(subnet_id, client_peer_id.0.to_vec(), 0, None),
+            Network::proof_of_stake_peer(subnet_id, client_peer_id.0.to_vec(), 0, None),
             "Proof of stake should work with client_peer_id"
         );
 
@@ -109,7 +121,7 @@ fn test_proof_of_stake_all_peer_id_types() {
         let overwatch_node_peer_id = peer(1);
         PeerIdOverwatchNodeId::<Test>::insert(subnet_id, &overwatch_node_peer_id, 1);
         assert!(
-            Network::proof_of_stake(subnet_id, overwatch_node_peer_id.0.to_vec(), 0, None),
+            Network::proof_of_stake_peer(subnet_id, overwatch_node_peer_id.0.to_vec(), 0, None),
             "Proof of stake should work with overwatch node peer_id"
         );
 
@@ -119,7 +131,7 @@ fn test_proof_of_stake_all_peer_id_types() {
         SubnetBootnodes::<Test>::insert(subnet_id, add_map);
 
         assert!(
-            Network::proof_of_stake(subnet_id, peer(2).0.to_vec(), 0, None),
+            Network::proof_of_stake_peer(subnet_id, peer(2).0.to_vec(), 0, None),
             "Proof of stake should work with bootnode peer_id"
         );
 
@@ -137,7 +149,7 @@ fn test_proof_of_stake_all_peer_id_types() {
         }
 
         assert!(
-            !Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0, None),
+            !Network::proof_of_stake_peer(subnet_id, peer_id.0.to_vec(), 0, None),
             "Proof of stake should not work with non-existent peer_id"
         );
 
@@ -178,14 +190,22 @@ fn test_proof_of_stake_all_peer_id_types() {
         increase_epochs(1);
 
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0, None),
+            Network::proof_of_stake_peer(subnet_id, peer_id.0.to_vec(), 0, None),
             "Proof of stake should work with registered peer_id"
+        );
+        assert!(
+            Network::proof_of_stake_hotkey(subnet_id, hotkey.clone(), 0, None),
+            "Proof of stake should work with a registered node hotkey"
+        );
+        assert!(
+            !Network::proof_of_stake_hotkey(subnet_id, hotkey, 1, None),
+            "A registered node hotkey should not satisfy the Idle class"
         );
     })
 }
 
 #[test]
-fn test_proof_of_stake_with_different_classes() {
+fn test_proof_of_stake_peer_with_different_classes() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -203,38 +223,38 @@ fn test_proof_of_stake_with_different_classes() {
 
         // Test with class 0 (Registered)
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 0, None),
+            Network::proof_of_stake_peer(subnet_id, peer_id.0.to_vec(), 0, None),
             "Should work with Registered class"
         );
 
         // Test with class 1 (Idle)
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 1, None),
+            Network::proof_of_stake_peer(subnet_id, peer_id.0.to_vec(), 1, None),
             "Should work with Idle class"
         );
 
         // Test with class 2 (Included)
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 2, None),
+            Network::proof_of_stake_peer(subnet_id, peer_id.0.to_vec(), 2, None),
             "Should work with Included class"
         );
 
         // Test with class 3 (Validator)
         assert!(
-            Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 3, None),
+            Network::proof_of_stake_peer(subnet_id, peer_id.0.to_vec(), 3, None),
             "Should work with Validator class"
         );
 
         // Test with class non-existence class
         assert!(
-            !Network::proof_of_stake(subnet_id, peer_id.0.to_vec(), 4, None),
+            !Network::proof_of_stake_peer(subnet_id, peer_id.0.to_vec(), 4, None),
             "Should not work with non-existence class 4"
         );
     })
 }
 
 #[test]
-fn test_proof_of_stake_invalid_peer_id_fails() {
+fn test_proof_of_stake_peer_invalid_peer_id_fails() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -246,9 +266,167 @@ fn test_proof_of_stake_invalid_peer_id_fails() {
         // Test with non-existent peer_id
         let fake_peer_id = vec![1, 2, 3, 4, 5];
         assert!(
-            !Network::proof_of_stake(subnet_id, fake_peer_id, 1, None),
+            !Network::proof_of_stake_peer(subnet_id, fake_peer_id, 1, None),
             "Proof of stake should fail with invalid peer_id"
         );
+    })
+}
+
+#[test]
+fn test_proof_of_stake_v2_routes_peer_hotkey_and_empty_identifiers() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount = MinSubnetMinStake::<Test>::get();
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let max_subnets = MaxSubnets::<Test>::get();
+        let end = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end);
+        let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
+
+        assert!(Network::proof_of_stake_v2(
+            subnet_id,
+            Some(peer_id.0.to_vec()),
+            None,
+            3,
+            None,
+        ));
+        assert!(Network::proof_of_stake_v2(
+            subnet_id,
+            None,
+            Some(hotkey.clone()),
+            3,
+            None,
+        ));
+        assert!(!Network::proof_of_stake_v2(subnet_id, None, None, 0, None,));
+
+        for min_class in 0..=3 {
+            assert!(Network::proof_of_stake_v2(
+                subnet_id,
+                None,
+                Some(hotkey.clone()),
+                min_class,
+                Some(stake_amount),
+            ));
+        }
+        assert!(!Network::proof_of_stake_v2(
+            subnet_id,
+            None,
+            Some(hotkey.clone()),
+            4,
+            Some(stake_amount),
+        ));
+        assert!(!Network::proof_of_stake_v2(
+            subnet_id,
+            None,
+            Some(hotkey),
+            3,
+            Some(stake_amount.saturating_add(1)),
+        ));
+    })
+}
+
+#[test]
+fn test_proof_of_stake_v2_prefers_peer_when_both_identifiers_are_present() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount = MinSubnetMinStake::<Test>::get();
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let max_subnets = MaxSubnets::<Test>::get();
+        let end = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end);
+        let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end);
+        let unknown_hotkey = account(99_001);
+
+        assert!(Network::proof_of_stake_v2(
+            subnet_id,
+            Some(peer_id.0.to_vec()),
+            Some(unknown_hotkey),
+            3,
+            None,
+        ));
+        assert!(!Network::proof_of_stake_v2(
+            subnet_id,
+            Some(vec![1, 2, 3, 4, 5]),
+            Some(hotkey),
+            3,
+            None,
+        ));
+    })
+}
+
+#[test]
+fn test_proof_of_stake_hotkey_prefers_node_override_to_validator_hotkey() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount = MinSubnetMinStake::<Test>::get();
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let max_subnets = MaxSubnets::<Test>::get();
+        let subnet_node_id = 4;
+
+        build_activated_subnet(
+            subnet_name.clone(),
+            0,
+            subnet_node_id,
+            deposit_amount,
+            stake_amount,
+        );
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let validator_hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, subnet_node_id);
+        let node_hotkey = account(99_001);
+
+        assert!(Network::proof_of_stake_v2(
+            subnet_id,
+            None,
+            Some(validator_hotkey.clone()),
+            3,
+            None,
+        ));
+
+        SubnetNodeIdHotkey::<Test>::insert(subnet_id, subnet_node_id, node_hotkey.clone());
+
+        assert!(!Network::proof_of_stake_v2(
+            subnet_id,
+            None,
+            Some(validator_hotkey.clone()),
+            3,
+            None,
+        ));
+        assert!(Network::proof_of_stake_v2(
+            subnet_id,
+            None,
+            Some(node_hotkey.clone()),
+            3,
+            None,
+        ));
+
+        SubnetNodeIdHotkey::<Test>::remove(subnet_id, subnet_node_id);
+
+        assert!(Network::proof_of_stake_v2(
+            subnet_id,
+            None,
+            Some(validator_hotkey),
+            3,
+            None,
+        ));
+        assert!(!Network::proof_of_stake_v2(
+            subnet_id,
+            None,
+            Some(node_hotkey),
+            3,
+            None,
+        ));
     })
 }
 
@@ -261,6 +439,136 @@ fn test_get_subnet_info() {
 
         build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+        let owner = SubnetOwner::<Test>::get(subnet_id).unwrap();
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+
+        let queue_immunity_epochs = 11;
+        let pending_queue_immunity_epochs = 12;
+        let idle_classification_epochs = 21;
+        let pending_idle_classification_epochs = 22;
+        let included_classification_epochs = 31;
+        let pending_included_classification_epochs = 32;
+        let delegate_stake_percentage = 41;
+        let pending_delegate_stake_percentage = 42;
+        let consensus_validator_node_count_decay = 51;
+        let pending_consensus_validator_node_count_decay = 52;
+        let consensus_validator_stake_weight_power = 61;
+        let pending_consensus_validator_stake_weight_power = 62;
+        let min_weight_decrease_reputation_threshold = 71;
+        let pending_min_weight_decrease_reputation_threshold = 72;
+        let min_subnet_node_reputation = 81;
+        let pending_min_subnet_node_reputation = 82;
+        let min_consensus_node_attestation_percentage = 91;
+        let pending_min_consensus_node_attestation_percentage = 92;
+        let last_delegate_stake_rewards_update = 101;
+        let last_consensus_validator_node_count_decay_update = 102;
+        let last_consensus_validator_stake_weight_power_update = 103;
+
+        QueueImmunityEpochs::<Test>::insert(subnet_id, queue_immunity_epochs);
+        IdleClassificationEpochs::<Test>::insert(subnet_id, idle_classification_epochs);
+        IncludedClassificationEpochs::<Test>::insert(subnet_id, included_classification_epochs);
+        SubnetDelegateStakeRewardsPercentage::<Test>::insert(subnet_id, delegate_stake_percentage);
+        ConsensusValidatorNodeCountDecay::<Test>::insert(
+            subnet_id,
+            consensus_validator_node_count_decay,
+        );
+        ConsensusValidatorStakeWeightPower::<Test>::insert(
+            subnet_id,
+            consensus_validator_stake_weight_power,
+        );
+        SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::insert(
+            subnet_id,
+            min_weight_decrease_reputation_threshold,
+        );
+        MinSubnetNodeReputation::<Test>::insert(subnet_id, min_subnet_node_reputation);
+        SubnetMinConsensusNodeAttestationPercentage::<Test>::insert(
+            subnet_id,
+            min_consensus_node_attestation_percentage,
+        );
+        LastSubnetDelegateStakeRewardsUpdate::<Test>::insert(
+            subnet_id,
+            last_delegate_stake_rewards_update,
+        );
+        LastConsensusValidatorNodeCountDecayUpdate::<Test>::insert(
+            subnet_id,
+            last_consensus_validator_node_count_decay_update,
+        );
+        LastConsensusValidatorStakeWeightPowerUpdate::<Test>::insert(
+            subnet_id,
+            last_consensus_validator_stake_weight_power_update,
+        );
+
+        let pending_queue = PendingOwnerU32Update::<Test> {
+            value: pending_queue_immunity_epochs,
+            effective_subnet_epoch,
+            owner: owner.clone(),
+        };
+        let pending_idle = PendingOwnerU32Update::<Test> {
+            value: pending_idle_classification_epochs,
+            effective_subnet_epoch,
+            owner: owner.clone(),
+        };
+        let pending_included = PendingOwnerU32Update::<Test> {
+            value: pending_included_classification_epochs,
+            effective_subnet_epoch,
+            owner: owner.clone(),
+        };
+        let pending_delegate = PendingSubnetDelegateStakeRewardsPercentageUpdate::<Test> {
+            value: pending_delegate_stake_percentage,
+            effective_subnet_epoch,
+            owner: owner.clone(),
+        };
+        let pending_node_count_decay = PendingOwnerU128Update::<Test> {
+            value: pending_consensus_validator_node_count_decay,
+            effective_subnet_epoch,
+            owner: owner.clone(),
+        };
+        let pending_stake_weight_power = PendingOwnerU128Update::<Test> {
+            value: pending_consensus_validator_stake_weight_power,
+            effective_subnet_epoch,
+            owner: owner.clone(),
+        };
+        let pending_min_weight_threshold = PendingOwnerU128Update::<Test> {
+            value: pending_min_weight_decrease_reputation_threshold,
+            effective_subnet_epoch,
+            owner: owner.clone(),
+        };
+        let pending_min_reputation = PendingOwnerU128Update::<Test> {
+            value: pending_min_subnet_node_reputation,
+            effective_subnet_epoch,
+            owner: owner.clone(),
+        };
+        let pending_min_attestation = PendingOwnerU128Update::<Test> {
+            value: pending_min_consensus_node_attestation_percentage,
+            effective_subnet_epoch,
+            owner,
+        };
+
+        PendingQueueImmunityEpochs::<Test>::insert(subnet_id, pending_queue.clone());
+        PendingIdleClassificationEpochs::<Test>::insert(subnet_id, pending_idle.clone());
+        PendingIncludedClassificationEpochs::<Test>::insert(subnet_id, pending_included.clone());
+        PendingSubnetDelegateStakeRewardsPercentage::<Test>::insert(
+            subnet_id,
+            pending_delegate.clone(),
+        );
+        PendingConsensusValidatorNodeCountDecay::<Test>::insert(
+            subnet_id,
+            pending_node_count_decay.clone(),
+        );
+        PendingConsensusValidatorStakeWeightPower::<Test>::insert(
+            subnet_id,
+            pending_stake_weight_power.clone(),
+        );
+        PendingSubnetNodeMinWeightDecreaseReputationThreshold::<Test>::insert(
+            subnet_id,
+            pending_min_weight_threshold.clone(),
+        );
+        PendingMinSubnetNodeReputation::<Test>::insert(subnet_id, pending_min_reputation.clone());
+        PendingSubnetMinConsensusNodeAttestationPercentage::<Test>::insert(
+            subnet_id,
+            pending_min_attestation.clone(),
+        );
 
         let subnet_info = Network::get_subnet_info(subnet_id);
 
@@ -268,6 +576,153 @@ fn test_get_subnet_info() {
         let info = subnet_info.unwrap();
         assert_eq!(info.id, subnet_id);
         assert_eq!(info.name, subnet_name);
+        assert_eq!(info.queue_immunity_epochs, queue_immunity_epochs);
+        assert_eq!(info.pending_queue_immunity_epochs, Some(pending_queue));
+        assert_eq!(info.idle_classification_epochs, idle_classification_epochs);
+        assert_eq!(info.pending_idle_classification_epochs, Some(pending_idle));
+        assert_eq!(
+            info.included_classification_epochs,
+            included_classification_epochs
+        );
+        assert_eq!(
+            info.pending_included_classification_epochs,
+            Some(pending_included)
+        );
+        assert_eq!(info.delegate_stake_percentage, delegate_stake_percentage);
+        assert_eq!(
+            info.pending_delegate_stake_percentage,
+            Some(pending_delegate)
+        );
+        assert_eq!(
+            info.last_delegate_stake_rewards_update,
+            last_delegate_stake_rewards_update
+        );
+        assert_eq!(
+            info.consensus_validator_node_count_decay,
+            consensus_validator_node_count_decay
+        );
+        assert_eq!(
+            info.pending_consensus_validator_node_count_decay,
+            Some(pending_node_count_decay)
+        );
+        assert_eq!(
+            info.last_consensus_validator_node_count_decay_update,
+            Some(last_consensus_validator_node_count_decay_update)
+        );
+        assert_eq!(
+            info.consensus_validator_stake_weight_power,
+            consensus_validator_stake_weight_power
+        );
+        assert_eq!(
+            info.pending_consensus_validator_stake_weight_power,
+            Some(pending_stake_weight_power)
+        );
+        assert_eq!(
+            info.last_consensus_validator_stake_weight_power_update,
+            Some(last_consensus_validator_stake_weight_power_update)
+        );
+        assert_eq!(
+            info.subnet_node_min_weight_decrease_reputation_threshold,
+            min_weight_decrease_reputation_threshold
+        );
+        assert_eq!(
+            info.pending_subnet_node_min_weight_decrease_reputation_threshold,
+            Some(pending_min_weight_threshold)
+        );
+        assert_eq!(info.min_subnet_node_reputation, min_subnet_node_reputation);
+        assert_eq!(
+            info.pending_min_subnet_node_reputation,
+            Some(pending_min_reputation)
+        );
+        assert_eq!(
+            info.min_consensus_node_attestation_percentage,
+            min_consensus_node_attestation_percentage
+        );
+        assert_eq!(
+            info.pending_min_consensus_node_attestation_percentage,
+            Some(pending_min_attestation)
+        );
+
+        PendingQueueImmunityEpochs::<Test>::mutate(subnet_id, |pending| {
+            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
+        });
+        PendingIdleClassificationEpochs::<Test>::mutate(subnet_id, |pending| {
+            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
+        });
+        PendingIncludedClassificationEpochs::<Test>::mutate(subnet_id, |pending| {
+            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
+        });
+        PendingSubnetDelegateStakeRewardsPercentage::<Test>::mutate(subnet_id, |pending| {
+            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
+        });
+        PendingConsensusValidatorNodeCountDecay::<Test>::mutate(subnet_id, |pending| {
+            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
+        });
+        PendingConsensusValidatorStakeWeightPower::<Test>::mutate(subnet_id, |pending| {
+            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
+        });
+        PendingSubnetNodeMinWeightDecreaseReputationThreshold::<Test>::mutate(
+            subnet_id,
+            |pending| {
+                pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
+            },
+        );
+        PendingMinSubnetNodeReputation::<Test>::mutate(subnet_id, |pending| {
+            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
+        });
+        PendingSubnetMinConsensusNodeAttestationPercentage::<Test>::mutate(subnet_id, |pending| {
+            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
+        });
+
+        let info = Network::get_subnet_info(subnet_id).unwrap();
+        assert_eq!(info.queue_immunity_epochs, pending_queue_immunity_epochs);
+        assert!(info.pending_queue_immunity_epochs.is_none());
+        assert_eq!(
+            info.idle_classification_epochs,
+            pending_idle_classification_epochs
+        );
+        assert!(info.pending_idle_classification_epochs.is_none());
+        assert_eq!(
+            info.included_classification_epochs,
+            pending_included_classification_epochs
+        );
+        assert!(info.pending_included_classification_epochs.is_none());
+        assert_eq!(
+            info.delegate_stake_percentage,
+            pending_delegate_stake_percentage
+        );
+        assert!(info.pending_delegate_stake_percentage.is_none());
+        assert_eq!(
+            info.consensus_validator_node_count_decay,
+            pending_consensus_validator_node_count_decay
+        );
+        assert!(info.pending_consensus_validator_node_count_decay.is_none());
+        assert_eq!(
+            info.consensus_validator_stake_weight_power,
+            pending_consensus_validator_stake_weight_power
+        );
+        assert!(info
+            .pending_consensus_validator_stake_weight_power
+            .is_none());
+        assert_eq!(
+            info.subnet_node_min_weight_decrease_reputation_threshold,
+            pending_min_weight_decrease_reputation_threshold
+        );
+        assert!(info
+            .pending_subnet_node_min_weight_decrease_reputation_threshold
+            .is_none());
+        assert_eq!(
+            info.min_subnet_node_reputation,
+            pending_min_subnet_node_reputation
+        );
+        assert!(info.pending_min_subnet_node_reputation.is_none());
+        assert_eq!(
+            info.min_consensus_node_attestation_percentage,
+            pending_min_consensus_node_attestation_percentage
+        );
+        assert!(info
+            .pending_min_consensus_node_attestation_percentage
+            .is_none());
     })
 }
 

@@ -30,6 +30,12 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidSubnetId
         );
 
+        ensure!(
+            SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id)
+                || RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id),
+            Error::<T>::InvalidSubnetNodeId
+        );
+
         // Resolve the validator that owns this subnet node, then ensure the caller is that
         // validator's coldkey. Only the owner is allowed to add stake.
         let validator_id = SubnetNodeValidatorId::<T>::try_get(subnet_id, subnet_node_id)

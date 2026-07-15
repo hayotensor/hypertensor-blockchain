@@ -101,6 +101,11 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
+        ensure!(
+            OverwatchNodes::<T>::contains_key(overwatch_node_id),
+            Error::<T>::InvalidOverwatchNodeId
+        );
+
         let validator_coldkey = Self::get_overwatch_node_associated_coldkey(overwatch_node_id)?;
 
         ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
@@ -127,6 +132,11 @@ impl<T: Config> Pallet<T> {
         ensure!(
             SubnetsData::<T>::contains_key(subnet_id),
             Error::<T>::InvalidSubnetId
+        );
+
+        ensure!(
+            OverwatchNodes::<T>::contains_key(overwatch_node_id),
+            Error::<T>::InvalidOverwatchNodeId
         );
 
         let (colkey, hotkey) =

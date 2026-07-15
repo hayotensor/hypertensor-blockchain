@@ -1515,8 +1515,14 @@ impl_runtime_apis! {
             let result = Network::get_bootnodes(subnet_id);
             result.encode()
         }
-        fn proof_of_stake(subnet_id: u32, peer_id: Vec<u8>, min_class: u8, min_stake: Option<u128>) -> bool {
-            Network::proof_of_stake(subnet_id, peer_id, min_class, min_stake)
+        fn proof_of_stake_v2(
+            subnet_id: u32,
+            peer_id: Option<Vec<u8>>,
+            hotkey: Option<AccountId>,
+            min_class: u8,
+            min_stake: Option<u128>,
+        ) -> bool {
+            Network::proof_of_stake_v2(subnet_id, peer_id, hotkey, min_class, min_stake)
         }
         fn get_validator_subnet_nodes_info(validator_id: u32) -> Vec<u8> {
             let result = Network::get_validator_subnet_nodes_info(validator_id);

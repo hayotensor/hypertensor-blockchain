@@ -940,6 +940,76 @@ fn test_transfer_validator_delegate_stake_partial_balance() {
 }
 
 #[test]
+fn test_transfer_validator_delegate_stake_requires_owned_shares() {
+    new_test_ext().execute_with(|| {
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        let validator_id = 1;
+
+        let staker = account(1000);
+        let attacker = account(1001);
+        let recipient = account(1002);
+
+        let _ = Balances::deposit_creating(&staker, amount + 500);
+
+        assert_ok!(Network::add_validator_delegate_stake(
+            RuntimeOrigin::signed(staker.clone()),
+            validator_id,
+            amount,
+        ));
+
+        let staker_shares =
+            AccountValidatorDelegateStakeShares::<Test>::get(&staker, validator_id);
+        let total_shares = ValidatorDelegateStakeShares::<Test>::get(validator_id);
+        let total_balance = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
+        assert_ne!(staker_shares, 0);
+        assert_eq!(
+            AccountValidatorDelegateStakeShares::<Test>::get(&attacker, validator_id),
+            0
+        );
+        assert_eq!(
+            AccountValidatorDelegateStakeShares::<Test>::get(&recipient, validator_id),
+            0
+        );
+
+        assert_err!(
+            Network::transfer_validator_delegate_stake(
+                RuntimeOrigin::signed(attacker.clone()),
+                validator_id,
+                recipient.clone(),
+                staker_shares,
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
+
+        assert_eq!(
+            AccountValidatorDelegateStakeShares::<Test>::get(&staker, validator_id),
+            staker_shares
+        );
+        assert_eq!(
+            AccountValidatorDelegateStakeShares::<Test>::get(&attacker, validator_id),
+            0
+        );
+        assert_eq!(
+            AccountValidatorDelegateStakeShares::<Test>::get(&recipient, validator_id),
+            0
+        );
+        assert_eq!(
+            ValidatorDelegateStakeShares::<Test>::get(validator_id),
+            total_shares
+        );
+        assert_eq!(
+            ValidatorDelegateStakeBalance::<Test>::get(validator_id),
+            total_balance
+        );
+    });
+}
+
+#[test]
 fn test_inflation_exploit_mitigation_dead_shares() {
     new_test_ext().execute_with(|| {
         let validator_id = 1;

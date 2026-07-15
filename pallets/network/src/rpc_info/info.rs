@@ -41,7 +41,8 @@ impl<T: Config> Pallet<T> {
                 subnet_id,
                 current_subnet_epoch,
             ),
-            pending_queue_immunity_epochs: PendingQueueImmunityEpochs::<T>::get(subnet_id),
+            pending_queue_immunity_epochs: PendingQueueImmunityEpochs::<T>::get(subnet_id)
+                .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
             target_node_registrations_per_epoch: TargetNodeRegistrationsPerEpoch::<T>::get(
                 subnet_id,
             ),
@@ -53,18 +54,46 @@ impl<T: Config> Pallet<T> {
             ),
             pending_idle_classification_epochs: PendingIdleClassificationEpochs::<T>::get(
                 subnet_id,
-            ),
+            )
+            .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
             included_classification_epochs: Self::get_included_classification_epochs_for_epoch(
                 subnet_id,
                 current_subnet_epoch,
             ),
             pending_included_classification_epochs: PendingIncludedClassificationEpochs::<T>::get(
                 subnet_id,
+            )
+            .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
+            delegate_stake_percentage: Self::get_subnet_delegate_stake_rewards_percentage_for_epoch(
+                subnet_id,
+                current_subnet_epoch,
             ),
-            delegate_stake_percentage: SubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id),
+            pending_delegate_stake_percentage:
+                PendingSubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id)
+                    .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
             last_delegate_stake_rewards_update: LastSubnetDelegateStakeRewardsUpdate::<T>::get(
                 subnet_id,
             ),
+            consensus_validator_node_count_decay:
+                Self::get_consensus_validator_node_count_decay_for_epoch(
+                    subnet_id,
+                    current_subnet_epoch,
+                ),
+            pending_consensus_validator_node_count_decay:
+                PendingConsensusValidatorNodeCountDecay::<T>::get(subnet_id)
+                    .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
+            last_consensus_validator_node_count_decay_update:
+                LastConsensusValidatorNodeCountDecayUpdate::<T>::get(subnet_id),
+            consensus_validator_stake_weight_power:
+                Self::get_consensus_validator_stake_weight_power_for_epoch(
+                    subnet_id,
+                    current_subnet_epoch,
+                ),
+            pending_consensus_validator_stake_weight_power:
+                PendingConsensusValidatorStakeWeightPower::<T>::get(subnet_id)
+                    .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
+            last_consensus_validator_stake_weight_power_update:
+                LastConsensusValidatorStakeWeightPowerUpdate::<T>::get(subnet_id),
             node_burn_rate_alpha: NodeBurnRateAlpha::<T>::get(subnet_id),
             current_node_burn_rate: CurrentNodeBurnRate::<T>::get(subnet_id),
             initial_validators: NodeRegistrationInitialValidatorIds::<T>::get(subnet_id),
@@ -82,20 +111,23 @@ impl<T: Config> Pallet<T> {
                     current_subnet_epoch,
                 ),
             pending_subnet_node_min_weight_decrease_reputation_threshold:
-                PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
+                PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id)
+                    .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
             reputation: SubnetReputation::<T>::get(subnet_id),
             min_subnet_node_reputation: Self::get_min_subnet_node_reputation_for_epoch(
                 subnet_id,
                 current_subnet_epoch,
             ),
-            pending_min_subnet_node_reputation: PendingMinSubnetNodeReputation::<T>::get(subnet_id),
+            pending_min_subnet_node_reputation: PendingMinSubnetNodeReputation::<T>::get(subnet_id)
+                .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
             min_consensus_node_attestation_percentage:
                 Self::get_min_consensus_node_attestation_percentage_for_epoch(
                     subnet_id,
                     current_subnet_epoch,
                 ),
             pending_min_consensus_node_attestation_percentage:
-                PendingSubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id),
+                PendingSubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id)
+                    .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
             absent_decrease_reputation_factor: reputation_factors.absent_decrease,
             included_increase_reputation_factor: reputation_factors.included_increase,
             below_min_weight_decrease_reputation_factor: reputation_factors
@@ -258,34 +290,28 @@ impl<T: Config> Pallet<T> {
         infos
     }
 
-    /// Proof-of-stake
-    ///
-    /// - Returns if the node has a proof of stake by its `peer_id` (main, bootnode, or client)
-    ///
-    /// # Options
-    ///
-    /// - Can use either a subnet nodes peer ID, subnet nodes bootnode peer ID, overwatch node peer ID, or subnet bootnode peer ID
-    ///
-    /// The most secure way to call this function is by peer ID with signatures
-    ///
-    /// # Requirements
-    ///
-    /// To use `peer_id` effectively, ensure all communications between nodes in the subnets
-    /// are signed and validated.
-    ///
-    /// # Arguments
-    ///
-    /// * `subnet_id` - Subnet ID.
-    /// * `subnet_node_id` - Subnet node ID
-    /// * `peer_id` - Subnet node peer ID
-    /// * `min_class` - Minimum required class
-    ///     * A subnet may likely require Registered or Idle to enter subnet
-    /// * `min_stake` - Optional minimum required stake
-    ///     * If not provided, will use the subnet's minimum stake
-    ///     * This is useful because a node can be slashed under the min stake requirement. Subnets can have leeway
-    ///       on its proof of stake requirements in the subnets communications.
-    ///
-    pub fn proof_of_stake(
+    /// Returns whether a node identified by either a peer ID or hotkey satisfies a subnet's
+    /// proof-of-stake requirements. Peer ID takes precedence when both identifiers are supplied.
+    pub fn proof_of_stake_v2(
+        subnet_id: u32,
+        peer_id: Option<Vec<u8>>,
+        hotkey: Option<T::AccountId>,
+        min_class: u8,
+        min_stake: Option<u128>,
+    ) -> bool {
+        if let Some(peer_id) = peer_id {
+            return Self::proof_of_stake_peer(subnet_id, peer_id, min_class, min_stake);
+        } else if let Some(hotkey) = hotkey {
+            return Self::proof_of_stake_hotkey(subnet_id, hotkey, min_class, min_stake);
+        }
+
+        false
+    }
+
+    /// Returns whether a node identified by a main, bootnode, or client peer ID satisfies the
+    /// requested subnet-node classification and stake. Overwatch and official subnet bootnode
+    /// peer IDs retain their trusted-role behavior.
+    pub fn proof_of_stake_peer(
         subnet_id: u32,
         peer_id: Vec<u8>,
         min_class: u8,
@@ -305,17 +331,13 @@ impl<T: Config> Pallet<T> {
         let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
         let peer_id = PeerId(peer_id);
 
-        // Helper closure to check a peer_id lookup mapping
         let check_mapping = |mapping: fn(u32, PeerId) -> Result<u32, ()>| -> bool {
             mapping(subnet_id, peer_id.clone())
                 .ok()
                 .and_then(|subnet_node_id| {
-                    // First try SubnetNodesData, then fall back to RegisteredSubnetNodesData
-                    // since nodes with SubnetNodeClass::Registered are stored in the latter
                     SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
                         .ok()
                         .or_else(|| {
-                            // Only SubnetNodeClass::Registered nodes are stored in RegisteredSubnetNodesData
                             if class == SubnetNodeClass::Registered {
                                 RegisteredSubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
                                     .ok()
@@ -325,13 +347,17 @@ impl<T: Config> Pallet<T> {
                         })
                 })
                 .map(|subnet_node| {
-                    subnet_node.has_classification(&class, current_subnet_epoch)
-                        && NodeSubnetStake::<T>::get(subnet_node.id, subnet_id) >= min_stake
+                    Self::subnet_node_has_proof_of_stake(
+                        subnet_id,
+                        &subnet_node,
+                        &class,
+                        current_subnet_epoch,
+                        min_stake,
+                    )
                 })
                 .unwrap_or(false)
         };
 
-        // Check the three possible peer-id → subnet-node mappings
         if check_mapping(PeerIdSubnetNodeId::<T>::try_get)
             || check_mapping(BootnodePeerIdSubnetNodeId::<T>::try_get)
             || check_mapping(ClientPeerIdSubnetNodeId::<T>::try_get)
@@ -339,13 +365,67 @@ impl<T: Config> Pallet<T> {
             return true;
         }
 
-        // Check overwatch node
-        if let Ok(_) = PeerIdOverwatchNodeId::<T>::try_get(subnet_id, &peer_id) {
+        if PeerIdOverwatchNodeId::<T>::try_get(subnet_id, &peer_id).is_ok() {
             return true;
         }
 
-        // Check bootnodes
         SubnetBootnodes::<T>::get(subnet_id).contains_key(&peer_id)
+    }
+
+    /// Returns whether any subnet node whose effective hotkey matches `hotkey` satisfies the
+    /// requested classification and stake. A node-specific hotkey overrides its validator hotkey.
+    pub fn proof_of_stake_hotkey(
+        subnet_id: u32,
+        hotkey: T::AccountId,
+        min_class: u8,
+        min_stake: Option<u128>,
+    ) -> bool {
+        if !SubnetsData::<T>::contains_key(subnet_id) {
+            return false;
+        }
+
+        let class = if let Some(subnet_node_class) = SubnetNodeClass::from_repr(min_class.into()) {
+            subnet_node_class
+        } else {
+            return false;
+        };
+
+        let min_stake = min_stake.unwrap_or(SubnetMinStakeBalance::<T>::get(subnet_id));
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+
+        let has_proof = |subnet_node_id: u32, subnet_node: &SubnetNode<T>| -> bool {
+            Self::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id)
+                .map(|node_hotkey| node_hotkey == hotkey)
+                .unwrap_or(false)
+                && Self::subnet_node_has_proof_of_stake(
+                    subnet_id,
+                    subnet_node,
+                    &class,
+                    current_subnet_epoch,
+                    min_stake,
+                )
+        };
+
+        if SubnetNodesData::<T>::iter_prefix(subnet_id)
+            .any(|(subnet_node_id, subnet_node)| has_proof(subnet_node_id, &subnet_node))
+        {
+            return true;
+        }
+
+        class == SubnetNodeClass::Registered
+            && RegisteredSubnetNodesData::<T>::iter_prefix(subnet_id)
+                .any(|(subnet_node_id, subnet_node)| has_proof(subnet_node_id, &subnet_node))
+    }
+
+    fn subnet_node_has_proof_of_stake(
+        subnet_id: u32,
+        subnet_node: &SubnetNode<T>,
+        min_class: &SubnetNodeClass,
+        current_subnet_epoch: u32,
+        min_stake: u128,
+    ) -> bool {
+        subnet_node.has_classification(min_class, current_subnet_epoch)
+            && NodeSubnetStake::<T>::get(subnet_node.id, subnet_id) >= min_stake
     }
 
     /// Get all bootnodes organized by the official bootnodes, node bootnodes, and registered bootnodes

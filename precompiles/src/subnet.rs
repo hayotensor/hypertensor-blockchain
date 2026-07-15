@@ -680,13 +680,12 @@ where
     }
 
     #[precompile::public(
-        "proposeAttestation(uint256,uint256,(uint256,uint256)[],bool,uint256,bool,uint256,bytes,bytes)"
+        "proposeAttestation(uint256,(uint256,uint256)[],bool,uint256,bool,uint256,bytes,bytes)"
     )]
     #[precompile::payable]
     fn propose_attestation(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
-        subnet_node_id: U256,
         data: Vec<(U256, U256)>,
         has_prioritize_queue_node_id: bool,
         prioritize_queue_node_id: U256,
@@ -696,7 +695,6 @@ where
         attest_data: UnboundedBytes,
     ) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
-        let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
         let data: Vec<SubnetNodeConsensusData> = data
             .into_iter()
             .map(|(subnet_node_id, score)| {
@@ -726,7 +724,6 @@ where
         let origin = R::AddressMapping::into_account_id(handle.context().caller);
         let call = pallet_network::Call::<R>::propose_attestation {
             subnet_id,
-            subnet_node_id,
             data,
             prioritize_queue_node_id,
             remove_queue_node_id,

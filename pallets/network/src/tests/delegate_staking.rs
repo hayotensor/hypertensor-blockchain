@@ -2082,6 +2082,72 @@ fn test_transfer_delegate_stake() {
 }
 
 #[test]
+fn test_transfer_delegate_stake_requires_owned_shares() {
+    new_test_ext().execute_with(|| {
+        let deposit_amount: u128 = 10000000000000000000000;
+        let amount: u128 = 1000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        build_activated_subnet(subnet_name.clone(), 0, 0, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+
+        let staker = account(255);
+        let attacker = account(256);
+        let recipient = account(257);
+
+        let _ = Balances::deposit_creating(&staker, amount + 500);
+
+        assert_ok!(Network::add_subnet_delegate_stake(
+            RuntimeOrigin::signed(staker.clone()),
+            subnet_id,
+            amount,
+        ));
+
+        let staker_shares = AccountSubnetDelegateStakeShares::<Test>::get(&staker, subnet_id);
+        let total_shares = TotalSubnetDelegateStakeShares::<Test>::get(subnet_id);
+        let total_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+        assert_ne!(staker_shares, 0);
+        assert_eq!(
+            AccountSubnetDelegateStakeShares::<Test>::get(&attacker, subnet_id),
+            0
+        );
+        assert_eq!(
+            AccountSubnetDelegateStakeShares::<Test>::get(&recipient, subnet_id),
+            0
+        );
+
+        assert_err!(
+            Network::transfer_delegate_stake(
+                RuntimeOrigin::signed(attacker.clone()),
+                subnet_id,
+                recipient.clone(),
+                staker_shares,
+            ),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
+
+        assert_eq!(
+            AccountSubnetDelegateStakeShares::<Test>::get(&staker, subnet_id),
+            staker_shares
+        );
+        assert_eq!(
+            AccountSubnetDelegateStakeShares::<Test>::get(&attacker, subnet_id),
+            0
+        );
+        assert_eq!(
+            AccountSubnetDelegateStakeShares::<Test>::get(&recipient, subnet_id),
+            0
+        );
+        assert_eq!(TotalSubnetDelegateStakeShares::<Test>::get(subnet_id), total_shares);
+        assert_eq!(
+            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
+            total_balance
+        );
+    });
+}
+
+#[test]
 fn test_transfer_delegate_stake_min_delegate_stake_deposit_not_reached() {
     new_test_ext().execute_with(|| {
         let _ = env_logger::builder().is_test(true).try_init();

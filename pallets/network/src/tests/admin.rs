@@ -4,10 +4,11 @@ use crate::Event;
 use crate::{
     AttestorMinRewardFactor, AttestorRewardExponent, BaseNodeBurnAmount, BaseSlashPercentage,
     BaseValidatorReward, ConsensusValidatorNodeCountDecayUpdateInterval,
-    DefaultOverwatchSubnetWeight, DelegateStakeCooldownEpochs, DelegateStakeSubnetRemovalInterval,
-    DelegateStakeWeightFactor, Error, InConsensusSubnetReputationFactor, InflationSigmoidMidpoint,
-    InflationSigmoidSteepness, LessThanMinNodesSubnetReputationFactor, MaxBootnodes, MaxChurnLimit,
-    MaxChurnLimitMultiplier, MaxDelegateStakePercentage, MaxEmergencySubnetNodes,
+    ConsensusValidatorStakeWeightPowerUpdateInterval, DefaultOverwatchSubnetWeight,
+    DelegateStakeCooldownEpochs, DelegateStakeSubnetRemovalInterval, DelegateStakeWeightFactor,
+    Error, InConsensusSubnetReputationFactor, InflationSigmoidMidpoint, InflationSigmoidSteepness,
+    LessThanMinNodesSubnetReputationFactor, MaxBootnodes, MaxChurnLimit, MaxChurnLimitMultiplier,
+    MaxConsensusValidatorStakeWeightPower, MaxDelegateStakePercentage, MaxEmergencySubnetNodes,
     MaxEmergencyValidatorEpochsMultiplier, MaxIdleClassificationEpochs,
     MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes, MaxMinDelegateStakeMultiplier,
     MaxMinSubnetNodeReputation, MaxNodeBurnRate, MaxNodeReputationFactor, MaxOverwatchNodes,
@@ -20,9 +21,10 @@ use crate::{
     MinChurnLimitMultiplier, MinDelegateStakeDeposit, MinDelegateStakePercentage,
     MinIdleClassificationEpochs, MinIncludedClassificationEpochs, MinMaxRegisteredNodes,
     MinMinSubnetNodeReputation, MinNodeBurnRate, MinNodeReputationFactor, MinQueueEpochs,
-    MinRegistrationCost, MinSubnetConsensusNodeAttestationPercentage, MinSubnetDelegateStakeFactor,
-    MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetRemovalInterval,
-    MinSubnetReputation, NetworkMaxStakeBalance, NewRegistrationCostMultiplier,
+    MinConsensusValidatorStakeWeightPower, MinRegistrationCost,
+    MinSubnetConsensusNodeAttestationPercentage, MinSubnetDelegateStakeFactor, MinSubnetMinStake,
+    MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
+    NetworkMaxStakeBalance, NewRegistrationCostMultiplier,
     NodeDelegateStakeCooldownEpochs, NodeRewardRateUpdatePeriod,
     NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
     OverwatchEpochLengthMultiplier, OverwatchMinAge, OverwatchMinAvgAttestationRatio,
@@ -1123,6 +1125,119 @@ fn test_set_consensus_validator_node_count_decay_update_interval() {
             Network::set_consensus_validator_node_count_decay_update_interval(
                 RuntimeOrigin::signed(account(1)),
                 new_value
+            ),
+            sp_runtime::DispatchError::BadOrigin
+        );
+    });
+}
+
+#[test]
+fn test_set_consensus_validator_stake_weight_power_update_interval() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(System::block_number() + 1);
+
+        assert_eq!(
+            ConsensusValidatorStakeWeightPowerUpdateInterval::<Test>::get(),
+            1
+        );
+
+        let new_value = 7;
+        assert_ok!(
+            Network::set_consensus_validator_stake_weight_power_update_interval(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                new_value
+            )
+        );
+
+        assert_eq!(
+            ConsensusValidatorStakeWeightPowerUpdateInterval::<Test>::get(),
+            new_value
+        );
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::SetConsensusValidatorStakeWeightPowerUpdateInterval(new_value)
+        );
+
+        assert_ok!(
+            Network::set_consensus_validator_stake_weight_power_update_interval(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                0
+            )
+        );
+        assert_eq!(
+            ConsensusValidatorStakeWeightPowerUpdateInterval::<Test>::get(),
+            0
+        );
+
+        assert_err!(
+            Network::set_consensus_validator_stake_weight_power_update_interval(
+                RuntimeOrigin::signed(account(1)),
+                new_value
+            ),
+            sp_runtime::DispatchError::BadOrigin
+        );
+    });
+}
+
+#[test]
+fn test_set_min_max_consensus_validator_stake_weight_power() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(System::block_number() + 1);
+
+        let percentage_factor = Network::percentage_factor_as_u128();
+        assert_eq!(MinConsensusValidatorStakeWeightPower::<Test>::get(), 0);
+        assert_eq!(
+            MaxConsensusValidatorStakeWeightPower::<Test>::get(),
+            percentage_factor
+        );
+
+        let min = test_percent(1, 4);
+        let max = test_percent(3, 4);
+        assert_ok!(
+            Network::set_min_max_consensus_validator_stake_weight_power(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                min,
+                max
+            )
+        );
+        assert_eq!(MinConsensusValidatorStakeWeightPower::<Test>::get(), min);
+        assert_eq!(MaxConsensusValidatorStakeWeightPower::<Test>::get(), max);
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::SetMinMaxConsensusValidatorStakeWeightPower(min, max)
+        );
+
+        assert_ok!(
+            Network::set_min_max_consensus_validator_stake_weight_power(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                0,
+                0
+            )
+        );
+        assert_eq!(MinConsensusValidatorStakeWeightPower::<Test>::get(), 0);
+        assert_eq!(MaxConsensusValidatorStakeWeightPower::<Test>::get(), 0);
+
+        assert_err!(
+            Network::set_min_max_consensus_validator_stake_weight_power(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                max,
+                min
+            ),
+            Error::<Test>::InvalidValues
+        );
+        assert_err!(
+            Network::set_min_max_consensus_validator_stake_weight_power(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                0,
+                percentage_factor + 1
+            ),
+            Error::<Test>::InvalidPercent
+        );
+        assert_err!(
+            Network::set_min_max_consensus_validator_stake_weight_power(
+                RuntimeOrigin::signed(account(1)),
+                min,
+                max
             ),
             sp_runtime::DispatchError::BadOrigin
         );

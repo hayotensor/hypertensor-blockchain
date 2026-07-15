@@ -24,6 +24,11 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
+        ensure!(
+            OverwatchNodes::<T>::contains_key(overwatch_node_id),
+            Error::<T>::InvalidOverwatchNodeId
+        );
+
         // Resolve the validator that owns this subnet node, then ensure the caller is that
         // validator's coldkey. Only the owner is allowed to add stake.
         let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)

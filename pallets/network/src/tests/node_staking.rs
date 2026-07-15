@@ -737,6 +737,47 @@ fn test_remove_stake_after_remove_subnet_node() {
 }
 
 #[test]
+fn test_add_node_stake_rejects_removed_subnet_node() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 1000000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let end = 11;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+
+        let coldkey = get_coldkey(subnets, max_subnet_nodes, end);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+
+        let _ = Balances::deposit_creating(&coldkey, deposit_amount);
+
+        let node_stake = NodeSubnetStake::<Test>::get(end, subnet_id);
+        let total_subnet_stake = TotalSubnetStake::<Test>::get(subnet_id);
+
+        assert_ok!(Network::remove_subnet_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            subnet_id,
+            end,
+        ));
+
+        assert_err!(
+            Network::add_node_stake(
+                RuntimeOrigin::signed(coldkey),
+                subnet_id,
+                end,
+                stake_amount,
+            ),
+            Error::<Test>::InvalidSubnetNodeId
+        );
+
+        assert_eq!(NodeSubnetStake::<Test>::get(end, subnet_id), node_stake);
+        assert_eq!(TotalSubnetStake::<Test>::get(subnet_id), total_subnet_stake);
+    });
+}
+
+#[test]
 fn test_remove_stake_after_remove_subnet() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();

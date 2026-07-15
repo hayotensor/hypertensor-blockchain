@@ -179,7 +179,6 @@ interface Subnet {
 
     function proposeAttestation(
         uint256 subnetId,
-        uint256 subnetNodeId,
         ConsensusData[] calldata data,
         bool hasPrioritizeQueueNodeId,
         uint256 prioritizeQueueNodeId,
