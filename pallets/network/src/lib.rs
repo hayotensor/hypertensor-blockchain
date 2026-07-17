@@ -1079,7 +1079,8 @@ pub mod pallet {
     /// * `description` - Description of what the subnet does and use cases.
     /// * `misc` - Misc data.
     /// * `state` - Registered, Active, or Paused.
-    /// * `start_epoch` - Start epoch based on subnet state.
+    /// * `start_epoch` - State-dependent general-epoch marker. For `Active`, this is when
+    ///   consensus becomes live. For `Paused`, this is when the pause began.
     #[derive(
         Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
@@ -1107,7 +1108,8 @@ pub mod pallet {
     ///   `initial_coldkeys` can register nodes and users can delegate stake before the
     ///   enactment period.
     ///
-    /// * `Active` - The subnet is fully operational and participating in consensus epochs.
+    /// * `Active` - The subnet can perform preparation maintenance. It participates in
+    ///   consensus once its `start_epoch` has been reached.
     ///
     /// * `Paused` - The subnet has been temporarily suspended by the owner. While paused,
     ///   no consensus operations occur and no new nodes can register, but existing nodes
@@ -1207,7 +1209,8 @@ pub mod pallet {
     /// * `misc` - Miscellaneous metadata that doesn't fit other categories.
     /// * `state` - The current operational state of the subnet (e.g., active, paused, removed).
     ///   See `SubnetState` for possible values.
-    /// * `start_epoch` - The epoch when the subnet became active and began operations.
+    /// * `start_epoch` - State-dependent general-epoch marker. For an active subnet, the
+    ///   epoch when consensus becomes live; for a paused subnet, the epoch when it paused.
     /// * `churn_limit` - Maximum number of nodes that can change classification (join/leave
     ///   active participation) per epoch, preventing network instability from rapid turnover.
     /// * `churn_limit_multiplier` - The multiplier for the ChurnLimit
@@ -3297,6 +3300,14 @@ pub mod pallet {
     #[pallet::storage]
     pub type PreviousSubnetPauseEpoch<T> =
         StorageMap<_, Identity, u32, u32, ValueQuery, DefaultZeroU32>;
+
+    /// Subnet-epoch label observed when a subnet is paused.
+    ///
+    /// `SubnetsData::start_epoch` retains the general pause epoch for maximum-pause
+    /// enforcement. This phase-aware marker lets unpause compensate queued-node timing
+    /// for exactly the subnet slots that were skipped.
+    #[pallet::storage]
+    pub type SubnetPauseSubnetEpoch<T> = StorageMap<_, Identity, u32, u32, OptionQuery>;
 
     /// Most recent epoch a subnet was activated on
     /// Used to calculate subnet removal intervals
@@ -8498,6 +8509,7 @@ pub mod pallet {
 
             SubnetRegistrationEpoch::<T>::remove(subnet_id);
             PreviousSubnetPauseEpoch::<T>::remove(subnet_id);
+            SubnetPauseSubnetEpoch::<T>::remove(subnet_id);
 
             // Subnet parameters
             ChurnLimit::<T>::remove(subnet_id);
@@ -8548,7 +8560,7 @@ pub mod pallet {
                 weight = weight.saturating_add(T::DbWeight::get().writes(1));
             }
 
-            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 34));
+            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 35));
 
             // Remove from slot
             Self::free_slot_of_subnet(subnet_id);

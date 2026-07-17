@@ -24,9 +24,45 @@ Owner settings are still bounded by network rules. Many parameters have minimums
 
 Owners can activate, pause, unpause, and deactivate their subnets.
 
-Activation moves a registered subnet into normal operation once the subnet meets the network's requirements. Pausing temporarily stops key subnet progression, such as new validator election and queue activation at the next subnet epoch, so the owner can handle maintenance or recovery. Unpausing returns the subnet to active operation and adjusts queued node timing so paused time does not unfairly affect registration queues.
+Activation moves a registered subnet into normal operation once the subnet meets the network's requirements. Pausing stops new validator elections and operational maintenance while the subnet is paused, so the owner can handle maintenance or recovery. Unpausing starts a controlled preparation period before the subnet returns to consensus and adjusts queued-node timing so skipped subnet slots do not unfairly affect registration queues.
 
 Deactivation removes the subnet. This is the owner's final lifecycle control and should be treated as a permanent removal action.
+
+### Pausing and Unpausing
+
+Only the current subnet owner can pause or unpause a subnet. A subnet must be active before it can be paused and paused before it can be unpaused. After activation or an unpause, the owner must also wait for the configured subnet pause cooldown before pausing it again.
+
+While a subnet is paused:
+
+- No new validator is elected and no new consensus round begins.
+- Registration-queue processing and burn-rate maintenance do not run.
+- New node registration is unavailable.
+- The owner can configure, revert, or replace a pending emergency validator set, subject to the emergency-set rules.
+- An already-elected historical consensus round is preserved. If that round already received an emission allocation, pausing does not erase its settlement.
+
+A subnet cannot remain paused indefinitely without consequences. Once it exceeds the network's maximum pause duration, epoch processing begins reducing its subnet reputation. The subnet can be removed if its reputation falls below the network minimum; it is not automatically unpaused.
+
+#### Unpause Timeline
+
+If an owner unpauses a subnet during general blockchain epoch `G`, the subnet becomes `Active` immediately for preparation purposes, but its consensus start epoch is set to `G + 2`.
+
+| General epoch | Subnet behavior |
+| --- | --- |
+| `G` | The owner unpauses. Any remaining time is additional preparation time. |
+| `G + 1` | Full preparation epoch. Queue and burn-rate maintenance run, but there is no validator election, new consensus round, emission allocation, or new consensus penalty for the subnet. |
+| `G + 2` | The subnet becomes consensus-live. It is still excluded from that epoch's emission allocation because it has no exact `G + 1` election. A validator is elected at the subnet's assigned slot and the first post-unpause consensus round begins. |
+| `G + 3` | The `G + 2` consensus round is eligible for emission allocation and settlement. Normal consensus rewards or penalties apply to that completed round. |
+
+Emission allocation requires both of the following:
+
+1. The subnet is active and has reached its consensus start epoch.
+2. The subnet has an elected validator for the exact previous subnet epoch being settled.
+
+This prevents a newly unpaused subnet from receiving an unused allocation, diluting other subnets' rewards, or being penalized before it has had a complete consensus epoch in which to prepare and submit work.
+
+Queued-node classification times are shifted by exactly the subnet slots missed while paused. Whether the pause occurs before or after the subnet's assigned slot is taken into account. The full `G + 1` preparation epoch is not treated as missed time, so it counts normally toward queue maturity.
+
+If a pending emergency validator set exists when the subnet is unpaused, it is validated and activated as part of the unpause. Its duration starts at the first consensus epoch, `G + 2`, so the preparation epoch does not consume emergency-validator time. An invalid pending set causes the unpause to fail and leaves the subnet paused.
 
 ### Metadata Management
 

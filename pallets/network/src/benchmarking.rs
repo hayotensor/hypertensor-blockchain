@@ -6428,6 +6428,11 @@ mod benchmarks {
         increase_epochs::<T>(1);
 
         let epoch = Network::<T>::get_current_epoch_as_u32();
+        for s in 0..x {
+            let path: Vec<u8> = format!("subnet-name-{s}").into();
+            let subnet_id = SubnetName::<T>::get::<Vec<u8>>(path).unwrap();
+            SubnetElectedValidator::<T>::insert(subnet_id, epoch.saturating_sub(1), 1);
+        }
 
         #[block]
         {
@@ -6698,6 +6703,7 @@ mod benchmarks {
         increase_epochs::<T>(1);
 
         let epoch = Network::<T>::get_current_epoch_as_u32();
+        SubnetElectedValidator::<T>::insert(subnet_id, epoch.saturating_sub(1), 1);
 
         // ⸺ Generate subnet weights
         let _ = Network::<T>::handle_subnet_emission_weights(epoch);
@@ -6767,6 +6773,7 @@ mod benchmarks {
         }
 
         increase_epochs::<T>(1);
+        let epoch = Network::<T>::get_current_epoch_as_u32();
 
         let current_overwatch_epoch = Network::<T>::get_current_overwatch_epoch_as_u32();
 
@@ -6780,12 +6787,13 @@ mod benchmarks {
                 subnet_id,
                 500000000000000000,
             );
+            SubnetElectedValidator::<T>::insert(subnet_id, epoch.saturating_sub(1), 1);
         }
 
         #[block]
         {
             let (stake_weights_normalized, stake_weights_weight) =
-                Network::<T>::calculate_subnet_weights(Network::<T>::get_current_epoch_as_u32());
+                Network::<T>::calculate_subnet_weights(epoch);
             assert!(stake_weights_normalized.len() as u32 == x);
         }
     }

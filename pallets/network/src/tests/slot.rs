@@ -6,8 +6,10 @@ use crate::{
     OverwatchReveals, QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetConsensusSubmission,
     SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName, SubnetNetFlow,
     SubnetNetFlowSmoothedWeight, SubnetNetFlowSmoothingAlpha, SubnetNodeQueue, SubnetRemovalReason,
-    SubnetsData, TotalActiveSubnets,
+    SubnetsData, TotalActiveSubnets, TotalDelegateStake, TotalElectableNodes,
+    TotalSubnetDelegateStakeBalance, TotalSubnetElectableNodes,
 };
+use frame_support::weights::WeightMeter;
 use sp_std::collections::btree_map::BTreeMap;
 
 // Overwatch node functions in the slot.rs file are in tests/overwatch_nodes.rs
@@ -47,6 +49,13 @@ fn build_active_subnet_ids(count: u32) -> Vec<u32> {
             SubnetName::<Test>::get(subnet_name).unwrap()
         })
         .collect()
+}
+
+fn seed_exact_prior_election(subnet_id: u32, epoch: u32) {
+    let previous_epoch = epoch
+        .checked_sub(1)
+        .expect("reward weight tests require an epoch after genesis");
+    SubnetElectedValidator::<Test>::insert(subnet_id, previous_epoch, 1);
 }
 
 #[test]
@@ -171,10 +180,16 @@ fn test_handle_subnet_emission_weights() {
         }
         increase_epochs(1);
 
-        let _ = Network::handle_subnet_emission_weights(Network::get_current_epoch_as_u32());
+        let current_epoch = Network::get_current_epoch_as_u32();
+        for s in 0..max_subnets {
+            let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
+            let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+            seed_exact_prior_election(subnet_id, current_epoch);
+        }
 
-        let subnet_emission_weights =
-            FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
+        let _ = Network::handle_subnet_emission_weights(current_epoch);
+
+        let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(current_epoch);
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
@@ -206,8 +221,14 @@ fn test_calculate_subnet_weights() {
         }
         increase_epochs(1);
 
-        let (subnet_weights, mut weight) =
-            Network::calculate_subnet_weights(Network::get_current_epoch_as_u32());
+        let current_epoch = Network::get_current_epoch_as_u32();
+        for s in 0..max_subnets {
+            let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
+            let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+            seed_exact_prior_election(subnet_id, current_epoch);
+        }
+
+        let (subnet_weights, mut weight) = Network::calculate_subnet_weights(current_epoch);
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
@@ -256,8 +277,14 @@ fn test_calculate_subnet_weights_active_live_only() {
 
         increase_epochs(1);
 
-        let (subnet_weights, mut weight) =
-            Network::calculate_subnet_weights(Network::get_current_epoch_as_u32());
+        let current_epoch = Network::get_current_epoch_as_u32();
+        for s in 0..max_subnets - 1 {
+            let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
+            let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+            seed_exact_prior_election(subnet_id, current_epoch);
+        }
+
+        let (subnet_weights, mut weight) = Network::calculate_subnet_weights(current_epoch);
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
@@ -272,6 +299,131 @@ fn test_calculate_subnet_weights_active_live_only() {
                 assert!(*subnet_weight.unwrap() <= Network::percentage_factor_as_u128());
             }
         }
+    });
+}
+
+#[test]
+fn test_calculate_subnet_weights_requires_exact_prior_election() {
+    new_test_ext().execute_with(|| {
+        let subnet_ids = build_active_subnet_ids(3);
+        let current_epoch = Network::get_current_epoch_as_u32();
+        let previous_epoch = current_epoch
+            .checked_sub(1)
+            .expect("active subnet test must be past genesis");
+        let stale_epoch = previous_epoch
+            .checked_sub(1)
+            .expect("active subnet test must have a stale epoch");
+
+        let no_election_subnet_id = subnet_ids[0];
+        let exact_election_subnet_id = subnet_ids[1];
+        let stale_election_subnet_id = subnet_ids[2];
+
+        for subnet_id in subnet_ids.iter().copied() {
+            assert_eq!(
+                Network::is_subnet_active_and_live(subnet_id, current_epoch),
+                Some(true)
+            );
+        }
+
+        SubnetElectedValidator::<Test>::insert(exact_election_subnet_id, previous_epoch, 1);
+        SubnetElectedValidator::<Test>::insert(stale_election_subnet_id, stale_epoch, 1);
+
+        let (subnet_weights, _) = Network::calculate_subnet_weights(current_epoch);
+
+        assert!(!subnet_weights.contains_key(&no_election_subnet_id));
+        assert!(subnet_weights.contains_key(&exact_election_subnet_id));
+        assert!(!subnet_weights.contains_key(&stale_election_subnet_id));
+    });
+}
+
+#[test]
+fn test_ineligible_subnet_totals_do_not_dilute_eligible_weights() {
+    new_test_ext().execute_with(|| {
+        let subnet_ids = build_active_subnet_ids(3);
+        let current_epoch = Network::get_current_epoch_as_u32();
+        let first_eligible_subnet_id = subnet_ids[0];
+        let second_eligible_subnet_id = subnet_ids[1];
+        let ineligible_subnet_id = subnet_ids[2];
+
+        seed_exact_prior_election(first_eligible_subnet_id, current_epoch);
+        seed_exact_prior_election(second_eligible_subnet_id, current_epoch);
+
+        TotalSubnetDelegateStakeBalance::<Test>::insert(first_eligible_subnet_id, 300);
+        TotalSubnetDelegateStakeBalance::<Test>::insert(second_eligible_subnet_id, 100);
+        TotalSubnetDelegateStakeBalance::<Test>::insert(ineligible_subnet_id, 0);
+        TotalDelegateStake::<Test>::set(400);
+
+        TotalSubnetElectableNodes::<Test>::insert(first_eligible_subnet_id, 1);
+        TotalSubnetElectableNodes::<Test>::insert(second_eligible_subnet_id, 3);
+        TotalSubnetElectableNodes::<Test>::insert(ineligible_subnet_id, 0);
+        TotalElectableNodes::<Test>::set(4);
+
+        for subnet_id in subnet_ids.iter().copied() {
+            SubnetNetFlow::<Test>::remove(subnet_id);
+            SubnetNetFlowSmoothedWeight::<Test>::remove(subnet_id);
+        }
+
+        let (baseline_weights, _) = Network::calculate_subnet_weights(current_epoch);
+        assert_eq!(baseline_weights.len(), 2);
+        assert_eq!(
+            baseline_weights.get(&first_eligible_subnet_id),
+            baseline_weights.get(&second_eligible_subnet_id)
+        );
+        assert!(!baseline_weights.contains_key(&ineligible_subnet_id));
+
+        let ineligible_delegate_stake = 1_000_000;
+        let ineligible_electable_nodes = 100_000;
+        TotalSubnetDelegateStakeBalance::<Test>::insert(
+            ineligible_subnet_id,
+            ineligible_delegate_stake,
+        );
+        TotalDelegateStake::<Test>::set(400 + ineligible_delegate_stake);
+        TotalSubnetElectableNodes::<Test>::insert(ineligible_subnet_id, ineligible_electable_nodes);
+        TotalElectableNodes::<Test>::set(4 + ineligible_electable_nodes);
+
+        let (weights_with_ineligible_extremes, _) =
+            Network::calculate_subnet_weights(current_epoch);
+
+        assert_eq!(weights_with_ineligible_extremes, baseline_weights);
+        assert!(!weights_with_ineligible_extremes.contains_key(&ineligible_subnet_id));
+    });
+}
+
+#[test]
+fn test_emission_step_elects_live_subnet_without_final_emission_weights() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "bootstrap-election-subnet".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let first_consensus_epoch = Network::get_current_epoch_as_u32().saturating_add(1);
+
+        set_block_to_subnet_slot_epoch(first_consensus_epoch, subnet_id);
+        let block = System::block_number();
+        let current_epoch = Network::get_current_epoch_as_u32();
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+
+        assert_eq!(current_epoch, first_consensus_epoch);
+        assert_eq!(
+            Network::is_subnet_active_and_live(subnet_id, current_epoch),
+            Some(true)
+        );
+        assert!(FinalSubnetEmissionWeights::<Test>::get(current_epoch)
+            .subnet_weights
+            .is_empty());
+        assert!(SubnetElectedValidator::<Test>::get(subnet_id, current_subnet_epoch).is_none());
+
+        Network::emission_step(
+            &mut WeightMeter::new(),
+            block,
+            current_epoch,
+            current_subnet_epoch,
+            subnet_id,
+        );
+
+        assert!(SubnetElectedValidator::<Test>::get(subnet_id, current_subnet_epoch).is_some());
     });
 }
 
@@ -595,10 +747,12 @@ fn test_calculate_rewards() {
         increase_epochs(1);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let _ = Network::handle_subnet_emission_weights(Network::get_current_epoch_as_u32());
+        let current_epoch = Network::get_current_epoch_as_u32();
+        seed_exact_prior_election(subnet_id, current_epoch);
 
-        let subnet_emission_weights =
-            FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
+        let _ = Network::handle_subnet_emission_weights(current_epoch);
+
+        let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(current_epoch);
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
 
         let delegate_stake_rewards_percentage =

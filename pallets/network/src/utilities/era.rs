@@ -366,7 +366,7 @@ impl<T: Config> Pallet<T> {
 
             // --- Pause logic
             if data.state == SubnetState::Paused {
-                if data.start_epoch + max_pause_epochs < epoch {
+                if data.start_epoch.saturating_add(max_pause_epochs) < epoch {
                     let new_subnet_reputation = Self::decrease_rep(
                         SubnetReputation::<T>::get(subnet_id),
                         MaxPauseEpochsSubnetReputationFactor::<T>::get(),

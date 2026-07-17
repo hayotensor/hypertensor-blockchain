@@ -6,7 +6,7 @@ use crate::{
     ConsensusValidatorNodeCountDecayUpdateInterval, ConsensusValidatorStakeWeightPower,
     ConsensusValidatorStakeWeightPowerUpdateInterval, EmergencySubnetNodeElectionData,
     EmergencySubnetValidatorData, EmergencyValidatorCooldownEpochs, Error,
-    IdleClassificationEpochs, IncludedClassificationEpochs,
+    FinalSubnetEmissionWeights, IdleClassificationEpochs, IncludedClassificationEpochs,
     LastConsensusValidatorNodeCountDecayUpdate, LastConsensusValidatorStakeWeightPowerUpdate,
     LastEmergencyValidatorEndEpoch, LastSubnetDelegateStakeRewardsUpdate, MaxChurnLimit,
     MaxChurnLimitMultiplier, MaxConsensusValidatorStakeWeightPower, MaxDelegateStakePercentage,
@@ -27,12 +27,13 @@ use crate::{
     PendingSubnetNodeMinWeightDecreaseReputationThreshold, PendingSubnetOwner,
     PreviousSubnetPauseEpoch, QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess,
     SubnetData, SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod,
-    SubnetMaxStakeBalance, SubnetMinConsensusNodeAttestationPercentage, SubnetMinStakeBalance,
-    SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
-    SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeQueueEpochs, SubnetNodeReputation,
-    SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs, SubnetRemovalReason, SubnetRepo,
-    SubnetReputationFactorSchedules, SubnetReputationFactorUpdates, SubnetState, SubnetsData,
-    TargetNodeRegistrationsPerEpoch, TotalElectableNodes, TotalSubnetElectableNodes,
+    SubnetElectedValidator, SubnetMaxStakeBalance, SubnetMinConsensusNodeAttestationPercentage,
+    SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification,
+    SubnetNodeElectionSlots, SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeQueue,
+    SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodesData, SubnetOwner,
+    SubnetPauseCooldownEpochs, SubnetPauseSubnetEpoch, SubnetRemovalReason, SubnetRepo,
+    SubnetReputation, SubnetReputationFactorSchedules, SubnetReputationFactorUpdates, SubnetState,
+    SubnetsData, TargetNodeRegistrationsPerEpoch, TotalElectableNodes, TotalSubnetElectableNodes,
 };
 use codec::Decode;
 use frame_support::{
@@ -731,6 +732,7 @@ fn test_owner_pause_subnet() {
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
         let epoch = Network::get_current_epoch_as_u32();
+        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
         // Transfer to new owner
         assert_ok!(Network::owner_pause_subnet(
@@ -749,6 +751,10 @@ fn test_owner_pause_subnet() {
         let subnet_data = SubnetsData::<Test>::get(subnet_id).unwrap();
         assert_eq!(subnet_data.state, SubnetState::Paused);
         assert_eq!(subnet_data.start_epoch, epoch);
+        assert_eq!(
+            SubnetPauseSubnetEpoch::<Test>::get(subnet_id),
+            Some(subnet_epoch)
+        );
     });
 }
 
@@ -776,7 +782,6 @@ fn test_owner_pause_subnet_must_be_active_error() {
 
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-        let epoch = Network::get_current_epoch_as_u32();
 
         // Transfer to new owner
         assert_err!(
@@ -805,33 +810,32 @@ fn test_owner_unpause_subnet() {
 
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-        let epoch = Network::get_current_epoch_as_u32();
+        let pause_epoch = Network::get_current_epoch_as_u32();
+        let pause_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
         let coldkey = account(1000);
         let hotkey = account(1001);
-        let start_epoch = epoch + 100;
+        let start_epoch = pause_subnet_epoch + 100;
 
         let hotkey_subnet_node_id = 1000;
-        RegisteredSubnetNodesData::<Test>::insert(
-            subnet_id,
-            hotkey_subnet_node_id,
-            SubnetNode::<Test> {
-                id: hotkey_subnet_node_id,
-                validator_id: validator_id,
-                peer_info: Some(PeerInfo::<Test> {
-                    peer_id: peer(0),
-                    multiaddr: None,
-                }),
-                bootnode_peer_info: None,
-                client_peer_info: None,
-                classification: SubnetNodeClassification {
-                    node_class: SubnetNodeClass::Validator,
-                    start_epoch: start_epoch,
-                },
-                unique: Some(BoundedVec::new()),
-                non_unique: Some(BoundedVec::new()),
+        let queued_node = SubnetNode::<Test> {
+            id: hotkey_subnet_node_id,
+            validator_id: validator_id,
+            peer_info: Some(PeerInfo::<Test> {
+                peer_id: peer(0),
+                multiaddr: None,
+            }),
+            bootnode_peer_info: None,
+            client_peer_info: None,
+            classification: SubnetNodeClassification {
+                node_class: SubnetNodeClass::Validator,
+                start_epoch: start_epoch,
             },
-        );
+            unique: Some(BoundedVec::new()),
+            non_unique: Some(BoundedVec::new()),
+        };
+        RegisteredSubnetNodesData::<Test>::insert(subnet_id, hotkey_subnet_node_id, &queued_node);
+        SubnetNodeQueue::<Test>::insert(subnet_id, vec![queued_node]);
 
         // Transfer to new owner
         assert_ok!(Network::owner_pause_subnet(
@@ -841,12 +845,17 @@ fn test_owner_unpause_subnet() {
 
         let subnet_data = SubnetsData::<Test>::get(subnet_id).unwrap();
         assert_eq!(subnet_data.state, SubnetState::Paused);
-        assert_eq!(subnet_data.start_epoch, epoch);
+        assert_eq!(subnet_data.start_epoch, pause_epoch);
+        assert_eq!(
+            SubnetPauseSubnetEpoch::<Test>::get(subnet_id),
+            Some(pause_subnet_epoch)
+        );
 
         increase_epochs(10);
 
         let curr_epoch = Network::get_current_epoch_as_u32();
-        let delta = curr_epoch - epoch;
+        let curr_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        let delta = curr_subnet_epoch - pause_subnet_epoch;
 
         assert_ok!(Network::owner_unpause_subnet(
             RuntimeOrigin::signed(original_owner.clone()),
@@ -864,11 +873,102 @@ fn test_owner_unpause_subnet() {
         // Ensure was activated
         let subnet_data = SubnetsData::<Test>::get(subnet_id).unwrap();
         assert_eq!(subnet_data.state, SubnetState::Active);
-        assert_eq!(subnet_data.start_epoch, curr_epoch + 1);
+        assert_eq!(subnet_data.start_epoch, curr_epoch + 2);
+        assert_eq!(SubnetPauseSubnetEpoch::<Test>::get(subnet_id), None);
 
         let node = RegisteredSubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
-        // The start epoch update increases the epoch by 1
-        assert_eq!(node.classification.start_epoch, start_epoch + delta + 1);
+        assert_eq!(node.classification.start_epoch, start_epoch + delta);
+        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id), vec![node]);
+    });
+}
+
+#[test]
+fn test_owner_unpause_reserves_full_epoch_before_consensus() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "full-preparation-subnet".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
+
+        increase_epochs(SubnetPauseCooldownEpochs::<Test>::get().saturating_add(1));
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(owner.clone()),
+            subnet_id,
+        ));
+
+        let unpause_epoch = Network::get_current_epoch_as_u32();
+        assert_ok!(Network::owner_unpause_subnet(
+            RuntimeOrigin::signed(owner),
+            subnet_id,
+        ));
+
+        let preparation_epoch = unpause_epoch.saturating_add(1);
+        let first_consensus_epoch = unpause_epoch.saturating_add(2);
+        assert_eq!(
+            SubnetsData::<Test>::get(subnet_id).unwrap().start_epoch,
+            first_consensus_epoch
+        );
+        let subnet_reputation_before = SubnetReputation::<Test>::get(subnet_id);
+        let node_reputations_before: BTreeMap<u32, u128> =
+            SubnetNodeReputation::<Test>::iter_prefix(subnet_id).collect();
+
+        // The complete following general epoch is preparation-only: no allocation and
+        // no validator election at the subnet's slot.
+        set_epoch(preparation_epoch, 2);
+        Network::on_initialize(System::block_number());
+        assert!(!FinalSubnetEmissionWeights::<Test>::contains_key(
+            preparation_epoch
+        ));
+
+        set_block_to_subnet_slot_epoch(preparation_epoch, subnet_id);
+        Network::on_initialize(System::block_number());
+        assert!(!SubnetElectedValidator::<Test>::contains_key(
+            subnet_id,
+            preparation_epoch
+        ));
+        assert_eq!(
+            SubnetReputation::<Test>::get(subnet_id),
+            subnet_reputation_before
+        );
+        assert_eq!(
+            SubnetNodeReputation::<Test>::iter_prefix(subnet_id).collect::<BTreeMap<_, _>>(),
+            node_reputations_before
+        );
+
+        // The first live epoch still has no prior work to fund, but its subnet slot must
+        // elect a validator and begin a complete consensus round.
+        set_epoch(first_consensus_epoch, 2);
+        Network::on_initialize(System::block_number());
+        assert!(!FinalSubnetEmissionWeights::<Test>::contains_key(
+            first_consensus_epoch
+        ));
+
+        set_block_to_subnet_slot_epoch(first_consensus_epoch, subnet_id);
+        Network::on_initialize(System::block_number());
+        assert!(SubnetElectedValidator::<Test>::contains_key(
+            subnet_id,
+            first_consensus_epoch
+        ));
+        assert_eq!(
+            SubnetReputation::<Test>::get(subnet_id),
+            subnet_reputation_before
+        );
+        assert_eq!(
+            SubnetNodeReputation::<Test>::iter_prefix(subnet_id).collect::<BTreeMap<_, _>>(),
+            node_reputations_before
+        );
+
+        // The following distribution now sees exact prior work and includes the subnet.
+        let first_reward_epoch = first_consensus_epoch.saturating_add(1);
+        set_epoch(first_reward_epoch, 2);
+        Network::on_initialize(System::block_number());
+        assert!(FinalSubnetEmissionWeights::<Test>::get(first_reward_epoch)
+            .subnet_weights
+            .contains_key(&subnet_id));
     });
 }
 
@@ -974,11 +1074,12 @@ fn test_owner_unpause_subnet_repause_cooldown_error() {
 
         // Set initial owner
         SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-        let epoch = Network::get_current_epoch_as_u32();
+        let pause_epoch = Network::get_current_epoch_as_u32();
+        let pause_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
         let coldkey = account(1000);
         let hotkey = account(1001);
-        let start_epoch = epoch + 100;
+        let start_epoch = pause_subnet_epoch + 100;
 
         let hotkey_subnet_node_id = 1000;
         RegisteredSubnetNodesData::<Test>::insert(
@@ -1010,12 +1111,17 @@ fn test_owner_unpause_subnet_repause_cooldown_error() {
 
         let subnet_data = SubnetsData::<Test>::get(subnet_id).unwrap();
         assert_eq!(subnet_data.state, SubnetState::Paused);
-        assert_eq!(subnet_data.start_epoch, epoch);
+        assert_eq!(subnet_data.start_epoch, pause_epoch);
+        assert_eq!(
+            SubnetPauseSubnetEpoch::<Test>::get(subnet_id),
+            Some(pause_subnet_epoch)
+        );
 
         increase_epochs(10);
 
         let curr_epoch = Network::get_current_epoch_as_u32();
-        let delta = curr_epoch - epoch;
+        let curr_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        let delta = curr_subnet_epoch - pause_subnet_epoch;
 
         assert_ok!(Network::owner_unpause_subnet(
             RuntimeOrigin::signed(original_owner.clone()),
@@ -1033,11 +1139,11 @@ fn test_owner_unpause_subnet_repause_cooldown_error() {
         // Ensure was activated
         let subnet_data = SubnetsData::<Test>::get(subnet_id).unwrap();
         assert_eq!(subnet_data.state, SubnetState::Active);
-        assert_eq!(subnet_data.start_epoch, curr_epoch + 1);
+        assert_eq!(subnet_data.start_epoch, curr_epoch + 2);
+        assert_eq!(SubnetPauseSubnetEpoch::<Test>::get(subnet_id), None);
 
         let node = RegisteredSubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
-        // The start epoch update increases the epoch by 1
-        assert_eq!(node.classification.start_epoch, start_epoch + delta + 1);
+        assert_eq!(node.classification.start_epoch, start_epoch + delta);
 
         assert_err!(
             Network::owner_pause_subnet(RuntimeOrigin::signed(original_owner.clone()), subnet_id,),
@@ -1118,117 +1224,163 @@ fn test_owner_unpause_subnet_must_be_paused_error() {
   });
 }
 
-#[test]
-fn test_owner_unpause_subnet_verify_queue_updated() {
+fn assert_registered_queue_copies_match(subnet_id: u32) -> BTreeMap<u32, u32> {
+    let registered: BTreeMap<u32, SubnetNode<Test>> =
+        RegisteredSubnetNodesData::<Test>::iter_prefix(subnet_id).collect();
+    let queue = SubnetNodeQueue::<Test>::get(subnet_id);
+
+    assert_eq!(registered.len(), queue.len());
+    for queued_node in &queue {
+        assert_eq!(registered.get(&queued_node.id), Some(queued_node));
+    }
+
+    registered
+        .into_iter()
+        .map(|(node_id, node)| (node_id, node.classification.start_epoch))
+        .collect()
+}
+
+fn assert_owner_unpause_queue_compensation(pause_before_slot: bool) {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
 
-        let start = 0;
-        let end = 4;
+        build_activated_subnet(subnet_name.clone(), 0, 4, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let owner = account(1);
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
 
-        build_activated_subnet(
-            subnet_name.clone(),
-            start,
-            end,
-            deposit_amount,
-            stake_amount,
-        );
+        increase_epochs(SubnetPauseCooldownEpochs::<Test>::get().saturating_add(1));
 
-        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-
-        let pause_cooldown_epochs = SubnetPauseCooldownEpochs::<Test>::get();
-        increase_epochs(pause_cooldown_epochs + 1);
-
-        // Set up registered nodes in the queue
-        // These are to be tested against to ensure their start epochs update
         let churn_limit = ChurnLimit::<Test>::get(subnet_id);
-        let start = end;
-        let end = start + churn_limit;
-        build_registered_nodes_in_queue(subnet_id, start, end, deposit_amount, stake_amount);
-
-        // Store data
-        let mut registered_nodes_data: BTreeMap<u32, u32> = BTreeMap::new(); // node ID => start_epoch
-        for n in start..end {
-            let _n = n + 1;
-            log::error!("_n {:?}", _n);
-            let subnet_node_data =
-                RegisteredSubnetNodesData::<Test>::try_get(subnet_id, _n).unwrap();
-            registered_nodes_data.insert(_n, subnet_node_data.classification.start_epoch);
-        }
-
-        let other_subnet_name: Vec<u8> = "other-subnet-name".into();
-        build_activated_subnet(
-            other_subnet_name.clone(),
-            0,
+        build_registered_nodes_in_queue(
+            subnet_id,
             4,
+            4 + churn_limit,
             deposit_amount,
             stake_amount,
         );
-        let other_subnet_id = SubnetName::<Test>::get(other_subnet_name.clone()).unwrap();
-        build_registered_nodes_in_queue(other_subnet_id, start, end, deposit_amount, stake_amount);
-        let mut other_registered_nodes_data: BTreeMap<u32, u32> = BTreeMap::new();
-        for n in start..end {
-            let _n = n + 1;
-            let subnet_node_data =
-                RegisteredSubnetNodesData::<Test>::try_get(other_subnet_id, _n).unwrap();
-            other_registered_nodes_data.insert(_n, subnet_node_data.classification.start_epoch);
+
+        let pause_general_epoch = Network::get_current_epoch_as_u32().saturating_add(1);
+        set_block_to_subnet_slot_epoch(pause_general_epoch, subnet_id);
+        if pause_before_slot {
+            System::set_block_number(System::block_number().saturating_sub(1));
+        } else {
+            System::set_block_number(System::block_number().saturating_add(1));
         }
 
-        let original_owner = account(1);
+        let paused_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        let unpause_general_epoch = pause_general_epoch.saturating_add(2);
+        let consensus_start_epoch = unpause_general_epoch.saturating_add(2);
+        let queue_epochs = SubnetNodeQueueEpochs::<Test>::get(subnet_id);
 
-        // Set initial owner
-        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
+        // Crossing the current slot while paused adds it to the missed count. Thus a
+        // before-slot pause followed by an after-slot unpause misses G, G+1, and G+2;
+        // the inverse positions miss only G+1 because the G and G+2 slots remain live.
+        let expected_missed_slots = if pause_before_slot { 3 } else { 1 };
+        let expected_shifted_start = consensus_start_epoch
+            .checked_sub(queue_epochs.saturating_add(1))
+            .expect("test epoch must leave room for queue readiness");
+        let original_start = expected_shifted_start
+            .checked_sub(expected_missed_slots)
+            .expect("test epoch must leave room for pause compensation");
 
-        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-
-        // Pause subnet
-        assert_ok!(Network::owner_pause_subnet(
-            RuntimeOrigin::signed(original_owner.clone()),
-            subnet_id,
-        ));
-
-        // increase epoch
-        let epoch_increase = 3;
-        increase_epochs(3);
-
-        let unpause_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        let epoch_delta = unpause_subnet_epoch - subnet_epoch;
-
-        // Transfer to new owner
-        assert_ok!(Network::owner_unpause_subnet(
-            RuntimeOrigin::signed(original_owner.clone()),
-            subnet_id,
-        ));
-
-        for n in start..end {
-            let _n = n + 1;
-            let subnet_node_data =
-                RegisteredSubnetNodesData::<Test>::try_get(subnet_id, _n).unwrap();
-
-            if let Some(prev_start_epoch) = registered_nodes_data.get(&_n) {
-                assert_eq!(
-                    *prev_start_epoch + epoch_increase + 1,
-                    subnet_node_data.classification.start_epoch
-                );
-            } else {
-                assert!(false);
+        let queued_node_ids: Vec<u32> = RegisteredSubnetNodesData::<Test>::iter_prefix(subnet_id)
+            .map(|(node_id, _)| node_id)
+            .collect();
+        for node_id in queued_node_ids {
+            RegisteredSubnetNodesData::<Test>::mutate(subnet_id, node_id, |node| {
+                node.classification.start_epoch = original_start;
+            });
+        }
+        SubnetNodeQueue::<Test>::mutate(subnet_id, |queue| {
+            for node in queue {
+                node.classification.start_epoch = original_start;
             }
+        });
+        let original_starts = assert_registered_queue_copies_match(subnet_id);
+
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(owner.clone()),
+            subnet_id,
+        ));
+        let paused_data = SubnetsData::<Test>::get(subnet_id).unwrap();
+        assert_eq!(paused_data.state, SubnetState::Paused);
+        assert_eq!(paused_data.start_epoch, pause_general_epoch);
+        assert_eq!(
+            SubnetPauseSubnetEpoch::<Test>::get(subnet_id),
+            Some(paused_subnet_epoch)
+        );
+        let recorded_pause_subnet_epoch = SubnetPauseSubnetEpoch::<Test>::get(subnet_id).unwrap();
+
+        set_block_to_subnet_slot_epoch(unpause_general_epoch, subnet_id);
+        if pause_before_slot {
+            System::set_block_number(System::block_number().saturating_add(1));
+        } else {
+            System::set_block_number(System::block_number().saturating_sub(1));
         }
 
-        for n in start..end {
-            let _n = n + 1;
-            let subnet_node_data =
-                RegisteredSubnetNodesData::<Test>::try_get(other_subnet_id, _n).unwrap();
+        assert_eq!(Network::get_current_epoch_as_u32(), unpause_general_epoch);
+        let unpause_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        assert_eq!(
+            unpause_subnet_epoch.saturating_sub(recorded_pause_subnet_epoch),
+            expected_missed_slots
+        );
 
+        assert_ok!(Network::owner_unpause_subnet(
+            RuntimeOrigin::signed(owner),
+            subnet_id,
+        ));
+
+        let unpaused_data = SubnetsData::<Test>::get(subnet_id).unwrap();
+        assert_eq!(unpaused_data.state, SubnetState::Active);
+        assert_eq!(unpaused_data.start_epoch, consensus_start_epoch);
+        assert_eq!(SubnetPauseSubnetEpoch::<Test>::get(subnet_id), None);
+
+        let shifted_starts = assert_registered_queue_copies_match(subnet_id);
+        assert_eq!(shifted_starts.len(), original_starts.len());
+        for (node_id, original_node_start) in original_starts {
             assert_eq!(
-                other_registered_nodes_data.get(&_n).copied().unwrap(),
-                subnet_node_data.classification.start_epoch
+                shifted_starts.get(&node_id),
+                Some(&original_node_start.saturating_add(expected_missed_slots))
+            );
+            assert_eq!(shifted_starts.get(&node_id), Some(&expected_shifted_start));
+        }
+
+        // G+1 is a complete preparation epoch and counts toward queue maturity. These
+        // boundary nodes finish waiting in G+1 and are ready at the first G+2 slot.
+        let preparation_epoch = unpause_general_epoch.saturating_add(1);
+        set_block_to_subnet_slot_epoch(preparation_epoch, subnet_id);
+        let preparation_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        assert_eq!(preparation_subnet_epoch, preparation_epoch);
+        for node in SubnetNodeQueue::<Test>::get(subnet_id) {
+            assert_eq!(
+                node.classification.start_epoch.saturating_add(queue_epochs),
+                preparation_subnet_epoch
+            );
+        }
+
+        set_block_to_subnet_slot_epoch(consensus_start_epoch, subnet_id);
+        let first_consensus_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        assert_eq!(first_consensus_subnet_epoch, consensus_start_epoch);
+        for node in SubnetNodeQueue::<Test>::get(subnet_id) {
+            assert!(
+                node.classification.start_epoch.saturating_add(queue_epochs)
+                    < first_consensus_subnet_epoch
             );
         }
     });
+}
+
+#[test]
+fn test_owner_unpause_compensates_queue_when_paused_before_slot() {
+    assert_owner_unpause_queue_compensation(true);
+}
+
+#[test]
+fn test_owner_unpause_compensates_queue_when_paused_after_slot() {
+    assert_owner_unpause_queue_compensation(false);
 }
 
 #[test]
@@ -1391,6 +1543,7 @@ fn test_owner_set_emergency_validator_subnet() {
         assert_eq!(emergency_validator_data.max_emergency_validators_epoch, 0);
         assert_eq!(emergency_validator_data.total_epochs, 0);
 
+        let unpause_epoch = Network::get_current_epoch_as_u32();
         assert_ok!(Network::owner_unpause_subnet(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
@@ -1409,6 +1562,18 @@ fn test_owner_set_emergency_validator_subnet() {
         );
         assert_ne!(emergency_validator_data.max_emergency_validators_epoch, 0);
         assert_eq!(emergency_validator_data.total_epochs, 0);
+        assert_eq!(
+            emergency_validator_data.started_subnet_epoch,
+            unpause_epoch.saturating_add(2)
+        );
+        assert!(
+            emergency_validator_data.max_emergency_validators_epoch
+                >= emergency_validator_data.started_subnet_epoch
+        );
+
+        // G+1 is preparation-only. Position the test there so the loop's first
+        // election/reward simulation lands on the G+2 emergency start epoch.
+        increase_epochs(1);
 
         // EmergencySubnetNodeElectionData removes after being greater than total epochs
         // so use += 2 here
@@ -1580,6 +1745,7 @@ fn test_owner_fork_subnet_max_fork_epoch() {
         );
         assert_eq!(emergency_validator_data.clone().unwrap().total_epochs, 0);
 
+        let unpause_epoch = Network::get_current_epoch_as_u32();
         assert_ok!(Network::owner_unpause_subnet(
             RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
@@ -1609,6 +1775,23 @@ fn test_owner_fork_subnet_max_fork_epoch() {
             0
         );
         assert_eq!(emergency_validator_data.clone().unwrap().total_epochs, 0);
+        assert_eq!(
+            emergency_validator_data
+                .clone()
+                .unwrap()
+                .started_subnet_epoch,
+            unpause_epoch.saturating_add(2)
+        );
+        assert!(
+            emergency_validator_data
+                .clone()
+                .unwrap()
+                .max_emergency_validators_epoch
+                >= emergency_validator_data
+                    .clone()
+                    .unwrap()
+                    .started_subnet_epoch
+        );
 
         let max_epochs = emergency_validator_data
             .clone()

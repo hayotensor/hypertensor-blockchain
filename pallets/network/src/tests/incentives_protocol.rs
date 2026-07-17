@@ -16,7 +16,7 @@ use crate::{
     SubnetNodeElectionSlots, SubnetNodeIdleConsecutiveEpochs,
     SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeQueue, SubnetNodeQueueEpochs,
     SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
-    SubnetPauseCooldownEpochs, SubnetRemovalReason, SubnetReputation,
+    SubnetPauseCooldownEpochs, SubnetPauseSubnetEpoch, SubnetRemovalReason, SubnetReputation,
     SubnetReputationFactorSchedules, SubnetState, SubnetsData, SuperMajorityAttestationRatio,
     TotalActiveSubnets, TotalNodeDelegateStakeBalance, TotalSubnetDelegateStakeBalance,
     TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetUids, ValidatorAbsentSubnetReputationFactor,
@@ -2776,6 +2776,10 @@ fn test_attest_invalid_emergency_subnet_node_id() {
             params.start_epoch = epoch;
             Ok(())
         });
+        SubnetPauseSubnetEpoch::<Test>::insert(
+            subnet_id,
+            Network::get_current_subnet_epoch_as_u32(subnet_id),
+        );
 
         // Set emergency validator set
         assert_ok!(Network::do_owner_set_emergency_validator_set_v2(
@@ -4429,6 +4433,10 @@ fn test_distribute_rewards_non_consensus_reputation() {
         let epoch_length = EpochLength::get();
         let block_number = System::block_number();
         let epoch = block_number / epoch_length;
+
+        // This fixture starts after activation without executing the prior subnet slot.
+        // Seed the exact prior election required for this epoch's reward allocation.
+        SubnetElectedValidator::<Test>::insert(subnet_id, epoch.checked_sub(1).unwrap(), 1);
 
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
@@ -6795,6 +6803,13 @@ fn test_distribute_rewards_graduate_included_to_validator() {
         let mut staked_checked = false;
 
         let starting_epoch = Network::get_current_epoch_as_u32();
+        // The fixture skips the subnet slot preceding `starting_epoch`, so establish
+        // the prior validator responsibility expected by reward-weight generation.
+        SubnetElectedValidator::<Test>::insert(
+            subnet_id,
+            starting_epoch.checked_sub(1).unwrap(),
+            1,
+        );
         for e in 0..included_epochs.saturating_add(1) {
             let epoch = Network::get_current_epoch_as_u32();
             let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
@@ -6984,6 +6999,13 @@ fn test_distribute_rewards_graduate_included_to_validator_v2() {
         let mut staked_checked = false;
 
         let starting_epoch = Network::get_current_epoch_as_u32();
+        // The fixture skips the subnet slot preceding `starting_epoch`, so establish
+        // the prior validator responsibility expected by reward-weight generation.
+        SubnetElectedValidator::<Test>::insert(
+            subnet_id,
+            starting_epoch.checked_sub(1).unwrap(),
+            1,
+        );
         for e in 0..included_epochs.saturating_add(1) {
             let epoch = Network::get_current_epoch_as_u32();
             let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
@@ -7997,6 +8019,10 @@ fn test_propose_attestation_epoch_progression_0() {
         let block_number = System::block_number();
         let epoch = block_number / epoch_length;
 
+        // This fixture starts after activation without executing the prior subnet slot.
+        // Seed the exact prior election required for this epoch's reward allocation.
+        SubnetElectedValidator::<Test>::insert(subnet_id, epoch.checked_sub(1).unwrap(), 1);
+
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
@@ -8084,6 +8110,10 @@ fn test_propose_attestation_epoch_progression_50() {
         let epoch_length = EpochLength::get();
         let block_number = System::block_number();
         let epoch = block_number / epoch_length;
+
+        // This fixture starts after activation without executing the prior subnet slot.
+        // Seed the exact prior election required for this epoch's reward allocation.
+        SubnetElectedValidator::<Test>::insert(subnet_id, epoch.checked_sub(1).unwrap(), 1);
 
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
@@ -8173,6 +8203,10 @@ fn test_propose_attestation_epoch_progression_99() {
         let epoch_length = EpochLength::get();
         let block_number = System::block_number();
         let epoch = block_number / epoch_length;
+
+        // This fixture starts after activation without executing the prior subnet slot.
+        // Seed the exact prior election required for this epoch's reward allocation.
+        SubnetElectedValidator::<Test>::insert(subnet_id, epoch.checked_sub(1).unwrap(), 1);
 
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
@@ -8265,6 +8299,10 @@ fn test_propose_attestation_epoch_progression_100() {
         let epoch_length = EpochLength::get();
         let block_number = System::block_number();
         let epoch = block_number / epoch_length;
+
+        // This fixture starts after activation without executing the prior subnet slot.
+        // Seed the exact prior election required for this epoch's reward allocation.
+        SubnetElectedValidator::<Test>::insert(subnet_id, epoch.checked_sub(1).unwrap(), 1);
 
         // ⸺ Generate subnet weights from stake/node count weights
         let _ = Network::handle_subnet_emission_weights(epoch);
@@ -8413,6 +8451,10 @@ fn test_emergency_validator_subnet_rewards() {
             0
         );
         assert_eq!(emergency_validator_data.clone().unwrap().total_epochs, 0);
+
+        // Unpause reserves the complete following epoch for preparation. Begin the
+        // emergency consensus loop at the first live epoch after that interval.
+        increase_epochs(2);
 
         let epoch_length = EpochLength::get();
 

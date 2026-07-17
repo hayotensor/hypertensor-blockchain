@@ -53,6 +53,18 @@ The normal flow for a subnet epoch is:
 
 The elected node for the new subnet epoch is then responsible for submitting the consensus proposal for that epoch.
 
+Consensus eligibility and reward eligibility are separate. An active, live subnet receives
+an election at its slot even when it has no emission allocation. Emission weights for general
+epoch `G` only include subnets with an elected validator for subnet epoch `G - 1`, the exact
+epoch being settled. This lets a new or resumed subnet complete its first consensus round before
+it can affect reward normalization.
+
+When an owner unpauses a subnet in general epoch `G`, all of `G + 1` is reserved as a preparation
+epoch. Queue processing and burn-rate maintenance continue during preparation, but no validator
+is elected and no new consensus round begins. The subnet first becomes consensus-live and elects
+a validator at its assigned slot in `G + 2`. That consensus round is first eligible for settlement
+and emissions in `G + 3`.
+
 ## Becoming Electable
 
 A subnet node becomes electable only when it reaches `Validator` classification.

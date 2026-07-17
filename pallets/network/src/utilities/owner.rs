@@ -191,6 +191,7 @@ impl<T: Config> Pallet<T> {
         );
 
         let epoch = Self::get_current_epoch_as_u32();
+        let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
         // Ensure subnet pause period has been reached to pause again
         ensure!(
@@ -206,18 +207,17 @@ impl<T: Config> Pallet<T> {
             // Update state
             params.state = SubnetState::Paused;
 
-            // We use the current epoch as the `start_epoch` when pausing
-            // This enables us to know the delta when reactivating for updating the node registration pool node start epochs
-            // see `do_owner_unpause_subnet`
+            // The general pause epoch is used by maximum-pause enforcement.
             params.start_epoch = epoch;
 
             Ok(())
         })?;
+        // Preserve the slot phase separately so unpause can count skipped subnet epochs
+        // exactly whether this call occurs before or after the assigned slot.
+        SubnetPauseSubnetEpoch::<T>::insert(subnet_id, subnet_epoch);
 
-        // ---
-        // We don't need to remove SubnetConsensusSubmission here because
-        // precheck_subnet_consensus_submission already checks if the subnet is active and not paused
-        // ---
+        // Preserve the already-elected round so its historical allocation can still settle.
+        // The active/live gate prevents any new election while the subnet is paused.
 
         Self::deposit_event(Event::SubnetPaused {
             subnet_id: subnet_id,
@@ -242,6 +242,12 @@ impl<T: Config> Pallet<T> {
 
         let epoch = Self::get_current_epoch_as_u32();
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        let paused_subnet_epoch =
+            SubnetPauseSubnetEpoch::<T>::get(subnet_id).ok_or(Error::<T>::SubnetMustBePaused)?;
+        // Keep the complete next general epoch as a preparation period. Because every
+        // subnet slot is after the reserved general-epoch hooks, the first live subnet
+        // epoch at this start label is the same numeric epoch.
+        let consensus_start_epoch = epoch.saturating_add(2);
 
         Self::maybe_finish_expired_emergency_validator_set(subnet_id, subnet_epoch);
 
@@ -259,38 +265,41 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // If the subnet is passed the max pause epochs, validators via on_initialize already
-        // unpaused it. If not, we allow the owner to unpause
-
         // A subnet can only pause if it's active, so we re-activate it back in the Active state
         SubnetsData::<T>::try_mutate_exists(subnet_id, |maybe_params| -> DispatchResult {
             let params = maybe_params.as_mut().ok_or(Error::<T>::InvalidSubnetId)?;
 
-            let pause_epoch = params.start_epoch;
+            // Count only subnet slots that were actually skipped while paused. The G + 1
+            // preparation slot runs queue maintenance, so it is intentionally not added.
+            let delta = subnet_epoch.saturating_sub(paused_subnet_epoch);
 
-            // Epochs the subnet was paused for
-            let delta = epoch.saturating_sub(pause_epoch).saturating_add(1); // Add +1 to offset the subnet slots
-
-            // Update each registration queued node
-            // Move each nodes start_epoch forward by the amount of epochs the subnet was paused
+            // RegisteredSubnetNodesData is the canonical lookup, while SubnetNodeQueue owns
+            // clones used by queue activation. Shift both so they cannot disagree.
             for (uid, _) in RegisteredSubnetNodesData::<T>::iter_prefix(subnet_id) {
                 RegisteredSubnetNodesData::<T>::mutate(subnet_id, uid, |subnet_node| {
                     let curr_start_epoch = subnet_node.classification.start_epoch;
                     subnet_node.classification.start_epoch = curr_start_epoch.saturating_add(delta);
                 });
             }
+            SubnetNodeQueue::<T>::mutate(subnet_id, |queue| {
+                for subnet_node in queue.iter_mut() {
+                    subnet_node.classification.start_epoch =
+                        subnet_node.classification.start_epoch.saturating_add(delta);
+                }
+            });
 
             // Update state
             params.state = SubnetState::Active;
 
-            // We start them on the next epoch following the current epoch
-            // This protects the network against an owner pausing a subnet and then unpausing it in a single epoch to manipulate
-            // the attestation ratios (see ``precheck_subnet_consensus_submission`` `max_attestors`)
-            params.start_epoch = epoch.saturating_add(1);
+            // The following general epoch is a full preparation epoch. Consensus resumes
+            // at the subnet's slot in the epoch after that. This also prevents an owner
+            // from using a same-epoch pause cycle to manipulate attestation ratios.
+            params.start_epoch = consensus_start_epoch;
 
             Ok(())
         })?;
 
+        SubnetPauseSubnetEpoch::<T>::remove(subnet_id);
         PreviousSubnetPauseEpoch::<T>::insert(subnet_id, epoch);
 
         // Activate a pending emergency validator set. Active emergency data is intentionally
@@ -304,9 +313,11 @@ impl<T: Config> Pallet<T> {
                     )
                     .min(u32::MAX as u128) as u32;
                     data.activated = true;
-                    data.started_subnet_epoch = subnet_epoch;
+                    // The emergency duration starts with the first consensus epoch, not
+                    // while the subnet is in its preparation period.
+                    data.started_subnet_epoch = consensus_start_epoch;
                     data.max_emergency_validators_epoch =
-                        subnet_epoch.saturating_add(max_emergency_delta);
+                        consensus_start_epoch.saturating_add(max_emergency_delta);
                 }
             }
         });

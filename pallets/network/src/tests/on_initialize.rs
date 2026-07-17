@@ -260,15 +260,23 @@ fn test_on_initialize() {
             } else if runs_emission_weights {
                 let subnet_emission_weights =
                     FinalSubnetEmissionWeights::<Test>::get(current_epoch);
-                assert!(!subnet_emission_weights.subnet_weights.is_empty());
                 for subnet_id in subnet_ids.iter().copied() {
                     let subnet_weight = subnet_emission_weights
                         .subnet_weights
                         .get(&subnet_id)
                         .copied();
-                    assert!(subnet_weight.is_some());
-                    assert!(subnet_weight.unwrap() > 0);
-                    assert!(subnet_weight.unwrap() <= Network::percentage_factor_as_u128());
+                    let has_exact_prior_election = current_epoch
+                        .checked_sub(1)
+                        .map(|previous_epoch| {
+                            SubnetElectedValidator::<Test>::contains_key(subnet_id, previous_epoch)
+                        })
+                        .unwrap_or(false);
+
+                    assert_eq!(subnet_weight.is_some(), has_exact_prior_election);
+                    if let Some(subnet_weight) = subnet_weight {
+                        assert!(subnet_weight > 0);
+                        assert!(subnet_weight <= Network::percentage_factor_as_u128());
+                    }
                 }
                 emission_weights_ran += 1;
             } else if let Some((subnet_id, old_total_stake)) = node_stake_snapshot {
@@ -397,7 +405,7 @@ fn test_on_initialize() {
 }
 
 #[test]
-fn test_on_initialize_runs_emission_weight_step() {
+fn test_on_initialize_bootstraps_election_before_emission_weight() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "hook-emission-subnet".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -412,20 +420,35 @@ fn test_on_initialize_runs_emission_weight_step() {
         );
         let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
 
-        let block = Network::get_current_epoch_as_u32()
-            .saturating_add(1)
+        let first_consensus_epoch = Network::get_current_epoch_as_u32().saturating_add(1);
+        set_block_to_subnet_slot_epoch(first_consensus_epoch, subnet_id);
+        let first_slot_block = System::block_number();
+        let first_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+
+        assert!(
+            FinalSubnetEmissionWeights::<Test>::get(first_consensus_epoch)
+                .subnet_weights
+                .is_empty()
+        );
+        assert!(SubnetElectedValidator::<Test>::get(subnet_id, first_subnet_epoch).is_none());
+
+        Network::on_initialize(first_slot_block);
+
+        assert!(SubnetElectedValidator::<Test>::get(subnet_id, first_subnet_epoch).is_some());
+
+        let reward_epoch = first_consensus_epoch.saturating_add(1);
+        let emission_weight_block = reward_epoch
             .saturating_mul(EpochLength::get())
             .saturating_add(2);
-        let current_epoch = block.saturating_div(EpochLength::get());
-        System::set_block_number(block);
+        System::set_block_number(emission_weight_block);
 
-        assert!(FinalSubnetEmissionWeights::<Test>::get(current_epoch)
+        assert!(FinalSubnetEmissionWeights::<Test>::get(reward_epoch)
             .subnet_weights
             .is_empty());
 
-        Network::on_initialize(block);
+        Network::on_initialize(emission_weight_block);
 
-        let weights = FinalSubnetEmissionWeights::<Test>::get(current_epoch);
+        let weights = FinalSubnetEmissionWeights::<Test>::get(reward_epoch);
         assert!(weights.subnet_weights.contains_key(&subnet_id));
     });
 }
