@@ -284,6 +284,18 @@ describe("test overwatch view functions-0xfff90000", () => {
         let precompileOverwatchEpochLengthMultiplier = await overwatchNodeContract1.overwatchEpochLengthMultiplier();
         expect(Number(overwatchEpochLengthMultiplier.toString())).to.be.equal(Number(precompileOverwatchEpochLengthMultiplier.toString()))
 
+        let overwatchEpochStartBlock = await api.query.network.overwatchEpochStartBlock();
+        let precompileOverwatchEpochStartBlock = await overwatchNodeContract1.overwatchEpochStartBlock();
+        expect(Number(overwatchEpochStartBlock.toString())).to.be.equal(Number(precompileOverwatchEpochStartBlock.toString()))
+
+        const lastFinalizedOverwatchEpoch = await api.query.network.lastFinalizedOverwatchEpoch();
+        const lastFinalizedJson = lastFinalizedOverwatchEpoch.toJSON() as string | number | null;
+        const [lastFinalizedExists, lastFinalizedEpoch] = await overwatchNodeContract1.lastFinalizedOverwatchEpoch();
+        expect(lastFinalizedExists).to.equal(lastFinalizedJson !== null);
+        if (lastFinalizedJson !== null) {
+            expect(lastFinalizedEpoch.toString()).to.equal(lastFinalizedJson.toString());
+        }
+
 
         let overwatchMinStakeBalance = await api.query.network.overwatchMinStakeBalance();
         expect(Number(overwatchMinStakeBalance.toString())).to.not.equal(Number(0))

@@ -72,7 +72,10 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         SwapCallQueue::<T>::mutate(&id, |item_opt| -> DispatchResult {
             let item = item_opt.as_mut().ok_or(Error::<T>::SwapCallNotFound)?;
-            ensure!(item.call.get_queue_account() == &key, Error::<T>::NotKeyOwner);
+            ensure!(
+                item.call.get_queue_account() == &key,
+                Error::<T>::NotKeyOwner
+            );
             let call_balance = item.call.get_queue_balance();
 
             match new_call {

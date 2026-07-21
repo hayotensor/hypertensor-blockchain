@@ -30,7 +30,7 @@ Deactivation removes the subnet. This is the owner's final lifecycle control and
 
 ### Pausing and Unpausing
 
-Only the current subnet owner can pause or unpause a subnet. A subnet must be active before it can be paused and paused before it can be unpaused. After activation or an unpause, the owner must also wait for the configured subnet pause cooldown before pausing it again.
+Only the current subnet owner can pause or unpause a subnet. A subnet must be active before it can be paused and paused before it can be unpaused. After activation or an unpause, the owner must also wait for the configured subnet pause cooldown before pausing it again. The cooldown is measured in that subnet's own epochs, not general blockchain epochs, and must be at least one. Epochs count from the subnet's first consensus-eligible epoch, so preparation time cannot satisfy the cooldown. At the assigned slot where the cooldown expires, `on_initialize` settles the preceding round before an owner pause extrinsic can execute; consequently, a cooldown of one requires one completed live subnet round.
 
 While a subnet is paused:
 
@@ -38,31 +38,33 @@ While a subnet is paused:
 - Registration-queue processing and burn-rate maintenance do not run.
 - New node registration is unavailable.
 - The owner can configure, revert, or replace a pending emergency validator set, subject to the emergency-set rules.
-- An already-elected historical consensus round is preserved. If that round already received an emission allocation, pausing does not erase its settlement.
+- An already-elected historical consensus round is preserved. Its exact election remains eligible for the following general-epoch emission allocation even if the owner pauses first, and an allocation already recorded still settles while paused.
 
-A subnet cannot remain paused indefinitely without consequences. Once it exceeds the network's maximum pause duration, epoch processing begins reducing its subnet reputation. The subnet can be removed if its reputation falls below the network minimum; it is not automatically unpaused.
+A subnet cannot remain paused indefinitely without consequences. The pause records both the global epoch in which it began and the subnet's phase-aware epoch at that block. Once the global maximum pause duration is exceeded, general-epoch preliminary processing begins reducing its subnet reputation. The subnet can be removed if its reputation falls below the network minimum; it is not automatically unpaused. A paused subnet also remains eligible for lowest-stake capacity removal when the network exceeds `MaxSubnets`, including during the maximum-pause grace period.
 
 #### Unpause Timeline
 
-If an owner unpauses a subnet during general blockchain epoch `G`, the subnet becomes `Active` immediately for preparation purposes, but its consensus start epoch is set to `G + 2`.
+Each subnet's epoch advances at its own assigned slot. If an owner unpauses while that subnet's current phase-aware epoch is `E`, the subnet becomes `Active` immediately for preparation purposes, but `consensus_eligible_from_subnet_epoch` is set to `E + 2`.
 
-| General epoch | Subnet behavior |
+| Subnet epoch | Subnet behavior |
 | --- | --- |
-| `G` | The owner unpauses. Any remaining time is additional preparation time. |
-| `G + 1` | Full preparation epoch. Queue and burn-rate maintenance run, but there is no validator election, new consensus round, emission allocation, or new consensus penalty for the subnet. |
-| `G + 2` | The subnet becomes consensus-live. It is still excluded from that epoch's emission allocation because it has no exact `G + 1` election. A validator is elected at the subnet's assigned slot and the first post-unpause consensus round begins. |
-| `G + 3` | The `G + 2` consensus round is eligible for emission allocation and settlement. Normal consensus rewards or penalties apply to that completed round. |
+| `E` | The owner unpauses. Any time remaining before the subnet's next assigned slot is additional preparation time. |
+| `E + 1` | Full local preparation epoch. Queue and burn-rate maintenance run, but there is no validator election or new consensus round. |
+| `E + 2` | At the subnet's assigned slot it becomes consensus-live, elects a validator, and begins its first post-unpause round. It has no exact prior election, so this first round has not yet received an emission allocation. |
+| Following general epoch | The exact `E + 2` election can receive an emission allocation. Its round is settled at the next assigned subnet slot, where normal consensus rewards or penalties apply. |
 
-Emission allocation requires both of the following:
+Emission allocation requires an elected validator for the exact previous subnet epoch being
+settled. Creating that election requires the subnet to be active and consensus-live at its assigned
+slot. Once created, the historical election remains allocation-eligible even if the subnet is later
+paused or is preparing after an unpause.
 
-1. The subnet is active and has reached its consensus start epoch.
-2. The subnet has an elected validator for the exact previous subnet epoch being settled.
+This prevents a newly unpaused subnet from receiving an unused allocation, diluting other subnets' rewards, or being penalized before it has had a complete local epoch in which to prepare.
 
-This prevents a newly unpaused subnet from receiving an unused allocation, diluting other subnets' rewards, or being penalized before it has had a complete consensus epoch in which to prepare and submit work.
+Global subnet-health checks run at general epoch slot zero, before every subnet's assigned slot. An active subnet that has not yet reached `consensus_eligible_from_subnet_epoch` is treated as preparing, so ordinary reputation, minimum-node, and stake checks are skipped. The global boundary immediately before its first post-unpause consensus slot therefore cannot penalize it. These checks resume at the next global boundary, after the subnet has reached its first live slot. Maximum-pause reputation processing remains global because it applies only while the subnet is paused.
 
-Queued-node classification times are shifted by exactly the subnet slots missed while paused. Whether the pause occurs before or after the subnet's assigned slot is taken into account. The full `G + 1` preparation epoch is not treated as missed time, so it counts normally toward queue maturity.
+Queued-node classification times are shifted by exactly the subnet slots missed while paused. Whether the pause occurs before or after the subnet's assigned slot is taken into account. The full `E + 1` preparation epoch is not treated as missed time, so it counts normally toward queue maturity.
 
-If a pending emergency validator set exists when the subnet is unpaused, it is validated and activated as part of the unpause. Its duration starts at the first consensus epoch, `G + 2`, so the preparation epoch does not consume emergency-validator time. An invalid pending set causes the unpause to fail and leaves the subnet paused.
+If a pending emergency validator set exists when the subnet is unpaused, it is validated and activated as part of the unpause. Its duration starts at the first consensus-eligible epoch, `E + 2`, so the preparation epoch does not consume emergency-validator time. An invalid pending set causes the unpause to fail and leaves the subnet paused.
 
 ### Metadata Management
 
@@ -81,6 +83,10 @@ This protects both parties from accidental transfers. Until the pending owner ac
 Owners can configure how nodes enter and progress through the subnet. These controls include the registration queue duration, queue immunity period, target node registrations per epoch, maximum registered nodes, churn limits, and churn multipliers.
 
 Together, these settings shape how quickly the subnet admits new nodes, how much protection queued nodes receive before evaluation, and how much turnover the subnet allows. They help owners balance growth, stability, and competition among node operators.
+
+Registration queue duration and queue immunity changes are scheduled for the next subnet epoch. The live values continue to govern the current subnet epoch, giving queued nodes and validators a complete epoch boundary before the new timing applies.
+
+A queued node remains in its waiting and immunity periods while the current subnet epoch is equal to `start_epoch + configured_epochs`. The period has passed only in a later subnet epoch. Consequently, when queue duration and immunity are equal, a removal cannot be authorized before the node reaches duration-based activation eligibility. Actual activation can still wait for queue capacity and the configured churn cadence.
 
 ### Initial Validators
 
@@ -120,9 +126,12 @@ Reputation factors are a core part of subnet quality control. They define the in
 
 ### Consensus and Attestation Settings
 
-Owners can adjust consensus-related policy for their subnet, including the minimum consensus-node attestation percentage and the validator node count decay used in consensus calculations.
+Owners can adjust subnet-specific consensus policy such as the validator node count decay used in
+stake-weight calculations. The admin collective, rather than subnet owners, controls the
+network-wide distinct-validator-identity attestation percentage.
 
-These settings influence how the subnet evaluates consensus participation and how validator/node-count history affects consensus behavior over time. They are constrained by network-level limits and, where applicable, update intervals.
+These settings influence how validator/node-count history affects consensus behavior over time.
+They are constrained by network-level limits and, where applicable, update intervals.
 
 ### Node Burn Rate Settings
 

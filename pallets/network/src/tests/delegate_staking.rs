@@ -2139,7 +2139,10 @@ fn test_transfer_delegate_stake_requires_owned_shares() {
             AccountSubnetDelegateStakeShares::<Test>::get(&recipient, subnet_id),
             0
         );
-        assert_eq!(TotalSubnetDelegateStakeShares::<Test>::get(subnet_id), total_shares);
+        assert_eq!(
+            TotalSubnetDelegateStakeShares::<Test>::get(subnet_id),
+            total_shares
+        );
         assert_eq!(
             TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
             total_balance

@@ -22,6 +22,12 @@ use libm::{ceil, log};
 impl<T: Config> Pallet<T> {
     pub const MAX_EMERGENCY_VALIDATOR_DURATION_STEPS: u32 = 10_000;
 
+    pub(crate) fn get_unpause_consensus_eligible_from_subnet_epoch(
+        current_subnet_epoch: u32,
+    ) -> u32 {
+        current_subnet_epoch.saturating_add(2)
+    }
+
     fn prepare_pending_owner_u32_update(
         current_subnet_epoch: u32,
         pending: Option<PendingOwnerU32Update<T>>,
@@ -101,21 +107,18 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    pub fn get_min_consensus_node_attestation_percentage_for_epoch(
-        subnet_id: u32,
-        subnet_epoch: u32,
-    ) -> u128 {
-        Self::pending_owner_u128_value_for_epoch(
-            SubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id),
-            PendingSubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id),
-            subnet_epoch,
-        )
-    }
-
     pub fn get_idle_classification_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
         Self::pending_owner_u32_value_for_epoch(
             IdleClassificationEpochs::<T>::get(subnet_id),
             PendingIdleClassificationEpochs::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
+    pub fn get_subnet_node_queue_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
+        Self::pending_owner_u32_value_for_epoch(
+            SubnetNodeQueueEpochs::<T>::get(subnet_id),
+            PendingSubnetNodeQueueEpochs::<T>::get(subnet_id),
             subnet_epoch,
         )
     }
@@ -170,7 +173,7 @@ impl<T: Config> Pallet<T> {
 
     /// Owner pause subnet for up to max period
     ///
-    /// This will pause the following logic on the next subnet epoch start block step:
+    /// This immediately prevents the following work at the subnet's next assigned slot:
     /// - Elect validator
     /// - Activate nodes from the queue
     /// - Update the node burn rate
@@ -185,36 +188,41 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
+        let subnet =
+            SubnetsData::<T>::try_get(subnet_id).map_err(|_| Error::<T>::InvalidSubnetId)?;
         ensure!(
-            Self::is_subnet_active(subnet_id).unwrap_or(false),
+            subnet.state == SubnetState::Active,
             Error::<T>::SubnetMustBeActive
         );
 
-        let epoch = Self::get_current_epoch_as_u32();
+        let consensus_eligible_from_subnet_epoch = subnet
+            .consensus_eligible_from_subnet_epoch
+            .ok_or(Error::<T>::SubnetMustBeActive)?;
+        let global_epoch = Self::get_current_epoch_as_u32();
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
-        // Ensure subnet pause period has been reached to pause again
+        // Cooldown is measured in completed epochs of this subnet. Because the subnet epoch
+        // advances in on_initialize at its assigned slot, an extrinsic that first satisfies this
+        // check runs after that slot's settlement attempt.
         ensure!(
-            PreviousSubnetPauseEpoch::<T>::get(subnet_id)
+            consensus_eligible_from_subnet_epoch
                 .saturating_add(SubnetPauseCooldownEpochs::<T>::get())
-                <= epoch,
+                <= subnet_epoch,
             Error::<T>::SubnetPauseCooldownActive
         );
 
         SubnetsData::<T>::try_mutate_exists(subnet_id, |maybe_params| -> DispatchResult {
             let params = maybe_params.as_mut().ok_or(Error::<T>::InvalidSubnetId)?;
 
-            // Update state
             params.state = SubnetState::Paused;
-
-            // The general pause epoch is used by maximum-pause enforcement.
-            params.start_epoch = epoch;
+            params.consensus_eligible_from_subnet_epoch = None;
+            params.pause = Some(SubnetPauseData {
+                started_global_epoch: global_epoch,
+                started_subnet_epoch: subnet_epoch,
+            });
 
             Ok(())
         })?;
-        // Preserve the slot phase separately so unpause can count skipped subnet epochs
-        // exactly whether this call occurs before or after the assigned slot.
-        SubnetPauseSubnetEpoch::<T>::insert(subnet_id, subnet_epoch);
 
         // Preserve the already-elected round so its historical allocation can still settle.
         // The active/live gate prevents any new election while the subnet is paused.
@@ -235,19 +243,19 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
+        let subnet =
+            SubnetsData::<T>::try_get(subnet_id).map_err(|_| Error::<T>::InvalidSubnetId)?;
         ensure!(
-            Self::is_subnet_paused(subnet_id).unwrap_or(false),
+            subnet.state == SubnetState::Paused,
             Error::<T>::SubnetMustBePaused
         );
+        let pause = subnet.pause.ok_or(Error::<T>::SubnetMustBePaused)?;
 
-        let epoch = Self::get_current_epoch_as_u32();
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
-        let paused_subnet_epoch =
-            SubnetPauseSubnetEpoch::<T>::get(subnet_id).ok_or(Error::<T>::SubnetMustBePaused)?;
-        // Keep the complete next general epoch as a preparation period. Because every
-        // subnet slot is after the reserved general-epoch hooks, the first live subnet
-        // epoch at this start label is the same numeric epoch.
-        let consensus_start_epoch = epoch.saturating_add(2);
+        // The next local epoch is preparation-only; consensus resumes at the following
+        // assigned slot regardless of whether this call occurs before or after today's slot.
+        let consensus_eligible_from_subnet_epoch =
+            Self::get_unpause_consensus_eligible_from_subnet_epoch(subnet_epoch);
 
         Self::maybe_finish_expired_emergency_validator_set(subnet_id, subnet_epoch);
 
@@ -271,7 +279,7 @@ impl<T: Config> Pallet<T> {
 
             // Count only subnet slots that were actually skipped while paused. The G + 1
             // preparation slot runs queue maintenance, so it is intentionally not added.
-            let delta = subnet_epoch.saturating_sub(paused_subnet_epoch);
+            let delta = subnet_epoch.saturating_sub(pause.started_subnet_epoch);
 
             // RegisteredSubnetNodesData is the canonical lookup, while SubnetNodeQueue owns
             // clones used by queue activation. Shift both so they cannot disagree.
@@ -288,19 +296,15 @@ impl<T: Config> Pallet<T> {
                 }
             });
 
-            // Update state
             params.state = SubnetState::Active;
-
-            // The following general epoch is a full preparation epoch. Consensus resumes
-            // at the subnet's slot in the epoch after that. This also prevents an owner
-            // from using a same-epoch pause cycle to manipulate attestation ratios.
-            params.start_epoch = consensus_start_epoch;
+            params.consensus_eligible_from_subnet_epoch =
+                Some(consensus_eligible_from_subnet_epoch);
+            // Unpausing ends maximum-pause enforcement immediately. The local cooldown above
+            // prevents another pause until complete subnet rounds have elapsed.
+            params.pause = None;
 
             Ok(())
         })?;
-
-        SubnetPauseSubnetEpoch::<T>::remove(subnet_id);
-        PreviousSubnetPauseEpoch::<T>::insert(subnet_id, epoch);
 
         // Activate a pending emergency validator set. Active emergency data is intentionally
         // not reset on later pause/unpause cycles.
@@ -313,11 +317,11 @@ impl<T: Config> Pallet<T> {
                     )
                     .min(u32::MAX as u128) as u32;
                     data.activated = true;
-                    // The emergency duration starts with the first consensus epoch, not
+                    // The emergency duration starts with the first consensus-eligible epoch, not
                     // while the subnet is in its preparation period.
-                    data.started_subnet_epoch = consensus_start_epoch;
+                    data.started_subnet_epoch = consensus_eligible_from_subnet_epoch;
                     data.max_emergency_validators_epoch =
-                        consensus_start_epoch.saturating_add(max_emergency_delta);
+                        consensus_eligible_from_subnet_epoch.saturating_add(max_emergency_delta);
                 }
             }
         });
@@ -863,12 +867,27 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidRegistrationQueueEpochs
         );
 
-        SubnetNodeQueueEpochs::<T>::insert(subnet_id, value);
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::prepare_pending_owner_u32_update(
+            current_subnet_epoch,
+            PendingSubnetNodeQueueEpochs::<T>::get(subnet_id),
+            |value| SubnetNodeQueueEpochs::<T>::insert(subnet_id, value),
+        )?;
+        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        PendingSubnetNodeQueueEpochs::<T>::insert(
+            subnet_id,
+            PendingOwnerU32Update {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
 
-        Self::deposit_event(Event::RegistrationQueueEpochsUpdate {
+        Self::deposit_event(Event::RegistrationQueueEpochsUpdateScheduled {
             subnet_id: subnet_id,
             owner: coldkey,
             value: value,
+            effective_subnet_epoch,
         });
 
         Ok(())
@@ -1584,52 +1603,6 @@ impl<T: Config> Pallet<T> {
             value,
             effective_subnet_epoch,
         });
-
-        Ok(())
-    }
-
-    pub fn do_owner_update_min_consensus_node_attestation_percentage(
-        origin: T::RuntimeOrigin,
-        subnet_id: u32,
-        value: u128,
-    ) -> DispatchResult {
-        let coldkey: T::AccountId = ensure_signed(origin)?;
-
-        ensure!(
-            Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
-            Error::<T>::NotSubnetOwner
-        );
-
-        ensure!(
-            value >= MinSubnetConsensusNodeAttestationPercentage::<T>::get()
-                && value <= MaxSubnetConsensusNodeAttestationPercentage::<T>::get(),
-            Error::<T>::InvalidPercent
-        );
-
-        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
-        Self::prepare_pending_owner_u128_update(
-            current_subnet_epoch,
-            PendingSubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id),
-            |value| SubnetMinConsensusNodeAttestationPercentage::<T>::insert(subnet_id, value),
-        )?;
-        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
-        PendingSubnetMinConsensusNodeAttestationPercentage::<T>::insert(
-            subnet_id,
-            PendingOwnerU128Update {
-                value,
-                effective_subnet_epoch,
-                owner: coldkey.clone(),
-            },
-        );
-
-        Self::deposit_event(
-            Event::MinConsensusNodeAttestationPercentageUpdateScheduled {
-                subnet_id,
-                owner: coldkey,
-                value,
-                effective_subnet_epoch,
-            },
-        );
 
         Ok(())
     }

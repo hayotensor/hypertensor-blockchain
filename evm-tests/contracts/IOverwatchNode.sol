@@ -70,7 +70,14 @@ interface IOverwatchNode {
 
     function overwatchEpochLengthMultiplier() external view returns (uint256);
 
+    function overwatchEpochStartBlock() external view returns (uint256);
+
     function overwatchCommitCutoffPercent() external view returns (uint256);
+
+    function lastFinalizedOverwatchEpoch()
+        external
+        view
+        returns (bool exists, uint256 epoch);
 
     function overwatchNodes(
         uint256 overwatchNodeId

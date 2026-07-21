@@ -181,14 +181,12 @@ impl<T: Config> Pallet<T> {
         let min_avg_attestation = OverwatchMinAvgAttestationRatio::<T>::get();
         let min_age = OverwatchMinAge::<T>::get();
 
-        let current_epoch = Self::get_current_epoch_as_u32();
-
-        // - No one can be an Overwatch Node yet
-        if current_epoch <= min_age {
+        let Some(start_epoch) = reputation.start_epoch else {
             return false;
-        }
+        };
 
-        let age = current_epoch.saturating_sub(reputation.start_epoch);
+        let current_epoch = Self::get_current_epoch_as_u32();
+        let age = current_epoch.saturating_sub(start_epoch);
 
         if age < min_age {
             return false;

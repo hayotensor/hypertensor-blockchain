@@ -23,6 +23,26 @@ use super::*;
 use frame_support::pallet_prelude::DispatchError;
 
 impl<T: Config> Pallet<T> {
+    /// Record the epoch represented by a newly persisted subnet-validator election.
+    ///
+    /// Election metadata is independent of the outcome, which is not settled until the next
+    /// subnet epoch. Keeping this update on the election path also records validators that never
+    /// submit a proposal.
+    pub fn record_validator_election(validator_id: u32, election_epoch: u32) {
+        ValidatorReputation::<T>::mutate(validator_id, |reputation| {
+            reputation.start_epoch = Some(
+                reputation
+                    .start_epoch
+                    .map_or(election_epoch, |epoch| epoch.min(election_epoch)),
+            );
+            reputation.last_validator_epoch = Some(
+                reputation
+                    .last_validator_epoch
+                    .map_or(election_epoch, |epoch| epoch.max(election_epoch)),
+            );
+        });
+    }
+
     pub fn get_reputation_factors_for_epoch(
         subnet_id: u32,
         evaluated_subnet_epoch: u32,
@@ -36,7 +56,6 @@ impl<T: Config> Pallet<T> {
         attestation_percentage: u128,
         min_attestation_percentage: u128,
         increase_weight_factor: u128,
-        epoch: u32,
     ) {
         if !ValidatorReputation::<T>::contains_key(validator_id) {
             return;
@@ -55,11 +74,6 @@ impl<T: Config> Pallet<T> {
         // Update fields
         validator_reputation.score = new_score;
         validator_reputation.total_increases += 1;
-        validator_reputation.last_validator_epoch = epoch;
-
-        if validator_reputation.start_epoch == 0 {
-            validator_reputation.start_epoch = epoch;
-        }
 
         // Update average attestation
         let prev_total = validator_reputation
@@ -86,15 +100,13 @@ impl<T: Config> Pallet<T> {
     ///
     /// * `coldkey` - Nodes coldkey
     /// * `attestation_percentage` - The attestation ratio of the validator nodes consensus
-    /// * `min_attestation_percentage` - Blockchains minimum attestation percentage (66%)
+    /// * `min_attestation_percentage` - Blockchain's minimum stake-attestation percentage
     /// * `decrease_weight_factor` - `ValidatorReputationDecreaseFactor`.
-    /// * `epoch`: The blockchains general epoch
     pub fn decrease_validator_reputation(
         validator_id: u32,
         attestation_percentage: u128,
         min_attestation_percentage: u128,
         decrease_weight_factor: u128, // <- slope/steepness control
-        epoch: u32,
     ) {
         if !ValidatorReputation::<T>::contains_key(validator_id) {
             return;
@@ -113,11 +125,6 @@ impl<T: Config> Pallet<T> {
 
         validator_reputation.score = new_score;
         validator_reputation.total_decreases += 1;
-        validator_reputation.last_validator_epoch = epoch;
-
-        if validator_reputation.start_epoch == 0 {
-            validator_reputation.start_epoch = epoch;
-        }
 
         let prev_total = validator_reputation
             .total_increases

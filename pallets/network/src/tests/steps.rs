@@ -3,13 +3,14 @@ use crate::tests::test_utils::*;
 use crate::{
     DelegateStakeSubnetRemovalInterval, Event, MaxMinDelegateStakeMultiplier,
     MaxPauseEpochsSubnetReputationFactor, MaxSubnetPauseEpochs, MaxSubnetRemovalInterval,
-    MaxSubnets, MinSubnetNodes, MinSubnetReputation, NewRegistrationCostMultiplier,
-    SubnetEnactmentEpochs, SubnetName, SubnetRegistrationEpoch, SubnetRegistrationEpochs,
+    MaxSubnets, MinSubnetNodes, MinSubnetRemovalInterval, MinSubnetReputation,
+    NewRegistrationCostMultiplier, PrevSubnetActivationEpoch, SubnetEnactmentEpochs, SubnetName,
+    SubnetOwner, SubnetPauseData, SubnetRegistrationEpoch, SubnetRegistrationEpochs,
     SubnetRemovalReason, SubnetReputation, SubnetState, SubnetsData, TotalActiveSubnetNodes,
     TotalSubnetDelegateStakeBalance,
 };
 use frame_support::assert_ok;
-use frame_support::traits::Currency;
+use frame_support::traits::{Currency, OnInitialize};
 use frame_support::weights::WeightMeter;
 
 #[test]
@@ -49,9 +50,11 @@ fn test_do_epoch_preliminaries_remove_expired_pause() {
             let params = maybe_params.as_mut().unwrap();
             // Update state
             params.state = SubnetState::Paused;
-
-            // Set to zero
-            params.start_epoch = 0;
+            params.consensus_eligible_from_subnet_epoch = None;
+            params.pause = Some(SubnetPauseData {
+                started_global_epoch: 0,
+                started_subnet_epoch: 0,
+            });
         });
 
         increase_epochs(MaxSubnetPauseEpochs::<Test>::get() + 1);
@@ -100,6 +103,209 @@ fn test_do_epoch_preliminaries_remove_expired_pause() {
             Event::SubnetDeactivated {
                 subnet_id: remove_subnet_id,
                 reason: SubnetRemovalReason::PauseExpired
+            }
+        );
+    });
+}
+
+#[test]
+fn test_max_pause_expiry_is_global_and_hook_precedes_boundary_unpause() {
+    new_test_ext().execute_with(|| {
+        let deposit_amount = 10_000_000_000_000_000_000_000u128;
+        let stake_amount = 1_000_000_000_000_000_000_000u128;
+        let owner = account(1);
+        let pause_started_global_epoch = 10;
+        let initial_reputation = Network::percentage_factor_as_u128();
+        let mut subnet_ids = Vec::new();
+
+        for index in 0..2 {
+            let subnet_name: Vec<u8> = format!("pause-boundary-subnet-{index}").into();
+            build_activated_subnet(
+                subnet_name.clone(),
+                0,
+                MinSubnetNodes::<Test>::get(),
+                deposit_amount,
+                stake_amount,
+            );
+            let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+            SubnetOwner::<Test>::insert(subnet_id, &owner);
+            SubnetReputation::<Test>::insert(subnet_id, initial_reputation);
+            SubnetsData::<Test>::mutate(subnet_id, |maybe_subnet| {
+                let subnet = maybe_subnet.as_mut().unwrap();
+                subnet.state = SubnetState::Paused;
+                subnet.consensus_eligible_from_subnet_epoch = None;
+                subnet.pause = Some(SubnetPauseData {
+                    started_global_epoch: pause_started_global_epoch,
+                    // This marker deliberately differs between subnets below. Maximum-pause
+                    // enforcement must remain independent of local phase.
+                    started_subnet_epoch: index,
+                });
+            });
+            subnet_ids.push(subnet_id);
+        }
+
+        let strict_boundary =
+            pause_started_global_epoch.saturating_add(MaxSubnetPauseEpochs::<Test>::get());
+        set_epoch(strict_boundary, 0);
+        Network::on_initialize(System::block_number());
+        for subnet_id in &subnet_ids {
+            assert_eq!(SubnetReputation::<Test>::get(subnet_id), initial_reputation);
+        }
+
+        let first_expired_epoch = strict_boundary.saturating_add(1);
+        set_epoch(first_expired_epoch, 0);
+        System::set_block_number(System::block_number().saturating_sub(1));
+
+        // Unpausing in the final block before the boundary ends the pause episode, so the next
+        // slot-zero hook cannot apply maximum-pause decay.
+        assert_ok!(Network::owner_unpause_subnet(
+            RuntimeOrigin::signed(owner.clone()),
+            subnet_ids[0],
+        ));
+        assert!(SubnetsData::<Test>::get(subnet_ids[0])
+            .unwrap()
+            .pause
+            .is_none());
+
+        // Runtime hooks execute before extrinsics in the boundary block. The still-paused subnet
+        // is therefore decayed first, and unpausing later in that block cannot undo the decay.
+        set_epoch(first_expired_epoch, 0);
+        Network::on_initialize(System::block_number());
+        assert_eq!(
+            SubnetReputation::<Test>::get(subnet_ids[0]),
+            initial_reputation
+        );
+
+        let expected_decayed_reputation = Network::decrease_rep(
+            initial_reputation,
+            MaxPauseEpochsSubnetReputationFactor::<Test>::get(),
+            None,
+        );
+        assert_eq!(
+            SubnetReputation::<Test>::get(subnet_ids[1]),
+            expected_decayed_reputation
+        );
+        assert_ok!(Network::owner_unpause_subnet(
+            RuntimeOrigin::signed(owner),
+            subnet_ids[1],
+        ));
+        assert_eq!(
+            SubnetReputation::<Test>::get(subnet_ids[1]),
+            expected_decayed_reputation
+        );
+        assert!(SubnetsData::<Test>::get(subnet_ids[1])
+            .unwrap()
+            .pause
+            .is_none());
+    });
+}
+
+#[test]
+fn test_do_epoch_preliminaries_waits_for_first_local_consensus_slot() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "phase-aware-health-subnet".into();
+        let deposit_amount = 10_000_000_000_000_000_000_000u128;
+        let stake_amount = 1_000_000_000_000_000_000_000u128;
+
+        build_activated_subnet(
+            subnet_name.clone(),
+            0,
+            MinSubnetNodes::<Test>::get(),
+            deposit_amount,
+            stake_amount,
+        );
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let consensus_eligible_from_subnet_epoch = SubnetsData::<Test>::get(subnet_id)
+            .unwrap()
+            .consensus_eligible_from_subnet_epoch
+            .unwrap();
+
+        SubnetReputation::<Test>::insert(
+            subnet_id,
+            MinSubnetReputation::<Test>::get().saturating_sub(1),
+        );
+        TotalSubnetDelegateStakeBalance::<Test>::insert(subnet_id, u128::MAX);
+
+        // At global slot zero the subnet is still in the preceding local epoch, so ordinary
+        // health enforcement must not run before its first consensus opportunity.
+        set_epoch(consensus_eligible_from_subnet_epoch, 0);
+        let preparation_boundary = System::block_number();
+        Network::on_initialize(preparation_boundary);
+        assert!(SubnetsData::<Test>::contains_key(subnet_id));
+
+        // At the following global boundary the target subnet slot has passed. Normal health
+        // enforcement resumes and observes the already-low reputation.
+        let enforcement_epoch = consensus_eligible_from_subnet_epoch.saturating_add(1);
+        set_epoch(enforcement_epoch, 0);
+        Network::on_initialize(System::block_number());
+        assert_eq!(SubnetsData::<Test>::try_get(subnet_id), Err(()));
+    });
+}
+
+#[test]
+fn test_do_epoch_preliminaries_keeps_paused_subnet_in_excess_capacity_cohort() {
+    new_test_ext().execute_with(|| {
+        NewRegistrationCostMultiplier::<Test>::put(Network::percentage_factor_as_u128());
+        MaxSubnets::<Test>::put(1);
+
+        let deposit_amount = 10_000_000_000_000_000_000_000u128;
+        let stake_amount = 1_000_000_000_000_000_000_000u128;
+        let mut subnet_ids = Vec::new();
+        for index in 0..2 {
+            let subnet_name: Vec<u8> = format!("capacity-pause-subnet-{index}").into();
+            build_activated_subnet_new_excess_subnets(
+                subnet_name.clone(),
+                0,
+                MinSubnetNodes::<Test>::get(),
+                deposit_amount,
+                stake_amount,
+                1,
+            );
+            subnet_ids.push(SubnetName::<Test>::get(subnet_name).unwrap());
+        }
+
+        let paused_subnet_id = subnet_ids[0];
+        let active_subnet_id = subnet_ids[1];
+        TotalSubnetDelegateStakeBalance::<Test>::insert(paused_subnet_id, 1);
+        TotalSubnetDelegateStakeBalance::<Test>::insert(active_subnet_id, u128::MAX);
+        SubnetsData::<Test>::mutate(paused_subnet_id, |maybe_subnet| {
+            let subnet = maybe_subnet.as_mut().unwrap();
+            subnet.state = SubnetState::Paused;
+            subnet.consensus_eligible_from_subnet_epoch = None;
+            subnet.pause = Some(SubnetPauseData {
+                started_global_epoch: u32::MAX,
+                started_subnet_epoch: 0,
+            });
+        });
+        SubnetsData::<Test>::mutate(active_subnet_id, |maybe_subnet| {
+            maybe_subnet
+                .as_mut()
+                .unwrap()
+                .consensus_eligible_from_subnet_epoch = Some(0);
+        });
+
+        PrevSubnetActivationEpoch::<Test>::put(0);
+        let removal_interval = MaxSubnetRemovalInterval::<Test>::get();
+        let min_removal_epoch = MinSubnetRemovalInterval::<Test>::get();
+        let removal_epoch = min_removal_epoch
+            .saturating_add(removal_interval.saturating_sub(1))
+            .saturating_div(removal_interval)
+            .saturating_mul(removal_interval);
+        set_epoch(removal_epoch, 0);
+
+        Network::do_epoch_preliminaries(
+            &mut WeightMeter::new(),
+            System::block_number(),
+            removal_epoch,
+        );
+
+        assert!(!SubnetsData::<Test>::contains_key(paused_subnet_id));
+        assert!(SubnetsData::<Test>::contains_key(active_subnet_id));
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::SubnetDeactivated {
+                subnet_id: paused_subnet_id,
+                reason: SubnetRemovalReason::MaxSubnets,
             }
         );
     });
@@ -281,7 +487,14 @@ fn test_do_epoch_preliminaries_remove_under_min_reputation() {
         let min_rep = MinSubnetReputation::<Test>::get();
         SubnetReputation::<Test>::insert(remove_subnet_id, min_rep - 1);
 
-        let current_epoch = Network::get_current_epoch_as_u32();
+        // Health enforcement resumes at the global boundary after the first local consensus
+        // slot, not at slot zero of the consensus-eligibility global epoch.
+        let current_epoch = SubnetsData::<Test>::get(remove_subnet_id)
+            .unwrap()
+            .consensus_eligible_from_subnet_epoch
+            .unwrap()
+            .saturating_add(1);
+        set_epoch(current_epoch, 0);
         Network::do_epoch_preliminaries(
             &mut WeightMeter::new(),
             System::block_number(),

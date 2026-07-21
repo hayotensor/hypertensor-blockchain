@@ -19,39 +19,46 @@ use super::*;
 use frame_support::pallet_prelude::{Weight, Zero};
 
 impl<T: Config> Pallet<T> {
-    pub fn min_consensus_node_attestation_count(
-        eligible_validator_count: u32,
-        min_node_attestation_percentage: u128,
+    pub const MIN_CONSENSUS_VALIDATOR_IDENTITIES: u32 = 3;
+
+    pub fn has_minimum_consensus_validator_identity_set(
+        eligible_validator_identity_count: u32,
+    ) -> bool {
+        eligible_validator_identity_count >= Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES
+    }
+
+    pub fn min_consensus_identity_attestation_count(
+        eligible_validator_identity_count: u32,
+        min_identity_attestation_percentage: u128,
     ) -> u32 {
-        if eligible_validator_count == 0 {
-            return 0;
+        match eligible_validator_identity_count {
+            0 => return 0,
+            1 => return 1,
+            2 | 3 => return 2,
+            _ => {}
         }
 
         let percentage_factor = Self::percentage_factor_as_u128();
-        let numerator = (eligible_validator_count as u128)
-            .saturating_mul(min_node_attestation_percentage.min(percentage_factor))
+        let numerator = (eligible_validator_identity_count as u128)
+            .saturating_mul(min_identity_attestation_percentage.min(percentage_factor))
             .saturating_add(percentage_factor.saturating_sub(1));
         let mut required = numerator / percentage_factor;
 
-        if eligible_validator_count > 1 {
-            required = required.max(2);
-        } else {
-            required = required.max(1);
-        }
+        required = required.max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES as u128);
 
-        required.min(eligible_validator_count as u128) as u32
+        required.min(eligible_validator_identity_count as u128) as u32
     }
 
-    pub fn effective_min_consensus_node_attestation_percentage(
-        eligible_validator_count: u32,
-        min_node_attestation_percentage: u128,
+    pub fn effective_min_consensus_identity_attestation_percentage(
+        eligible_validator_identity_count: u32,
+        min_identity_attestation_percentage: u128,
     ) -> u128 {
-        let required = Self::min_consensus_node_attestation_count(
-            eligible_validator_count,
-            min_node_attestation_percentage,
+        let required = Self::min_consensus_identity_attestation_count(
+            eligible_validator_identity_count,
+            min_identity_attestation_percentage,
         );
 
-        Self::percent_div(required as u128, eligible_validator_count as u128)
+        Self::percent_div(required as u128, eligible_validator_identity_count as u128)
             .clamp(0, Self::percentage_factor_as_u128())
     }
 
@@ -60,9 +67,16 @@ impl<T: Config> Pallet<T> {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
-        let current_overwatch_epoch = Self::get_current_overwatch_epoch_as_u32();
-        // OverwatchEpochLengthMultiplier
-        weight = weight.saturating_add(db_weight.reads(1));
+        // Taking the settlement makes finalization idempotent: a second invocation cannot score or
+        // mint rewards for the same epoch. Empty epochs are finalized as well so consumers can
+        // distinguish "no score" from "not processed yet".
+        let Some(settlement) = PendingOverwatchSettlement::<T>::take() else {
+            return db_weight.reads(1);
+        };
+        weight = weight.saturating_add(db_weight.reads_writes(1, 1));
+
+        LastFinalizedOverwatchEpoch::<T>::put(settlement.epoch);
+        weight = weight.saturating_add(db_weight.writes(1));
 
         let percentage_factor = Self::percentage_factor_as_u128();
 
@@ -86,7 +100,7 @@ impl<T: Config> Pallet<T> {
         // {subnet_id, (subnet_weight sum, {node_id, subnet_weight})}
         let mut subnet_reveals: BTreeMap<u32, (u128, BTreeMap<u32, u128>)> = BTreeMap::new();
         for ((subnet_id, overwatch_node_id), subnet_weight) in
-            OverwatchReveals::<T>::iter_prefix((current_overwatch_epoch.saturating_sub(1),))
+            OverwatchReveals::<T>::iter_prefix((settlement.epoch,))
         {
             // OverwatchReveals
             // Get stake weights of all revealing nodes
@@ -149,11 +163,7 @@ impl<T: Config> Pallet<T> {
             //
 
             // Data only (currently)
-            OverwatchSubnetWeights::<T>::insert(
-                current_overwatch_epoch.saturating_sub(1),
-                subnet_id,
-                total_adjusted,
-            );
+            OverwatchSubnetWeights::<T>::insert(settlement.epoch, subnet_id, total_adjusted);
             weight = weight.saturating_add(db_weight.writes(1));
 
             // Step 2c: Score nodes and accumulate
@@ -176,16 +186,23 @@ impl<T: Config> Pallet<T> {
         let total_final_score: u128 = node_total_scores
             .values()
             .fold(0u128, |acc, score| acc.saturating_add(*score));
+        let mut node_rewards: Vec<(u32, u128)> = Vec::new();
         if total_final_score == 0 {
+            Self::deposit_event(Event::OverwatchEpochFinalized {
+                epoch: settlement.epoch,
+                node_rewards,
+            });
             return weight;
         }
 
         //
         // Step 5: Reward nodes
         //
-        let ow_emissions = T::OverwatchEpochEmissions::get();
-
-        let mut node_rewards: Vec<(u32, u128)> = Vec::new();
+        // `OverwatchEpochEmissions` is the budget for one general blockchain epoch. Overwatch
+        // nodes submit only once per multiplied interval, so the completed interval receives all
+        // general-epoch budgets that it spans.
+        let ow_emissions = T::OverwatchEpochEmissions::get()
+            .saturating_mul(settlement.epoch_length_multiplier as u128);
 
         for (node_id, score) in node_total_scores.iter() {
             if *score == 0 {
@@ -195,11 +212,7 @@ impl<T: Config> Pallet<T> {
             let node_final_score = Self::percent_div(*score, total_final_score);
 
             // For data purposes only
-            OverwatchNodeWeights::<T>::insert(
-                current_overwatch_epoch.saturating_sub(1),
-                node_id,
-                node_final_score,
-            );
+            OverwatchNodeWeights::<T>::insert(settlement.epoch, node_id, node_final_score);
             weight = weight.saturating_add(db_weight.writes(1));
 
             // Skip if no hotkey
@@ -218,7 +231,10 @@ impl<T: Config> Pallet<T> {
             node_rewards.push((*node_id, amount));
         }
 
-        Self::deposit_event(Event::OverwatchRewards { node_rewards });
+        Self::deposit_event(Event::OverwatchEpochFinalized {
+            epoch: settlement.epoch,
+            node_rewards,
+        });
 
         weight
     }
@@ -240,13 +256,9 @@ impl<T: Config> Pallet<T> {
         // We know the subnet exists because to call this function `SlotAssignment` must exist
         // for the given subnet_id called in `on_initialize` on this block step.
 
-        // Get all active subnet weights calculated at the start of the blockchains epoch
-        // (Only subnets that were active)
-        //
-        // At this point, we don't care if the subnet is active or not on this block, only that
-        // it was active during the generation of the subnet weights for emissions in
-        // `handle_subnet_emission_weights` and that the subnet nodes contributed to its own
-        // consensus
+        // Get allocations calculated at the start of the general epoch. Allocation authority
+        // is an exact historical election, so a round remains settleable even if its subnet is
+        // paused by this block. Current lifecycle state only gates the operational work below.
 
         // FinalSubnetEmissionWeights
         weight_meter.consume(db_weight.reads(1));
@@ -269,25 +281,16 @@ impl<T: Config> Pallet<T> {
                     weight_meter.consume(consensus_submission_block_weight);
 
                     if let Some(consensus_submission_data) = consensus_submission_data {
+                        let policy = consensus_submission_data.policy;
                         // Calculate rewards
                         let (rewards_data, rewards_block_weight) =
-                            Self::calculate_rewards_for_epoch(
+                            Self::calculate_rewards_with_policy(
                                 subnet_id,
                                 subnet_emission_weights.subnets_emissions,
                                 subnet_weight,
-                                current_subnet_epoch,
+                                &consensus_submission_data.policy,
                             );
                         weight_meter.consume(rewards_block_weight);
-
-                        // Read constants
-                        let min_attestation = MinAttestationPercentage::<T>::get();
-                        let rep_increase = ValidatorReputationIncreaseFactor::<T>::get();
-                        let rep_decrease = ValidatorReputationDecreaseFactor::<T>::get();
-                        let super_majority = SuperMajorityAttestationRatio::<T>::get();
-
-                        // MinAttestationPercentage | ValidatorReputationIncreaseFactor
-                        // ValidatorReputationIncreaseFactor | SuperMajorityAttestationRatio
-                        weight_meter.consume(db_weight.reads(4));
 
                         // Distribute rewards
                         Self::distribute_rewards(
@@ -298,10 +301,10 @@ impl<T: Config> Pallet<T> {
                             current_subnet_epoch, // used for graduating nodes
                             consensus_submission_data,
                             rewards_data,
-                            min_attestation,
-                            rep_increase,
-                            rep_decrease,
-                            super_majority,
+                            policy.min_attestation_percentage,
+                            policy.validator_reputation_increase_factor,
+                            policy.validator_reputation_decrease_factor,
+                            policy.super_majority_attestation_ratio,
                         );
                     }
                 }
@@ -310,11 +313,11 @@ impl<T: Config> Pallet<T> {
 
         // Operational subnet-epoch work must not depend on a reward allocation. Queue and
         // burn maintenance run while Active so the preparation epoch is useful, whereas a
-        // validator election additionally requires the consensus start epoch to be reached.
+        // validator election additionally requires the consensus eligibility epoch to be reached.
         weight_meter.consume(db_weight.reads(1));
         if let Ok(subnet) = SubnetsData::<T>::try_get(subnet_id) {
             if subnet.state == SubnetState::Active {
-                if subnet.start_epoch <= current_epoch {
+                if Self::_is_subnet_active_and_live(&subnet, current_subnet_epoch) {
                     // --- Elect new validator for the current subnet epoch
                     Self::elect_validator(subnet_id, current_subnet_epoch, block);
                     // TotalSubnetElectableNodes
@@ -341,8 +344,9 @@ impl<T: Config> Pallet<T> {
     ) {
         let db_weight = T::DbWeight::get();
 
-        // Initial weight check - need at least 6 reads to proceed
-        if !weight_meter.can_consume(db_weight.reads(6)) {
+        // Initial weight check - need at least 7 reads to proceed. Resolving the pending queue
+        // duration reads both its live and pending storage values.
+        if !weight_meter.can_consume(db_weight.reads(7)) {
             return;
         }
 
@@ -355,13 +359,14 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        let subnet_node_queue_epochs = SubnetNodeQueueEpochs::<T>::get(subnet_id);
+        let subnet_node_queue_epochs =
+            Self::get_subnet_node_queue_epochs_for_epoch(subnet_id, current_subnet_epoch);
         let max_nodes = MaxSubnetNodes::<T>::get();
         let total_active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
         let churn_limit = ChurnLimit::<T>::get(subnet_id);
 
-        // Consume weight for the 4 storage reads above
-        weight_meter.consume(db_weight.reads(4));
+        // Consume weight for the 5 storage reads above
+        weight_meter.consume(db_weight.reads(5));
 
         // Calculate how many nodes to process
         let take = if max_nodes.saturating_sub(total_active_nodes) < churn_limit {
@@ -395,9 +400,11 @@ impl<T: Config> Pallet<T> {
 
         for subnet_node in nodes_to_process {
             // Check if node is eligible for activation first (early exit)
-            if subnet_node.classification.start_epoch + subnet_node_queue_epochs
-                >= current_subnet_epoch
-            {
+            if !Self::has_epoch_period_elapsed(
+                subnet_node.classification.start_epoch,
+                subnet_node_queue_epochs,
+                current_subnet_epoch,
+            ) {
                 // Nodes are ordered by epoch, so we can break early if the first node
                 // is not ready yet to be activated from the queue
                 break;
@@ -516,35 +523,42 @@ impl<T: Config> Pallet<T> {
         // SubnetDistributionPower
         weight = weight.saturating_add(db_weight.reads(1));
 
-        let current_overwatch_epoch = Self::get_current_overwatch_epoch_as_u32();
-        // OverwatchEpochLengthMultiplier
+        let last_finalized_overwatch_epoch = LastFinalizedOverwatchEpoch::<T>::get();
+        // LastFinalizedOverwatchEpoch
         weight = weight.saturating_add(db_weight.reads(1));
 
         let subnets: Vec<_> = SubnetsData::<T>::iter().collect();
 
-        // Final weights for general epoch `epoch` settle subnet epoch `epoch - 1`.
-        // Requiring the exact prior election prevents a newly activated/unpaused subnet
-        // from receiving an allocation before it has had a validator responsible for work.
-        let previous_subnet_epoch = epoch.checked_sub(1);
+        // At general slot two, every assigned subnet is still in the local epoch whose election
+        // completed at its slot in the preceding general epoch. Derive that phase from the
+        // allocation epoch itself so this calculation is deterministic even when invoked by a
+        // benchmark or test outside the hook. In `on_initialize`, this is exactly the current
+        // block (`epoch * EpochLength + 2`).
+        let allocation_block = epoch
+            .saturating_mul(T::EpochLength::get())
+            .saturating_add(2);
         let mut eligible_subnet_totals: BTreeMap<u32, (u128, u32)> = BTreeMap::new();
         let mut total_delegate_stake = 0u128;
         let mut total_electable_nodes = 0u32;
         let mut eligibility_reads = 0u64;
-        if let Some(previous_subnet_epoch) = previous_subnet_epoch {
-            for (subnet_id, data) in subnets.iter() {
-                if Self::_is_subnet_active_and_live(data, epoch) {
-                    eligibility_reads = eligibility_reads.saturating_add(1);
-                    if SubnetElectedValidator::<T>::contains_key(subnet_id, previous_subnet_epoch) {
-                        let delegate_stake = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
-                        let electable_nodes = TotalSubnetElectableNodes::<T>::get(subnet_id);
-                        eligibility_reads = eligibility_reads.saturating_add(2);
-                        total_delegate_stake = total_delegate_stake.saturating_add(delegate_stake);
-                        total_electable_nodes =
-                            total_electable_nodes.saturating_add(electable_nodes);
-                        eligible_subnet_totals
-                            .insert(*subnet_id, (delegate_stake, electable_nodes));
-                    }
-                }
+        for (subnet_id, _data) in subnets.iter() {
+            let current_subnet_epoch =
+                Self::get_subnet_epoch_with_block_as_u32(*subnet_id, allocation_block);
+            // SubnetSlot
+            eligibility_reads = eligibility_reads.saturating_add(1);
+
+            // Lifecycle changes after an election must not erase that historical round. An exact
+            // election is the allocation authority: newly activated/preparing subnets still have
+            // no exact election, while a subnet paused after electing remains eligible to settle.
+            // SubnetElectedValidator
+            eligibility_reads = eligibility_reads.saturating_add(1);
+            if SubnetElectedValidator::<T>::contains_key(subnet_id, current_subnet_epoch) {
+                let delegate_stake = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
+                let electable_nodes = TotalSubnetElectableNodes::<T>::get(subnet_id);
+                eligibility_reads = eligibility_reads.saturating_add(2);
+                total_delegate_stake = total_delegate_stake.saturating_add(delegate_stake);
+                total_electable_nodes = total_electable_nodes.saturating_add(electable_nodes);
+                eligible_subnet_totals.insert(*subnet_id, (delegate_stake, electable_nodes));
             }
         }
         weight = weight.saturating_add(db_weight.reads(eligibility_reads));
@@ -564,8 +578,8 @@ impl<T: Config> Pallet<T> {
 
         for (subnet_id, _data) in subnets {
             total_subnet_reads += 1;
-            // A subnet must be active/live and have an exact prior election to receive
-            // an allocation for the consensus epoch being settled.
+            // A subnet must have an exact prior election to receive an allocation for the
+            // consensus epoch being settled. Its current lifecycle state cannot erase that work.
             let Some((total_subnet_delegate_stake, electable_nodes_count)) =
                 eligible_subnet_totals.get(&subnet_id).copied()
             else {
@@ -587,15 +601,15 @@ impl<T: Config> Pallet<T> {
             };
 
             // - Get Overwatch weight in f64
-            let overwatch_subnet_weight = match OverwatchSubnetWeights::<T>::try_get(
-                current_overwatch_epoch.saturating_sub(1),
-                subnet_id,
-            ) {
-                Ok(weight) => (Self::get_percent_as_f64(weight)
-                    * Self::get_percent_as_f64(OverwatchWeightFactor::<T>::get()))
-                .min(1.0),
-                Err(()) => Self::get_percent_as_f64(DefaultOverwatchSubnetWeight::<T>::get()),
-            };
+            let overwatch_subnet_weight =
+                match last_finalized_overwatch_epoch.and_then(|overwatch_epoch| {
+                    OverwatchSubnetWeights::<T>::try_get(overwatch_epoch, subnet_id).ok()
+                }) {
+                    Some(weight) => (Self::get_percent_as_f64(weight)
+                        * Self::get_percent_as_f64(OverwatchWeightFactor::<T>::get()))
+                    .min(1.0),
+                    None => Self::get_percent_as_f64(DefaultOverwatchSubnetWeight::<T>::get()),
+                };
 
             // OverwatchSubnetWeights
             weight = weight.saturating_add(db_weight.reads(1));
@@ -651,16 +665,25 @@ impl<T: Config> Pallet<T> {
 
     pub fn get_net_flow_weights(
         subnets: Vec<(u32, SubnetData)>,
-        epoch: u32,
+        _epoch: u32,
     ) -> (BTreeMap<u32, u128>, Weight) {
+        let mut lifecycle_reads = 0u64;
         let eligible_subnets: BTreeSet<u32> = subnets
             .iter()
             .filter_map(|(subnet_id, data)| {
-                Self::_is_subnet_active_and_live(data, epoch).then_some(*subnet_id)
+                let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(*subnet_id);
+                // SubnetSlot
+                lifecycle_reads = lifecycle_reads.saturating_add(1);
+                Self::_is_subnet_active_and_live(data, current_subnet_epoch).then_some(*subnet_id)
             })
             .collect();
 
-        Self::get_net_flow_weights_for_eligible(subnets, epoch, &eligible_subnets)
+        let (weights, weight) =
+            Self::get_net_flow_weights_for_eligible(subnets, _epoch, &eligible_subnets);
+        (
+            weights,
+            weight.saturating_add(T::DbWeight::get().reads(lifecycle_reads)),
+        )
     }
 
     fn get_net_flow_weights_for_eligible(
@@ -764,35 +787,50 @@ impl<T: Config> Pallet<T> {
                 // - Make sure they did their job and submitted consensus data
                 // - If not, penalize the subnet and validator
                 weight = weight.saturating_add(db_weight.reads(1));
-                if let Some(validator_id) =
-                    SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch)
+                if let Some(round) = SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch)
                 {
+                    let validator_subnet_node_id = round.validator_subnet_node_id;
+
+                    // A missing proposal has zero stake-weighted support. Apply only economic
+                    // losses here; the existing absence-specific reputation penalties below must
+                    // remain the sole reputation update for this path.
+                    let (_, _, _, slash_weight) = Self::apply_validator_economic_slashes(
+                        subnet_id,
+                        validator_subnet_node_id,
+                        0,
+                        round.policy.min_attestation_percentage,
+                        round.policy.base_slash_percentage,
+                        round.policy.max_slash_amount,
+                        0,
+                        round.validator_delegate_stake_balance,
+                        round.policy.validator_delegate_stake_slash_threshold,
+                        round.policy.base_validator_delegate_stake_slash_percentage,
+                        round.policy.max_validator_delegate_stake_slash_amount,
+                    );
+                    weight = weight.saturating_add(slash_weight);
+
                     //
                     // Update subnet rep
                     //
                     Self::decrease_subnet_reputation(
                         subnet_id,
-                        ValidatorAbsentSubnetReputationFactor::<T>::get(),
+                        round.policy.validator_absent_subnet_reputation_factor,
                         None,
                     );
-                    // Reads:
-                    // - SubnetReputation
-                    // - ValidatorAbsentSubnetReputationFactor
-                    // Writes:
-                    // - SubnetReputation
-                    weight = weight.saturating_add(db_weight.reads_writes(2, 1));
+                    weight = weight.saturating_add(db_weight.reads_writes(1, 1));
 
                     // The elected validator cannot remove self if elected so we don't check if they exist
 
                     //
                     // Update node rep
                     //
-                    let reputation_factors =
-                        Self::get_reputation_factors_for_epoch(subnet_id, prev_subnet_epoch);
-                    if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, validator_id) {
+                    let reputation_factors = round.policy.reputation_factors;
+                    if let Some(rep) =
+                        SubnetNodeReputation::<T>::get(subnet_id, validator_subnet_node_id)
+                    {
                         Self::decrease_and_return_node_reputation(
                             subnet_id,
-                            validator_id,
+                            validator_subnet_node_id,
                             rep,
                             reputation_factors.validator_absent_decrease,
                             None,
@@ -802,17 +840,17 @@ impl<T: Config> Pallet<T> {
                     // NOTE: We don't check if below minimum node reputation here to possibly
                     // remove the node from the subnet, as this is done in the bank/rewards.rs ``distribute_rewards``
 
-                    // Reads:
-                    // - SubnetNodeReputation
-                    // - SubnetReputationFactorSchedules
-                    // Writes:
-                    // - SubnetNodeReputation
-                    weight = weight.saturating_add(db_weight.reads_writes(2, 1));
+                    weight = weight.saturating_add(db_weight.reads_writes(1, 1));
                 }
 
                 return (None, weight);
             }
         };
+
+        let Some(round) = SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch) else {
+            return (None, weight.saturating_add(db_weight.reads(1)));
+        };
+        weight = weight.saturating_add(db_weight.reads(1));
 
         weight = weight.saturating_add(db_weight.reads(1));
         let Some(attestor_weight_snapshot) =
@@ -845,19 +883,27 @@ impl<T: Config> Pallet<T> {
             0
         };
 
-        let validator_ids =
-            Self::canonicalize_consensus_validator_ids(submission.validator_ids.clone());
-        let eligible_validator_count = validator_ids.len() as u32;
-        let validator_set: BTreeSet<u32> = validator_ids.iter().copied().collect();
-        let node_attestation_count = submission
+        let eligible_validator_identities: BTreeSet<u32> = submission
+            .validator_identity_ids
+            .values()
+            .copied()
+            .collect();
+        let eligible_validator_identity_count = eligible_validator_identities.len() as u32;
+        let attesting_validator_identities: BTreeSet<u32> = submission
             .attests
             .keys()
-            .filter(|subnet_node_id| validator_set.contains(subnet_node_id))
-            .count() as u32;
-        let node_attestation_ratio = if eligible_validator_count > 0 {
+            .filter_map(|subnet_node_id| {
+                submission
+                    .validator_identity_ids
+                    .get(subnet_node_id)
+                    .copied()
+            })
+            .collect();
+        let identity_attestation_count = attesting_validator_identities.len() as u32;
+        let identity_attestation_ratio = if eligible_validator_identity_count > 0 {
             Self::percent_div(
-                node_attestation_count as u128,
-                eligible_validator_count as u128,
+                identity_attestation_count as u128,
+                eligible_validator_identity_count as u128,
             )
             .clamp(0, Self::percentage_factor_as_u128())
         } else {
@@ -870,13 +916,15 @@ impl<T: Config> Pallet<T> {
         };
 
         let consensus_data = ConsensusSubmissionData::<T> {
+            policy: round.policy,
             validator_subnet_node_id: submission.validator_id,
+            validator_delegate_stake_balance: round.validator_delegate_stake_balance,
             validator_epoch_progress: submission.validator_epoch_progress,
             validator_reward_factor: submission.validator_reward_factor,
             attestation_ratio,
-            node_attestation_ratio,
-            node_attestation_count,
-            eligible_validator_count,
+            identity_attestation_ratio,
+            identity_attestation_count,
+            eligible_validator_identity_count,
             weight_sum,
             data_length: data.len() as u32,
             data,
@@ -963,8 +1011,36 @@ impl<T: Config> Pallet<T> {
         } else {
             weight = weight.saturating_add(db_weight.reads(1));
         }
-        let delegate_stake_rewards: u128 =
+        let delegate_stake_rewards =
             Self::percent_mul(subnet_rewards, delegate_stake_rewards_percentage);
+        let subnet_node_rewards = subnet_rewards.saturating_sub(delegate_stake_rewards);
+        let rewards_data = RewardsData {
+            overall_subnet_reward,
+            subnet_owner_reward,
+            subnet_rewards,
+            delegate_stake_rewards,
+            subnet_node_rewards,
+        };
+        (rewards_data, weight)
+    }
+
+    pub fn calculate_rewards_with_policy(
+        subnet_id: u32,
+        overall_rewards: u128,
+        emission_weight: u128,
+        policy: &ConsensusPolicySnapshot,
+    ) -> (RewardsData, Weight) {
+        let db_weight = T::DbWeight::get();
+        let weight = db_weight.reads(1);
+        let overall_rewards = overall_rewards.saturating_add(RewardsCapacitor::<T>::get(subnet_id));
+        let overall_subnet_reward = Self::percent_mul(overall_rewards, emission_weight);
+        let subnet_owner_reward =
+            Self::percent_mul(overall_subnet_reward, policy.subnet_owner_percentage);
+        let subnet_rewards = overall_subnet_reward.saturating_sub(subnet_owner_reward);
+        let delegate_stake_rewards: u128 = Self::percent_mul(
+            subnet_rewards,
+            policy.subnet_delegate_stake_rewards_percentage,
+        );
 
         // --- Get subnet nodes rewards total
         let subnet_node_rewards: u128 = subnet_rewards.saturating_sub(delegate_stake_rewards);

@@ -7,7 +7,7 @@ fn test_increase_coldkey_reputation_with_weight_factor() {
     new_test_ext().execute_with(|| {
         let coldkey: AccountId = account(1);
         let validator_id = 1;
-        let epoch = 1;
+        let election_epoch = 7;
         let min_attestation = test_percent(66, 100);
         let attestation = test_percent(9, 10);
         let weight_factor = test_percent(1, 2);
@@ -17,14 +17,14 @@ fn test_increase_coldkey_reputation_with_weight_factor() {
         ValidatorReputation::<Test>::insert(
             validator_id,
             Reputation {
-                start_epoch: 0,
+                start_epoch: Some(election_epoch),
                 score: starting_score,
                 lifetime_node_count: 0,
                 total_active_nodes: 0,
                 total_increases: 0,
                 total_decreases: 0,
                 average_attestation: 0,
-                last_validator_epoch: 0,
+                last_validator_epoch: Some(election_epoch),
                 ow_score: starting_score,
             },
         );
@@ -34,13 +34,13 @@ fn test_increase_coldkey_reputation_with_weight_factor() {
             attestation,
             min_attestation,
             weight_factor,
-            epoch,
         );
 
         let rep = ValidatorReputation::<Test>::get(validator_id);
 
         assert_eq!(rep.total_increases, 1);
-        assert_eq!(rep.last_validator_epoch, epoch);
+        assert_eq!(rep.start_epoch, Some(election_epoch));
+        assert_eq!(rep.last_validator_epoch, Some(election_epoch));
         assert_eq!(rep.average_attestation, attestation);
         assert!(rep.score > starting_score);
     });
@@ -60,40 +60,28 @@ fn test_average_attestation_over_multiple_increases() {
         ValidatorReputation::<Test>::insert(
             validator_id,
             Reputation {
-                start_epoch: 0,
+                start_epoch: Some(5),
                 score: starting_score,
                 lifetime_node_count: 0,
                 total_active_nodes: 0,
                 total_increases: 0,
                 total_decreases: 0,
                 average_attestation: 0,
-                last_validator_epoch: 0,
+                last_validator_epoch: Some(5),
                 ow_score: starting_score,
             },
         );
 
         // Step 1: 90%
         let att1 = test_percent(9, 10);
-        Network::increase_validator_reputation(
-            validator_id,
-            att1,
-            min_attestation,
-            weight_factor,
-            1,
-        );
+        Network::increase_validator_reputation(validator_id, att1, min_attestation, weight_factor);
         let rep1 = ValidatorReputation::<Test>::get(validator_id);
         assert_eq!(rep1.average_attestation, att1);
         assert_eq!(rep1.total_increases, 1);
 
         // Step 2: 70%
         let att2 = test_percent(7, 10);
-        Network::increase_validator_reputation(
-            validator_id,
-            att2,
-            min_attestation,
-            weight_factor,
-            2,
-        );
+        Network::increase_validator_reputation(validator_id, att2, min_attestation, weight_factor);
         let rep2 = ValidatorReputation::<Test>::get(validator_id);
         let expected_avg2 = (att1 + att2) / 2;
         assert_eq!(rep2.average_attestation, expected_avg2);
@@ -101,13 +89,7 @@ fn test_average_attestation_over_multiple_increases() {
 
         // Step 3: 100%
         let att3 = Network::percentage_factor_as_u128();
-        Network::increase_validator_reputation(
-            validator_id,
-            att3,
-            min_attestation,
-            weight_factor,
-            3,
-        );
+        Network::increase_validator_reputation(validator_id, att3, min_attestation, weight_factor);
         let rep3 = ValidatorReputation::<Test>::get(validator_id);
         let expected_avg3 = (expected_avg2 * 2 + att3) / 3;
         assert_eq!(rep3.average_attestation, expected_avg3);
@@ -115,17 +97,13 @@ fn test_average_attestation_over_multiple_increases() {
 
         // Step 4: 80%
         let att4 = test_percent(4, 5);
-        Network::increase_validator_reputation(
-            validator_id,
-            att4,
-            min_attestation,
-            weight_factor,
-            4,
-        );
+        Network::increase_validator_reputation(validator_id, att4, min_attestation, weight_factor);
         let rep4 = ValidatorReputation::<Test>::get(validator_id);
         let expected_avg4 = (expected_avg3 * 3 + att4) / 4;
         assert_eq!(rep4.average_attestation, expected_avg4);
         assert_eq!(rep4.total_increases, 4);
+        assert_eq!(rep4.start_epoch, Some(5));
+        assert_eq!(rep4.last_validator_epoch, Some(5));
     });
 }
 
@@ -142,14 +120,14 @@ fn test_single_decrease_updates_average_and_weight() {
         ValidatorReputation::<Test>::insert(
             validator_id,
             Reputation {
-                start_epoch: 0,
+                start_epoch: Some(6),
                 score: start_score,
                 lifetime_node_count: 0,
                 total_active_nodes: 0,
                 total_increases: 0,
                 total_decreases: 0,
                 average_attestation: 0,
-                last_validator_epoch: 0,
+                last_validator_epoch: Some(6),
                 ow_score: test_percent(1, 2),
             },
         );
@@ -159,14 +137,14 @@ fn test_single_decrease_updates_average_and_weight() {
             attestation,
             min_attestation,
             weight_factor,
-            1,
         );
 
         let rep = ValidatorReputation::<Test>::get(validator_id);
         assert_eq!(rep.total_decreases, 1);
         assert_eq!(rep.average_attestation, attestation);
         assert!(rep.score < start_score);
-        assert_eq!(rep.last_validator_epoch, 1);
+        assert_eq!(rep.start_epoch, Some(6));
+        assert_eq!(rep.last_validator_epoch, Some(6));
     });
 }
 
@@ -183,59 +161,42 @@ fn test_average_attestation_over_multiple_decreases() {
         ValidatorReputation::<Test>::insert(
             validator_id,
             Reputation {
-                start_epoch: 0,
+                start_epoch: Some(8),
                 score: start_score,
                 lifetime_node_count: 0,
                 total_active_nodes: 0,
                 total_increases: 0,
                 total_decreases: 0,
                 average_attestation: 0,
-                last_validator_epoch: 0,
+                last_validator_epoch: Some(8),
                 ow_score: test_percent(1, 2),
             },
         );
 
         // Step 1: 50%
         let att1 = test_percent(1, 2);
-        Network::decrease_validator_reputation(
-            validator_id,
-            att1,
-            min_attestation,
-            weight_factor,
-            1,
-        );
+        Network::decrease_validator_reputation(validator_id, att1, min_attestation, weight_factor);
         let rep1 = ValidatorReputation::<Test>::get(validator_id);
         assert_eq!(rep1.average_attestation, att1);
 
         // Step 2: 40%
         let att2 = 400_000_000_000_000_000u128;
-        Network::decrease_validator_reputation(
-            validator_id,
-            att2,
-            min_attestation,
-            weight_factor,
-            2,
-        );
+        Network::decrease_validator_reputation(validator_id, att2, min_attestation, weight_factor);
         let rep2 = ValidatorReputation::<Test>::get(validator_id);
         let expected_avg2 = (att1 + att2) / 2;
         assert_eq!(rep2.average_attestation, expected_avg2);
 
         // Step 3: 60%
         let att3 = 600_000_000_000_000_000u128;
-        Network::decrease_validator_reputation(
-            validator_id,
-            att3,
-            min_attestation,
-            weight_factor,
-            3,
-        );
+        Network::decrease_validator_reputation(validator_id, att3, min_attestation, weight_factor);
         let rep3 = ValidatorReputation::<Test>::get(validator_id);
         let expected_avg3 = (expected_avg2 * 2 + att3) / 3;
         assert_eq!(rep3.average_attestation, expected_avg3);
 
         // Confirm all other reputation fields are tracking
         assert_eq!(rep3.total_decreases, 3);
-        assert_eq!(rep3.last_validator_epoch, 3);
+        assert_eq!(rep3.start_epoch, Some(8));
+        assert_eq!(rep3.last_validator_epoch, Some(8));
         assert!(rep3.score < start_score); // score has gone down over 3 decreases
     });
 }

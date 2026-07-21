@@ -32,29 +32,27 @@ impl<T: Config> Pallet<T> {
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
         block: u32,
-        current_epoch: u32,
+        _current_epoch: u32,
         current_subnet_epoch: u32,
         consensus_submission_data: ConsensusSubmissionData<T>,
         rewards_data: RewardsData,
-        min_attestation_percentage: u128,
-        coldkey_reputation_increase_factor: u128,
-        coldkey_reputation_decrease_factor: u128,
-        super_majority_threshold: u128,
+        _min_attestation_percentage: u128,
+        _coldkey_reputation_increase_factor: u128,
+        _coldkey_reputation_decrease_factor: u128,
+        _super_majority_threshold: u128,
     ) {
         let db_weight = T::DbWeight::get();
 
         let percentage_factor = Self::percentage_factor_as_u128();
-        let evaluated_subnet_epoch = current_subnet_epoch.saturating_sub(1);
+        let policy = consensus_submission_data.policy;
+        let super_majority_threshold = policy.super_majority_attestation_ratio;
         let emergency_snapshot = consensus_submission_data.emergency.clone();
         let min_validator_reputation = emergency_snapshot
             .as_ref()
             .map(|snapshot| snapshot.min_subnet_node_reputation)
-            .unwrap_or_else(|| {
-                Self::get_min_subnet_node_reputation_for_epoch(subnet_id, evaluated_subnet_epoch)
-            });
+            .unwrap_or_else(|| policy.min_subnet_node_reputation);
         let subnet_reputation = SubnetReputation::<T>::get(subnet_id);
-        // MinSubnetNodeReputation | PendingMinSubnetNodeReputation | SubnetReputation
-        weight_meter.consume(db_weight.reads(3));
+        weight_meter.consume(db_weight.reads(1));
 
         let forked_subnet_node_ids: Option<BTreeSet<u32>> =
             Self::maybe_get_forked_subnet_node_ids(weight_meter, subnet_id, &emergency_snapshot);
@@ -62,45 +60,42 @@ impl<T: Config> Pallet<T> {
         let electable_nodes_count = SubnetNodeElectionSlots::<T>::get(subnet_id).len() as u32;
         weight_meter.consume(db_weight.reads(1));
 
-        let min_node_attestation_percentage =
-            Self::get_min_consensus_node_attestation_percentage_for_epoch(
-                subnet_id,
-                evaluated_subnet_epoch,
+        let min_identity_attestation_percentage = policy.validator_identity_attestation_percentage;
+        let effective_identity_attestation_threshold =
+            Self::effective_min_consensus_identity_attestation_percentage(
+                consensus_submission_data.eligible_validator_identity_count,
+                min_identity_attestation_percentage,
             );
-        let effective_node_attestation_threshold =
-            Self::effective_min_consensus_node_attestation_percentage(
-                consensus_submission_data.eligible_validator_count,
-                min_node_attestation_percentage,
-            );
-        let min_node_attestation_count = Self::min_consensus_node_attestation_count(
-            consensus_submission_data.eligible_validator_count,
-            min_node_attestation_percentage,
+        let min_identity_attestation_count = Self::min_consensus_identity_attestation_count(
+            consensus_submission_data.eligible_validator_identity_count,
+            min_identity_attestation_percentage,
         );
-        weight_meter.consume(db_weight.reads(2));
 
         let stake_quorum_failed =
-            consensus_submission_data.attestation_ratio < min_attestation_percentage;
-        let node_quorum_failed =
-            consensus_submission_data.node_attestation_count < min_node_attestation_count;
+            consensus_submission_data.attestation_ratio < policy.min_attestation_percentage;
+        let identity_quorum_failed = !Self::has_minimum_consensus_validator_identity_set(
+            consensus_submission_data.eligible_validator_identity_count,
+        ) || consensus_submission_data.identity_attestation_count
+            < min_identity_attestation_count;
 
         // --- If under either minimum attestation ratio, penalize validator, skip rewards
-        if stake_quorum_failed || node_quorum_failed {
+        if stake_quorum_failed || identity_quorum_failed {
             let stake_shortfall = if stake_quorum_failed {
                 percentage_factor.saturating_sub(
                     Self::percent_div(
                         consensus_submission_data.attestation_ratio,
-                        min_attestation_percentage,
+                        policy.min_attestation_percentage,
                     )
                     .min(percentage_factor),
                 )
             } else {
                 0
             };
-            let node_shortfall = if node_quorum_failed {
+            let identity_shortfall = if identity_quorum_failed {
                 percentage_factor.saturating_sub(
                     Self::percent_div(
-                        consensus_submission_data.node_attestation_ratio,
-                        effective_node_attestation_threshold,
+                        consensus_submission_data.identity_attestation_ratio,
+                        effective_identity_attestation_threshold,
                     )
                     .min(percentage_factor),
                 )
@@ -109,15 +104,15 @@ impl<T: Config> Pallet<T> {
             };
 
             let (penalty_attestation_ratio, penalty_attestation_threshold) =
-                if node_shortfall > stake_shortfall {
+                if identity_shortfall > stake_shortfall {
                     (
-                        consensus_submission_data.node_attestation_ratio,
-                        effective_node_attestation_threshold,
+                        consensus_submission_data.identity_attestation_ratio,
+                        effective_identity_attestation_threshold,
                     )
                 } else {
                     (
                         consensus_submission_data.attestation_ratio,
-                        min_attestation_percentage,
+                        policy.min_attestation_percentage,
                     )
                 };
 
@@ -126,16 +121,16 @@ impl<T: Config> Pallet<T> {
                 consensus_submission_data,
                 penalty_attestation_ratio,
                 penalty_attestation_threshold,
-                coldkey_reputation_decrease_factor,
+                policy.validator_reputation_decrease_factor,
                 min_validator_reputation,
                 electable_nodes_count,
-                current_epoch,
                 emergency_snapshot
                     .as_ref()
                     .map(|snapshot| snapshot.reputation_factors)
-                    .unwrap_or_else(|| {
-                        Self::get_reputation_factors_for_epoch(subnet_id, evaluated_subnet_epoch)
-                    }),
+                    .unwrap_or_else(|| policy.reputation_factors),
+                policy.not_in_consensus_subnet_reputation_factor,
+                policy.base_slash_percentage,
+                policy.max_slash_amount,
                 subnet_reputation,
                 percentage_factor,
                 weight_meter,
@@ -155,9 +150,9 @@ impl<T: Config> Pallet<T> {
                 subnet_id,
                 consensus_submission_data.validator_subnet_node_id,
                 &consensus_submission_data,
-                min_attestation_percentage,
-                coldkey_reputation_increase_factor,
-                current_epoch,
+                policy.min_attestation_percentage,
+                policy.validator_reputation_increase_factor,
+                policy.base_validator_reward,
             );
         } else {
             // Validator left subnet before distribution of rewards (not possible but
@@ -169,33 +164,23 @@ impl<T: Config> Pallet<T> {
         }
 
         //
-        // --- We are now in consensus (>=66% attestation ratio)
+        // --- We are now in consensus (>=2/3 attestation ratio by default)
         //
 
-        let idle_epochs =
-            Self::get_idle_classification_epochs_for_epoch(subnet_id, evaluated_subnet_epoch);
-        let included_epochs =
-            Self::get_included_classification_epochs_for_epoch(subnet_id, evaluated_subnet_epoch);
+        let idle_epochs = policy.idle_classification_epochs;
+        let included_epochs = policy.included_classification_epochs;
         let weight_threshold = emergency_snapshot
             .as_ref()
             .map(|snapshot| snapshot.min_weight_decrease_reputation_threshold)
-            .unwrap_or_else(|| {
-                Self::get_subnet_node_min_weight_decrease_reputation_threshold_for_epoch(
-                    subnet_id,
-                    evaluated_subnet_epoch,
-                )
-            });
+            .unwrap_or_else(|| policy.min_weight_decrease_reputation_threshold);
         let reputation_factors = emergency_snapshot
             .as_ref()
             .map(|snapshot| snapshot.reputation_factors)
-            .unwrap_or_else(|| {
-                Self::get_reputation_factors_for_epoch(subnet_id, evaluated_subnet_epoch)
-            });
+            .unwrap_or_else(|| policy.reputation_factors);
         let absent_factor = reputation_factors.absent_decrease;
         let included_factor = reputation_factors.included_increase;
         let min_weight_factor = reputation_factors.below_min_weight_decrease;
         let non_attestor_factor = reputation_factors.non_attestor_decrease;
-        weight_meter.consume(db_weight.reads(7));
 
         // Super majority, update queue to prioritize node ID that subnet form a consensus to cut the line
         // and or update queue to remove a node ID the subnet forms a consensus to be removed (if passed immunity period)
@@ -203,20 +188,17 @@ impl<T: Config> Pallet<T> {
             weight_meter,
             subnet_id,
             &consensus_submission_data,
-            super_majority_threshold,
+            policy.super_majority_attestation_ratio,
         );
-
-        // MinSubnetNodes
-        weight_meter.consume(db_weight.reads(1));
 
         // Increase reputation because subnet consensus is in consensus
         // Only increase if subnet has >= min subnet nodes
         if subnet_reputation != percentage_factor
-            && consensus_submission_data.data_length >= MinSubnetNodes::<T>::get()
+            && consensus_submission_data.data_length >= policy.min_subnet_nodes
         {
             Self::increase_subnet_reputation(
                 subnet_id,
-                InConsensusSubnetReputationFactor::<T>::get(),
+                policy.in_consensus_subnet_reputation_factor,
                 consensus_submission_data.attestation_ratio,
             );
             weight_meter.consume(db_weight.reads_writes(2, 1));
@@ -583,8 +565,10 @@ impl<T: Config> Pallet<T> {
         coldkey_reputation_decrease_factor: u128,
         min_validator_reputation: u128,
         electable_nodes_count: u32,
-        current_epoch: u32,
         reputation_factors: SubnetReputationFactors,
+        not_in_consensus_subnet_reputation_factor: u128,
+        base_slash_percentage: u128,
+        max_slash_amount: u128,
         subnet_reputation: u128,
         percentage_factor: u128,
         weight_meter: &mut WeightMeter,
@@ -595,7 +579,7 @@ impl<T: Config> Pallet<T> {
         // Slashes stake balance
         // Decreases reputation
         // Possibly removes node if under min reputation
-        let slash_validator_weight = Self::slash_validator(
+        let slash_validator_weight = Self::slash_validator_for_round_with_policy(
             subnet_id,
             consensus_submission_data.validator_subnet_node_id,
             penalty_attestation_ratio,
@@ -603,8 +587,20 @@ impl<T: Config> Pallet<T> {
             coldkey_reputation_decrease_factor,
             min_validator_reputation,
             electable_nodes_count,
-            current_epoch,
             reputation_factors.validator_non_consensus_decrease,
+            base_slash_percentage,
+            max_slash_amount,
+            consensus_submission_data.attestation_ratio,
+            consensus_submission_data.validator_delegate_stake_balance,
+            consensus_submission_data
+                .policy
+                .validator_delegate_stake_slash_threshold,
+            consensus_submission_data
+                .policy
+                .base_validator_delegate_stake_slash_percentage,
+            consensus_submission_data
+                .policy
+                .max_validator_delegate_stake_slash_amount,
         );
         weight_meter.consume(slash_validator_weight);
 
@@ -616,7 +612,7 @@ impl<T: Config> Pallet<T> {
 
         Self::decrease_subnet_reputation(
             subnet_id,
-            NotInConsensusSubnetReputationFactor::<T>::get(),
+            not_in_consensus_subnet_reputation_factor,
             Some(factor_2),
         );
         // NotInConsensusSubnetReputationFactor | SubnetReputation
@@ -686,27 +682,24 @@ impl<T: Config> Pallet<T> {
         consensus_submission_data: &ConsensusSubmissionData<T>,
         min_attestation_percentage: u128,
         coldkey_reputation_increase_factor: u128,
-        current_epoch: u32,
+        base_validator_reward: u128,
     ) {
         let db_weight = T::DbWeight::get();
 
         weight_meter.consume(db_weight.reads(1));
 
         // --- Increase validator reward
-        let validator_reward = Self::get_validator_reward(
+        let validator_reward = Self::get_validator_reward_with_policy(
             consensus_submission_data.attestation_ratio,
             consensus_submission_data.validator_reward_factor,
+            min_attestation_percentage,
+            base_validator_reward,
         );
-        // Add get_validator_reward (At least 1 read, up to 2)
-        // MinAttestationPercentage | BaseValidatorReward
-        weight_meter.consume(db_weight.reads(2));
-
         Self::increase_validator_reputation(
             validator_id,
             consensus_submission_data.attestation_ratio,
             min_attestation_percentage,
             coldkey_reputation_increase_factor,
-            current_epoch,
         );
 
         // weight_meter.consume(T::WeightInfo::increase_validator_reputation());

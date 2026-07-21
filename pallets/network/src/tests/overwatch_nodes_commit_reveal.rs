@@ -57,7 +57,8 @@ fn test_do_commit_and_reveal_weights_success() {
             description: "description".into(),
             misc: "misc".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -129,7 +130,8 @@ fn test_do_commit_and_reveal_weights_not_key_owner_error() {
             description: "description".into(),
             misc: "misc".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -210,7 +212,8 @@ fn test_do_commit_and_reveal_weights_blacklisted_error() {
             description: "description".into(),
             misc: "misc".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -279,7 +282,8 @@ fn test_do_commit_and_reveal_weights_commits_empty_error() {
             description: "description".into(),
             misc: "misc".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -343,7 +347,8 @@ fn test_do_commit_and_reveal_weights_already_committed_error() {
             description: "description".into(),
             misc: "misc".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -452,7 +457,8 @@ fn test_commit_and_reveal_extrinsics() {
             description: "description".into(),
             misc: "misc".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -536,7 +542,8 @@ fn test_reveal_overwatch_subnet_weights_not_key_owner_error() {
             description: "description".into(),
             misc: "misc".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -631,7 +638,8 @@ fn test_reveal_overwatch_subnet_weights_blacklisted_error() {
             description: "description".into(),
             misc: "misc".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -716,7 +724,8 @@ fn test_reveal_overwatch_subnet_weights_no_commit_found_error() {
             description: "description".into(),
             misc: "misc".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -783,7 +792,8 @@ fn test_reveal_overwatch_subnet_weights_reveal_mismatch_error() {
             description: "description".into(),
             misc: "misc".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -854,7 +864,8 @@ fn test_commit_reveal_multiple_times_in_same_epoch() {
             description: "description-1".into(),
             misc: "misc-1".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
         SubnetsData::<Test>::insert(subnet_id_1, subnet_data);
         // Subnet 2
@@ -867,7 +878,8 @@ fn test_commit_reveal_multiple_times_in_same_epoch() {
             description: "description-2".into(),
             misc: "misc-2".into(),
             state: SubnetState::Active,
-            start_epoch: 0,
+            consensus_eligible_from_subnet_epoch: Some(0),
+            pause: None,
         };
         SubnetsData::<Test>::insert(subnet_id_2, subnet_data);
 

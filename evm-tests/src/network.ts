@@ -737,6 +737,41 @@ export async function ownerUnpauseSubnet(
   await tx.wait();
 }
 
+export async function getConsensusEligibleFromSubnetEpoch(
+  contract: Contract,
+  subnetId: string,
+) {
+  return contract.getConsensusEligibleFromSubnetEpoch(subnetId);
+}
+
+export async function getPauseStartedGlobalEpoch(
+  contract: Contract,
+  subnetId: string,
+) {
+  return contract.getPauseStartedGlobalEpoch(subnetId);
+}
+
+export async function getPauseStartedSubnetEpoch(
+  contract: Contract,
+  subnetId: string,
+) {
+  return contract.getPauseStartedSubnetEpoch(subnetId);
+}
+
+export async function getSlotIndex(
+  contract: Contract,
+  subnetId: string,
+) {
+  return contract.getSlotIndex(subnetId);
+}
+
+export async function getSubnetAtSlot(
+  contract: Contract,
+  slot: string,
+) {
+  return contract.getSubnetAtSlot(slot);
+}
+
 export async function ownerDeactivateSubnet(
   contract: Contract,
   subnetId: string,
@@ -1311,34 +1346,48 @@ export async function calculateRevealBlock(
   api: ApiPromise,
   epoch: number
 ): Promise<number> {
-  // Get configuration values from storage
-  const epochLength = Number(api.consts.network.epochLength.toString());
-  const multiplier = Number((await api.query.network.overwatchEpochLengthMultiplier()).toString());
-  const cutoffPercentage = Number((await api.query.network.overwatchCommitCutoffPercent()).toString());
+  // Read one finalized state snapshot so rollover cannot mix the old round ID with the new
+  // round's start/configuration. Keep the 1e18-scaled cutoff in bigint arithmetic.
+  const finalizedHash = await api.rpc.chain.getFinalizedHead();
+  const apiAt = await api.at(finalizedHash);
+  const epochLength = BigInt(apiAt.consts.network.epochLength.toString());
+  const multiplier = BigInt((await apiAt.query.network.overwatchEpochLengthMultiplier()).toString());
+  const epochStartBlock = BigInt((await apiAt.query.network.overwatchEpochStartBlock()).toString());
+  const currentEpoch = Number((await apiAt.query.network.currentOverwatchEpoch()).toString());
+  const cutoffPercentage = BigInt((await apiAt.query.network.overwatchCommitCutoffPercent()).toString());
+
+  if (epoch !== currentEpoch) {
+    throw new Error(
+      `Can only calculate the active Overwatch epoch reveal block: requested ${epoch}, current ${currentEpoch}`
+    );
+  }
 
   console.log('Configuration:');
   console.log('  Epoch Length:', epochLength);
   console.log('  Multiplier:', multiplier);
+  console.log('  Epoch Start Block:', epochStartBlock);
   console.log('  Cutoff Percentage:', cutoffPercentage);
 
   // Calculate overwatch epoch length
   const overwatchEpochLength = epochLength * multiplier;
 
   // Calculate block increase cutoff
-  // percent_mul formula: (value * percentage) / 10_000
-  const blockIncreaseCutoff = Math.floor(
-    (overwatchEpochLength * cutoffPercentage) / 1e18
-  );
+  // percent_mul formula: (value * percentage) / 1e18
+  const blockIncreaseCutoff =
+    (overwatchEpochLength * cutoffPercentage) / BigInt("1000000000000000000");
 
   // Calculate target block number
-  const revealBlock = epoch * multiplier * epochLength + blockIncreaseCutoff;
+  const revealBlock = epochStartBlock + blockIncreaseCutoff;
+  if (revealBlock > BigInt(Number.MAX_SAFE_INTEGER)) {
+    throw new Error(`Reveal block ${revealBlock} exceeds JavaScript's safe integer range`);
+  }
 
   console.log('Calculations:');
   console.log('  Overwatch Epoch Length:', overwatchEpochLength);
   console.log('  Block Increase Cutoff:', blockIncreaseCutoff);
   console.log('  Target Reveal Block:', revealBlock);
 
-  return revealBlock;
+  return Number(revealBlock);
 }
 
 // Advance to the reveal block for a given epoch

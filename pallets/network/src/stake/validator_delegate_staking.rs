@@ -206,6 +206,15 @@ impl<T: Config> Pallet<T> {
             return (Err(Error::<T>::SharesZero.into()), 0, 0);
         }
 
+        let block = Self::get_current_block_as_u32();
+        if block < ValidatorDelegateStakeSlashLockUntil::<T>::get(validator_id) {
+            return (
+                Err(Error::<T>::ValidatorDelegateStakeSlashLocked.into()),
+                0,
+                0,
+            );
+        }
+
         let account_validator_delegate_stake_shares: u128 =
             AccountValidatorDelegateStakeShares::<T>::get(&account_id, validator_id);
 
@@ -234,7 +243,6 @@ impl<T: Config> Pallet<T> {
                 None => return (Err(Error::<T>::CouldNotConvertToBalance.into()), 0, 0),
             };
 
-        let block: u32 = Self::get_current_block_as_u32();
         if Self::exceeds_tx_rate_limit(Self::get_last_tx_block(&account_id), block) {
             return (Err(Error::<T>::TxRateLimitExceeded.into()), 0, 0);
         }

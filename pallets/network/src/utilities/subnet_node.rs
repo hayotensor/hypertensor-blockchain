@@ -1206,9 +1206,9 @@ impl<T: Config> Pallet<T> {
 
     pub fn is_chosen_validator(subnet_id: u32, subnet_node_id: u32, subnet_epoch: u32) -> bool {
         match SubnetElectedValidator::<T>::try_get(subnet_id, subnet_epoch) {
-            Ok(validator_subnet_node_id) => {
+            Ok(round) => {
                 let mut is_chosen_validator = false;
-                if subnet_node_id == validator_subnet_node_id {
+                if subnet_node_id == round.validator_subnet_node_id {
                     is_chosen_validator = true
                 }
                 is_chosen_validator

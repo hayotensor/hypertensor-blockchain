@@ -3,7 +3,9 @@ use super::test_utils::*;
 use crate::Event;
 use crate::{
     AttestorMinRewardFactor, AttestorRewardExponent, BaseNodeBurnAmount, BaseSlashPercentage,
-    BaseValidatorReward, ConsensusValidatorNodeCountDecayUpdateInterval,
+    BaseValidatorDelegateStakeSlashPercentage, BaseValidatorReward,
+    ConsensusValidatorIdentityAttestationPercentage,
+    ConsensusValidatorNodeCountDecayUpdateInterval,
     ConsensusValidatorStakeWeightPowerUpdateInterval, DefaultOverwatchSubnetWeight,
     DelegateStakeCooldownEpochs, DelegateStakeSubnetRemovalInterval, DelegateStakeWeightFactor,
     Error, InConsensusSubnetReputationFactor, InflationSigmoidMidpoint, InflationSigmoidSteepness,
@@ -13,32 +15,31 @@ use crate::{
     MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes, MaxMinDelegateStakeMultiplier,
     MaxMinSubnetNodeReputation, MaxNodeBurnRate, MaxNodeReputationFactor, MaxOverwatchNodes,
     MaxPauseEpochsSubnetReputationFactor, MaxQueueEpochs, MaxRewardRateDecrease, MaxSlashAmount,
-    MaxSubnetBootnodeAccess, MaxSubnetConsensusNodeAttestationPercentage,
-    MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
+    MaxSubnetBootnodeAccess, MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
     MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnetPauseEpochs,
     MaxSubnetRemovalInterval, MaxSubnets, MaxSwapQueueCallsPerBlock, MaxUnbondings,
-    MaximumHooksWeightV2, MinActiveNodeStakeEpochs, MinAttestationPercentage, MinChurnLimit,
-    MinChurnLimitMultiplier, MinDelegateStakeDeposit, MinDelegateStakePercentage,
+    MaxValidatorDelegateStakeSlashAmount, MaximumHooksWeightV2, MinActiveNodeStakeEpochs,
+    MinAttestationPercentage, MinChurnLimit, MinChurnLimitMultiplier,
+    MinConsensusValidatorStakeWeightPower, MinDelegateStakeDeposit, MinDelegateStakePercentage,
     MinIdleClassificationEpochs, MinIncludedClassificationEpochs, MinMaxRegisteredNodes,
     MinMinSubnetNodeReputation, MinNodeBurnRate, MinNodeReputationFactor, MinQueueEpochs,
-    MinConsensusValidatorStakeWeightPower, MinRegistrationCost,
-    MinSubnetConsensusNodeAttestationPercentage, MinSubnetDelegateStakeFactor, MinSubnetMinStake,
-    MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
-    NetworkMaxStakeBalance, NewRegistrationCostMultiplier,
-    NodeDelegateStakeCooldownEpochs, NodeRewardRateUpdatePeriod,
-    NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
-    OverwatchEpochLengthMultiplier, OverwatchMinAge, OverwatchMinAvgAttestationRatio,
-    OverwatchMinDiversificationRatio, OverwatchMinRepScore, OverwatchMinStakeBalance,
-    OverwatchNodeBlacklist, OverwatchStakeWeightFactor, OverwatchValidatorWhitelist,
-    OverwatchWeightFactor, QueueImmunityEpochs, RegistrationCostAlpha, RegistrationCostDecayBlocks,
+    MinRegistrationCost, MinSubnetDelegateStakeFactor, MinSubnetMinStake, MinSubnetNodes,
+    MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
+    NetworkMaxStakeBalance, NewRegistrationCostMultiplier, NodeDelegateStakeCooldownEpochs,
+    NodeRewardRateUpdatePeriod, NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
+    OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock, OverwatchMinAge,
+    OverwatchMinAvgAttestationRatio, OverwatchMinDiversificationRatio, OverwatchMinRepScore,
+    OverwatchMinStakeBalance, OverwatchNodeBlacklist, OverwatchStakeWeightFactor,
+    OverwatchTxPauseStartBlock, OverwatchValidatorWhitelist, OverwatchWeightFactor,
+    QueueImmunityEpochs, RegistrationCostAlpha, RegistrationCostDecayBlocks,
     RequireSubnetRegistrationWhitelist, StakeCooldownEpochs,
     SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower, SubnetEnactmentEpochs,
     SubnetName, SubnetNetFlowSmoothingAlpha, SubnetOwnerPercentage, SubnetPauseCooldownEpochs,
     SubnetRegistrationEpochs, SubnetRegistrationWhitelist, SubnetWeightFactors,
     SubnetWeightFactorsData, SuperMajorityAttestationRatio, TxRateLimit,
-    ValidatorAbsentSubnetReputationFactor, ValidatorNodeDelegateStakeWeightUpdateInterval,
-    ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor, ValidatorRewardK,
-    ValidatorRewardMidpoint,
+    ValidatorAbsentSubnetReputationFactor, ValidatorDelegateStakeSlashThreshold,
+    ValidatorNodeDelegateStakeWeightUpdateInterval, ValidatorReputationDecreaseFactor,
+    ValidatorReputationIncreaseFactor, ValidatorRewardK, ValidatorRewardMidpoint,
 };
 use frame_support::traits::Get;
 use frame_support::{assert_err, assert_ok};
@@ -70,6 +71,8 @@ fn test_collective_pause() {
             pallet_collective::RawOrigin::Members(2, 3)
         )));
 
+        assert_eq!(OverwatchTxPauseStartBlock::<Test>::get(), Some(1));
+
         // Verify event emitted
         assert_eq!(*network_events().last().unwrap(), Event::SetTxPause {});
     });
@@ -96,13 +99,26 @@ fn test_collective_unpause() {
             pallet_collective::RawOrigin::Members(2, 3)
         )));
 
+        System::set_block_number(11);
+
         // Then unpause
         assert_ok!(Network::unpause(RuntimeOrigin::from(
             pallet_collective::RawOrigin::Members(2, 3)
         )));
 
+        assert_eq!(OverwatchEpochStartBlock::<Test>::get(), 10);
+        assert_eq!(OverwatchTxPauseStartBlock::<Test>::get(), None);
+        let events = network_events();
+        assert_eq!(
+            events.get(events.len() - 2),
+            Some(&Event::OverwatchEpochResumed {
+                epoch: 0,
+                start_block: 10,
+            })
+        );
+
         // Verify event emitted
-        assert_eq!(*network_events().last().unwrap(), Event::SetTxUnpause {});
+        assert_eq!(*events.last().unwrap(), Event::SetTxUnpause {});
     });
 }
 
@@ -204,6 +220,28 @@ fn test_set_max_subnets() {
             *network_events().last().unwrap(),
             Event::SetMaxSubnets(new_value)
         );
+    });
+}
+
+#[test]
+fn test_set_max_subnets_reserves_slot_for_rotation_subnet() {
+    new_test_ext().execute_with(|| {
+        let physical_subnet_slots = EpochLength::get().saturating_sub(DesignatedEpochSlots::get());
+        let largest_valid_max = physical_subnet_slots.saturating_sub(1);
+        let collective_origin = || RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5));
+
+        assert_ok!(Network::set_max_subnets(
+            collective_origin(),
+            largest_valid_max
+        ));
+        assert_eq!(MaxSubnets::<Test>::get(), largest_valid_max);
+
+        // The physical slot count itself would leave no slot for the documented n+1 rotation.
+        assert_err!(
+            Network::set_max_subnets(collective_origin(), physical_subnet_slots),
+            Error::<Test>::InvalidMaxSubnets
+        );
+        assert_eq!(MaxSubnets::<Test>::get(), largest_valid_max);
     });
 }
 
@@ -830,73 +868,53 @@ fn test_set_min_attestation_percentage() {
 }
 
 #[test]
-fn test_set_min_max_consensus_node_attestation_percentage() {
+fn test_set_consensus_validator_identity_attestation_percentage() {
     new_test_ext().execute_with(|| {
         System::set_block_number(System::block_number() + 1);
 
         assert_eq!(
-            MinSubnetConsensusNodeAttestationPercentage::<Test>::get(),
+            ConsensusValidatorIdentityAttestationPercentage::<Test>::get(),
             test_percent(1, 10)
         );
-        assert_eq!(
-            MaxSubnetConsensusNodeAttestationPercentage::<Test>::get(),
-            test_percent(33, 100)
+
+        let value = test_percent(15, 100);
+
+        assert_ok!(
+            Network::set_consensus_validator_identity_attestation_percentage(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                value
+            )
         );
 
-        let min = test_percent(15, 100);
-        let max = test_percent(30, 100);
-
-        assert_ok!(Network::set_min_max_consensus_node_attestation_percentage(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-            min,
-            max
-        ));
-
         assert_eq!(
-            MinSubnetConsensusNodeAttestationPercentage::<Test>::get(),
-            min
-        );
-        assert_eq!(
-            MaxSubnetConsensusNodeAttestationPercentage::<Test>::get(),
-            max
+            ConsensusValidatorIdentityAttestationPercentage::<Test>::get(),
+            value
         );
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::SetMinMaxConsensusNodeAttestationPercentage(min, max)
+            Event::SetConsensusValidatorIdentityAttestationPercentage(value)
         );
 
         assert_err!(
-            Network::set_min_max_consensus_node_attestation_percentage(
+            Network::set_consensus_validator_identity_attestation_percentage(
                 RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-                0,
-                max
+                0
             ),
-            Error::<Test>::InvalidValues
+            Error::<Test>::InvalidPercent
         );
 
         assert_err!(
-            Network::set_min_max_consensus_node_attestation_percentage(
+            Network::set_consensus_validator_identity_attestation_percentage(
                 RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-                max,
-                min
-            ),
-            Error::<Test>::InvalidValues
-        );
-
-        assert_err!(
-            Network::set_min_max_consensus_node_attestation_percentage(
-                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-                min,
                 Network::percentage_factor_as_u128() + 1
             ),
             Error::<Test>::InvalidPercent
         );
 
         assert_err!(
-            Network::set_min_max_consensus_node_attestation_percentage(
+            Network::set_consensus_validator_identity_attestation_percentage(
                 RuntimeOrigin::signed(account(1)),
-                min,
-                max
+                value
             ),
             sp_runtime::DispatchError::BadOrigin
         );
@@ -920,6 +938,15 @@ fn test_set_base_slash_percentage() {
             *network_events().last().unwrap(),
             Event::SetBaseSlashPercentage(new_value)
         );
+
+        assert_err!(
+            Network::set_base_slash_percentage(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                Network::percentage_factor_as_u128() + 1
+            ),
+            Error::<Test>::InvalidPercent
+        );
+        assert_eq!(BaseSlashPercentage::<Test>::get(), new_value);
     });
 }
 
@@ -940,6 +967,145 @@ fn test_set_max_slash_amount() {
             *network_events().last().unwrap(),
             Event::SetMaxSlashAmount(new_value)
         );
+    });
+}
+
+#[test]
+fn test_set_validator_delegate_stake_slash_config() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(System::block_number() + 1);
+
+        assert_eq!(
+            ValidatorDelegateStakeSlashThreshold::<Test>::get(),
+            333333333333333333
+        );
+        assert_eq!(BaseValidatorDelegateStakeSlashPercentage::<Test>::get(), 0);
+        assert_eq!(MaxValidatorDelegateStakeSlashAmount::<Test>::get(), 0);
+
+        let threshold = test_percent(3, 10);
+        let base_percentage = test_percent(1, 10);
+        let max_amount = 5_000_000_000_000_000_000;
+        let supermajority = || RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5));
+
+        assert_ok!(Network::set_validator_delegate_stake_slash_config(
+            supermajority(),
+            threshold,
+            base_percentage,
+            max_amount
+        ));
+        assert_eq!(
+            ValidatorDelegateStakeSlashThreshold::<Test>::get(),
+            threshold
+        );
+        assert_eq!(
+            BaseValidatorDelegateStakeSlashPercentage::<Test>::get(),
+            base_percentage
+        );
+        assert_eq!(
+            MaxValidatorDelegateStakeSlashAmount::<Test>::get(),
+            max_amount
+        );
+        assert_eq!(
+            *network_events().last().unwrap(),
+            Event::SetValidatorDelegateStakeSlashConfig {
+                threshold,
+                base_percentage,
+                max_amount,
+            }
+        );
+
+        let invalid_configs = [
+            (0, base_percentage, max_amount),
+            (
+                MinAttestationPercentage::<Test>::get(),
+                base_percentage,
+                max_amount,
+            ),
+            (
+                MinAttestationPercentage::<Test>::get() + 1,
+                base_percentage,
+                max_amount,
+            ),
+            (
+                threshold,
+                Network::percentage_factor_as_u128() + 1,
+                max_amount,
+            ),
+            (threshold, 0, max_amount),
+            (threshold, base_percentage, 0),
+        ];
+
+        for (invalid_threshold, invalid_base, invalid_max) in invalid_configs {
+            assert_err!(
+                Network::set_validator_delegate_stake_slash_config(
+                    supermajority(),
+                    invalid_threshold,
+                    invalid_base,
+                    invalid_max
+                ),
+                Error::<Test>::InvalidValidatorDelegateStakeSlashConfig
+            );
+            assert_eq!(
+                ValidatorDelegateStakeSlashThreshold::<Test>::get(),
+                threshold
+            );
+            assert_eq!(
+                BaseValidatorDelegateStakeSlashPercentage::<Test>::get(),
+                base_percentage
+            );
+            assert_eq!(
+                MaxValidatorDelegateStakeSlashAmount::<Test>::get(),
+                max_amount
+            );
+        }
+
+        assert_err!(
+            Network::set_validator_delegate_stake_slash_config(
+                RuntimeOrigin::signed(account(1)),
+                threshold,
+                base_percentage,
+                max_amount
+            ),
+            sp_runtime::DispatchError::BadOrigin
+        );
+
+        let disabled_threshold = test_percent(1, 4);
+        assert_ok!(Network::set_validator_delegate_stake_slash_config(
+            supermajority(),
+            disabled_threshold,
+            0,
+            0
+        ));
+        assert_eq!(
+            ValidatorDelegateStakeSlashThreshold::<Test>::get(),
+            disabled_threshold
+        );
+        assert_eq!(BaseValidatorDelegateStakeSlashPercentage::<Test>::get(), 0);
+        assert_eq!(MaxValidatorDelegateStakeSlashAmount::<Test>::get(), 0);
+    });
+}
+
+#[test]
+fn test_min_attestation_must_remain_above_delegate_pool_slash_threshold() {
+    new_test_ext().execute_with(|| {
+        let threshold = test_percent(3, 5);
+        assert_ok!(Network::set_validator_delegate_stake_slash_config(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+            threshold,
+            0,
+            0
+        ));
+
+        for value in [threshold, test_percent(11, 20)] {
+            assert_err!(
+                Network::set_min_attestation_percentage(
+                    RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                    value
+                ),
+                Error::<Test>::InvalidValidatorDelegateStakeSlashConfig
+            );
+        }
+        assert_eq!(MinAttestationPercentage::<Test>::get(), test_percent(2, 3));
     });
 }
 
@@ -1193,13 +1359,11 @@ fn test_set_min_max_consensus_validator_stake_weight_power() {
 
         let min = test_percent(1, 4);
         let max = test_percent(3, 4);
-        assert_ok!(
-            Network::set_min_max_consensus_validator_stake_weight_power(
-                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-                min,
-                max
-            )
-        );
+        assert_ok!(Network::set_min_max_consensus_validator_stake_weight_power(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+            min,
+            max
+        ));
         assert_eq!(MinConsensusValidatorStakeWeightPower::<Test>::get(), min);
         assert_eq!(MaxConsensusValidatorStakeWeightPower::<Test>::get(), max);
         assert_eq!(
@@ -1207,13 +1371,11 @@ fn test_set_min_max_consensus_validator_stake_weight_power() {
             Event::SetMinMaxConsensusValidatorStakeWeightPower(min, max)
         );
 
-        assert_ok!(
-            Network::set_min_max_consensus_validator_stake_weight_power(
-                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-                0,
-                0
-            )
-        );
+        assert_ok!(Network::set_min_max_consensus_validator_stake_weight_power(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+            0,
+            0
+        ));
         assert_eq!(MinConsensusValidatorStakeWeightPower::<Test>::get(), 0);
         assert_eq!(MaxConsensusValidatorStakeWeightPower::<Test>::get(), 0);
 
@@ -1514,6 +1676,15 @@ fn test_set_subnet_removal_interval() {
 fn test_set_subnet_pause_cooldown_epochs() {
     new_test_ext().execute_with(|| {
         System::set_block_number(System::block_number() + 1);
+
+        assert_err!(
+            Network::set_subnet_pause_cooldown_epochs(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+                0
+            ),
+            Error::<Test>::InvalidSubnetPauseCooldownEpochs
+        );
+        assert_eq!(SubnetPauseCooldownEpochs::<Test>::get(), 1);
 
         let new_value: u32 = 10;
 

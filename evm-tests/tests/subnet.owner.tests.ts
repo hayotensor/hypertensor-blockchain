@@ -10,7 +10,12 @@ import {
     addToDelegateStake,
     batchTransferBalanceFromSudo,
     getCurrentRegistrationCost,
+    getConsensusEligibleFromSubnetEpoch,
     getMinSubnetDelegateStakeBalance,
+    getPauseStartedGlobalEpoch,
+    getPauseStartedSubnetEpoch,
+    getSlotIndex,
+    getSubnetAtSlot,
     ownerAddOrUpdateInitialColdkeys,
     ownerDeactivateSubnet,
     ownerPauseSubnet,
@@ -127,6 +132,21 @@ describe("Test subnet owner-0xuhnrfvok", () => {
     // npm test -- -g "testing subnet owner functions-0xARAD3gb3"
     it("testing subnet owner functions-0xARAD3gb3", async () => {
         const subnetContract = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet1);
+        expect(subnetContract.interface.hasFunction("getPrevPauseEpoch")).to.be.false;
+        expect(subnetContract.interface.hasFunction("getConsensusStartSubnetEpoch")).to.be.false;
+        expect(subnetContract.interface.hasFunction("getConsensusEligibleFromSubnetEpoch")).to.be.true;
+        expect(subnetContract.interface.hasFunction("getPauseStartedGlobalEpoch")).to.be.true;
+        expect(subnetContract.interface.hasFunction("getPauseStartedSubnetEpoch")).to.be.true;
+        expect(subnetContract.interface.hasFunction("getSlotAssignment")).to.be.false;
+        expect(subnetContract.interface.hasFunction("getSubnetAtSlot")).to.be.true;
+
+        // Designated general-epoch slots are never assigned to subnets.
+        await assert.rejects(() => getSubnetAtSlot(subnetContract, "0"));
+
+        const nonexistentSubnetId = BigInt("4294967295").toString();
+        await assert.rejects(() => getConsensusEligibleFromSubnetEpoch(subnetContract, nonexistentSubnetId));
+        await assert.rejects(() => getPauseStartedGlobalEpoch(subnetContract, nonexistentSubnetId));
+        await assert.rejects(() => getPauseStartedSubnetEpoch(subnetContract, nonexistentSubnetId));
 
         const cost = await getCurrentRegistrationCost(subnetContract, api)
         const subnetName = generateRandomString(30)
@@ -164,6 +184,13 @@ describe("Test subnet owner-0xuhnrfvok", () => {
 
         const subnetId = await subnetContract.getSubnetId(subnetName);
         expect(BigInt(subnetId)).to.not.equal(BigInt(0))
+        await assert.rejects(() => getConsensusEligibleFromSubnetEpoch(subnetContract, subnetId));
+        await assert.rejects(() => getPauseStartedGlobalEpoch(subnetContract, subnetId));
+        await assert.rejects(() => getPauseStartedSubnetEpoch(subnetContract, subnetId));
+
+        const assignedSlot = (await api.query.network.subnetSlot(subnetId)).toString();
+        expect(await getSlotIndex(subnetContract, subnetId)).to.equal(BigInt(assignedSlot));
+        expect(await getSubnetAtSlot(subnetContract, assignedSlot)).to.equal(BigInt(subnetId));
 
         const minStakeAmount = (await api.query.network.minSubnetMinStake()).toString();
         const delegateRewardRate = "0";
@@ -232,13 +259,15 @@ describe("Test subnet owner-0xuhnrfvok", () => {
         const newMinStake = (BigInt((await api.query.network.minSubnetMinStake()).toString()) + BigInt(1)).toString();
         const newMaxStake = (BigInt((await api.query.network.networkMaxStakeBalance()).toString()) - BigInt(1)).toString();
         const newDelegateStakePercentage = (BigInt((await api.query.network.minDelegateStakePercentage()).toString()) + BigInt(1)).toString();
+        const currentSubnetNodeQueueEpochs = (await api.query.network.subnetNodeQueueEpochs(subnetId)).toString();
         const newSubnetNodeQueueEpochs = (BigInt((await api.query.network.minQueueEpochs()).toString()) + BigInt(1)).toString();
         const newIdleClassificationEpochs = (BigInt((await api.query.network.minIdleClassificationEpochs()).toString()) + BigInt(1)).toString();
         const newIncludedClassificationEpochs = (BigInt((await api.query.network.minIncludedClassificationEpochs()).toString()) + BigInt(1)).toString();
         const newMaxRegisteredNodes = (BigInt((await api.query.network.minMaxRegisteredNodes()).toString()) + BigInt(1)).toString();
         const newTargetNodeRegistrationsPerEpoch = (BigInt(newMaxRegisteredNodes) - BigInt(1)).toString();
         const newNodeBurnRateAlpha = (BigInt((await api.query.network.nodeBurnRateAlpha(subnetId)).toString()) - BigInt(1)).toString();
-        const newQueueImmunityEpochs = (BigInt((await api.query.network.queueImmunityEpochs(subnetId)).toString()) - BigInt(1)).toString();
+        const currentQueueImmunityEpochs = (await api.query.network.queueImmunityEpochs(subnetId)).toString();
+        const newQueueImmunityEpochs = (BigInt(currentQueueImmunityEpochs) - BigInt(1)).toString();
 
         const wallet9 = generateRandomEthersWallet();
         const wallet10 = generateRandomEthersWallet();
@@ -295,7 +324,10 @@ describe("Test subnet owner-0xuhnrfvok", () => {
         expect((await api.query.network.churnLimit(subnetId)).toString()).to.be.equal(newChurnLimit)
 
         await ownerUpdateRegistrationQueueEpochs(subnetContract, subnetId, newSubnetNodeQueueEpochs)
-        expect((await api.query.network.subnetNodeQueueEpochs(subnetId)).toString()).to.be.equal(newSubnetNodeQueueEpochs)
+        expect((await api.query.network.subnetNodeQueueEpochs(subnetId)).toString()).to.be.equal(currentSubnetNodeQueueEpochs)
+        const pendingSubnetNodeQueueEpochs = await api.query.network.pendingSubnetNodeQueueEpochs(subnetId) as Option<any>
+        expect(pendingSubnetNodeQueueEpochs.isSome).to.be.true
+        expect(pendingSubnetNodeQueueEpochs.unwrap().value.toString()).to.be.equal(newSubnetNodeQueueEpochs)
 
         await ownerUpdateIdleClassificationEpochs(subnetContract, subnetId, newIdleClassificationEpochs)
         expect((await api.query.network.idleClassificationEpochs(subnetId)).toString()).to.be.equal(newIdleClassificationEpochs)
@@ -383,7 +415,10 @@ describe("Test subnet owner-0xuhnrfvok", () => {
 
 
         await ownerUpdateQueueImmunityEpochs(subnetContract, subnetId, newQueueImmunityEpochs)
-        expect((await api.query.network.queueImmunityEpochs(subnetId)).toString()).to.be.equal(newQueueImmunityEpochs)
+        expect((await api.query.network.queueImmunityEpochs(subnetId)).toString()).to.be.equal(currentQueueImmunityEpochs)
+        const pendingQueueImmunityEpochs = await api.query.network.pendingQueueImmunityEpochs(subnetId) as Option<any>
+        expect(pendingQueueImmunityEpochs.isSome).to.be.true
+        expect(pendingQueueImmunityEpochs.unwrap().value.toString()).to.be.equal(newQueueImmunityEpochs)
 
 
         const addBootnodes = [
@@ -489,6 +524,26 @@ describe("Test subnet owner-0xuhnrfvok", () => {
             expect(human.state).to.equal("Active")
         }
 
+        const consensusEligibleFromSubnetEpoch = await getConsensusEligibleFromSubnetEpoch(
+            subnetContract,
+            subnetId,
+        );
+        await assert.rejects(() => getPauseStartedGlobalEpoch(subnetContract, subnetId));
+        await assert.rejects(() => getPauseStartedSubnetEpoch(subnetContract, subnetId));
+
+        // Pause cooldown is local to this subnet. Wait until the assigned subnet slot has
+        // completed the configured number of rounds after activation.
+        const subnetPauseCooldownEpochs = Number(
+            (await api.query.network.subnetPauseCooldownEpochs()).toString(),
+        );
+        const subnetSlot = Number(assignedSlot);
+        const epochLength = Number(api.consts.network.epochLength.toString());
+        const firstPausableBlock = subnetSlot
+            + (Number(consensusEligibleFromSubnetEpoch) + subnetPauseCooldownEpochs) * epochLength;
+        const currentBlock = Number((await api.query.system.number()).toString());
+        if (currentBlock < firstPausableBlock) {
+            await waitForBlocks(api, firstPausableBlock - currentBlock);
+        }
 
         await ownerPauseSubnet(subnetContract, subnetId)
         subnetData = await api.query.network.subnetsData(subnetId)
@@ -499,7 +554,14 @@ describe("Test subnet owner-0xuhnrfvok", () => {
             const subnetData = subnetDataOpt.unwrap();
             const human = subnetData.toHuman();
             expect(human.state).to.equal("Paused")
+
+            const pause = subnetData.pause.unwrap();
+            expect(await getPauseStartedGlobalEpoch(subnetContract, subnetId))
+                .to.equal(BigInt(pause.startedGlobalEpoch.toString()));
+            expect(await getPauseStartedSubnetEpoch(subnetContract, subnetId))
+                .to.equal(BigInt(pause.startedSubnetEpoch.toString()));
         }
+        await assert.rejects(() => getConsensusEligibleFromSubnetEpoch(subnetContract, subnetId));
 
         await ownerUnpauseSubnet(subnetContract, subnetId)
         subnetData = await api.query.network.subnetsData(subnetId)
@@ -510,7 +572,12 @@ describe("Test subnet owner-0xuhnrfvok", () => {
             const subnetData = subnetDataOpt.unwrap();
             const human = subnetData.toHuman();
             expect(human.state).to.equal("Active")
+
+            expect(await getConsensusEligibleFromSubnetEpoch(subnetContract, subnetId))
+                .to.equal(BigInt(subnetData.consensusEligibleFromSubnetEpoch.unwrap().toString()));
         }
+        await assert.rejects(() => getPauseStartedGlobalEpoch(subnetContract, subnetId));
+        await assert.rejects(() => getPauseStartedSubnetEpoch(subnetContract, subnetId));
 
         const newOwner = generateRandomEthersWallet();
         await transferSubnetOwnership(subnetContract, subnetId, newOwner.address)
@@ -531,6 +598,8 @@ describe("Test subnet owner-0xuhnrfvok", () => {
         await ownerDeactivateSubnet(newOwnerSubnetContract, subnetId)
         subnetData = await api.query.network.subnetsData(subnetId)
         expect(subnetData == undefined);
+        await assert.rejects(() => getSlotIndex(newOwnerSubnetContract, subnetId));
+        await assert.rejects(() => getSubnetAtSlot(newOwnerSubnetContract, assignedSlot));
 
         console.log("✅ Subnet owner functions testing complete")
     })

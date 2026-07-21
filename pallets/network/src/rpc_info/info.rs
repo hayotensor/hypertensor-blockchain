@@ -32,7 +32,9 @@ impl<T: Config> Pallet<T> {
             description: subnet_data.description,
             misc: subnet_data.misc,
             state: subnet_data.state,
-            start_epoch: subnet_data.start_epoch,
+            consensus_eligible_from_subnet_epoch: subnet_data.consensus_eligible_from_subnet_epoch,
+            pause_started_global_epoch: subnet_data.pause.map(|pause| pause.started_global_epoch),
+            pause_started_subnet_epoch: subnet_data.pause.map(|pause| pause.started_subnet_epoch),
             churn_limit: ChurnLimit::<T>::get(subnet_id),
             churn_limit_multiplier: ChurnLimitMultiplier::<T>::get(subnet_id),
             min_stake: SubnetMinStakeBalance::<T>::get(subnet_id),
@@ -47,7 +49,12 @@ impl<T: Config> Pallet<T> {
                 subnet_id,
             ),
             node_registrations_this_epoch: NodeRegistrationsThisEpoch::<T>::get(subnet_id),
-            subnet_node_queue_epochs: SubnetNodeQueueEpochs::<T>::get(subnet_id),
+            subnet_node_queue_epochs: Self::get_subnet_node_queue_epochs_for_epoch(
+                subnet_id,
+                current_subnet_epoch,
+            ),
+            pending_subnet_node_queue_epochs: PendingSubnetNodeQueueEpochs::<T>::get(subnet_id)
+                .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
             idle_classification_epochs: Self::get_idle_classification_epochs_for_epoch(
                 subnet_id,
                 current_subnet_epoch,
@@ -102,9 +109,7 @@ impl<T: Config> Pallet<T> {
             owner: SubnetOwner::<T>::get(subnet_id),
             pending_owner: PendingSubnetOwner::<T>::get(subnet_id),
             registration_epoch: SubnetRegistrationEpoch::<T>::get(subnet_id),
-            prev_pause_epoch: PreviousSubnetPauseEpoch::<T>::get(subnet_id),
             slot_index: SubnetSlot::<T>::get(subnet_id),
-            slot_assignment: SlotAssignment::<T>::get(subnet_id),
             subnet_node_min_weight_decrease_reputation_threshold:
                 Self::get_subnet_node_min_weight_decrease_reputation_threshold_for_epoch(
                     subnet_id,
@@ -120,14 +125,6 @@ impl<T: Config> Pallet<T> {
             ),
             pending_min_subnet_node_reputation: PendingMinSubnetNodeReputation::<T>::get(subnet_id)
                 .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
-            min_consensus_node_attestation_percentage:
-                Self::get_min_consensus_node_attestation_percentage_for_epoch(
-                    subnet_id,
-                    current_subnet_epoch,
-                ),
-            pending_min_consensus_node_attestation_percentage:
-                PendingSubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id)
-                    .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
             absent_decrease_reputation_factor: reputation_factors.absent_decrease,
             included_increase_reputation_factor: reputation_factors.included_increase,
             below_min_weight_decrease_reputation_factor: reputation_factors
@@ -261,7 +258,7 @@ impl<T: Config> Pallet<T> {
         subnet_epoch: u32,
     ) -> Option<SubnetNodeInfo<T>> {
         match SubnetElectedValidator::<T>::try_get(subnet_id, subnet_epoch) {
-            Ok(subnet_node_id) => Self::get_subnet_node_info(subnet_id, subnet_node_id),
+            Ok(round) => Self::get_subnet_node_info(subnet_id, round.validator_subnet_node_id),
             Err(()) => None,
         }
     }

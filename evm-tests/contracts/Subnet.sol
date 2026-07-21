@@ -305,11 +305,6 @@ interface Subnet {
         uint256 value
     ) external;
 
-    function ownerUpdateMinConsensusNodeAttestationPercentage(
-        uint256 subnetId,
-        uint256 value
-    ) external;
-
     function ownerUpdateSubnetNodeMinWeightDecreaseReputationThreshold(
         uint256 subnetId,
         uint256 value
@@ -442,15 +437,21 @@ interface Subnet {
         uint256 subnetId
     ) external view returns (uint256);
 
-    function getPrevPauseEpoch(
+    function getConsensusEligibleFromSubnetEpoch(
+        uint256 subnetId
+    ) external view returns (uint256);
+
+    function getPauseStartedGlobalEpoch(
+        uint256 subnetId
+    ) external view returns (uint256);
+
+    function getPauseStartedSubnetEpoch(
         uint256 subnetId
     ) external view returns (uint256);
 
     function getSlotIndex(uint256 subnetId) external view returns (uint256);
 
-    function getSlotAssignment(
-        uint256 subnetId
-    ) external view returns (uint256);
+    function getSubnetAtSlot(uint256 slot) external view returns (uint256);
 
     function getSubnetNodeMinWeightDecreaseReputationThreshold(
         uint256 subnetId

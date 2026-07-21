@@ -438,6 +438,26 @@ where
         )
     }
 
+    #[precompile::public("setValidatorDelegateStakeSlashConfig(uint256,uint256,uint256)")]
+    fn set_validator_delegate_stake_slash_config(
+        handle: &mut impl PrecompileHandle,
+        threshold: U256,
+        base_percentage: U256,
+        max_amount: U256,
+    ) -> EvmResult<()> {
+        let threshold = try_u256_to_u128(threshold)?;
+        let base_percentage = try_u256_to_u128(base_percentage)?;
+        let max_amount = try_u256_to_u128(max_amount)?;
+        dispatch_call::<R>(
+            handle,
+            pallet_network::Call::<R>::set_validator_delegate_stake_slash_config {
+                threshold,
+                base_percentage,
+                max_amount,
+            },
+        )
+    }
+
     #[precompile::public("setReputationIncreaseFactor(uint256)")]
     fn set_reputation_increase_factor(
         handle: &mut impl PrecompileHandle,

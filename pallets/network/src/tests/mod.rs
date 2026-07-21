@@ -13,6 +13,7 @@ mod on_initialize;
 mod overwatch_nodes;
 mod overwatch_nodes_commit_reveal;
 mod owner;
+mod queue_maturity;
 mod randomization;
 mod registration_queue;
 mod reputation;

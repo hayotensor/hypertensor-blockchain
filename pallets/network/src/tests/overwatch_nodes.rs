@@ -10,7 +10,7 @@ use crate::{
     TotalOverwatchNodeStakeBalance, TotalOverwatchNodeUids, TotalOverwatchNodes, TotalValidatorIds,
     ValidatorSubnetNodes,
 };
-use frame_support::traits::Currency;
+use frame_support::traits::{Currency, Get};
 use frame_support::{assert_err, assert_ok};
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 
@@ -30,6 +30,27 @@ use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 //
 //
 //
+
+#[test]
+fn test_overwatch_min_age_uses_general_epochs_and_exact_boundary() {
+    new_test_ext().execute_with(|| {
+        let validator_id = 1;
+        make_overwatch_qualified_v2(validator_id, validator_id);
+
+        let min_age = OverwatchMinAge::<Test>::get();
+        assert_eq!(min_age, EpochsPerYear::get() / 4);
+
+        System::set_block_number(min_age.saturating_sub(1).saturating_mul(EpochLength::get()));
+        assert!(!Network::is_validator_overwatch_qualified_read_only(
+            validator_id
+        ));
+
+        System::set_block_number(min_age.saturating_mul(EpochLength::get()));
+        assert!(Network::is_validator_overwatch_qualified_read_only(
+            validator_id
+        ));
+    });
+}
 
 #[test]
 fn test_register_overwatch_node() {
@@ -738,6 +759,7 @@ fn test_equal_stake_equal_weights_v3() {
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
 
+        queue_overwatch_settlement(epoch);
         let block_weight = Network::calculate_overwatch_rewards();
 
         for n in 0..2 {
@@ -801,6 +823,7 @@ fn test_stake_no_dampening_effect() {
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
 
+        queue_overwatch_settlement(epoch);
         let block_weight = Network::calculate_overwatch_rewards();
 
         for n in 0..2 {
@@ -862,6 +885,7 @@ fn test_two_noces_same_stake_dif_weights_v3() {
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
 
+        queue_overwatch_settlement(epoch);
         let block_weight = Network::calculate_overwatch_rewards();
 
         for n in 0..2 {
@@ -928,6 +952,7 @@ fn test_multiple_subnets_score_accumulation_v3() {
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
 
+        queue_overwatch_settlement(epoch);
         let block_weight = Network::calculate_overwatch_rewards();
 
         for n in 0..2 {
@@ -998,6 +1023,7 @@ fn test_multiple_subnets_score_accumulation_v3_2() {
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
 
+        queue_overwatch_settlement(epoch);
         let block_weight = Network::calculate_overwatch_rewards();
 
         for n in 0..2 {
@@ -1062,6 +1088,7 @@ fn test_multiple_subnets_score_accumulation_v3_2_v2() {
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
 
+        queue_overwatch_settlement(epoch);
         let block_weight = Network::calculate_overwatch_rewards();
 
         for n in 0..2 {
@@ -1194,6 +1221,7 @@ fn test_multiple_subnets_check_percent_acccuracy() {
             ostake_snapshot.insert(n + 1, overwatch_stake);
         }
 
+        queue_overwatch_settlement(epoch);
         let block_weight = Network::calculate_overwatch_rewards();
 
         for n in 0..8 {
@@ -1678,6 +1706,7 @@ fn test_zero_score() {
             Network::percentage_factor_as_u128(),
         );
 
+        queue_overwatch_settlement(epoch);
         let block_weight = Network::calculate_overwatch_rewards();
 
         let subnet_weight = OverwatchSubnetWeights::<Test>::get(epoch, subnet_id);

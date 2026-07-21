@@ -332,16 +332,25 @@ where
     #[precompile::view]
     fn overwatch_epoch_length_multiplier(handle: &mut impl PrecompileHandle) -> EvmResult<u32> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let epoch_multiplier = pallet_network::OverwatchEpochLengthMultiplier::<R>::get();
+        let epoch_multiplier = pallet_network::ActiveOverwatchEpochLengthMultiplier::<R>::get();
 
         Ok(epoch_multiplier)
+    }
+
+    #[precompile::public("overwatchEpochStartBlock()")]
+    #[precompile::view]
+    fn overwatch_epoch_start_block(handle: &mut impl PrecompileHandle) -> EvmResult<u32> {
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
+        let start_block = pallet_network::OverwatchEpochStartBlock::<R>::get();
+
+        Ok(start_block)
     }
 
     #[precompile::public("overwatchCommitCutoffPercent()")]
     #[precompile::view]
     fn overwatch_commit_cutoff_percent(handle: &mut impl PrecompileHandle) -> EvmResult<u128> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let percent: u128 = pallet_network::OverwatchCommitCutoffPercent::<R>::get();
+        let percent: u128 = pallet_network::ActiveOverwatchCommitCutoffPercent::<R>::get();
 
         Ok(percent)
     }
@@ -557,6 +566,19 @@ where
         let value = try_u32_to_u256(overwatch_epoch)?;
 
         Ok(value)
+    }
+
+    #[precompile::public("lastFinalizedOverwatchEpoch()")]
+    #[precompile::view]
+    fn last_finalized_overwatch_epoch(
+        handle: &mut impl PrecompileHandle,
+    ) -> EvmResult<(bool, U256)> {
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
+        let Some(epoch) = pallet_network::LastFinalizedOverwatchEpoch::<R>::get() else {
+            return Ok((false, U256::from(0u8)));
+        };
+
+        Ok((true, try_u32_to_u256(epoch)?))
     }
 }
 

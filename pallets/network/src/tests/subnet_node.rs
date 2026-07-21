@@ -158,8 +158,7 @@ fn test_register_subnet_subnet_is_paused_error() {
         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
-        let pause_cooldown_epochs = SubnetPauseCooldownEpochs::<Test>::get();
-        increase_epochs(pause_cooldown_epochs + 1);
+        run_to_first_pause_eligible_subnet_slot(subnet_id);
 
         let original_owner = account(1);
 
@@ -3984,13 +3983,15 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
         let super_majority_threshold = Network::percentage_factor_as_u128();
 
         let missing_node_consensus = ConsensusSubmissionData::<Test> {
+            policy: Network::consensus_policy_snapshot(subnet_id, 1),
             validator_subnet_node_id: 0,
+            validator_delegate_stake_balance: 0,
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
             attestation_ratio: super_majority_threshold,
-            node_attestation_ratio: super_majority_threshold,
-            node_attestation_count: 1,
-            eligible_validator_count: 1,
+            identity_attestation_ratio: super_majority_threshold,
+            identity_attestation_count: 1,
+            eligible_validator_identity_count: 1,
             weight_sum: 0,
             data_length: 0,
             data: Vec::new(),
@@ -4025,13 +4026,15 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
         )));
 
         let queued_node_consensus = ConsensusSubmissionData::<Test> {
+            policy: Network::consensus_policy_snapshot(subnet_id, 1),
             validator_subnet_node_id: 0,
+            validator_delegate_stake_balance: 0,
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
             attestation_ratio: super_majority_threshold,
-            node_attestation_ratio: super_majority_threshold,
-            node_attestation_count: 1,
-            eligible_validator_count: 1,
+            identity_attestation_ratio: super_majority_threshold,
+            identity_attestation_count: 1,
+            eligible_validator_identity_count: 1,
             weight_sum: 0,
             data_length: 0,
             data: Vec::new(),
@@ -4380,7 +4383,6 @@ fn test_slash_validator() {
             test_percent(66, 100), // 66%
             test_percent(1, 10),   // 10%
             test_percent(1, 10),   // 10%
-            1,
             1,
             Network::get_reputation_factors_for_epoch(subnet_id, 1)
                 .validator_non_consensus_decrease,

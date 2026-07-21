@@ -12,11 +12,11 @@ use crate::{
     PendingMinSubnetNodeReputation, PendingOwnerU128Update, PendingOwnerU32Update,
     PendingQueueImmunityEpochs, PendingSubnetDelegateStakeRewardsPercentage,
     PendingSubnetDelegateStakeRewardsPercentageUpdate,
-    PendingSubnetMinConsensusNodeAttestationPercentage,
-    PendingSubnetNodeMinWeightDecreaseReputationThreshold, QueueImmunityEpochs, SubnetBootnodes,
-    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator,
-    SubnetMinConsensusNodeAttestationPercentage, SubnetName, SubnetNodeClass, SubnetNodeIdHotkey,
-    SubnetNodeMinWeightDecreaseReputationThreshold, SubnetOwner, TotalActiveSubnets,
+    PendingSubnetNodeMinWeightDecreaseReputationThreshold, PendingSubnetNodeQueueEpochs,
+    QueueImmunityEpochs, SlotAssignment, SubnetBootnodes, SubnetDelegateStakeRewardsPercentage,
+    SubnetElectedValidator, SubnetName, SubnetNodeClass, SubnetNodeIdHotkey,
+    SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeQueueEpochs, SubnetOwner,
+    SubnetPauseData, SubnetSlot, SubnetState, SubnetsData, TotalActiveSubnets,
     TotalNodeDelegateStakeBalance, TotalNodeDelegateStakeShares,
 };
 use frame_support::assert_ok;
@@ -445,6 +445,8 @@ fn test_get_subnet_info() {
 
         let queue_immunity_epochs = 11;
         let pending_queue_immunity_epochs = 12;
+        let subnet_node_queue_epochs = 13;
+        let pending_subnet_node_queue_epochs = 14;
         let idle_classification_epochs = 21;
         let pending_idle_classification_epochs = 22;
         let included_classification_epochs = 31;
@@ -459,13 +461,12 @@ fn test_get_subnet_info() {
         let pending_min_weight_decrease_reputation_threshold = 72;
         let min_subnet_node_reputation = 81;
         let pending_min_subnet_node_reputation = 82;
-        let min_consensus_node_attestation_percentage = 91;
-        let pending_min_consensus_node_attestation_percentage = 92;
         let last_delegate_stake_rewards_update = 101;
         let last_consensus_validator_node_count_decay_update = 102;
         let last_consensus_validator_stake_weight_power_update = 103;
 
         QueueImmunityEpochs::<Test>::insert(subnet_id, queue_immunity_epochs);
+        SubnetNodeQueueEpochs::<Test>::insert(subnet_id, subnet_node_queue_epochs);
         IdleClassificationEpochs::<Test>::insert(subnet_id, idle_classification_epochs);
         IncludedClassificationEpochs::<Test>::insert(subnet_id, included_classification_epochs);
         SubnetDelegateStakeRewardsPercentage::<Test>::insert(subnet_id, delegate_stake_percentage);
@@ -482,10 +483,6 @@ fn test_get_subnet_info() {
             min_weight_decrease_reputation_threshold,
         );
         MinSubnetNodeReputation::<Test>::insert(subnet_id, min_subnet_node_reputation);
-        SubnetMinConsensusNodeAttestationPercentage::<Test>::insert(
-            subnet_id,
-            min_consensus_node_attestation_percentage,
-        );
         LastSubnetDelegateStakeRewardsUpdate::<Test>::insert(
             subnet_id,
             last_delegate_stake_rewards_update,
@@ -506,6 +503,11 @@ fn test_get_subnet_info() {
         };
         let pending_idle = PendingOwnerU32Update::<Test> {
             value: pending_idle_classification_epochs,
+            effective_subnet_epoch,
+            owner: owner.clone(),
+        };
+        let pending_subnet_node_queue = PendingOwnerU32Update::<Test> {
+            value: pending_subnet_node_queue_epochs,
             effective_subnet_epoch,
             owner: owner.clone(),
         };
@@ -539,13 +541,9 @@ fn test_get_subnet_info() {
             effective_subnet_epoch,
             owner: owner.clone(),
         };
-        let pending_min_attestation = PendingOwnerU128Update::<Test> {
-            value: pending_min_consensus_node_attestation_percentage,
-            effective_subnet_epoch,
-            owner,
-        };
 
         PendingQueueImmunityEpochs::<Test>::insert(subnet_id, pending_queue.clone());
+        PendingSubnetNodeQueueEpochs::<Test>::insert(subnet_id, pending_subnet_node_queue.clone());
         PendingIdleClassificationEpochs::<Test>::insert(subnet_id, pending_idle.clone());
         PendingIncludedClassificationEpochs::<Test>::insert(subnet_id, pending_included.clone());
         PendingSubnetDelegateStakeRewardsPercentage::<Test>::insert(
@@ -565,10 +563,6 @@ fn test_get_subnet_info() {
             pending_min_weight_threshold.clone(),
         );
         PendingMinSubnetNodeReputation::<Test>::insert(subnet_id, pending_min_reputation.clone());
-        PendingSubnetMinConsensusNodeAttestationPercentage::<Test>::insert(
-            subnet_id,
-            pending_min_attestation.clone(),
-        );
 
         let subnet_info = Network::get_subnet_info(subnet_id);
 
@@ -576,8 +570,21 @@ fn test_get_subnet_info() {
         let info = subnet_info.unwrap();
         assert_eq!(info.id, subnet_id);
         assert_eq!(info.name, subnet_name);
+        assert_eq!(
+            info.consensus_eligible_from_subnet_epoch,
+            SubnetsData::<Test>::get(subnet_id)
+                .unwrap()
+                .consensus_eligible_from_subnet_epoch
+        );
+        assert!(info.pause_started_global_epoch.is_none());
+        assert!(info.pause_started_subnet_epoch.is_none());
         assert_eq!(info.queue_immunity_epochs, queue_immunity_epochs);
         assert_eq!(info.pending_queue_immunity_epochs, Some(pending_queue));
+        assert_eq!(info.subnet_node_queue_epochs, subnet_node_queue_epochs);
+        assert_eq!(
+            info.pending_subnet_node_queue_epochs,
+            Some(pending_subnet_node_queue)
+        );
         assert_eq!(info.idle_classification_epochs, idle_classification_epochs);
         assert_eq!(info.pending_idle_classification_epochs, Some(pending_idle));
         assert_eq!(
@@ -634,16 +641,11 @@ fn test_get_subnet_info() {
             info.pending_min_subnet_node_reputation,
             Some(pending_min_reputation)
         );
-        assert_eq!(
-            info.min_consensus_node_attestation_percentage,
-            min_consensus_node_attestation_percentage
-        );
-        assert_eq!(
-            info.pending_min_consensus_node_attestation_percentage,
-            Some(pending_min_attestation)
-        );
 
         PendingQueueImmunityEpochs::<Test>::mutate(subnet_id, |pending| {
+            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
+        });
+        PendingSubnetNodeQueueEpochs::<Test>::mutate(subnet_id, |pending| {
             pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
         });
         PendingIdleClassificationEpochs::<Test>::mutate(subnet_id, |pending| {
@@ -670,13 +672,15 @@ fn test_get_subnet_info() {
         PendingMinSubnetNodeReputation::<Test>::mutate(subnet_id, |pending| {
             pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
         });
-        PendingSubnetMinConsensusNodeAttestationPercentage::<Test>::mutate(subnet_id, |pending| {
-            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
-        });
 
         let info = Network::get_subnet_info(subnet_id).unwrap();
         assert_eq!(info.queue_immunity_epochs, pending_queue_immunity_epochs);
         assert!(info.pending_queue_immunity_epochs.is_none());
+        assert_eq!(
+            info.subnet_node_queue_epochs,
+            pending_subnet_node_queue_epochs
+        );
+        assert!(info.pending_subnet_node_queue_epochs.is_none());
         assert_eq!(
             info.idle_classification_epochs,
             pending_idle_classification_epochs
@@ -716,13 +720,34 @@ fn test_get_subnet_info() {
             pending_min_subnet_node_reputation
         );
         assert!(info.pending_min_subnet_node_reputation.is_none());
-        assert_eq!(
-            info.min_consensus_node_attestation_percentage,
-            pending_min_consensus_node_attestation_percentage
-        );
-        assert!(info
-            .pending_min_consensus_node_attestation_percentage
+        SubnetsData::<Test>::mutate(subnet_id, |subnet| {
+            let subnet = subnet.as_mut().unwrap();
+            subnet.state = SubnetState::Paused;
+            subnet.consensus_eligible_from_subnet_epoch = None;
+            subnet.pause = Some(SubnetPauseData {
+                started_global_epoch: 111,
+                started_subnet_epoch: 109,
+            });
+        });
+        let paused_info = Network::get_subnet_info(subnet_id).unwrap();
+        assert!(paused_info.consensus_eligible_from_subnet_epoch.is_none());
+        assert_eq!(paused_info.pause_started_global_epoch, Some(111));
+        assert_eq!(paused_info.pause_started_subnet_epoch, Some(109));
+
+        SubnetsData::<Test>::mutate(subnet_id, |subnet| {
+            let subnet = subnet.as_mut().unwrap();
+            subnet.state = SubnetState::Registered;
+            subnet.consensus_eligible_from_subnet_epoch = None;
+            subnet.pause = None;
+        });
+        let registered_info = Network::get_subnet_info(subnet_id).unwrap();
+        assert!(registered_info
+            .consensus_eligible_from_subnet_epoch
             .is_none());
+        assert!(registered_info.pause_started_global_epoch.is_none());
+        assert!(registered_info.pause_started_subnet_epoch.is_none());
+
+        assert!(Network::get_subnet_info(u32::MAX).is_none());
     })
 }
 
@@ -739,6 +764,81 @@ fn test_get_all_subnets_info() {
         let all_subnets = Network::get_all_subnets_info();
 
         assert!(all_subnets.len() >= 2, "Should have at least 2 subnets");
+    })
+}
+
+#[test]
+fn subnet_info_reports_subnet_slot_across_collision_removal_and_reuse() {
+    new_test_ext().execute_with(|| {
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
+
+        for name in ["slot-rpc-1", "slot-rpc-2", "slot-rpc-3"] {
+            build_activated_subnet(name.as_bytes().to_vec(), 0, 0, deposit_amount, stake_amount);
+        }
+
+        let subnet_ids = ["slot-rpc-1", "slot-rpc-2", "slot-rpc-3"]
+            .map(|name| SubnetName::<Test>::get(name.as_bytes().to_vec()).unwrap());
+
+        for subnet_id in subnet_ids {
+            let slot = SubnetSlot::<Test>::get(subnet_id).unwrap();
+            assert_eq!(
+                Network::get_subnet_info(subnet_id).unwrap().slot_index,
+                Some(slot)
+            );
+            assert_eq!(SlotAssignment::<Test>::get(slot), Some(subnet_id));
+        }
+
+        // Seed the exact key collision that made the old RPC field silently report an unrelated
+        // subnet: a subnet ID is present as a key in the reverse slot map. The subnet-oriented
+        // response must remain sourced exclusively from `SubnetSlot`.
+        let collision_subnet_id = subnet_ids[2];
+        let unrelated_subnet_id = subnet_ids[0];
+        SlotAssignment::<Test>::insert(collision_subnet_id, unrelated_subnet_id);
+        assert_eq!(
+            Network::get_subnet_info(collision_subnet_id)
+                .unwrap()
+                .slot_index,
+            SubnetSlot::<Test>::get(collision_subnet_id),
+        );
+        SlotAssignment::<Test>::remove(collision_subnet_id);
+
+        let removed_subnet_id = subnet_ids[0];
+        let freed_slot = SubnetSlot::<Test>::get(removed_subnet_id).unwrap();
+        let owner = SubnetOwner::<Test>::get(removed_subnet_id).unwrap();
+        assert_ok!(Network::owner_deactivate_subnet(
+            RuntimeOrigin::signed(owner),
+            removed_subnet_id,
+        ));
+
+        assert!(Network::get_subnet_info(removed_subnet_id).is_none());
+        assert_eq!(SubnetSlot::<Test>::get(removed_subnet_id), None);
+        assert_eq!(SlotAssignment::<Test>::get(freed_slot), None);
+
+        build_activated_subnet(
+            b"slot-rpc-replacement".to_vec(),
+            0,
+            0,
+            deposit_amount,
+            stake_amount,
+        );
+        let replacement_subnet_id =
+            SubnetName::<Test>::get(b"slot-rpc-replacement".to_vec()).unwrap();
+
+        assert_eq!(
+            SubnetSlot::<Test>::get(replacement_subnet_id),
+            Some(freed_slot)
+        );
+        assert_eq!(
+            SlotAssignment::<Test>::get(freed_slot),
+            Some(replacement_subnet_id)
+        );
+        assert_eq!(
+            Network::get_subnet_info(replacement_subnet_id)
+                .unwrap()
+                .slot_index,
+            Some(freed_slot),
+        );
     })
 }
 

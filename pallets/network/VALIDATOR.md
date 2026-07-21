@@ -48,6 +48,12 @@ Consensus submissions contain the elected subnet node's view of subnet node scor
 
 Timely and accurate subnet node participation affects rewards and reputation. Missing proposals, failing to gather enough attestation, or participating outside consensus can reduce reputation or rewards according to network and subnet policy.
 
+The validator identity records its first and most recent election epochs when one of its subnet
+nodes is elected. These election timestamps are written immediately, including when the elected
+node never submits a proposal. The election's score, attestation average, reward, or penalty is
+settled at the subnet's next slot from the completed epoch's data; settlement does not relabel the
+election as belonging to the later epoch.
+
 ### Key Management
 
 Validators use a coldkey and hotkey model.
@@ -73,6 +79,28 @@ Users can delegate stake to validators. Validator delegate stake is tracked agai
 Delegators receive shares in the validator's delegated stake pool. Those shares represent their position in the pool and are used when adding, removing, transferring, or swapping validator delegate stake.
 
 Validator delegate stake can influence the consensus weight of the validator's owned subnet nodes. The validator can control how that delegated stake weight is distributed across its nodes.
+
+#### Delegate Stake Slashing Risk
+
+The validator identity's entire delegate pool can be exposed when one of its elected subnet nodes
+submits a proposal that receives stake-weighted attestation below the network's strong-rejection
+threshold, or fails to submit a proposal. This exposure is identity-wide: it is not limited to the
+delegate weight allocated to the elected node.
+
+The penalty reduces the pool balance while leaving all delegator shares unchanged. Losses are
+therefore shared proportionally through a lower share redemption value. Liability is calculated
+from the pool balance and slashing configuration snapshotted when the node is elected, and is also
+capped by the pool's current balance and the configured absolute maximum.
+
+The delegate-pool penalty launches disabled: its base percentage and maximum slash amount both
+default to zero. A supermajority collective may later enable or reconfigure both values atomically.
+Delegators should inspect the current on-chain configuration and remember that an already elected
+round keeps its snapshot even if governance changes the live settings afterward.
+
+For an enabled elected round, outgoing unstaking and swaps from the pool are temporarily locked
+until its next settlement slot. Incoming stake and share transfers remain permitted, and
+overlapping elections can extend the lock. This prevents pool value that was present at election
+from exiting before the corresponding consensus result is settled.
 
 ### Delegate Reward Rate
 

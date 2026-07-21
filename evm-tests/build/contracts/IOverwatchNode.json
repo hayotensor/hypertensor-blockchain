@@ -279,11 +279,42 @@
     },
     {
       "inputs": [],
+      "name": "overwatchEpochStartBlock",
+      "outputs": [
+        {
+          "internalType": "uint256",
+          "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
       "name": "overwatchCommitCutoffPercent",
       "outputs": [
         {
           "internalType": "uint256",
           "name": "",
+          "type": "uint256"
+        }
+      ],
+      "stateMutability": "view",
+      "type": "function"
+    },
+    {
+      "inputs": [],
+      "name": "lastFinalizedOverwatchEpoch",
+      "outputs": [
+        {
+          "internalType": "bool",
+          "name": "exists",
+          "type": "bool"
+        },
+        {
+          "internalType": "uint256",
+          "name": "epoch",
           "type": "uint256"
         }
       ],
@@ -542,7 +573,7 @@
       "type": "function"
     }
   ],
-  "metadata": "{\"compiler\":{\"version\":\"0.8.25+commit.b61c2a91\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"accountOverwatchStake\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeAdded\",\"type\":\"uint256\"}],\"name\":\"addOverwatchStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"components\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"bytes32\",\"name\":\"weight\",\"type\":\"bytes32\"}],\"internalType\":\"struct IOverwatchNode.OverwatchCommit[]\",\"name\":\"commits\",\"type\":\"tuple[]\"}],\"name\":\"commitOverwatchSubnetWeights\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getCurrentOverwatchEpoch\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"maxOverwatchNodes\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchCommitCutoffPercent\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchEpoch\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"overwatchCommits\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchEpochLengthMultiplier\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchMinAge\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchMinAvgAttestationRatio\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchMinDiversificationRatio\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchMinRepScore\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchMinStakeBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"coldkey\",\"type\":\"address\"}],\"name\":\"overwatchNodeBlacklist\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"overwatchNodeIdHotkey\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchEpoch\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"overwatchNodeWeights\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"overwatchNodes\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchEpoch\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"overwatchReveals\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchEpoch\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"overwatchSubnetWeights\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"peerId\",\"type\":\"string\"}],\"name\":\"peerIdOverwatchNode\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"stakeToBeAdded\",\"type\":\"uint256\"}],\"name\":\"registerOverwatchNode\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"removeOverwatchNode\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeRemoved\",\"type\":\"uint256\"}],\"name\":\"removeOverwatchStake\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"components\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"weight\",\"type\":\"uint256\"},{\"internalType\":\"uint8[]\",\"name\":\"salt\",\"type\":\"uint8[]\"}],\"internalType\":\"struct IOverwatchNode.OverwatchReveal[]\",\"name\":\"reveals\",\"type\":\"tuple[]\"}],\"name\":\"revealOverwatchSubnetWeights\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"peerId\",\"type\":\"string\"}],\"name\":\"setOverwatchNodePeerId\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"totalOverwatchNodeUids\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"totalOverwatchNodes\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"totalOverwatchStake\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"internalType\":\"bool\",\"name\":\"hasNewHotkey\",\"type\":\"bool\"},{\"internalType\":\"address\",\"name\":\"newHotkey\",\"type\":\"address\"}],\"name\":\"updateOverwatchHotkey\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"project:/contracts/IOverwatchNode.sol\":\"IOverwatchNode\"},\"evmVersion\":\"cancun\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":false,\"runs\":200},\"remappings\":[]},\"sources\":{\"project:/contracts/IOverwatchNode.sol\":{\"keccak256\":\"0xfa090aae7b225f38f2a689602f9a9439a22471e0579676b35040f4b612920555\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://1cde48c84d02f001f41320c7b34099db98813771767dc69d46910a1c9dbef155\",\"dweb:/ipfs/QmUvHvn21kryW1KDfZ9xTjjFdo3gNnJJY3XR4yZe76fqSu\"]}},\"version\":1}",
+  "metadata": "{\"compiler\":{\"version\":\"0.8.25+commit.b61c2a91\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"accountOverwatchStake\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeAdded\",\"type\":\"uint256\"}],\"name\":\"addOverwatchStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"components\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"bytes32\",\"name\":\"weight\",\"type\":\"bytes32\"}],\"internalType\":\"struct IOverwatchNode.OverwatchCommit[]\",\"name\":\"commits\",\"type\":\"tuple[]\"}],\"name\":\"commitOverwatchSubnetWeights\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"getCurrentOverwatchEpoch\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"lastFinalizedOverwatchEpoch\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"exists\",\"type\":\"bool\"},{\"internalType\":\"uint256\",\"name\":\"epoch\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"maxOverwatchNodes\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchCommitCutoffPercent\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchEpoch\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"overwatchCommits\",\"outputs\":[{\"internalType\":\"bytes32\",\"name\":\"\",\"type\":\"bytes32\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchEpochLengthMultiplier\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchEpochStartBlock\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchMinAge\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchMinAvgAttestationRatio\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchMinDiversificationRatio\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchMinRepScore\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"overwatchMinStakeBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"coldkey\",\"type\":\"address\"}],\"name\":\"overwatchNodeBlacklist\",\"outputs\":[{\"internalType\":\"bool\",\"name\":\"\",\"type\":\"bool\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"overwatchNodeIdHotkey\",\"outputs\":[{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchEpoch\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"overwatchNodeWeights\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"overwatchNodes\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"\",\"type\":\"address\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchEpoch\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"overwatchReveals\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchEpoch\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"overwatchSubnetWeights\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"peerId\",\"type\":\"string\"}],\"name\":\"peerIdOverwatchNode\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"stakeToBeAdded\",\"type\":\"uint256\"}],\"name\":\"registerOverwatchNode\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"}],\"name\":\"removeOverwatchNode\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeRemoved\",\"type\":\"uint256\"}],\"name\":\"removeOverwatchStake\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"components\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"weight\",\"type\":\"uint256\"},{\"internalType\":\"uint8[]\",\"name\":\"salt\",\"type\":\"uint8[]\"}],\"internalType\":\"struct IOverwatchNode.OverwatchReveal[]\",\"name\":\"reveals\",\"type\":\"tuple[]\"}],\"name\":\"revealOverwatchSubnetWeights\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"internalType\":\"string\",\"name\":\"peerId\",\"type\":\"string\"}],\"name\":\"setOverwatchNodePeerId\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"totalOverwatchNodeUids\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"totalOverwatchNodes\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"totalOverwatchStake\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"overwatchNodeId\",\"type\":\"uint256\"},{\"internalType\":\"bool\",\"name\":\"hasNewHotkey\",\"type\":\"bool\"},{\"internalType\":\"address\",\"name\":\"newHotkey\",\"type\":\"address\"}],\"name\":\"updateOverwatchHotkey\",\"outputs\":[],\"stateMutability\":\"nonpayable\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"project:/contracts/IOverwatchNode.sol\":\"IOverwatchNode\"},\"evmVersion\":\"cancun\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":false,\"runs\":200},\"remappings\":[]},\"sources\":{\"project:/contracts/IOverwatchNode.sol\":{\"keccak256\":\"0x59b31c452b90f140674048c9ba0e3af966fb9141ab6510f67b307d9dda8068f6\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://8371b730945a887585b7ee98c10bc2f089768b43f5bddd9c73d001011c660a36\",\"dweb:/ipfs/QmdjAxizmjmsN3Hze8adWmiuvA32rchya2N4UQFstDd6GK\"]}},\"version\":1}",
   "bytecode": "0x",
   "deployedBytecode": "0x",
   "immutableReferences": {},
@@ -550,21 +581,21 @@
   "deployedGeneratedSources": [],
   "sourceMap": "",
   "deployedSourceMap": "",
-  "source": "// SPDX-License-Identifier: MIT\n\npragma solidity ^0.8.0;\n\ninterface IOverwatchNode {\n    struct OverwatchCommit {\n        uint256 subnetId;\n        bytes32 weight;\n    }\n\n    struct OverwatchReveal {\n        uint256 subnetId;\n        uint256 weight;\n        uint8[] salt;\n    }\n\n    function registerOverwatchNode(\n        uint256 stakeToBeAdded\n    ) external payable;\n\n    function removeOverwatchNode(uint256 overwatchNodeId) external;\n\n    function updateOverwatchHotkey(\n        uint256 overwatchNodeId,\n        bool hasNewHotkey,\n        address newHotkey\n    ) external;\n\n    function setOverwatchNodePeerId(\n        uint256 subnetId,\n        uint256 overwatchNodeId,\n        string memory peerId\n    ) external;\n\n    function commitOverwatchSubnetWeights(\n        uint256 overwatchNodeId,\n        OverwatchCommit[] calldata commits\n    ) external;\n\n    function revealOverwatchSubnetWeights(\n        uint256 overwatchNodeId,\n        OverwatchReveal[] calldata reveals\n    ) external;\n\n    function addOverwatchStake(\n        uint256 overwatchNodeId,\n        uint256 stakeToBeAdded\n    ) external payable;\n\n    function removeOverwatchStake(\n        uint256 overwatchNodeId,\n        uint256 stakeToBeRemoved\n    ) external;\n\n    function accountOverwatchStake(\n        uint256 overwatchNodeId\n    ) external view returns (uint256);\n\n    function totalOverwatchStake() external view returns (uint256);\n\n    function overwatchNodeBlacklist(\n        address coldkey\n    ) external view returns (bool);\n\n    function maxOverwatchNodes() external view returns (uint256);\n\n    function totalOverwatchNodes() external view returns (uint256);\n\n    function totalOverwatchNodeUids() external view returns (uint256);\n\n    function overwatchEpochLengthMultiplier() external view returns (uint256);\n\n    function overwatchCommitCutoffPercent() external view returns (uint256);\n\n    function overwatchNodes(\n        uint256 overwatchNodeId\n    ) external view returns (uint256, address);\n\n    function overwatchNodeIdHotkey(\n        uint256 overwatchNodeId\n    ) external view returns (address);\n\n    function peerIdOverwatchNode(\n        uint256 subnetId,\n        string memory peerId\n    ) external view returns (uint256);\n\n    function overwatchCommits(\n        uint256 overwatchEpoch,\n        uint256 overwatchNodeId,\n        uint256 subnetId\n    ) external view returns (bytes32);\n\n    function overwatchReveals(\n        uint256 overwatchEpoch,\n        uint256 subnetId,\n        uint256 overwatchNodeId\n    ) external view returns (uint256);\n\n    function overwatchSubnetWeights(\n        uint256 overwatchEpoch,\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function overwatchNodeWeights(\n        uint256 overwatchEpoch,\n        uint256 overwatchNodeId\n    ) external view returns (uint256);\n\n    function overwatchMinDiversificationRatio()\n        external\n        view\n        returns (uint256);\n\n    function overwatchMinRepScore() external view returns (uint256);\n\n    function overwatchMinAvgAttestationRatio()\n        external\n        view\n        returns (uint256);\n\n    function overwatchMinAge() external view returns (uint256);\n\n    function overwatchMinStakeBalance() external view returns (uint256);\n\n    function getCurrentOverwatchEpoch() external view returns (uint256);\n}\n",
+  "source": "// SPDX-License-Identifier: MIT\n\npragma solidity ^0.8.0;\n\ninterface IOverwatchNode {\n    struct OverwatchCommit {\n        uint256 subnetId;\n        bytes32 weight;\n    }\n\n    struct OverwatchReveal {\n        uint256 subnetId;\n        uint256 weight;\n        uint8[] salt;\n    }\n\n    function registerOverwatchNode(\n        uint256 stakeToBeAdded\n    ) external payable;\n\n    function removeOverwatchNode(uint256 overwatchNodeId) external;\n\n    function updateOverwatchHotkey(\n        uint256 overwatchNodeId,\n        bool hasNewHotkey,\n        address newHotkey\n    ) external;\n\n    function setOverwatchNodePeerId(\n        uint256 subnetId,\n        uint256 overwatchNodeId,\n        string memory peerId\n    ) external;\n\n    function commitOverwatchSubnetWeights(\n        uint256 overwatchNodeId,\n        OverwatchCommit[] calldata commits\n    ) external;\n\n    function revealOverwatchSubnetWeights(\n        uint256 overwatchNodeId,\n        OverwatchReveal[] calldata reveals\n    ) external;\n\n    function addOverwatchStake(\n        uint256 overwatchNodeId,\n        uint256 stakeToBeAdded\n    ) external payable;\n\n    function removeOverwatchStake(\n        uint256 overwatchNodeId,\n        uint256 stakeToBeRemoved\n    ) external;\n\n    function accountOverwatchStake(\n        uint256 overwatchNodeId\n    ) external view returns (uint256);\n\n    function totalOverwatchStake() external view returns (uint256);\n\n    function overwatchNodeBlacklist(\n        address coldkey\n    ) external view returns (bool);\n\n    function maxOverwatchNodes() external view returns (uint256);\n\n    function totalOverwatchNodes() external view returns (uint256);\n\n    function totalOverwatchNodeUids() external view returns (uint256);\n\n    function overwatchEpochLengthMultiplier() external view returns (uint256);\n\n    function overwatchEpochStartBlock() external view returns (uint256);\n\n    function overwatchCommitCutoffPercent() external view returns (uint256);\n\n    function lastFinalizedOverwatchEpoch()\n        external\n        view\n        returns (bool exists, uint256 epoch);\n\n    function overwatchNodes(\n        uint256 overwatchNodeId\n    ) external view returns (uint256, address);\n\n    function overwatchNodeIdHotkey(\n        uint256 overwatchNodeId\n    ) external view returns (address);\n\n    function peerIdOverwatchNode(\n        uint256 subnetId,\n        string memory peerId\n    ) external view returns (uint256);\n\n    function overwatchCommits(\n        uint256 overwatchEpoch,\n        uint256 overwatchNodeId,\n        uint256 subnetId\n    ) external view returns (bytes32);\n\n    function overwatchReveals(\n        uint256 overwatchEpoch,\n        uint256 subnetId,\n        uint256 overwatchNodeId\n    ) external view returns (uint256);\n\n    function overwatchSubnetWeights(\n        uint256 overwatchEpoch,\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function overwatchNodeWeights(\n        uint256 overwatchEpoch,\n        uint256 overwatchNodeId\n    ) external view returns (uint256);\n\n    function overwatchMinDiversificationRatio()\n        external\n        view\n        returns (uint256);\n\n    function overwatchMinRepScore() external view returns (uint256);\n\n    function overwatchMinAvgAttestationRatio()\n        external\n        view\n        returns (uint256);\n\n    function overwatchMinAge() external view returns (uint256);\n\n    function overwatchMinStakeBalance() external view returns (uint256);\n\n    function getCurrentOverwatchEpoch() external view returns (uint256);\n}\n",
   "sourcePath": "/home/bob/hypertensor-blockchain-weighted/evm-tests/contracts/IOverwatchNode.sol",
   "ast": {
     "absolutePath": "project:/contracts/IOverwatchNode.sol",
     "exportedSymbols": {
       "IOverwatchNode": [
-        222
+        226
       ]
     },
-    "id": 223,
+    "id": 227,
     "license": "MIT",
     "nodeType": "SourceUnit",
     "nodes": [
       {
-        "id": 9,
+        "id": 1,
         "literals": [
           "solidity",
           "^",
@@ -572,7 +603,7 @@
           ".0"
         ],
         "nodeType": "PragmaDirective",
-        "src": "33:23:1"
+        "src": "33:23:0"
       },
       {
         "abstract": false,
@@ -581,27 +612,27 @@
         "contractDependencies": [],
         "contractKind": "interface",
         "fullyImplemented": false,
-        "id": 222,
+        "id": 226,
         "linearizedBaseContracts": [
-          222
+          226
         ],
         "name": "IOverwatchNode",
-        "nameLocation": "68:14:1",
+        "nameLocation": "68:14:0",
         "nodeType": "ContractDefinition",
         "nodes": [
           {
             "canonicalName": "IOverwatchNode.OverwatchCommit",
-            "id": 14,
+            "id": 6,
             "members": [
               {
                 "constant": false,
-                "id": 11,
+                "id": 3,
                 "mutability": "mutable",
                 "name": "subnetId",
-                "nameLocation": "130:8:1",
+                "nameLocation": "130:8:0",
                 "nodeType": "VariableDeclaration",
-                "scope": 14,
-                "src": "122:16:1",
+                "scope": 6,
+                "src": "122:16:0",
                 "stateVariable": false,
                 "storageLocation": "default",
                 "typeDescriptions": {
@@ -609,10 +640,103 @@
                   "typeString": "uint256"
                 },
                 "typeName": {
-                  "id": 10,
+                  "id": 2,
                   "name": "uint256",
                   "nodeType": "ElementaryTypeName",
-                  "src": "122:7:1",
+                  "src": "122:7:0",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  }
+                },
+                "visibility": "internal"
+              },
+              {
+                "constant": false,
+                "id": 5,
+                "mutability": "mutable",
+                "name": "weight",
+                "nameLocation": "156:6:0",
+                "nodeType": "VariableDeclaration",
+                "scope": 6,
+                "src": "148:14:0",
+                "stateVariable": false,
+                "storageLocation": "default",
+                "typeDescriptions": {
+                  "typeIdentifier": "t_bytes32",
+                  "typeString": "bytes32"
+                },
+                "typeName": {
+                  "id": 4,
+                  "name": "bytes32",
+                  "nodeType": "ElementaryTypeName",
+                  "src": "148:7:0",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_bytes32",
+                    "typeString": "bytes32"
+                  }
+                },
+                "visibility": "internal"
+              }
+            ],
+            "name": "OverwatchCommit",
+            "nameLocation": "96:15:0",
+            "nodeType": "StructDefinition",
+            "scope": 226,
+            "src": "89:80:0",
+            "visibility": "public"
+          },
+          {
+            "canonicalName": "IOverwatchNode.OverwatchReveal",
+            "id": 14,
+            "members": [
+              {
+                "constant": false,
+                "id": 8,
+                "mutability": "mutable",
+                "name": "subnetId",
+                "nameLocation": "216:8:0",
+                "nodeType": "VariableDeclaration",
+                "scope": 14,
+                "src": "208:16:0",
+                "stateVariable": false,
+                "storageLocation": "default",
+                "typeDescriptions": {
+                  "typeIdentifier": "t_uint256",
+                  "typeString": "uint256"
+                },
+                "typeName": {
+                  "id": 7,
+                  "name": "uint256",
+                  "nodeType": "ElementaryTypeName",
+                  "src": "208:7:0",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  }
+                },
+                "visibility": "internal"
+              },
+              {
+                "constant": false,
+                "id": 10,
+                "mutability": "mutable",
+                "name": "weight",
+                "nameLocation": "242:6:0",
+                "nodeType": "VariableDeclaration",
+                "scope": 14,
+                "src": "234:14:0",
+                "stateVariable": false,
+                "storageLocation": "default",
+                "typeDescriptions": {
+                  "typeIdentifier": "t_uint256",
+                  "typeString": "uint256"
+                },
+                "typeName": {
+                  "id": 9,
+                  "name": "uint256",
+                  "nodeType": "ElementaryTypeName",
+                  "src": "234:7:0",
                   "typeDescriptions": {
                     "typeIdentifier": "t_uint256",
                     "typeString": "uint256"
@@ -624,104 +748,11 @@
                 "constant": false,
                 "id": 13,
                 "mutability": "mutable",
-                "name": "weight",
-                "nameLocation": "156:6:1",
+                "name": "salt",
+                "nameLocation": "266:4:0",
                 "nodeType": "VariableDeclaration",
                 "scope": 14,
-                "src": "148:14:1",
-                "stateVariable": false,
-                "storageLocation": "default",
-                "typeDescriptions": {
-                  "typeIdentifier": "t_bytes32",
-                  "typeString": "bytes32"
-                },
-                "typeName": {
-                  "id": 12,
-                  "name": "bytes32",
-                  "nodeType": "ElementaryTypeName",
-                  "src": "148:7:1",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_bytes32",
-                    "typeString": "bytes32"
-                  }
-                },
-                "visibility": "internal"
-              }
-            ],
-            "name": "OverwatchCommit",
-            "nameLocation": "96:15:1",
-            "nodeType": "StructDefinition",
-            "scope": 222,
-            "src": "89:80:1",
-            "visibility": "public"
-          },
-          {
-            "canonicalName": "IOverwatchNode.OverwatchReveal",
-            "id": 22,
-            "members": [
-              {
-                "constant": false,
-                "id": 16,
-                "mutability": "mutable",
-                "name": "subnetId",
-                "nameLocation": "216:8:1",
-                "nodeType": "VariableDeclaration",
-                "scope": 22,
-                "src": "208:16:1",
-                "stateVariable": false,
-                "storageLocation": "default",
-                "typeDescriptions": {
-                  "typeIdentifier": "t_uint256",
-                  "typeString": "uint256"
-                },
-                "typeName": {
-                  "id": 15,
-                  "name": "uint256",
-                  "nodeType": "ElementaryTypeName",
-                  "src": "208:7:1",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  }
-                },
-                "visibility": "internal"
-              },
-              {
-                "constant": false,
-                "id": 18,
-                "mutability": "mutable",
-                "name": "weight",
-                "nameLocation": "242:6:1",
-                "nodeType": "VariableDeclaration",
-                "scope": 22,
-                "src": "234:14:1",
-                "stateVariable": false,
-                "storageLocation": "default",
-                "typeDescriptions": {
-                  "typeIdentifier": "t_uint256",
-                  "typeString": "uint256"
-                },
-                "typeName": {
-                  "id": 17,
-                  "name": "uint256",
-                  "nodeType": "ElementaryTypeName",
-                  "src": "234:7:1",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  }
-                },
-                "visibility": "internal"
-              },
-              {
-                "constant": false,
-                "id": 21,
-                "mutability": "mutable",
-                "name": "salt",
-                "nameLocation": "266:4:1",
-                "nodeType": "VariableDeclaration",
-                "scope": 22,
-                "src": "258:12:1",
+                "src": "258:12:0",
                 "stateVariable": false,
                 "storageLocation": "default",
                 "typeDescriptions": {
@@ -730,18 +761,18 @@
                 },
                 "typeName": {
                   "baseType": {
-                    "id": 19,
+                    "id": 11,
                     "name": "uint8",
                     "nodeType": "ElementaryTypeName",
-                    "src": "258:5:1",
+                    "src": "258:5:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint8",
                       "typeString": "uint8"
                     }
                   },
-                  "id": 20,
+                  "id": 12,
                   "nodeType": "ArrayTypeName",
-                  "src": "258:7:1",
+                  "src": "258:7:0",
                   "typeDescriptions": {
                     "typeIdentifier": "t_array$_t_uint8_$dyn_storage_ptr",
                     "typeString": "uint8[]"
@@ -751,34 +782,34 @@
               }
             ],
             "name": "OverwatchReveal",
-            "nameLocation": "182:15:1",
+            "nameLocation": "182:15:0",
             "nodeType": "StructDefinition",
-            "scope": 222,
-            "src": "175:102:1",
+            "scope": 226,
+            "src": "175:102:0",
             "visibility": "public"
           },
           {
             "functionSelector": "a18504aa",
-            "id": 27,
+            "id": 19,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "registerOverwatchNode",
-            "nameLocation": "292:21:1",
+            "nameLocation": "292:21:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 25,
+              "id": 17,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 24,
+                  "id": 16,
                   "mutability": "mutable",
                   "name": "stakeToBeAdded",
-                  "nameLocation": "331:14:1",
+                  "nameLocation": "331:14:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 27,
-                  "src": "323:22:1",
+                  "scope": 19,
+                  "src": "323:22:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -786,10 +817,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 23,
+                    "id": 15,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "323:7:1",
+                    "src": "323:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -798,42 +829,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "313:38:1"
+              "src": "313:38:0"
             },
             "returnParameters": {
-              "id": 26,
+              "id": 18,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "368:0:1"
+              "src": "368:0:0"
             },
-            "scope": 222,
-            "src": "283:86:1",
+            "scope": 226,
+            "src": "283:86:0",
             "stateMutability": "payable",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "e592a57f",
-            "id": 32,
+            "id": 24,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "removeOverwatchNode",
-            "nameLocation": "384:19:1",
+            "nameLocation": "384:19:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 30,
+              "id": 22,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 29,
+                  "id": 21,
                   "mutability": "mutable",
                   "name": "overwatchNodeId",
-                  "nameLocation": "412:15:1",
+                  "nameLocation": "412:15:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 32,
-                  "src": "404:23:1",
+                  "scope": 24,
+                  "src": "404:23:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -841,10 +872,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 28,
+                    "id": 20,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "404:7:1",
+                    "src": "404:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -853,42 +884,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "403:25:1"
+              "src": "403:25:0"
             },
             "returnParameters": {
-              "id": 31,
+              "id": 23,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "437:0:1"
+              "src": "437:0:0"
             },
-            "scope": 222,
-            "src": "375:63:1",
+            "scope": 226,
+            "src": "375:63:0",
             "stateMutability": "nonpayable",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "b7d7ab3e",
-            "id": 41,
+            "id": 33,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "updateOverwatchHotkey",
-            "nameLocation": "453:21:1",
+            "nameLocation": "453:21:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 39,
+              "id": 31,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 34,
+                  "id": 26,
                   "mutability": "mutable",
                   "name": "overwatchNodeId",
-                  "nameLocation": "492:15:1",
+                  "nameLocation": "492:15:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 41,
-                  "src": "484:23:1",
+                  "scope": 33,
+                  "src": "484:23:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -896,10 +927,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 33,
+                    "id": 25,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "484:7:1",
+                    "src": "484:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -909,13 +940,13 @@
                 },
                 {
                   "constant": false,
-                  "id": 36,
+                  "id": 28,
                   "mutability": "mutable",
                   "name": "hasNewHotkey",
-                  "nameLocation": "522:12:1",
+                  "nameLocation": "522:12:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 41,
-                  "src": "517:17:1",
+                  "scope": 33,
+                  "src": "517:17:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -923,10 +954,10 @@
                     "typeString": "bool"
                   },
                   "typeName": {
-                    "id": 35,
+                    "id": 27,
                     "name": "bool",
                     "nodeType": "ElementaryTypeName",
-                    "src": "517:4:1",
+                    "src": "517:4:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_bool",
                       "typeString": "bool"
@@ -936,13 +967,13 @@
                 },
                 {
                   "constant": false,
-                  "id": 38,
+                  "id": 30,
                   "mutability": "mutable",
                   "name": "newHotkey",
-                  "nameLocation": "552:9:1",
+                  "nameLocation": "552:9:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 41,
-                  "src": "544:17:1",
+                  "scope": 33,
+                  "src": "544:17:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -950,10 +981,10 @@
                     "typeString": "address"
                   },
                   "typeName": {
-                    "id": 37,
+                    "id": 29,
                     "name": "address",
                     "nodeType": "ElementaryTypeName",
-                    "src": "544:7:1",
+                    "src": "544:7:0",
                     "stateMutability": "nonpayable",
                     "typeDescriptions": {
                       "typeIdentifier": "t_address",
@@ -963,42 +994,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "474:93:1"
+              "src": "474:93:0"
             },
             "returnParameters": {
-              "id": 40,
+              "id": 32,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "576:0:1"
+              "src": "576:0:0"
             },
-            "scope": 222,
-            "src": "444:133:1",
+            "scope": 226,
+            "src": "444:133:0",
             "stateMutability": "nonpayable",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "dc73f7df",
-            "id": 50,
+            "id": 42,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "setOverwatchNodePeerId",
-            "nameLocation": "592:22:1",
+            "nameLocation": "592:22:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 48,
+              "id": 40,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 43,
+                  "id": 35,
                   "mutability": "mutable",
                   "name": "subnetId",
-                  "nameLocation": "632:8:1",
+                  "nameLocation": "632:8:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 50,
-                  "src": "624:16:1",
+                  "scope": 42,
+                  "src": "624:16:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1006,10 +1037,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 42,
+                    "id": 34,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "624:7:1",
+                    "src": "624:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1019,13 +1050,13 @@
                 },
                 {
                   "constant": false,
-                  "id": 45,
+                  "id": 37,
                   "mutability": "mutable",
                   "name": "overwatchNodeId",
-                  "nameLocation": "658:15:1",
+                  "nameLocation": "658:15:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 50,
-                  "src": "650:23:1",
+                  "scope": 42,
+                  "src": "650:23:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1033,10 +1064,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 44,
+                    "id": 36,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "650:7:1",
+                    "src": "650:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1046,13 +1077,13 @@
                 },
                 {
                   "constant": false,
-                  "id": 47,
+                  "id": 39,
                   "mutability": "mutable",
                   "name": "peerId",
-                  "nameLocation": "697:6:1",
+                  "nameLocation": "697:6:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 50,
-                  "src": "683:20:1",
+                  "scope": 42,
+                  "src": "683:20:0",
                   "stateVariable": false,
                   "storageLocation": "memory",
                   "typeDescriptions": {
@@ -1060,10 +1091,10 @@
                     "typeString": "string"
                   },
                   "typeName": {
-                    "id": 46,
+                    "id": 38,
                     "name": "string",
                     "nodeType": "ElementaryTypeName",
-                    "src": "683:6:1",
+                    "src": "683:6:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_string_storage_ptr",
                       "typeString": "string"
@@ -1072,42 +1103,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "614:95:1"
+              "src": "614:95:0"
             },
             "returnParameters": {
-              "id": 49,
+              "id": 41,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "718:0:1"
+              "src": "718:0:0"
             },
-            "scope": 222,
-            "src": "583:136:1",
+            "scope": 226,
+            "src": "583:136:0",
             "stateMutability": "nonpayable",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "1f08112f",
-            "id": 59,
+            "id": 51,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "commitOverwatchSubnetWeights",
-            "nameLocation": "734:28:1",
+            "nameLocation": "734:28:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 57,
+              "id": 49,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 52,
+                  "id": 44,
                   "mutability": "mutable",
                   "name": "overwatchNodeId",
-                  "nameLocation": "780:15:1",
+                  "nameLocation": "780:15:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 59,
-                  "src": "772:23:1",
+                  "scope": 51,
+                  "src": "772:23:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1115,10 +1146,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 51,
+                    "id": 43,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "772:7:1",
+                    "src": "772:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1128,87 +1159,87 @@
                 },
                 {
                   "constant": false,
-                  "id": 56,
+                  "id": 48,
                   "mutability": "mutable",
                   "name": "commits",
-                  "nameLocation": "832:7:1",
+                  "nameLocation": "832:7:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 59,
-                  "src": "805:34:1",
+                  "scope": 51,
+                  "src": "805:34:0",
                   "stateVariable": false,
                   "storageLocation": "calldata",
                   "typeDescriptions": {
-                    "typeIdentifier": "t_array$_t_struct$_OverwatchCommit_$14_calldata_ptr_$dyn_calldata_ptr",
+                    "typeIdentifier": "t_array$_t_struct$_OverwatchCommit_$6_calldata_ptr_$dyn_calldata_ptr",
                     "typeString": "struct IOverwatchNode.OverwatchCommit[]"
                   },
                   "typeName": {
                     "baseType": {
-                      "id": 54,
+                      "id": 46,
                       "nodeType": "UserDefinedTypeName",
                       "pathNode": {
-                        "id": 53,
+                        "id": 45,
                         "name": "OverwatchCommit",
                         "nameLocations": [
-                          "805:15:1"
+                          "805:15:0"
                         ],
                         "nodeType": "IdentifierPath",
-                        "referencedDeclaration": 14,
-                        "src": "805:15:1"
+                        "referencedDeclaration": 6,
+                        "src": "805:15:0"
                       },
-                      "referencedDeclaration": 14,
-                      "src": "805:15:1",
+                      "referencedDeclaration": 6,
+                      "src": "805:15:0",
                       "typeDescriptions": {
-                        "typeIdentifier": "t_struct$_OverwatchCommit_$14_storage_ptr",
+                        "typeIdentifier": "t_struct$_OverwatchCommit_$6_storage_ptr",
                         "typeString": "struct IOverwatchNode.OverwatchCommit"
                       }
                     },
-                    "id": 55,
+                    "id": 47,
                     "nodeType": "ArrayTypeName",
-                    "src": "805:17:1",
+                    "src": "805:17:0",
                     "typeDescriptions": {
-                      "typeIdentifier": "t_array$_t_struct$_OverwatchCommit_$14_storage_$dyn_storage_ptr",
+                      "typeIdentifier": "t_array$_t_struct$_OverwatchCommit_$6_storage_$dyn_storage_ptr",
                       "typeString": "struct IOverwatchNode.OverwatchCommit[]"
                     }
                   },
                   "visibility": "internal"
                 }
               ],
-              "src": "762:83:1"
+              "src": "762:83:0"
             },
             "returnParameters": {
-              "id": 58,
+              "id": 50,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "854:0:1"
+              "src": "854:0:0"
             },
-            "scope": 222,
-            "src": "725:130:1",
+            "scope": 226,
+            "src": "725:130:0",
             "stateMutability": "nonpayable",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "f5038596",
-            "id": 68,
+            "id": 60,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "revealOverwatchSubnetWeights",
-            "nameLocation": "870:28:1",
+            "nameLocation": "870:28:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 66,
+              "id": 58,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 61,
+                  "id": 53,
                   "mutability": "mutable",
                   "name": "overwatchNodeId",
-                  "nameLocation": "916:15:1",
+                  "nameLocation": "916:15:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 68,
-                  "src": "908:23:1",
+                  "scope": 60,
+                  "src": "908:23:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1216,10 +1247,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 60,
+                    "id": 52,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "908:7:1",
+                    "src": "908:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1229,87 +1260,87 @@
                 },
                 {
                   "constant": false,
-                  "id": 65,
+                  "id": 57,
                   "mutability": "mutable",
                   "name": "reveals",
-                  "nameLocation": "968:7:1",
+                  "nameLocation": "968:7:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 68,
-                  "src": "941:34:1",
+                  "scope": 60,
+                  "src": "941:34:0",
                   "stateVariable": false,
                   "storageLocation": "calldata",
                   "typeDescriptions": {
-                    "typeIdentifier": "t_array$_t_struct$_OverwatchReveal_$22_calldata_ptr_$dyn_calldata_ptr",
+                    "typeIdentifier": "t_array$_t_struct$_OverwatchReveal_$14_calldata_ptr_$dyn_calldata_ptr",
                     "typeString": "struct IOverwatchNode.OverwatchReveal[]"
                   },
                   "typeName": {
                     "baseType": {
-                      "id": 63,
+                      "id": 55,
                       "nodeType": "UserDefinedTypeName",
                       "pathNode": {
-                        "id": 62,
+                        "id": 54,
                         "name": "OverwatchReveal",
                         "nameLocations": [
-                          "941:15:1"
+                          "941:15:0"
                         ],
                         "nodeType": "IdentifierPath",
-                        "referencedDeclaration": 22,
-                        "src": "941:15:1"
+                        "referencedDeclaration": 14,
+                        "src": "941:15:0"
                       },
-                      "referencedDeclaration": 22,
-                      "src": "941:15:1",
+                      "referencedDeclaration": 14,
+                      "src": "941:15:0",
                       "typeDescriptions": {
-                        "typeIdentifier": "t_struct$_OverwatchReveal_$22_storage_ptr",
+                        "typeIdentifier": "t_struct$_OverwatchReveal_$14_storage_ptr",
                         "typeString": "struct IOverwatchNode.OverwatchReveal"
                       }
                     },
-                    "id": 64,
+                    "id": 56,
                     "nodeType": "ArrayTypeName",
-                    "src": "941:17:1",
+                    "src": "941:17:0",
                     "typeDescriptions": {
-                      "typeIdentifier": "t_array$_t_struct$_OverwatchReveal_$22_storage_$dyn_storage_ptr",
+                      "typeIdentifier": "t_array$_t_struct$_OverwatchReveal_$14_storage_$dyn_storage_ptr",
                       "typeString": "struct IOverwatchNode.OverwatchReveal[]"
                     }
                   },
                   "visibility": "internal"
                 }
               ],
-              "src": "898:83:1"
+              "src": "898:83:0"
             },
             "returnParameters": {
-              "id": 67,
+              "id": 59,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "990:0:1"
+              "src": "990:0:0"
             },
-            "scope": 222,
-            "src": "861:130:1",
+            "scope": 226,
+            "src": "861:130:0",
             "stateMutability": "nonpayable",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "c575c9ae",
-            "id": 75,
+            "id": 67,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "addOverwatchStake",
-            "nameLocation": "1006:17:1",
+            "nameLocation": "1006:17:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 73,
+              "id": 65,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 70,
+                  "id": 62,
                   "mutability": "mutable",
                   "name": "overwatchNodeId",
-                  "nameLocation": "1041:15:1",
+                  "nameLocation": "1041:15:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 75,
-                  "src": "1033:23:1",
+                  "scope": 67,
+                  "src": "1033:23:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1317,10 +1348,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 69,
+                    "id": 61,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1033:7:1",
+                    "src": "1033:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1330,13 +1361,13 @@
                 },
                 {
                   "constant": false,
-                  "id": 72,
+                  "id": 64,
                   "mutability": "mutable",
                   "name": "stakeToBeAdded",
-                  "nameLocation": "1074:14:1",
+                  "nameLocation": "1074:14:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 75,
-                  "src": "1066:22:1",
+                  "scope": 67,
+                  "src": "1066:22:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1344,10 +1375,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 71,
+                    "id": 63,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1066:7:1",
+                    "src": "1066:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1356,42 +1387,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1023:71:1"
+              "src": "1023:71:0"
             },
             "returnParameters": {
-              "id": 74,
+              "id": 66,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "1111:0:1"
+              "src": "1111:0:0"
             },
-            "scope": 222,
-            "src": "997:115:1",
+            "scope": 226,
+            "src": "997:115:0",
             "stateMutability": "payable",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "529507db",
-            "id": 82,
+            "id": 74,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "removeOverwatchStake",
-            "nameLocation": "1127:20:1",
+            "nameLocation": "1127:20:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 80,
+              "id": 72,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 77,
+                  "id": 69,
                   "mutability": "mutable",
                   "name": "overwatchNodeId",
-                  "nameLocation": "1165:15:1",
+                  "nameLocation": "1165:15:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 82,
-                  "src": "1157:23:1",
+                  "scope": 74,
+                  "src": "1157:23:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1399,10 +1430,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 76,
+                    "id": 68,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1157:7:1",
+                    "src": "1157:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1412,13 +1443,102 @@
                 },
                 {
                   "constant": false,
-                  "id": 79,
+                  "id": 71,
                   "mutability": "mutable",
                   "name": "stakeToBeRemoved",
-                  "nameLocation": "1198:16:1",
+                  "nameLocation": "1198:16:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 82,
-                  "src": "1190:24:1",
+                  "scope": 74,
+                  "src": "1190:24:0",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  },
+                  "typeName": {
+                    "id": 70,
+                    "name": "uint256",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "1190:7:0",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_uint256",
+                      "typeString": "uint256"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "1147:73:0"
+            },
+            "returnParameters": {
+              "id": 73,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "1229:0:0"
+            },
+            "scope": 226,
+            "src": "1118:112:0",
+            "stateMutability": "nonpayable",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "functionSelector": "a7c52d73",
+            "id": 81,
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "accountOverwatchStake",
+            "nameLocation": "1245:21:0",
+            "nodeType": "FunctionDefinition",
+            "parameters": {
+              "id": 77,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 76,
+                  "mutability": "mutable",
+                  "name": "overwatchNodeId",
+                  "nameLocation": "1284:15:0",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 81,
+                  "src": "1276:23:0",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  },
+                  "typeName": {
+                    "id": 75,
+                    "name": "uint256",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "1276:7:0",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_uint256",
+                      "typeString": "uint256"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "1266:39:0"
+            },
+            "returnParameters": {
+              "id": 80,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 79,
+                  "mutability": "mutable",
+                  "name": "",
+                  "nameLocation": "-1:-1:-1",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 81,
+                  "src": "1329:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1429,7 +1549,7 @@
                     "id": 78,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1190:7:1",
+                    "src": "1329:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1438,30 +1558,30 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1147:73:1"
+              "src": "1328:9:0"
             },
-            "returnParameters": {
-              "id": 81,
-              "nodeType": "ParameterList",
-              "parameters": [],
-              "src": "1229:0:1"
-            },
-            "scope": 222,
-            "src": "1118:112:1",
-            "stateMutability": "nonpayable",
+            "scope": 226,
+            "src": "1236:102:0",
+            "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
-            "functionSelector": "a7c52d73",
-            "id": 89,
+            "functionSelector": "1b22705f",
+            "id": 86,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
-            "name": "accountOverwatchStake",
-            "nameLocation": "1245:21:1",
+            "name": "totalOverwatchStake",
+            "nameLocation": "1353:19:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
+              "id": 82,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "1372:2:0"
+            },
+            "returnParameters": {
               "id": 85,
               "nodeType": "ParameterList",
               "parameters": [
@@ -1469,11 +1589,11 @@
                   "constant": false,
                   "id": 84,
                   "mutability": "mutable",
-                  "name": "overwatchNodeId",
-                  "nameLocation": "1284:15:1",
+                  "name": "",
+                  "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 89,
-                  "src": "1276:23:1",
+                  "scope": 86,
+                  "src": "1398:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1484,7 +1604,7 @@
                     "id": 83,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1276:7:1",
+                    "src": "1398:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1493,125 +1613,36 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1266:39:1"
+              "src": "1397:9:0"
             },
-            "returnParameters": {
-              "id": 88,
-              "nodeType": "ParameterList",
-              "parameters": [
-                {
-                  "constant": false,
-                  "id": 87,
-                  "mutability": "mutable",
-                  "name": "",
-                  "nameLocation": "-1:-1:-1",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 89,
-                  "src": "1329:7:1",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 86,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "1329:7:1",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                }
-              ],
-              "src": "1328:9:1"
-            },
-            "scope": 222,
-            "src": "1236:102:1",
-            "stateMutability": "view",
-            "virtual": false,
-            "visibility": "external"
-          },
-          {
-            "functionSelector": "1b22705f",
-            "id": 94,
-            "implemented": false,
-            "kind": "function",
-            "modifiers": [],
-            "name": "totalOverwatchStake",
-            "nameLocation": "1353:19:1",
-            "nodeType": "FunctionDefinition",
-            "parameters": {
-              "id": 90,
-              "nodeType": "ParameterList",
-              "parameters": [],
-              "src": "1372:2:1"
-            },
-            "returnParameters": {
-              "id": 93,
-              "nodeType": "ParameterList",
-              "parameters": [
-                {
-                  "constant": false,
-                  "id": 92,
-                  "mutability": "mutable",
-                  "name": "",
-                  "nameLocation": "-1:-1:-1",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 94,
-                  "src": "1398:7:1",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 91,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "1398:7:1",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                }
-              ],
-              "src": "1397:9:1"
-            },
-            "scope": 222,
-            "src": "1344:63:1",
+            "scope": 226,
+            "src": "1344:63:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "c7df409c",
-            "id": 101,
+            "id": 93,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "overwatchNodeBlacklist",
-            "nameLocation": "1422:22:1",
+            "nameLocation": "1422:22:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 97,
+              "id": 89,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 96,
+                  "id": 88,
                   "mutability": "mutable",
                   "name": "coldkey",
-                  "nameLocation": "1462:7:1",
+                  "nameLocation": "1462:7:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 101,
-                  "src": "1454:15:1",
+                  "scope": 93,
+                  "src": "1454:15:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1619,10 +1650,10 @@
                     "typeString": "address"
                   },
                   "typeName": {
-                    "id": 95,
+                    "id": 87,
                     "name": "address",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1454:7:1",
+                    "src": "1454:7:0",
                     "stateMutability": "nonpayable",
                     "typeDescriptions": {
                       "typeIdentifier": "t_address",
@@ -1632,21 +1663,21 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1444:31:1"
+              "src": "1444:31:0"
             },
             "returnParameters": {
-              "id": 100,
+              "id": 92,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 99,
+                  "id": 91,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 101,
-                  "src": "1499:4:1",
+                  "scope": 93,
+                  "src": "1499:4:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1654,10 +1685,10 @@
                     "typeString": "bool"
                   },
                   "typeName": {
-                    "id": 98,
+                    "id": 90,
                     "name": "bool",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1499:4:1",
+                    "src": "1499:4:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_bool",
                       "typeString": "bool"
@@ -1666,42 +1697,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1498:6:1"
+              "src": "1498:6:0"
             },
-            "scope": 222,
-            "src": "1413:92:1",
+            "scope": 226,
+            "src": "1413:92:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "988fa02f",
-            "id": 106,
+            "id": 98,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "maxOverwatchNodes",
-            "nameLocation": "1520:17:1",
+            "nameLocation": "1520:17:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 102,
+              "id": 94,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "1537:2:1"
+              "src": "1537:2:0"
             },
             "returnParameters": {
-              "id": 105,
+              "id": 97,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 104,
+                  "id": 96,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 106,
-                  "src": "1563:7:1",
+                  "scope": 98,
+                  "src": "1563:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1709,10 +1740,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 103,
+                    "id": 95,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1563:7:1",
+                    "src": "1563:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1721,42 +1752,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1562:9:1"
+              "src": "1562:9:0"
             },
-            "scope": 222,
-            "src": "1511:61:1",
+            "scope": 226,
+            "src": "1511:61:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "9f860e41",
-            "id": 111,
+            "id": 103,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "totalOverwatchNodes",
-            "nameLocation": "1587:19:1",
+            "nameLocation": "1587:19:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 107,
+              "id": 99,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "1606:2:1"
+              "src": "1606:2:0"
             },
             "returnParameters": {
-              "id": 110,
+              "id": 102,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 109,
+                  "id": 101,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 111,
-                  "src": "1632:7:1",
+                  "scope": 103,
+                  "src": "1632:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1764,10 +1795,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 108,
+                    "id": 100,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1632:7:1",
+                    "src": "1632:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1776,42 +1807,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1631:9:1"
+              "src": "1631:9:0"
             },
-            "scope": 222,
-            "src": "1578:63:1",
+            "scope": 226,
+            "src": "1578:63:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "80eaef9e",
-            "id": 116,
+            "id": 108,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "totalOverwatchNodeUids",
-            "nameLocation": "1656:22:1",
+            "nameLocation": "1656:22:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 112,
+              "id": 104,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "1678:2:1"
+              "src": "1678:2:0"
             },
             "returnParameters": {
-              "id": 115,
+              "id": 107,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 114,
+                  "id": 106,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 116,
-                  "src": "1704:7:1",
+                  "scope": 108,
+                  "src": "1704:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1819,10 +1850,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 113,
+                    "id": 105,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1704:7:1",
+                    "src": "1704:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1831,42 +1862,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1703:9:1"
+              "src": "1703:9:0"
             },
-            "scope": 222,
-            "src": "1647:66:1",
+            "scope": 226,
+            "src": "1647:66:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "5f38102a",
-            "id": 121,
+            "id": 113,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "overwatchEpochLengthMultiplier",
-            "nameLocation": "1728:30:1",
+            "nameLocation": "1728:30:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 117,
+              "id": 109,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "1758:2:1"
+              "src": "1758:2:0"
             },
             "returnParameters": {
-              "id": 120,
+              "id": 112,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 119,
+                  "id": 111,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 121,
-                  "src": "1784:7:1",
+                  "scope": 113,
+                  "src": "1784:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1874,10 +1905,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 118,
+                    "id": 110,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1784:7:1",
+                    "src": "1784:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1886,42 +1917,97 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1783:9:1"
+              "src": "1783:9:0"
             },
-            "scope": 222,
-            "src": "1719:74:1",
+            "scope": 226,
+            "src": "1719:74:0",
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "functionSelector": "1da8daf4",
+            "id": 118,
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "overwatchEpochStartBlock",
+            "nameLocation": "1808:24:0",
+            "nodeType": "FunctionDefinition",
+            "parameters": {
+              "id": 114,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "1832:2:0"
+            },
+            "returnParameters": {
+              "id": 117,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 116,
+                  "mutability": "mutable",
+                  "name": "",
+                  "nameLocation": "-1:-1:-1",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 118,
+                  "src": "1858:7:0",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  },
+                  "typeName": {
+                    "id": 115,
+                    "name": "uint256",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "1858:7:0",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_uint256",
+                      "typeString": "uint256"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "1857:9:0"
+            },
+            "scope": 226,
+            "src": "1799:68:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "ca0126f1",
-            "id": 126,
+            "id": 123,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "overwatchCommitCutoffPercent",
-            "nameLocation": "1808:28:1",
+            "nameLocation": "1882:28:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 122,
+              "id": 119,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "1836:2:1"
+              "src": "1910:2:0"
             },
             "returnParameters": {
-              "id": 125,
+              "id": 122,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 124,
+                  "id": 121,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 126,
-                  "src": "1862:7:1",
+                  "scope": 123,
+                  "src": "1936:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1929,10 +2015,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 123,
+                    "id": 120,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1862:7:1",
+                    "src": "1936:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1941,36 +2027,69 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1861:9:1"
+              "src": "1935:9:0"
             },
-            "scope": 222,
-            "src": "1799:72:1",
+            "scope": 226,
+            "src": "1873:72:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
-            "functionSelector": "7f8d3332",
-            "id": 135,
+            "functionSelector": "904b3038",
+            "id": 130,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
-            "name": "overwatchNodes",
-            "nameLocation": "1886:14:1",
+            "name": "lastFinalizedOverwatchEpoch",
+            "nameLocation": "1960:27:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
+              "id": 124,
+              "nodeType": "ParameterList",
+              "parameters": [],
+              "src": "1987:2:0"
+            },
+            "returnParameters": {
               "id": 129,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
+                  "id": 126,
+                  "mutability": "mutable",
+                  "name": "exists",
+                  "nameLocation": "2042:6:0",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 130,
+                  "src": "2037:11:0",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_bool",
+                    "typeString": "bool"
+                  },
+                  "typeName": {
+                    "id": 125,
+                    "name": "bool",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "2037:4:0",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_bool",
+                      "typeString": "bool"
+                    }
+                  },
+                  "visibility": "internal"
+                },
+                {
+                  "constant": false,
                   "id": 128,
                   "mutability": "mutable",
-                  "name": "overwatchNodeId",
-                  "nameLocation": "1918:15:1",
+                  "name": "epoch",
+                  "nameLocation": "2058:5:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 135,
-                  "src": "1910:23:1",
+                  "scope": 130,
+                  "src": "2050:13:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -1981,7 +2100,7 @@
                     "id": 127,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1910:7:1",
+                    "src": "2050:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -1990,21 +2109,36 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1900:39:1"
+              "src": "2036:28:0"
             },
-            "returnParameters": {
-              "id": 134,
+            "scope": 226,
+            "src": "1951:114:0",
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "functionSelector": "7f8d3332",
+            "id": 139,
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "overwatchNodes",
+            "nameLocation": "2080:14:0",
+            "nodeType": "FunctionDefinition",
+            "parameters": {
+              "id": 133,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 131,
+                  "id": 132,
                   "mutability": "mutable",
-                  "name": "",
-                  "nameLocation": "-1:-1:-1",
+                  "name": "overwatchNodeId",
+                  "nameLocation": "2112:15:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 135,
-                  "src": "1963:7:1",
+                  "scope": 139,
+                  "src": "2104:23:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2012,10 +2146,44 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 130,
+                    "id": 131,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1963:7:1",
+                    "src": "2104:7:0",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_uint256",
+                      "typeString": "uint256"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "2094:39:0"
+            },
+            "returnParameters": {
+              "id": 138,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 135,
+                  "mutability": "mutable",
+                  "name": "",
+                  "nameLocation": "-1:-1:-1",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 139,
+                  "src": "2157:7:0",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  },
+                  "typeName": {
+                    "id": 134,
+                    "name": "uint256",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "2157:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2025,13 +2193,13 @@
                 },
                 {
                   "constant": false,
-                  "id": 133,
+                  "id": 137,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 135,
-                  "src": "1972:7:1",
+                  "scope": 139,
+                  "src": "2166:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2039,10 +2207,10 @@
                     "typeString": "address"
                   },
                   "typeName": {
-                    "id": 132,
+                    "id": 136,
                     "name": "address",
                     "nodeType": "ElementaryTypeName",
-                    "src": "1972:7:1",
+                    "src": "2166:7:0",
                     "stateMutability": "nonpayable",
                     "typeDescriptions": {
                       "typeIdentifier": "t_address",
@@ -2052,36 +2220,36 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "1962:18:1"
+              "src": "2156:18:0"
             },
-            "scope": 222,
-            "src": "1877:104:1",
+            "scope": 226,
+            "src": "2071:104:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "9eb48f7b",
-            "id": 142,
+            "id": 146,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "overwatchNodeIdHotkey",
-            "nameLocation": "1996:21:1",
+            "nameLocation": "2190:21:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 138,
+              "id": 142,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 137,
+                  "id": 141,
                   "mutability": "mutable",
                   "name": "overwatchNodeId",
-                  "nameLocation": "2035:15:1",
+                  "nameLocation": "2229:15:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 142,
-                  "src": "2027:23:1",
+                  "scope": 146,
+                  "src": "2221:23:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2089,10 +2257,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 136,
+                    "id": 140,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2027:7:1",
+                    "src": "2221:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2101,21 +2269,21 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "2017:39:1"
+              "src": "2211:39:0"
             },
             "returnParameters": {
-              "id": 141,
+              "id": 145,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 140,
+                  "id": 144,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 142,
-                  "src": "2080:7:1",
+                  "scope": 146,
+                  "src": "2274:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2123,10 +2291,10 @@
                     "typeString": "address"
                   },
                   "typeName": {
-                    "id": 139,
+                    "id": 143,
                     "name": "address",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2080:7:1",
+                    "src": "2274:7:0",
                     "stateMutability": "nonpayable",
                     "typeDescriptions": {
                       "typeIdentifier": "t_address",
@@ -2136,36 +2304,36 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "2079:9:1"
+              "src": "2273:9:0"
             },
-            "scope": 222,
-            "src": "1987:102:1",
+            "scope": 226,
+            "src": "2181:102:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "68248210",
-            "id": 151,
+            "id": 155,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "peerIdOverwatchNode",
-            "nameLocation": "2104:19:1",
+            "nameLocation": "2298:19:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 147,
+              "id": 151,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 144,
+                  "id": 148,
                   "mutability": "mutable",
                   "name": "subnetId",
-                  "nameLocation": "2141:8:1",
+                  "nameLocation": "2335:8:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 151,
-                  "src": "2133:16:1",
+                  "scope": 155,
+                  "src": "2327:16:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2173,10 +2341,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 143,
+                    "id": 147,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2133:7:1",
+                    "src": "2327:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2186,13 +2354,13 @@
                 },
                 {
                   "constant": false,
-                  "id": 146,
+                  "id": 150,
                   "mutability": "mutable",
                   "name": "peerId",
-                  "nameLocation": "2173:6:1",
+                  "nameLocation": "2367:6:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 151,
-                  "src": "2159:20:1",
+                  "scope": 155,
+                  "src": "2353:20:0",
                   "stateVariable": false,
                   "storageLocation": "memory",
                   "typeDescriptions": {
@@ -2200,10 +2368,10 @@
                     "typeString": "string"
                   },
                   "typeName": {
-                    "id": 145,
+                    "id": 149,
                     "name": "string",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2159:6:1",
+                    "src": "2353:6:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_string_storage_ptr",
                       "typeString": "string"
@@ -2212,70 +2380,21 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "2123:62:1"
+              "src": "2317:62:0"
             },
             "returnParameters": {
-              "id": 150,
-              "nodeType": "ParameterList",
-              "parameters": [
-                {
-                  "constant": false,
-                  "id": 149,
-                  "mutability": "mutable",
-                  "name": "",
-                  "nameLocation": "-1:-1:-1",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 151,
-                  "src": "2209:7:1",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 148,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "2209:7:1",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                }
-              ],
-              "src": "2208:9:1"
-            },
-            "scope": 222,
-            "src": "2095:123:1",
-            "stateMutability": "view",
-            "virtual": false,
-            "visibility": "external"
-          },
-          {
-            "functionSelector": "c002a022",
-            "id": 162,
-            "implemented": false,
-            "kind": "function",
-            "modifiers": [],
-            "name": "overwatchCommits",
-            "nameLocation": "2233:16:1",
-            "nodeType": "FunctionDefinition",
-            "parameters": {
-              "id": 158,
+              "id": 154,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
                   "id": 153,
                   "mutability": "mutable",
-                  "name": "overwatchEpoch",
-                  "nameLocation": "2267:14:1",
+                  "name": "",
+                  "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 162,
-                  "src": "2259:22:1",
+                  "scope": 155,
+                  "src": "2403:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2286,50 +2405,45 @@
                     "id": 152,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2259:7:1",
+                    "src": "2403:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
                     }
                   },
                   "visibility": "internal"
-                },
-                {
-                  "constant": false,
-                  "id": 155,
-                  "mutability": "mutable",
-                  "name": "overwatchNodeId",
-                  "nameLocation": "2299:15:1",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 162,
-                  "src": "2291:23:1",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 154,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "2291:7:1",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                },
+                }
+              ],
+              "src": "2402:9:0"
+            },
+            "scope": 226,
+            "src": "2289:123:0",
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "functionSelector": "c002a022",
+            "id": 166,
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "overwatchCommits",
+            "nameLocation": "2427:16:0",
+            "nodeType": "FunctionDefinition",
+            "parameters": {
+              "id": 162,
+              "nodeType": "ParameterList",
+              "parameters": [
                 {
                   "constant": false,
                   "id": 157,
                   "mutability": "mutable",
-                  "name": "subnetId",
-                  "nameLocation": "2332:8:1",
+                  "name": "overwatchEpoch",
+                  "nameLocation": "2461:14:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 162,
-                  "src": "2324:16:1",
+                  "scope": 166,
+                  "src": "2453:22:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2340,7 +2454,61 @@
                     "id": 156,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2324:7:1",
+                    "src": "2453:7:0",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_uint256",
+                      "typeString": "uint256"
+                    }
+                  },
+                  "visibility": "internal"
+                },
+                {
+                  "constant": false,
+                  "id": 159,
+                  "mutability": "mutable",
+                  "name": "overwatchNodeId",
+                  "nameLocation": "2493:15:0",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 166,
+                  "src": "2485:23:0",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  },
+                  "typeName": {
+                    "id": 158,
+                    "name": "uint256",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "2485:7:0",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_uint256",
+                      "typeString": "uint256"
+                    }
+                  },
+                  "visibility": "internal"
+                },
+                {
+                  "constant": false,
+                  "id": 161,
+                  "mutability": "mutable",
+                  "name": "subnetId",
+                  "nameLocation": "2526:8:0",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 166,
+                  "src": "2518:16:0",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  },
+                  "typeName": {
+                    "id": 160,
+                    "name": "uint256",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "2518:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2349,21 +2517,21 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "2249:97:1"
+              "src": "2443:97:0"
             },
             "returnParameters": {
-              "id": 161,
+              "id": 165,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 160,
+                  "id": 164,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 162,
-                  "src": "2370:7:1",
+                  "scope": 166,
+                  "src": "2564:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2371,10 +2539,10 @@
                     "typeString": "bytes32"
                   },
                   "typeName": {
-                    "id": 159,
+                    "id": 163,
                     "name": "bytes32",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2370:7:1",
+                    "src": "2564:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_bytes32",
                       "typeString": "bytes32"
@@ -2383,90 +2551,36 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "2369:9:1"
+              "src": "2563:9:0"
             },
-            "scope": 222,
-            "src": "2224:155:1",
+            "scope": 226,
+            "src": "2418:155:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "606823a4",
-            "id": 173,
+            "id": 177,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "overwatchReveals",
-            "nameLocation": "2394:16:1",
+            "nameLocation": "2588:16:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 169,
+              "id": 173,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 164,
-                  "mutability": "mutable",
-                  "name": "overwatchEpoch",
-                  "nameLocation": "2428:14:1",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 173,
-                  "src": "2420:22:1",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 163,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "2420:7:1",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                },
-                {
-                  "constant": false,
-                  "id": 166,
-                  "mutability": "mutable",
-                  "name": "subnetId",
-                  "nameLocation": "2460:8:1",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 173,
-                  "src": "2452:16:1",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 165,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "2452:7:1",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                },
-                {
-                  "constant": false,
                   "id": 168,
                   "mutability": "mutable",
-                  "name": "overwatchNodeId",
-                  "nameLocation": "2486:15:1",
+                  "name": "overwatchEpoch",
+                  "nameLocation": "2622:14:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 173,
-                  "src": "2478:23:1",
+                  "scope": 177,
+                  "src": "2614:22:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2477,30 +2591,23 @@
                     "id": 167,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2478:7:1",
+                    "src": "2614:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
                     }
                   },
                   "visibility": "internal"
-                }
-              ],
-              "src": "2410:97:1"
-            },
-            "returnParameters": {
-              "id": 172,
-              "nodeType": "ParameterList",
-              "parameters": [
+                },
                 {
                   "constant": false,
-                  "id": 171,
+                  "id": 170,
                   "mutability": "mutable",
-                  "name": "",
-                  "nameLocation": "-1:-1:-1",
+                  "name": "subnetId",
+                  "nameLocation": "2654:8:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 173,
-                  "src": "2531:7:1",
+                  "scope": 177,
+                  "src": "2646:16:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2508,10 +2615,37 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 170,
+                    "id": 169,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2531:7:1",
+                    "src": "2646:7:0",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_uint256",
+                      "typeString": "uint256"
+                    }
+                  },
+                  "visibility": "internal"
+                },
+                {
+                  "constant": false,
+                  "id": 172,
+                  "mutability": "mutable",
+                  "name": "overwatchNodeId",
+                  "nameLocation": "2680:15:0",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 177,
+                  "src": "2672:23:0",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  },
+                  "typeName": {
+                    "id": 171,
+                    "name": "uint256",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "2672:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2520,36 +2654,21 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "2530:9:1"
+              "src": "2604:97:0"
             },
-            "scope": 222,
-            "src": "2385:155:1",
-            "stateMutability": "view",
-            "virtual": false,
-            "visibility": "external"
-          },
-          {
-            "functionSelector": "b26b75ac",
-            "id": 182,
-            "implemented": false,
-            "kind": "function",
-            "modifiers": [],
-            "name": "overwatchSubnetWeights",
-            "nameLocation": "2555:22:1",
-            "nodeType": "FunctionDefinition",
-            "parameters": {
-              "id": 178,
+            "returnParameters": {
+              "id": 176,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
                   "id": 175,
                   "mutability": "mutable",
-                  "name": "overwatchEpoch",
-                  "nameLocation": "2595:14:1",
+                  "name": "",
+                  "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 182,
-                  "src": "2587:22:1",
+                  "scope": 177,
+                  "src": "2725:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2560,7 +2679,56 @@
                     "id": 174,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2587:7:1",
+                    "src": "2725:7:0",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_uint256",
+                      "typeString": "uint256"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "2724:9:0"
+            },
+            "scope": 226,
+            "src": "2579:155:0",
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "functionSelector": "b26b75ac",
+            "id": 186,
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "overwatchSubnetWeights",
+            "nameLocation": "2749:22:0",
+            "nodeType": "FunctionDefinition",
+            "parameters": {
+              "id": 182,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 179,
+                  "mutability": "mutable",
+                  "name": "overwatchEpoch",
+                  "nameLocation": "2789:14:0",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 186,
+                  "src": "2781:22:0",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  },
+                  "typeName": {
+                    "id": 178,
+                    "name": "uint256",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "2781:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2570,13 +2738,13 @@
                 },
                 {
                   "constant": false,
-                  "id": 177,
+                  "id": 181,
                   "mutability": "mutable",
                   "name": "subnetId",
-                  "nameLocation": "2627:8:1",
+                  "nameLocation": "2821:8:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 182,
-                  "src": "2619:16:1",
+                  "scope": 186,
+                  "src": "2813:16:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2584,10 +2752,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 176,
+                    "id": 180,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2619:7:1",
+                    "src": "2813:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2596,70 +2764,21 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "2577:64:1"
+              "src": "2771:64:0"
             },
             "returnParameters": {
-              "id": 181,
-              "nodeType": "ParameterList",
-              "parameters": [
-                {
-                  "constant": false,
-                  "id": 180,
-                  "mutability": "mutable",
-                  "name": "",
-                  "nameLocation": "-1:-1:-1",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 182,
-                  "src": "2665:7:1",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 179,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "2665:7:1",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                }
-              ],
-              "src": "2664:9:1"
-            },
-            "scope": 222,
-            "src": "2546:128:1",
-            "stateMutability": "view",
-            "virtual": false,
-            "visibility": "external"
-          },
-          {
-            "functionSelector": "5d547228",
-            "id": 191,
-            "implemented": false,
-            "kind": "function",
-            "modifiers": [],
-            "name": "overwatchNodeWeights",
-            "nameLocation": "2689:20:1",
-            "nodeType": "FunctionDefinition",
-            "parameters": {
-              "id": 187,
+              "id": 185,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
                   "id": 184,
                   "mutability": "mutable",
-                  "name": "overwatchEpoch",
-                  "nameLocation": "2727:14:1",
+                  "name": "",
+                  "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 191,
-                  "src": "2719:22:1",
+                  "scope": 186,
+                  "src": "2859:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2670,7 +2789,56 @@
                     "id": 183,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2719:7:1",
+                    "src": "2859:7:0",
+                    "typeDescriptions": {
+                      "typeIdentifier": "t_uint256",
+                      "typeString": "uint256"
+                    }
+                  },
+                  "visibility": "internal"
+                }
+              ],
+              "src": "2858:9:0"
+            },
+            "scope": 226,
+            "src": "2740:128:0",
+            "stateMutability": "view",
+            "virtual": false,
+            "visibility": "external"
+          },
+          {
+            "functionSelector": "5d547228",
+            "id": 195,
+            "implemented": false,
+            "kind": "function",
+            "modifiers": [],
+            "name": "overwatchNodeWeights",
+            "nameLocation": "2883:20:0",
+            "nodeType": "FunctionDefinition",
+            "parameters": {
+              "id": 191,
+              "nodeType": "ParameterList",
+              "parameters": [
+                {
+                  "constant": false,
+                  "id": 188,
+                  "mutability": "mutable",
+                  "name": "overwatchEpoch",
+                  "nameLocation": "2921:14:0",
+                  "nodeType": "VariableDeclaration",
+                  "scope": 195,
+                  "src": "2913:22:0",
+                  "stateVariable": false,
+                  "storageLocation": "default",
+                  "typeDescriptions": {
+                    "typeIdentifier": "t_uint256",
+                    "typeString": "uint256"
+                  },
+                  "typeName": {
+                    "id": 187,
+                    "name": "uint256",
+                    "nodeType": "ElementaryTypeName",
+                    "src": "2913:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2680,13 +2848,13 @@
                 },
                 {
                   "constant": false,
-                  "id": 186,
+                  "id": 190,
                   "mutability": "mutable",
                   "name": "overwatchNodeId",
-                  "nameLocation": "2759:15:1",
+                  "nameLocation": "2953:15:0",
                   "nodeType": "VariableDeclaration",
-                  "scope": 191,
-                  "src": "2751:23:1",
+                  "scope": 195,
+                  "src": "2945:23:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2694,10 +2862,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 185,
+                    "id": 189,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2751:7:1",
+                    "src": "2945:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2706,21 +2874,21 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "2709:71:1"
+              "src": "2903:71:0"
             },
             "returnParameters": {
-              "id": 190,
+              "id": 194,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 189,
+                  "id": 193,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 191,
-                  "src": "2804:7:1",
+                  "scope": 195,
+                  "src": "2998:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2728,10 +2896,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 188,
+                    "id": 192,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2804:7:1",
+                    "src": "2998:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2740,42 +2908,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "2803:9:1"
+              "src": "2997:9:0"
             },
-            "scope": 222,
-            "src": "2680:133:1",
+            "scope": 226,
+            "src": "2874:133:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "3b4846c6",
-            "id": 196,
+            "id": 200,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "overwatchMinDiversificationRatio",
-            "nameLocation": "2828:32:1",
+            "nameLocation": "3022:32:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 192,
+              "id": 196,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "2860:2:1"
+              "src": "3054:2:0"
             },
             "returnParameters": {
-              "id": 195,
+              "id": 199,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 194,
+                  "id": 198,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 196,
-                  "src": "2910:7:1",
+                  "scope": 200,
+                  "src": "3104:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2783,10 +2951,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 193,
+                    "id": 197,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2910:7:1",
+                    "src": "3104:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2795,42 +2963,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "2909:9:1"
+              "src": "3103:9:0"
             },
-            "scope": 222,
-            "src": "2819:100:1",
+            "scope": 226,
+            "src": "3013:100:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "2340dd8e",
-            "id": 201,
+            "id": 205,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "overwatchMinRepScore",
-            "nameLocation": "2934:20:1",
+            "nameLocation": "3128:20:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 197,
+              "id": 201,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "2954:2:1"
+              "src": "3148:2:0"
             },
             "returnParameters": {
-              "id": 200,
+              "id": 204,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 199,
+                  "id": 203,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 201,
-                  "src": "2980:7:1",
+                  "scope": 205,
+                  "src": "3174:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2838,10 +3006,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 198,
+                    "id": 202,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "2980:7:1",
+                    "src": "3174:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2850,42 +3018,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "2979:9:1"
+              "src": "3173:9:0"
             },
-            "scope": 222,
-            "src": "2925:64:1",
+            "scope": 226,
+            "src": "3119:64:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "1cd1b331",
-            "id": 206,
+            "id": 210,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "overwatchMinAvgAttestationRatio",
-            "nameLocation": "3004:31:1",
+            "nameLocation": "3198:31:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 202,
+              "id": 206,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "3035:2:1"
+              "src": "3229:2:0"
             },
             "returnParameters": {
-              "id": 205,
+              "id": 209,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 204,
+                  "id": 208,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 206,
-                  "src": "3085:7:1",
+                  "scope": 210,
+                  "src": "3279:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2893,10 +3061,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 203,
+                    "id": 207,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "3085:7:1",
+                    "src": "3279:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2905,42 +3073,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "3084:9:1"
+              "src": "3278:9:0"
             },
-            "scope": 222,
-            "src": "2995:99:1",
+            "scope": 226,
+            "src": "3189:99:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "9f33f865",
-            "id": 211,
+            "id": 215,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "overwatchMinAge",
-            "nameLocation": "3109:15:1",
+            "nameLocation": "3303:15:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 207,
+              "id": 211,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "3124:2:1"
+              "src": "3318:2:0"
             },
             "returnParameters": {
-              "id": 210,
+              "id": 214,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 209,
+                  "id": 213,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 211,
-                  "src": "3150:7:1",
+                  "scope": 215,
+                  "src": "3344:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -2948,10 +3116,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 208,
+                    "id": 212,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "3150:7:1",
+                    "src": "3344:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -2960,42 +3128,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "3149:9:1"
+              "src": "3343:9:0"
             },
-            "scope": 222,
-            "src": "3100:59:1",
+            "scope": 226,
+            "src": "3294:59:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "7d90312a",
-            "id": 216,
+            "id": 220,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "overwatchMinStakeBalance",
-            "nameLocation": "3174:24:1",
+            "nameLocation": "3368:24:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 212,
+              "id": 216,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "3198:2:1"
+              "src": "3392:2:0"
             },
             "returnParameters": {
-              "id": 215,
+              "id": 219,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 214,
+                  "id": 218,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 216,
-                  "src": "3224:7:1",
+                  "scope": 220,
+                  "src": "3418:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -3003,10 +3171,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 213,
+                    "id": 217,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "3224:7:1",
+                    "src": "3418:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -3015,42 +3183,42 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "3223:9:1"
+              "src": "3417:9:0"
             },
-            "scope": 222,
-            "src": "3165:68:1",
+            "scope": 226,
+            "src": "3359:68:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           },
           {
             "functionSelector": "b3826884",
-            "id": 221,
+            "id": 225,
             "implemented": false,
             "kind": "function",
             "modifiers": [],
             "name": "getCurrentOverwatchEpoch",
-            "nameLocation": "3248:24:1",
+            "nameLocation": "3442:24:0",
             "nodeType": "FunctionDefinition",
             "parameters": {
-              "id": 217,
+              "id": 221,
               "nodeType": "ParameterList",
               "parameters": [],
-              "src": "3272:2:1"
+              "src": "3466:2:0"
             },
             "returnParameters": {
-              "id": 220,
+              "id": 224,
               "nodeType": "ParameterList",
               "parameters": [
                 {
                   "constant": false,
-                  "id": 219,
+                  "id": 223,
                   "mutability": "mutable",
                   "name": "",
                   "nameLocation": "-1:-1:-1",
                   "nodeType": "VariableDeclaration",
-                  "scope": 221,
-                  "src": "3298:7:1",
+                  "scope": 225,
+                  "src": "3492:7:0",
                   "stateVariable": false,
                   "storageLocation": "default",
                   "typeDescriptions": {
@@ -3058,10 +3226,10 @@
                     "typeString": "uint256"
                   },
                   "typeName": {
-                    "id": 218,
+                    "id": 222,
                     "name": "uint256",
                     "nodeType": "ElementaryTypeName",
-                    "src": "3298:7:1",
+                    "src": "3492:7:0",
                     "typeDescriptions": {
                       "typeIdentifier": "t_uint256",
                       "typeString": "uint256"
@@ -3070,22 +3238,22 @@
                   "visibility": "internal"
                 }
               ],
-              "src": "3297:9:1"
+              "src": "3491:9:0"
             },
-            "scope": 222,
-            "src": "3239:68:1",
+            "scope": 226,
+            "src": "3433:68:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           }
         ],
-        "scope": 223,
-        "src": "58:3251:1",
+        "scope": 227,
+        "src": "58:3445:0",
         "usedErrors": [],
         "usedEvents": []
       }
     ],
-    "src": "33:3277:1"
+    "src": "33:3471:0"
   },
   "compiler": {
     "name": "solc",
@@ -3093,7 +3261,7 @@
   },
   "networks": {},
   "schemaVersion": "3.4.16",
-  "updatedAt": "2026-07-06T19:58:53.918Z",
+  "updatedAt": "2026-07-18T19:52:27.925Z",
   "devdoc": {
     "kind": "dev",
     "methods": {},

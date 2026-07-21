@@ -82,6 +82,19 @@ impl<T: Config> Pallet<T> {
         subnet_epoch: u32,
         validator_ids: &[u32],
     ) -> Result<ConsensusAttestorWeightSnapshot, Error<T>> {
+        let policy = match SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch) {
+            Some(round) => round.policy,
+            None => {
+                #[cfg(test)]
+                {
+                    Self::consensus_policy_snapshot(subnet_id, subnet_epoch)
+                }
+                #[cfg(not(test))]
+                {
+                    return Err(Error::<T>::NoElectedValidator);
+                }
+            }
+        };
         let mut validator_nodes: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
 
         for subnet_node_id in validator_ids {
@@ -95,8 +108,7 @@ impl<T: Config> Pallet<T> {
 
         let mut weights = BTreeMap::new();
         let mut total_weight = 0u128;
-        let node_count_decay =
-            Self::get_consensus_validator_node_count_decay_for_epoch(subnet_id, subnet_epoch);
+        let node_count_decay = policy.consensus_validator_node_count_decay;
         let percentage_factor = Self::percentage_factor_as_u128();
 
         for (validator_id, subnet_node_ids) in validator_nodes {
@@ -146,9 +158,9 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        let stake_weight_power =
-            Self::get_consensus_validator_stake_weight_power_for_epoch(subnet_id, subnet_epoch)
-                .min(percentage_factor);
+        let stake_weight_power = policy
+            .consensus_validator_stake_weight_power
+            .min(percentage_factor);
 
         // Preserve the existing integer weights exactly when stake-weight diminishing is disabled.
         if stake_weight_power == percentage_factor || total_weight == 0 {
@@ -189,7 +201,7 @@ impl<T: Config> Pallet<T> {
     /// This function allows an elected validator to submit consensus data for their subnet,
     /// including peer scores, queue management decisions, and optional attestation data.
     ///
-    /// The validator automatically attests to their own submission.
+    /// The elected validator automatically attests to the data it submits.
     ///
     /// # Parameters
     ///
@@ -222,7 +234,7 @@ impl<T: Config> Pallet<T> {
     ///    - Collapsing duplicate subnet node IDs to the lowest submitted score
     ///    - Validating scores don't overflow when summed
     /// 5. Validates queue operations (prioritize/remove) if specified
-    /// 6. Stores the consensus submission with the validator's auto-attestation
+    /// 6. Stores the consensus submission with the proposer's automatic attestation
     ///
     /// # Errors
     ///
@@ -256,8 +268,10 @@ impl<T: Config> Pallet<T> {
         let subnet_epoch_progression = subnet_epoch_data.subnet_epoch_progression;
 
         // --- Ensure validator was elected
-        let validator_subnet_node_id = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
+        let elected_round = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
             .ok_or(Error::<T>::NoElectedValidator)?;
+        let validator_subnet_node_id = elected_round.validator_subnet_node_id;
+        let policy = elected_round.policy;
 
         // The caller does not supply authority-bearing node identity. The elected subnet node is
         // derived from storage, then the signed hotkey must own that exact node.
@@ -283,14 +297,10 @@ impl<T: Config> Pallet<T> {
             Self::canonicalize_consensus_data_for_submission(subnet_id, subnet_epoch, data)?;
 
         let block: u32 = Self::get_current_block_as_u32();
-
-        // --- Validator auto-attests the epoch
-        // let attests: BTreeMap<u32, (u32, Option<ValidatorArgs<T>>)> =
-        //     BTreeMap::from([(validator_subnet_node_id, (block, attest_data))]);
         let attests: BTreeMap<u32, AttestEntry<T>> = BTreeMap::from([(
             validator_subnet_node_id,
             AttestEntry::<T> {
-                block: block,
+                block,
                 attestor_progress: 0,
                 reward_factor: Self::percentage_factor_as_u128(),
                 data: attest_data,
@@ -346,14 +356,21 @@ impl<T: Config> Pallet<T> {
             SubnetNodeElectionSlots::<T>::get(subnet_id)
         };
         let validator_ids = Self::canonicalize_consensus_validator_ids(validator_ids);
+        let validator_identity_ids = validator_ids
+            .iter()
+            .map(|subnet_node_id| {
+                SubnetNodeValidatorId::<T>::get(subnet_id, *subnet_node_id)
+                    .map(|validator_id| (*subnet_node_id, validator_id))
+                    .ok_or(Error::<T>::InvalidSubnetNodeId)
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
         let attestor_weight_snapshot =
             Self::snapshot_consensus_attestor_weights(subnet_id, subnet_epoch, &validator_ids)?;
 
         // Check if validator sent through queue priority or removal node IDs
         if prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some() {
             let queue = SubnetNodeQueue::<T>::get(subnet_id);
-            let immunity_epochs =
-                Self::get_queue_immunity_epochs_for_epoch(subnet_id, subnet_epoch);
+            let immunity_epochs = policy.queue_immunity_epochs;
 
             let mut prioritize_exists = prioritize_queue_node_id.is_none();
             let mut remove_allowed = remove_queue_node_id.is_none(); // Rename for clarity
@@ -369,11 +386,11 @@ impl<T: Config> Pallet<T> {
                 if let Some(node_id) = remove_queue_node_id {
                     if node.id == node_id {
                         // Node exists AND has passed immunity period
-                        remove_allowed = node
-                            .classification
-                            .start_epoch
-                            .saturating_add(immunity_epochs)
-                            <= subnet_epoch;
+                        remove_allowed = Self::has_epoch_period_elapsed(
+                            node.classification.start_epoch,
+                            immunity_epochs,
+                            subnet_epoch,
+                        );
                     }
                 }
 
@@ -397,11 +414,13 @@ impl<T: Config> Pallet<T> {
             validator_id: validator_subnet_node_id,
             block,
             validator_epoch_progress: subnet_epoch_progression,
-            validator_reward_factor: Self::get_validator_reward_multiplier(
+            validator_reward_factor: Self::get_validator_reward_multiplier_for_policy(
                 subnet_epoch_progression,
+                &policy,
             ),
             attests: attests,
             validator_ids,
+            validator_identity_ids,
             subnet_nodes: subnet_nodes,
             prioritize_queue_node_id: prioritize_queue_node_id,
             remove_queue_node_id: remove_queue_node_id,
@@ -446,6 +465,18 @@ impl<T: Config> Pallet<T> {
 
         // - Note: we don't check stake balance here
 
+        // Preserve the submission error as the primary failure for an epoch that
+        // has no proposal. The elected round is only meaningful to an existing
+        // submission in this path.
+        ensure!(
+            SubnetConsensusSubmission::<T>::contains_key(subnet_id, subnet_epoch),
+            Error::<T>::InvalidSubnetConsensusSubmission
+        );
+
+        let policy = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
+            .ok_or(Error::<T>::NoElectedValidator)?
+            .policy;
+
         let block: u32 = Self::get_current_block_as_u32();
 
         // We make sure the submission exists in order to attest to it
@@ -478,7 +509,10 @@ impl<T: Config> Pallet<T> {
 
                 // Get the reward factor.
                 // The longer a node takes to attest, the lower its emissions will be.
-                let reward_factor = Self::get_attestor_reward_multiplier(subnet_epoch_progression);
+                let reward_factor = Self::get_attestor_reward_multiplier_for_policy(
+                    subnet_epoch_progression,
+                    &policy,
+                );
 
                 let mut attests = &mut params.attests;
 
@@ -512,10 +546,22 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_validator_reward_multiplier(progress: u128) -> u128 {
+        let policy = ConsensusPolicySnapshot {
+            validator_reward_midpoint: ValidatorRewardMidpoint::<T>::get(),
+            validator_reward_k: ValidatorRewardK::<T>::get(),
+            ..Default::default()
+        };
+        Self::get_validator_reward_multiplier_for_policy(progress, &policy)
+    }
+
+    pub fn get_validator_reward_multiplier_for_policy(
+        progress: u128,
+        policy: &ConsensusPolicySnapshot,
+    ) -> u128 {
         Self::get_f64_as_percentage(Self::sigmoid_decreasing(
             Self::get_percent_as_f64(progress),
-            Self::get_percent_as_f64(ValidatorRewardMidpoint::<T>::get()),
-            ValidatorRewardK::<T>::get() as f64,
+            Self::get_percent_as_f64(policy.validator_reward_midpoint),
+            policy.validator_reward_k as f64,
             0.0,
             1.0,
         ))
@@ -532,11 +578,23 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_attestor_reward_multiplier(progress: u128) -> u128 {
+        let policy = ConsensusPolicySnapshot {
+            attestor_min_reward_factor: AttestorMinRewardFactor::<T>::get(),
+            attestor_reward_exponent: AttestorRewardExponent::<T>::get(),
+            ..Default::default()
+        };
+        Self::get_attestor_reward_multiplier_for_policy(progress, &policy)
+    }
+
+    pub fn get_attestor_reward_multiplier_for_policy(
+        progress: u128,
+        policy: &ConsensusPolicySnapshot,
+    ) -> u128 {
         Self::get_f64_as_percentage(Self::concave_down_decreasing(
             Self::get_percent_as_f64(progress),
-            Self::get_percent_as_f64(AttestorMinRewardFactor::<T>::get()),
+            Self::get_percent_as_f64(policy.attestor_min_reward_factor),
             1.0,
-            AttestorRewardExponent::<T>::get() as f64,
+            policy.attestor_reward_exponent as f64,
         ))
         .clamp(0, Self::percentage_factor_as_u128())
     }
@@ -544,10 +602,24 @@ impl<T: Config> Pallet<T> {
     /// Return the validators reward that submitted data on the previous epoch
     // The attestation percentage must be greater than the MinAttestationPercentage
     pub fn get_validator_reward(attestation_percentage: u128, reward_factor: u128) -> u128 {
-        if MinAttestationPercentage::<T>::get() > attestation_percentage {
+        Self::get_validator_reward_with_policy(
+            attestation_percentage,
+            reward_factor,
+            MinAttestationPercentage::<T>::get(),
+            BaseValidatorReward::<T>::get(),
+        )
+    }
+
+    pub fn get_validator_reward_with_policy(
+        attestation_percentage: u128,
+        reward_factor: u128,
+        min_attestation_percentage: u128,
+        base_validator_reward: u128,
+    ) -> u128 {
+        if min_attestation_percentage > attestation_percentage {
             return 0;
         }
-        Self::percent_mul(BaseValidatorReward::<T>::get(), reward_factor)
+        Self::percent_mul(base_validator_reward, reward_factor)
     }
 
     /// Slash subnet validator node
@@ -557,9 +629,8 @@ impl<T: Config> Pallet<T> {
     /// * `subnet_id` - Subnet ID
     /// * `subnet_node_id` - Subnet node ID
     /// * `attestation_percentage` - The attestation ratio of the validator nodes consensus
-    /// * `min_attestation_percentage` - Blockchains minimum attestation percentage (66%)
+    /// * `min_attestation_percentage` - Blockchain's minimum stake-attestation percentage
     /// * `coldkey_reputation_decrease_factor`: `ValidatorReputationDecreaseFactor`
-    /// * `epoch`: The blockchains general epoch
     /// * `validator_non_consensus_reputation_factor`: Resolved subnet node factor for this epoch
     pub fn slash_validator(
         subnet_id: u32,
@@ -569,8 +640,72 @@ impl<T: Config> Pallet<T> {
         coldkey_reputation_decrease_factor: u128,
         min_validator_reputation: u128,
         electable_nodes: u32,
-        epoch: u32,
         validator_non_consensus_reputation_factor: u128,
+    ) -> Weight {
+        Self::slash_validator_with_policy(
+            subnet_id,
+            subnet_node_id,
+            attestation_percentage,
+            min_attestation_percentage,
+            coldkey_reputation_decrease_factor,
+            min_validator_reputation,
+            electable_nodes,
+            validator_non_consensus_reputation_factor,
+            BaseSlashPercentage::<T>::get(),
+            MaxSlashAmount::<T>::get(),
+        )
+    }
+
+    pub fn slash_validator_with_policy(
+        subnet_id: u32,
+        subnet_node_id: u32,
+        attestation_percentage: u128,
+        min_attestation_percentage: u128,
+        coldkey_reputation_decrease_factor: u128,
+        min_validator_reputation: u128,
+        electable_nodes: u32,
+        validator_non_consensus_reputation_factor: u128,
+        base_slash_percentage: u128,
+        max_slash_amount: u128,
+    ) -> Weight {
+        Self::slash_validator_for_round_with_policy(
+            subnet_id,
+            subnet_node_id,
+            attestation_percentage,
+            min_attestation_percentage,
+            coldkey_reputation_decrease_factor,
+            min_validator_reputation,
+            electable_nodes,
+            validator_non_consensus_reputation_factor,
+            base_slash_percentage,
+            max_slash_amount,
+            attestation_percentage,
+            0,
+            0,
+            0,
+            0,
+        )
+    }
+
+    /// Apply snapshotted economic policy and existing reputation penalties to a submitted round.
+    /// Direct node-stake severity continues to use the selected consensus-failure ratio, while
+    /// delegate-pool severity always uses the stake-weighted attestation ratio.
+    pub fn slash_validator_for_round_with_policy(
+        subnet_id: u32,
+        subnet_node_id: u32,
+        attestation_percentage: u128,
+        min_attestation_percentage: u128,
+        coldkey_reputation_decrease_factor: u128,
+        min_validator_reputation: u128,
+        electable_nodes: u32,
+        validator_non_consensus_reputation_factor: u128,
+        base_slash_percentage: u128,
+        max_slash_amount: u128,
+        stake_attestation_percentage: u128,
+        snapshotted_validator_delegate_stake_balance: u128,
+        validator_delegate_stake_slash_threshold: u128,
+        base_validator_delegate_stake_slash_percentage: u128,
+        max_validator_delegate_stake_slash_amount: u128,
     ) -> Weight {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
@@ -586,22 +721,20 @@ impl<T: Config> Pallet<T> {
             Self::percent_div(attestation_percentage, min_attestation_percentage),
         );
 
-        let account_subnet_stake: u128 = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
-        let slash_amount = Self::get_slash_amount(
-            account_subnet_stake,
+        let (validator_id, _, _, slash_weight) = Self::apply_validator_economic_slashes(
+            subnet_id,
+            subnet_node_id,
             attestation_percentage,
             min_attestation_percentage,
-            attestation_delta,
+            base_slash_percentage,
+            max_slash_amount,
+            stake_attestation_percentage,
+            snapshotted_validator_delegate_stake_balance,
+            validator_delegate_stake_slash_threshold,
+            base_validator_delegate_stake_slash_percentage,
+            max_validator_delegate_stake_slash_amount,
         );
-
-        if slash_amount > 0 {
-            // --- Decrease account stake
-            Self::decrease_node_stake(subnet_node_id, subnet_id, slash_amount);
-
-            // NodeSubnetStake | TotalSubnetStake | TotalStake
-            weight = weight.saturating_add(db_weight.writes(3));
-            weight = weight.saturating_add(db_weight.reads(3));
-        }
+        weight = weight.saturating_add(slash_weight);
 
         let reputation = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id).map(|rep| {
             Self::decrease_and_return_node_reputation(
@@ -612,52 +745,186 @@ impl<T: Config> Pallet<T> {
                 Some(attestation_delta),
             )
         });
-        weight = weight.saturating_add(db_weight.reads_writes(2, 1));
+        // SubnetNodeReputation::get + try_mutate_exists, plus the
+        // NodeReputationUpdate event's System event storage accesses.
+        weight = weight.saturating_add(db_weight.reads_writes(6, 3));
 
-        weight = weight.saturating_add(db_weight.reads(1));
-        let validator_id =
-            SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id).map(|validator_id| {
-                // Decrease validator reputation
-                Self::decrease_validator_reputation(
-                    validator_id,
-                    attestation_percentage,
-                    min_attestation_percentage,
-                    coldkey_reputation_decrease_factor,
-                    epoch,
-                );
+        if let Some(validator_id) = validator_id {
+            Self::decrease_validator_reputation(
+                validator_id,
+                attestation_percentage,
+                min_attestation_percentage,
+                coldkey_reputation_decrease_factor,
+            );
+            // ValidatorReputation::contains_key + get + insert (worst-case enabled path).
+            weight = weight.saturating_add(db_weight.reads_writes(2, 1));
 
-                validator_id
-            });
+            // Remove validator if below min node reputation.
+            if let Some(reputation) = reputation {
+                if reputation < min_validator_reputation {
+                    weight = weight.saturating_add(db_weight.reads(1));
+                    let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
+                    // x = number of subnets (outer BTreeMap size)
+                    let x = validator_subnet_nodes.len() as u32;
+                    // c = number of nodes in the specific subnet (inner BTreeSet size)
+                    let c = validator_subnet_nodes
+                        .get(&subnet_id)
+                        .map(|nodes| nodes.len() as u32)
+                        .unwrap_or(0);
 
-        // Remove validator if below min node reputation
-        if let (Some(reputation), Some(validator_id)) = (reputation, validator_id) {
-            if reputation < min_validator_reputation {
-                weight = weight.saturating_add(db_weight.reads(1));
-                let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
-                // x = number of subnets (outer BTreeMap size)
-                let x = validator_subnet_nodes.len() as u32;
-                // c = number of nodes in the specific subnet (inner BTreeSet size)
-                let c = validator_subnet_nodes
-                    .get(&subnet_id)
-                    .map(|nodes| nodes.len() as u32)
-                    .unwrap_or(0);
-
-                Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-                weight = weight.saturating_add(T::WeightInfo::remove_active_subnet_node(
-                    x,
-                    electable_nodes,
-                    c,
-                ));
+                    Self::remove_active_subnet_node(subnet_id, subnet_node_id);
+                    weight = weight.saturating_add(T::WeightInfo::remove_active_subnet_node(
+                        x,
+                        electable_nodes,
+                        c,
+                    ));
+                }
             }
         }
 
-        // Self::deposit_event(Event::Slashing {
-        //     subnet_id: subnet_id,
-        //     account_id: hotkey,
-        //     amount: slash_amount,
-        // });
-
         weight
+    }
+
+    /// Apply only economic losses. Missing proposals call this directly so their existing
+    /// absence-reputation penalties are not duplicated by the submitted-round path above.
+    pub(crate) fn apply_validator_economic_slashes(
+        subnet_id: u32,
+        subnet_node_id: u32,
+        node_attestation_percentage: u128,
+        node_slash_threshold: u128,
+        base_slash_percentage: u128,
+        max_slash_amount: u128,
+        stake_attestation_percentage: u128,
+        snapshotted_validator_delegate_stake_balance: u128,
+        validator_delegate_stake_slash_threshold: u128,
+        base_validator_delegate_stake_slash_percentage: u128,
+        max_validator_delegate_stake_slash_amount: u128,
+    ) -> (Option<u32>, u128, u128, Weight) {
+        let mut weight = Weight::zero();
+        let db_weight = T::DbWeight::get();
+
+        let node_stake_amount = if node_attestation_percentage < node_slash_threshold {
+            let attestation_delta = Self::percentage_factor_as_u128().saturating_sub(
+                Self::percent_div(node_attestation_percentage, node_slash_threshold)
+                    .min(Self::percentage_factor_as_u128()),
+            );
+            let account_subnet_stake = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
+            weight = weight.saturating_add(db_weight.reads(1));
+            let amount = Self::get_slash_amount_with_policy(
+                account_subnet_stake,
+                node_attestation_percentage,
+                node_slash_threshold,
+                attestation_delta,
+                base_slash_percentage,
+                max_slash_amount,
+            );
+
+            if amount > 0 {
+                Self::decrease_node_stake(subnet_node_id, subnet_id, amount);
+                weight = weight.saturating_add(db_weight.reads_writes(3, 3));
+            }
+            amount
+        } else {
+            0
+        };
+
+        // Resolve the identity before reputation processing can remove the node.
+        let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id);
+        weight = weight.saturating_add(db_weight.reads(1));
+
+        let validator_delegate_stake_amount = if let Some(validator_id) = validator_id {
+            if base_validator_delegate_stake_slash_percentage > 0
+                && max_validator_delegate_stake_slash_amount > 0
+                && stake_attestation_percentage < validator_delegate_stake_slash_threshold
+            {
+                let current_pool_balance = ValidatorDelegateStakeBalance::<T>::get(validator_id);
+                weight = weight.saturating_add(db_weight.reads(1));
+                let amount = Self::get_validator_delegate_stake_slash_amount(
+                    snapshotted_validator_delegate_stake_balance,
+                    current_pool_balance,
+                    stake_attestation_percentage,
+                    validator_delegate_stake_slash_threshold,
+                    base_validator_delegate_stake_slash_percentage,
+                    max_validator_delegate_stake_slash_amount,
+                );
+
+                if amount > 0 {
+                    ValidatorDelegateStakeBalance::<T>::insert(
+                        validator_id,
+                        current_pool_balance.saturating_sub(amount),
+                    );
+                    TotalValidatorDelegateStakeBalance::<T>::mutate(|total| {
+                        total.saturating_reduce(amount)
+                    });
+                    weight = weight.saturating_add(db_weight.reads_writes(1, 2));
+                }
+                amount
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        if let Some(validator_id) = validator_id {
+            // Every economic penalty produces one combined audit event, including launch-safe
+            // rounds whose snapshotted delegate-pool loss is zero.
+            Self::deposit_event(Event::ValidatorSlashApplied {
+                subnet_id,
+                validator_id,
+                subnet_node_id,
+                attestation_percentage: stake_attestation_percentage,
+                node_stake_amount,
+                validator_delegate_stake_amount,
+            });
+            // System::Number | System::ExecutionPhase | System::EventCount | System::Events
+            weight = weight.saturating_add(db_weight.reads_writes(4, 2));
+        }
+
+        (
+            validator_id,
+            node_stake_amount,
+            validator_delegate_stake_amount,
+            weight,
+        )
+    }
+
+    /// Calculate the proportional validator-pool loss for one elected round.
+    pub fn get_validator_delegate_stake_slash_amount(
+        snapshotted_pool_balance: u128,
+        current_pool_balance: u128,
+        attestation_percentage: u128,
+        validator_delegate_stake_slash_threshold: u128,
+        base_validator_delegate_stake_slash_percentage: u128,
+        max_validator_delegate_stake_slash_amount: u128,
+    ) -> u128 {
+        if snapshotted_pool_balance == 0
+            || current_pool_balance == 0
+            || validator_delegate_stake_slash_threshold == 0
+            || base_validator_delegate_stake_slash_percentage == 0
+            || max_validator_delegate_stake_slash_amount == 0
+            || attestation_percentage >= validator_delegate_stake_slash_threshold
+        {
+            return 0;
+        }
+
+        let delegate_shortfall = Self::percentage_factor_as_u128().saturating_sub(
+            Self::percent_div(
+                attestation_percentage,
+                validator_delegate_stake_slash_threshold,
+            )
+            .min(Self::percentage_factor_as_u128()),
+        );
+        let base_pool_slash = Self::percent_mul(
+            snapshotted_pool_balance,
+            base_validator_delegate_stake_slash_percentage,
+        );
+        let proportional_pool_slash = Self::percent_mul(base_pool_slash, delegate_shortfall);
+
+        proportional_pool_slash
+            .min(snapshotted_pool_balance)
+            .min(current_pool_balance)
+            .min(max_validator_delegate_stake_slash_amount)
     }
 
     pub fn get_slash_amount(
@@ -666,21 +933,36 @@ impl<T: Config> Pallet<T> {
         min_attestation_percentage: u128,
         attestation_delta: u128,
     ) -> u128 {
+        Self::get_slash_amount_with_policy(
+            account_subnet_stake,
+            attestation_percentage,
+            min_attestation_percentage,
+            attestation_delta,
+            BaseSlashPercentage::<T>::get(),
+            MaxSlashAmount::<T>::get(),
+        )
+    }
+
+    pub fn get_slash_amount_with_policy(
+        account_subnet_stake: u128,
+        attestation_percentage: u128,
+        min_attestation_percentage: u128,
+        attestation_delta: u128,
+        base_slash_percentage: u128,
+        max_slash_amount: u128,
+    ) -> u128 {
         // --- Get slash amount up to max slash
         // --- Base slash amount
         // stake balance * BaseSlashPercentage
-        let base_slash: u128 =
-            Self::percent_mul(account_subnet_stake, BaseSlashPercentage::<T>::get());
+        let base_slash: u128 = Self::percent_mul(account_subnet_stake, base_slash_percentage);
 
         // --- Update slash amount based on delta
         // base_slash * attestation_delta
         let mut slash_amount = Self::percent_mul(base_slash, attestation_delta);
 
         // --- Update slash amount up to max slash
-        let max_slash: u128 = MaxSlashAmount::<T>::get();
-
-        if slash_amount > max_slash {
-            slash_amount = max_slash
+        if slash_amount > max_slash_amount {
+            slash_amount = max_slash_amount
         }
 
         slash_amount

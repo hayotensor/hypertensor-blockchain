@@ -18,11 +18,28 @@ use frame_support::pallet_prelude::DispatchResultWithPostInfo;
 
 impl<T: Config> Pallet<T> {
     pub fn do_pause() -> DispatchResult {
+        if !TxPause::<T>::get() {
+            OverwatchTxPauseStartBlock::<T>::put(Self::get_current_block_as_u32());
+        }
         TxPause::<T>::put(true);
         Self::deposit_event(Event::SetTxPause());
         Ok(())
     }
     pub fn do_unpause() -> DispatchResult {
+        if TxPause::<T>::get() {
+            if let Some(pause_start_block) = OverwatchTxPauseStartBlock::<T>::take() {
+                let pause_duration =
+                    Self::get_current_block_as_u32().saturating_sub(pause_start_block);
+                let resumed_start_block = OverwatchEpochStartBlock::<T>::mutate(|start_block| {
+                    *start_block = (*start_block).saturating_add(pause_duration);
+                    *start_block
+                });
+                Self::deposit_event(Event::OverwatchEpochResumed {
+                    epoch: CurrentOverwatchEpoch::<T>::get(),
+                    start_block: resumed_start_block,
+                });
+            }
+        }
         TxPause::<T>::put(false);
         Self::deposit_event(Event::SetTxUnpause());
         Ok(())
@@ -41,12 +58,13 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_max_subnets(value: u32) -> DispatchResult {
-        // Account for the first 3 block steps in an epoch
-        // Do not go over epoch length - 3 to ensure each subnet has a slot in each epoch
-        ensure!(
-            value <= T::EpochLength::get() - T::DesignatedEpochSlots::get(),
-            Error::<T>::InvalidMaxSubnets
-        );
+        // Account for the designated general-chain work and reserve one additional physical slot.
+        // Registration deliberately permits `MaxSubnets + 1` so rotation can add a replacement
+        // before removing the weakest subnet.
+        let available_slots = T::EpochLength::get()
+            .checked_sub(T::DesignatedEpochSlots::get())
+            .unwrap_or(0);
+        ensure!(value < available_slots, Error::<T>::InvalidMaxSubnets);
 
         MaxSubnets::<T>::set(value);
 
@@ -247,6 +265,10 @@ impl<T: Config> Pallet<T> {
                 && value > Self::percentage_factor_as_u128() / 2,
             Error::<T>::InvalidPercent
         );
+        ensure!(
+            value > ValidatorDelegateStakeSlashThreshold::<T>::get(),
+            Error::<T>::InvalidValidatorDelegateStakeSlashConfig
+        );
 
         MinAttestationPercentage::<T>::set(value);
 
@@ -279,6 +301,11 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_base_slash_percentage(value: u128) -> DispatchResult {
+        ensure!(
+            value <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+
         BaseSlashPercentage::<T>::set(value);
 
         Self::deposit_event(Event::SetBaseSlashPercentage(value));
@@ -289,6 +316,35 @@ impl<T: Config> Pallet<T> {
         MaxSlashAmount::<T>::set(value);
 
         Self::deposit_event(Event::SetMaxSlashAmount(value));
+
+        Ok(())
+    }
+    pub fn do_set_validator_delegate_stake_slash_config(
+        threshold: u128,
+        base_percentage: u128,
+        max_amount: u128,
+    ) -> DispatchResult {
+        let percentage_factor = Self::percentage_factor_as_u128();
+        let config_disabled = base_percentage == 0 && max_amount == 0;
+        let config_enabled = base_percentage > 0 && max_amount > 0;
+
+        ensure!(
+            threshold > 0
+                && threshold < MinAttestationPercentage::<T>::get()
+                && base_percentage <= percentage_factor
+                && (config_disabled || config_enabled),
+            Error::<T>::InvalidValidatorDelegateStakeSlashConfig
+        );
+
+        ValidatorDelegateStakeSlashThreshold::<T>::set(threshold);
+        BaseValidatorDelegateStakeSlashPercentage::<T>::set(base_percentage);
+        MaxValidatorDelegateStakeSlashAmount::<T>::set(max_amount);
+
+        Self::deposit_event(Event::SetValidatorDelegateStakeSlashConfig {
+            threshold,
+            base_percentage,
+            max_amount,
+        });
 
         Ok(())
     }
@@ -400,26 +456,23 @@ impl<T: Config> Pallet<T> {
         MinConsensusValidatorStakeWeightPower::<T>::set(min);
         MaxConsensusValidatorStakeWeightPower::<T>::set(max);
 
-        Self::deposit_event(Event::SetMinMaxConsensusValidatorStakeWeightPower(
-            min, max,
-        ));
+        Self::deposit_event(Event::SetMinMaxConsensusValidatorStakeWeightPower(min, max));
 
         Ok(())
     }
-    pub fn do_set_min_max_consensus_node_attestation_percentage(
-        min: u128,
-        max: u128,
+    pub fn do_set_consensus_validator_identity_attestation_percentage(
+        value: u128,
     ) -> DispatchResult {
-        ensure!(min > 0 && min <= max, Error::<T>::InvalidValues);
         ensure!(
-            max <= Self::percentage_factor_as_u128(),
+            value > 0 && value <= Self::percentage_factor_as_u128(),
             Error::<T>::InvalidPercent
         );
 
-        MinSubnetConsensusNodeAttestationPercentage::<T>::set(min);
-        MaxSubnetConsensusNodeAttestationPercentage::<T>::set(max);
+        ConsensusValidatorIdentityAttestationPercentage::<T>::set(value);
 
-        Self::deposit_event(Event::SetMinMaxConsensusNodeAttestationPercentage(min, max));
+        Self::deposit_event(Event::SetConsensusValidatorIdentityAttestationPercentage(
+            value,
+        ));
 
         Ok(())
     }
@@ -449,8 +502,17 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_overwatch_epoch_length_multiplier(value: u32) -> DispatchResult {
-        // Ensure always at least  `1` to avoid modulo operator errors in `on_initialize`
         ensure!(value > 0, Error::<T>::InvalidOverwatchEpochLengthMultiplier);
+        ensure!(
+            T::EpochLength::get().checked_mul(value).is_some(),
+            Error::<T>::InvalidOverwatchEpochLengthMultiplier
+        );
+        ensure!(
+            T::OverwatchEpochEmissions::get()
+                .checked_mul(value as u128)
+                .is_some(),
+            Error::<T>::InvalidOverwatchEpochLengthMultiplier
+        );
 
         OverwatchEpochLengthMultiplier::<T>::set(value);
 
@@ -700,6 +762,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_subnet_pause_cooldown_epochs(value: u32) -> DispatchResult {
+        ensure!(value > 0, Error::<T>::InvalidSubnetPauseCooldownEpochs);
         SubnetPauseCooldownEpochs::<T>::put(value);
 
         Self::deposit_event(Event::SetSubnetPauseCooldownEpochs(value));

@@ -16,6 +16,19 @@
 use super::*;
 
 impl<T: Config> Pallet<T> {
+    /// Returns `true` only after a complete epoch period has elapsed.
+    ///
+    /// The boundary epoch (`start_epoch + period_epochs`) is still part of the
+    /// waiting period. Saturating addition prevents an overflowing deadline
+    /// from wrapping around and becoming immediately mature.
+    pub(crate) fn has_epoch_period_elapsed(
+        start_epoch: u32,
+        period_epochs: u32,
+        current_epoch: u32,
+    ) -> bool {
+        start_epoch.saturating_add(period_epochs) < current_epoch
+    }
+
     pub fn get_tx_rate_limit() -> u32 {
         TxRateLimit::<T>::get()
     }

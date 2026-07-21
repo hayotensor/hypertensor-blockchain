@@ -1,12 +1,14 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    FinalSubnetEmissionWeights, MaxOverwatchNodes, MaxSubnets, MinAttestationPercentage,
+    ActiveOverwatchEpochLengthMultiplier, CurrentOverwatchEpoch, FinalSubnetEmissionWeights,
+    LastFinalizedOverwatchEpoch, MaxOverwatchNodes, MaxSubnets, MinAttestationPercentage,
     MinSubnetNodes, MinSubnetReputation, NewRegistrationCostMultiplier, NodeSubnetStake,
-    OverwatchCommit, OverwatchCommits, OverwatchEpochLengthMultiplier, OverwatchNodeStakeBalance,
-    OverwatchReveal, OverwatchReveals, OverwatchSubnetWeights, OverwatchValidatorWhitelist,
-    SlotAssignment, SubnetConsensusSubmission, SubnetElectedValidator, SubnetName,
-    SubnetReputation, TotalSubnetDelegateStakeBalance,
+    OverwatchCommit, OverwatchCommits, OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock,
+    OverwatchNodeStakeBalance, OverwatchReveal, OverwatchReveals, OverwatchSubnetWeights,
+    OverwatchValidatorWhitelist, SlotAssignment, SubnetConsensusSubmission, SubnetElectedValidator,
+    SubnetName, SubnetOwner, SubnetPauseData, SubnetReputation, SubnetState, SubnetsData,
+    TotalSubnetDelegateStakeBalance,
 };
 use frame_support::assert_ok;
 use frame_support::traits::{Currency, OnInitialize};
@@ -62,6 +64,7 @@ fn test_on_initialize() {
     new_test_ext().execute_with(|| {
         NewRegistrationCostMultiplier::<Test>::put(1200000000000000000);
         OverwatchEpochLengthMultiplier::<Test>::set(2);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(2);
 
         let max_overwatch_nodes = MaxOverwatchNodes::<Test>::get();
         let max_subnets = MaxSubnets::<Test>::get();
@@ -101,10 +104,16 @@ fn test_on_initialize() {
         let multiplier = OverwatchEpochLengthMultiplier::<Test>::get();
         let overwatch_epoch_length = epoch_length.saturating_mul(multiplier);
         let overwatch_epochs_to_simulate = 2;
-        let first_overwatch_epoch = Network::get_current_overwatch_epoch_as_u32().saturating_add(1);
+        // The fixture has advanced the block directly while building subnets. Start the simulated
+        // anchored round at the next complete interval without rewinding chain time.
+        let first_overwatch_epoch = System::block_number()
+            .saturating_div(overwatch_epoch_length)
+            .saturating_add(1);
         let start_block = first_overwatch_epoch.saturating_mul(overwatch_epoch_length);
         let last_simulated_overwatch_epoch =
             first_overwatch_epoch.saturating_add(overwatch_epochs_to_simulate);
+        CurrentOverwatchEpoch::<Test>::put(first_overwatch_epoch);
+        OverwatchEpochStartBlock::<Test>::put(start_block);
 
         let mut epoch_preliminaries_ran = 0;
         let mut overwatch_rewards_ran = 0;
@@ -165,7 +174,7 @@ fn test_on_initialize() {
                     }
 
                     let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-                    if SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).is_some() {
+                    if get_elected_subnet_node_id(subnet_id, subnet_epoch).is_some() {
                         run_subnet_consensus_step_v2(subnet_id, None, None);
                     }
                 }
@@ -392,11 +401,18 @@ fn test_on_initialize() {
         assert_eq!(overwatch_rewards_ran, overwatch_epochs_to_simulate);
         assert!(emission_weights_ran >= overwatch_epochs_to_simulate * multiplier);
         assert!(emission_step_ran > 0);
-        assert!(subnet_nodes_rewarded);
+        assert!(
+            subnet_nodes_rewarded,
+            "no subnet node reward after {emission_step_ran} emission slot steps"
+        );
         assert!(overwatch_nodes_rewarded);
         assert!(commits_checked);
         assert!(reveals_checked);
         assert!(overwatch_weights_checked);
+        assert_eq!(
+            LastFinalizedOverwatchEpoch::<Test>::get(),
+            Some(last_simulated_overwatch_epoch.saturating_sub(1))
+        );
 
         for subnet_id in subnet_ids {
             assert!(SubnetName::<Test>::iter().any(|(_, id)| id == subnet_id));
@@ -430,11 +446,11 @@ fn test_on_initialize_bootstraps_election_before_emission_weight() {
                 .subnet_weights
                 .is_empty()
         );
-        assert!(SubnetElectedValidator::<Test>::get(subnet_id, first_subnet_epoch).is_none());
+        assert!(get_elected_subnet_node_id(subnet_id, first_subnet_epoch).is_none());
 
         Network::on_initialize(first_slot_block);
 
-        assert!(SubnetElectedValidator::<Test>::get(subnet_id, first_subnet_epoch).is_some());
+        assert!(get_elected_subnet_node_id(subnet_id, first_subnet_epoch).is_some());
 
         let reward_epoch = first_consensus_epoch.saturating_add(1);
         let emission_weight_block = reward_epoch
@@ -489,5 +505,212 @@ fn test_on_initialize_paused_skips_scheduled_work_and_early_blocks_are_safe() {
         assert!(FinalSubnetEmissionWeights::<Test>::get(current_epoch)
             .subnet_weights
             .is_empty());
+    });
+}
+
+#[test]
+fn test_paused_subnet_settles_allocated_history_without_new_election() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "paused-history-subnet".into();
+        let deposit_amount = 10_000_000_000_000_000_000_000u128;
+        let stake_amount = get_min_stake_balance();
+
+        build_activated_subnet(
+            subnet_name.clone(),
+            0,
+            MinSubnetNodes::<Test>::get(),
+            deposit_amount,
+            stake_amount,
+        );
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let election_epoch = SubnetsData::<Test>::get(subnet_id)
+            .unwrap()
+            .consensus_eligible_from_subnet_epoch
+            .unwrap();
+
+        set_block_to_subnet_slot_epoch(election_epoch, subnet_id);
+        Network::on_initialize(System::block_number());
+        assert!(SubnetElectedValidator::<Test>::contains_key(
+            subnet_id,
+            election_epoch
+        ));
+
+        let settlement_epoch = election_epoch.saturating_add(1);
+        set_epoch(settlement_epoch, 2);
+        Network::on_initialize(System::block_number());
+        assert!(FinalSubnetEmissionWeights::<Test>::get(settlement_epoch)
+            .subnet_weights
+            .contains_key(&subnet_id));
+
+        SubnetsData::<Test>::mutate(subnet_id, |maybe_subnet| {
+            let subnet = maybe_subnet.as_mut().unwrap();
+            subnet.state = SubnetState::Paused;
+            subnet.consensus_eligible_from_subnet_epoch = None;
+            subnet.pause = Some(SubnetPauseData {
+                started_global_epoch: settlement_epoch,
+                started_subnet_epoch: election_epoch,
+            });
+        });
+        let reputation_before = SubnetReputation::<Test>::get(subnet_id);
+        assert!(!SubnetConsensusSubmission::<Test>::contains_key(
+            subnet_id,
+            election_epoch
+        ));
+
+        set_block_to_subnet_slot_epoch(settlement_epoch, subnet_id);
+        Network::on_initialize(System::block_number());
+
+        // The exact allocated election is still evaluated, while operational work remains
+        // stopped and no validator is elected for the paused epoch.
+        assert!(SubnetReputation::<Test>::get(subnet_id) < reputation_before);
+        assert!(!SubnetElectedValidator::<Test>::contains_key(
+            subnet_id,
+            settlement_epoch
+        ));
+    });
+}
+
+#[test]
+fn test_pause_after_election_preserves_allocation_and_settlement() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "pause-before-allocation-subnet".into();
+        let deposit_amount = 10_000_000_000_000_000_000_000u128;
+        let stake_amount = get_min_stake_balance();
+        let owner = account(1);
+
+        build_activated_subnet(
+            subnet_name.clone(),
+            0,
+            MinSubnetNodes::<Test>::get(),
+            deposit_amount,
+            stake_amount,
+        );
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
+        let first_election_epoch = SubnetsData::<Test>::get(subnet_id)
+            .unwrap()
+            .consensus_eligible_from_subnet_epoch
+            .unwrap();
+
+        // Complete the first live round so the default one-round pause cooldown expires at the
+        // following subnet slot, which also elects the historical round tested below.
+        set_block_to_subnet_slot_epoch(first_election_epoch, subnet_id);
+        Network::on_initialize(System::block_number());
+
+        let historical_election_epoch = first_election_epoch.saturating_add(1);
+        set_epoch(historical_election_epoch, 2);
+        Network::on_initialize(System::block_number());
+        set_block_to_subnet_slot_epoch(historical_election_epoch, subnet_id);
+        Network::on_initialize(System::block_number());
+        assert!(SubnetElectedValidator::<Test>::contains_key(
+            subnet_id,
+            historical_election_epoch
+        ));
+
+        // Pause after the election but before the next global slot-two allocation. The lifecycle
+        // transition must stop new rounds without erasing this exact historical election.
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(owner),
+            subnet_id,
+        ));
+
+        let settlement_epoch = historical_election_epoch.saturating_add(1);
+        set_epoch(settlement_epoch, 2);
+        Network::on_initialize(System::block_number());
+        assert!(FinalSubnetEmissionWeights::<Test>::get(settlement_epoch)
+            .subnet_weights
+            .contains_key(&subnet_id));
+
+        let reputation_before = SubnetReputation::<Test>::get(subnet_id);
+        set_block_to_subnet_slot_epoch(settlement_epoch, subnet_id);
+        Network::on_initialize(System::block_number());
+
+        // No proposal was submitted, proving the allocated historical round was evaluated. The
+        // subnet remains paused, so the same hook must not start a replacement round.
+        assert!(SubnetReputation::<Test>::get(subnet_id) < reputation_before);
+        assert!(!SubnetElectedValidator::<Test>::contains_key(
+            subnet_id,
+            settlement_epoch
+        ));
+    });
+}
+
+#[test]
+fn test_paused_subnet_can_submit_and_attest_historical_round_then_settle_successfully() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "paused-successful-history-subnet".into();
+        let deposit_amount = 10_000_000_000_000_000_000_000u128;
+        let stake_amount = get_min_stake_balance();
+
+        build_activated_subnet(
+            subnet_name.clone(),
+            0,
+            MinSubnetNodes::<Test>::get(),
+            deposit_amount,
+            stake_amount,
+        );
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let owner = SubnetOwner::<Test>::get(subnet_id).unwrap();
+        let first_election_epoch = SubnetsData::<Test>::get(subnet_id)
+            .unwrap()
+            .consensus_eligible_from_subnet_epoch
+            .unwrap();
+
+        // Complete one healthy round so the default one-round cooldown expires at the next
+        // subnet slot. That slot settles this round and elects the historical round that will
+        // remain open across the pause.
+        set_block_to_subnet_slot_epoch(first_election_epoch, subnet_id);
+        Network::on_initialize(System::block_number());
+        run_subnet_consensus_step_v2(subnet_id, None, None);
+
+        let historical_election_epoch = first_election_epoch.saturating_add(1);
+        set_epoch(historical_election_epoch, 2);
+        Network::on_initialize(System::block_number());
+        set_block_to_subnet_slot_epoch(historical_election_epoch, subnet_id);
+        Network::on_initialize(System::block_number());
+
+        let elected_node_id = get_elected_subnet_node_id(subnet_id, historical_election_epoch)
+            .expect("historical round should elect before the owner pauses");
+        assert_ok!(Network::owner_pause_subnet(
+            RuntimeOrigin::signed(owner),
+            subnet_id,
+        ));
+
+        // Submission and attestation belong to the already-elected round and therefore remain
+        // available while paused. Lower the subnet reputation so successful settlement has an
+        // observable positive effect in addition to the validator's stake reward.
+        let reputation_before = Network::percentage_factor_as_u128() / 2;
+        SubnetReputation::<Test>::insert(subnet_id, reputation_before);
+        run_subnet_consensus_step_v2(subnet_id, None, None);
+        let submission =
+            SubnetConsensusSubmission::<Test>::get(subnet_id, historical_election_epoch)
+                .expect("paused historical round should accept a submission");
+        assert_eq!(
+            submission.attests.len(),
+            submission.validator_ids.len(),
+            "every historical validator should attest while the subnet is paused"
+        );
+        let elected_stake_before = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
+
+        let settlement_epoch = historical_election_epoch.saturating_add(1);
+        set_epoch(settlement_epoch, 2);
+        Network::on_initialize(System::block_number());
+        assert!(FinalSubnetEmissionWeights::<Test>::get(settlement_epoch)
+            .subnet_weights
+            .contains_key(&subnet_id));
+
+        set_block_to_subnet_slot_epoch(settlement_epoch, subnet_id);
+        Network::on_initialize(System::block_number());
+
+        assert!(SubnetReputation::<Test>::get(subnet_id) > reputation_before);
+        assert!(NodeSubnetStake::<Test>::get(elected_node_id, subnet_id) > elected_stake_before);
+        assert!(!SubnetElectedValidator::<Test>::contains_key(
+            subnet_id,
+            settlement_epoch
+        ));
+        assert_eq!(
+            SubnetsData::<Test>::get(subnet_id).unwrap().state,
+            SubnetState::Paused
+        );
     });
 }

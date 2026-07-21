@@ -763,12 +763,7 @@ fn test_add_node_stake_rejects_removed_subnet_node() {
         ));
 
         assert_err!(
-            Network::add_node_stake(
-                RuntimeOrigin::signed(coldkey),
-                subnet_id,
-                end,
-                stake_amount,
-            ),
+            Network::add_node_stake(RuntimeOrigin::signed(coldkey), subnet_id, end, stake_amount,),
             Error::<Test>::InvalidSubnetNodeId
         );
 

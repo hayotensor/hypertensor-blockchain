@@ -115,12 +115,7 @@ pub mod pallet {
     use sp_std::vec;
     use sp_std::vec::Vec;
 
-    // The `Pallet` struct serves as a placeholder to implement traits, methods and dispatchables
-    // (`Call`s) in this pallet.
-    pub const STORAGE_VERSION: StorageVersion = StorageVersion::new(1);
-
     #[pallet::pallet]
-    #[pallet::storage_version(STORAGE_VERSION)]
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
 
@@ -166,7 +161,10 @@ pub mod pallet {
         #[pallet::constant]
         type TreasuryAccount: Get<Self::AccountId>;
 
-        /// Total overwatch emissions per epoch
+        /// Overwatch emissions budget per general blockchain epoch.
+        ///
+        /// A completed Overwatch epoch spans `OverwatchEpochLengthMultiplier` general epochs, so
+        /// settlement multiplies this value by the completed epoch's snapshotted multiplier.
         #[pallet::constant]
         type OverwatchEpochEmissions: Get<u128>;
 
@@ -404,6 +402,11 @@ pub mod pallet {
         SetBaseValidatorReward(u128),
         SetBaseSlashPercentage(u128),
         SetMaxSlashAmount(u128),
+        SetValidatorDelegateStakeSlashConfig {
+            threshold: u128,
+            base_percentage: u128,
+            max_amount: u128,
+        },
         SetValidatorReputationIncreaseFactor(u128),
         SetValidatorReputationDecreaseFactor(u128),
         SetNetworkMinStakeBalance(u128),
@@ -417,7 +420,7 @@ pub mod pallet {
         SetConsensusValidatorNodeCountDecayUpdateInterval(u32),
         SetMinMaxConsensusValidatorStakeWeightPower(u128, u128),
         SetConsensusValidatorStakeWeightPowerUpdateInterval(u32),
-        SetMinMaxConsensusNodeAttestationPercentage(u128, u128),
+        SetConsensusValidatorIdentityAttestationPercentage(u128),
         SetValidatorNodeDelegateStakeWeightUpdateInterval(u32),
         SetInflationSigmoidMidpoint(u128),
         SetMaximumHooksWeight(u32),
@@ -462,6 +465,10 @@ pub mod pallet {
         SetOverwatchMinStakeBalance(u128),
         SetTxPause(),
         SetTxUnpause(),
+        OverwatchEpochResumed {
+            epoch: u32,
+            start_block: u32,
+        },
         SetSubnetOwnerPercentage(u128),
         SetDelegateStakeCooldownEpochs(u32),
         SetNodeDelegateStakeCooldownEpochs(u32),
@@ -487,10 +494,13 @@ pub mod pallet {
             subnet_node_id: u32,
             epoch: u32,
         },
-        Slashing {
+        ValidatorSlashApplied {
             subnet_id: u32,
-            account_id: T::AccountId,
-            amount: u128,
+            validator_id: u32,
+            subnet_node_id: u32,
+            attestation_percentage: u128,
+            node_stake_amount: u128,
+            validator_delegate_stake_amount: u128,
         },
 
         // Rewards data
@@ -501,7 +511,14 @@ pub mod pallet {
             node_delegate_stake_rewards: Vec<(u32, u128)>,
             node_delegate_account_allocations: Vec<(u32, (T::AccountId, u128))>,
         },
-        OverwatchRewards {
+        OverwatchEpochStarted {
+            epoch: u32,
+            start_block: u32,
+            epoch_length_multiplier: u32,
+            commit_cutoff_percent: u128,
+        },
+        OverwatchEpochFinalized {
+            epoch: u32,
             node_rewards: Vec<(u32, u128)>,
         },
         SubnetReputationUpdate {
@@ -551,10 +568,11 @@ pub mod pallet {
             owner: T::AccountId,
             value: u32,
         },
-        RegistrationQueueEpochsUpdate {
+        RegistrationQueueEpochsUpdateScheduled {
             subnet_id: u32,
             owner: T::AccountId,
             value: u32,
+            effective_subnet_epoch: u32,
         },
         IdleClassificationEpochsUpdate {
             subnet_id: u32,
@@ -688,17 +706,6 @@ pub mod pallet {
             value: u128,
             effective_subnet_epoch: u32,
         },
-        MinConsensusNodeAttestationPercentageUpdate {
-            subnet_id: u32,
-            owner: T::AccountId,
-            value: u128,
-        },
-        MinConsensusNodeAttestationPercentageUpdateScheduled {
-            subnet_id: u32,
-            owner: T::AccountId,
-            value: u128,
-            effective_subnet_epoch: u32,
-        },
         SubnetNodeMinWeightDecreaseReputationThresholdUpdate {
             subnet_id: u32,
             owner: T::AccountId,
@@ -792,6 +799,8 @@ pub mod pallet {
         InvalidPendingSubnetOwner,
         /// Cannot pause again until pause cooldown epochs is reached
         SubnetPauseCooldownActive,
+        /// Pause cooldown must allow at least one complete subnet consensus round.
+        InvalidSubnetPauseCooldownEpochs,
         /// Must be less than maximum registrations per epoch
         InvalidTargetNodeRegistrationsPerEpoch,
         /// Peer ID already in use in subnet, peer, client, and bootnode peer ID must be unique
@@ -889,6 +898,10 @@ pub mod pallet {
         InvalidMaxSubnetBootnodeAccess,
         InvalidMaxSubnetPauseEpochs,
         NoAvailableSlots,
+        /// The monotonically increasing subnet identifier space has been exhausted.
+        SubnetIdExhausted,
+        /// The subnet already owns an epoch slot and cannot be assigned another one.
+        SubnetSlotAlreadyAssigned,
         /// Invalid min subnet nodes, must not be less than minimum allowable
         InvalidMinSubnetNodes,
         /// Invalid maximimum subnet nodes, must not exceed maximimum allowable
@@ -908,6 +921,7 @@ pub mod pallet {
         InvalidValidatorRewardK,
         InvalidAttestorRewardExponent,
         InvalidSuperMajorityAttestationRatio,
+        InvalidValidatorDelegateStakeSlashConfig,
         /// Invalid values
         InvalidValues,
         EmergencyValidatorsActive,
@@ -959,6 +973,8 @@ pub mod pallet {
         ElectedValidatorCannotUnstake,
         /// Elected validator on current epoch cannot remove to ensure they are able to be rewarded or penalized
         ElectedValidatorCannotRemove,
+        /// Outgoing validator-pool stake is locked until every slashable elected round settles.
+        ValidatorDelegateStakeSlashLocked,
         MinActiveNodeStakeEpochs,
         /// Shares entered is zero, must be greater than
         SharesZero,
@@ -1036,7 +1052,7 @@ pub mod pallet {
         InvalidWeight,
         /// Maximum overwatch nodes reached
         MaxOverwatchNodes,
-        /// Overwatch scores are based on the previous epoch, therefor a node cannot begin commiting until overwatch epoch 1 to avoid underflow
+        /// Overwatch registration is disabled during the bootstrap Overwatch epoch (epoch zero)
         OverwatchEpochIsZero,
         /// Account already in bootnode access list
         InBootnodeAccessList,
@@ -1079,8 +1095,28 @@ pub mod pallet {
     /// * `description` - Description of what the subnet does and use cases.
     /// * `misc` - Misc data.
     /// * `state` - Registered, Active, or Paused.
-    /// * `start_epoch` - State-dependent general-epoch marker. For `Active`, this is when
-    ///   consensus becomes live. For `Paused`, this is when the pause began.
+    /// * `consensus_eligible_from_subnet_epoch` - First subnet epoch in which an active subnet may
+    ///   elect a validator. `None` while registered or paused.
+    /// * `pause` - Global and subnet epoch markers for the current pause. Present only while
+    ///   the subnet is paused.
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        Copy,
+        Clone,
+        PartialEq,
+        Eq,
+        RuntimeDebugNoBound,
+        scale_info::TypeInfo,
+    )]
+    pub struct SubnetPauseData {
+        /// General blockchain epoch in which the current pause began.
+        pub started_global_epoch: u32,
+        /// Phase-aware subnet epoch observed when the current pause began.
+        pub started_subnet_epoch: u32,
+    }
+
     #[derive(
         Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
@@ -1092,7 +1128,8 @@ pub mod pallet {
         pub description: Vec<u8>,
         pub misc: Vec<u8>,
         pub state: SubnetState,
-        pub start_epoch: u32,
+        pub consensus_eligible_from_subnet_epoch: Option<u32>,
+        pub pause: Option<SubnetPauseData>,
     }
 
     /// Operational states of a subnet in its lifecycle.
@@ -1109,12 +1146,13 @@ pub mod pallet {
     ///   enactment period.
     ///
     /// * `Active` - The subnet can perform preparation maintenance. It participates in
-    ///   consensus once its `start_epoch` has been reached.
+    ///   consensus once its `consensus_eligible_from_subnet_epoch` has been reached.
     ///
     /// * `Paused` - The subnet has been temporarily suspended by the owner. While paused,
-    ///   no consensus operations occur and no new nodes can register, but existing nodes
-    ///   and stake remain in place. The owner can resume the subnet to return it to `Active`
-    ///   state, or it may be automatically removed if the pause period expires without resumption.
+    ///   no new election or operational maintenance occurs and no new nodes can register,
+    ///   but an already-elected historical round may still be submitted, attested, allocated,
+    ///   and settled. Existing nodes and stake remain in place. The owner can resume the subnet
+    ///   to return it to `Active`, or it may be removed after maximum-pause enforcement.
     ///
     /// # State Transitions
     ///
@@ -1209,8 +1247,12 @@ pub mod pallet {
     /// * `misc` - Miscellaneous metadata that doesn't fit other categories.
     /// * `state` - The current operational state of the subnet (e.g., active, paused, removed).
     ///   See `SubnetState` for possible values.
-    /// * `start_epoch` - State-dependent general-epoch marker. For an active subnet, the
-    ///   epoch when consensus becomes live; for a paused subnet, the epoch when it paused.
+    /// * `consensus_eligible_from_subnet_epoch` - First subnet-local epoch in which an active subnet
+    ///   may elect a validator. This is absent for registered and paused subnets.
+    /// * `pause_started_global_epoch` - General blockchain epoch in which the current pause
+    ///   episode began. This is present only while the subnet is paused.
+    /// * `pause_started_subnet_epoch` - Phase-aware subnet-local epoch in which the current
+    ///   pause episode began. This is present only while the subnet is paused.
     /// * `churn_limit` - Maximum number of nodes that can change classification (join/leave
     ///   active participation) per epoch, preventing network instability from rapid turnover.
     /// * `churn_limit_multiplier` - The multiplier for the ChurnLimit
@@ -1223,6 +1265,8 @@ pub mod pallet {
     ///   epoch, used to dynamically adjust burn rates.
     /// * `subnet_node_queue_epochs` - Number of epochs nodes spend in the queue before being
     ///   eligible for activation.
+    /// * `pending_subnet_node_queue_epochs` - A scheduled queue-duration update and the subnet
+    ///   epoch when it becomes effective.
     /// * `idle_classification_epochs` - Number of epochs a node remains in `Idle` classification
     ///   before transitioning to `Included`.
     /// * `included_classification_epochs` - Number of epochs a node remains in `Included`
@@ -1444,7 +1488,9 @@ pub mod pallet {
         pub description: Vec<u8>,
         pub misc: Vec<u8>,
         pub state: SubnetState,
-        pub start_epoch: u32,
+        pub consensus_eligible_from_subnet_epoch: Option<u32>,
+        pub pause_started_global_epoch: Option<u32>,
+        pub pause_started_subnet_epoch: Option<u32>,
         pub churn_limit: u32,
         pub churn_limit_multiplier: u32,
         pub min_stake: u128,
@@ -1454,6 +1500,7 @@ pub mod pallet {
         pub target_node_registrations_per_epoch: u32,
         pub node_registrations_this_epoch: u32,
         pub subnet_node_queue_epochs: u32,
+        pub pending_subnet_node_queue_epochs: Option<PendingOwnerU32Update<T>>,
         pub idle_classification_epochs: u32,
         pub pending_idle_classification_epochs: Option<PendingOwnerU32Update<T>>,
         pub included_classification_epochs: u32,
@@ -1476,17 +1523,13 @@ pub mod pallet {
         pub owner: Option<T::AccountId>,
         pub pending_owner: Option<T::AccountId>,
         pub registration_epoch: Option<u32>,
-        pub prev_pause_epoch: u32,
         pub slot_index: Option<u32>,
-        pub slot_assignment: Option<u32>,
         pub subnet_node_min_weight_decrease_reputation_threshold: u128,
         pub pending_subnet_node_min_weight_decrease_reputation_threshold:
             Option<PendingOwnerU128Update<T>>,
         pub reputation: u128,
         pub min_subnet_node_reputation: u128,
         pub pending_min_subnet_node_reputation: Option<PendingOwnerU128Update<T>>,
-        pub min_consensus_node_attestation_percentage: u128,
-        pub pending_min_consensus_node_attestation_percentage: Option<PendingOwnerU128Update<T>>,
         pub absent_decrease_reputation_factor: u128,
         pub included_increase_reputation_factor: u128,
         pub below_min_weight_decrease_reputation_factor: u128,
@@ -1915,6 +1958,52 @@ pub mod pallet {
         pub total_weight: u128,
     }
 
+    /// Immutable rules governing one elected subnet consensus round.
+    #[derive(
+        Default, Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo,
+    )]
+    pub struct ConsensusPolicySnapshot {
+        pub min_attestation_percentage: u128,
+        pub super_majority_attestation_ratio: u128,
+        pub base_validator_reward: u128,
+        pub subnet_owner_percentage: u128,
+        pub validator_reward_k: u64,
+        pub validator_reward_midpoint: u128,
+        pub attestor_reward_exponent: u64,
+        pub attestor_min_reward_factor: u128,
+        pub base_slash_percentage: u128,
+        pub max_slash_amount: u128,
+        pub validator_delegate_stake_slash_threshold: u128,
+        pub base_validator_delegate_stake_slash_percentage: u128,
+        pub max_validator_delegate_stake_slash_amount: u128,
+        pub validator_reputation_increase_factor: u128,
+        pub validator_reputation_decrease_factor: u128,
+        pub validator_absent_subnet_reputation_factor: u128,
+        pub in_consensus_subnet_reputation_factor: u128,
+        pub not_in_consensus_subnet_reputation_factor: u128,
+        pub min_subnet_nodes: u32,
+        pub validator_identity_attestation_percentage: u128,
+        pub min_subnet_node_reputation: u128,
+        pub min_weight_decrease_reputation_threshold: u128,
+        pub subnet_delegate_stake_rewards_percentage: u128,
+        pub consensus_validator_node_count_decay: u128,
+        pub consensus_validator_stake_weight_power: u128,
+        pub idle_classification_epochs: u32,
+        pub included_classification_epochs: u32,
+        pub queue_immunity_epochs: u32,
+        pub reputation_factors: SubnetReputationFactors,
+    }
+
+    /// Validator identity and immutable policy selected for a subnet epoch.
+    #[derive(
+        Default, Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo,
+    )]
+    pub struct ElectedConsensusRound {
+        pub validator_subnet_node_id: u32,
+        pub validator_delegate_stake_balance: u128,
+        pub policy: ConsensusPolicySnapshot,
+    }
+
     /// This struct represents the processed consensus submission. It is generated
     /// during the `precheck_subnet_consensus_submission` process and contains all
     /// the information needed for reward distribution and subnet state updates.
@@ -1923,15 +2012,18 @@ pub mod pallet {
     ///
     /// * `validator_subnet_node_id` - The subnet node ID of the validator who originally
     ///   proposed this consensus data.
+    /// * `validator_delegate_stake_balance` - The validator identity pool balance snapshotted
+    ///   when this round's validator was elected.
     /// * `validator_epoch_progress` - The percent process of the epoch when the validator submitted
     ///   consensus data, represented as 1e18.
     /// * `validator_reward_factor` - The reward factor of the validator.
     /// * `attestation_ratio` - The snapshotted attestor-weight ratio that has attested to this
     ///   consensus submission, represented as a fixed-point number (where 1e18 = 100%). This
     ///   indicates the stake-weighted level of agreement among validators for this submission.
-    /// * `node_attestation_ratio` - The ratio of eligible validator nodes that attested.
-    /// * `node_attestation_count` - The number of eligible validator nodes that attested.
-    /// * `eligible_validator_count` - The number of eligible validator nodes in the proposal snapshot.
+    /// * `identity_attestation_ratio` - The ratio of eligible validator identities that attested.
+    /// * `identity_attestation_count` - The number of unique eligible validator identities that attested.
+    /// * `eligible_validator_identity_count` - The number of unique eligible validator identities
+    ///   in the proposal snapshot.
     /// * `weight_sum` - The total sum of all scores in the consensus data. This is used
     ///   for normalization during reward distribution and helps prevent overflow issues.
     /// * `data_length` - The number of peers included in the consensus data. This provides
@@ -1956,13 +2048,15 @@ pub mod pallet {
     )]
     #[scale_info(skip_type_params(T))]
     pub struct ConsensusSubmissionData<T: Config> {
+        pub policy: ConsensusPolicySnapshot,
         pub validator_subnet_node_id: u32,
+        pub validator_delegate_stake_balance: u128,
         pub validator_epoch_progress: u128,
         pub validator_reward_factor: u128,
         pub attestation_ratio: u128,
-        pub node_attestation_ratio: u128,
-        pub node_attestation_count: u32,
-        pub eligible_validator_count: u32,
+        pub identity_attestation_ratio: u128,
+        pub identity_attestation_count: u32,
+        pub eligible_validator_identity_count: u32,
         pub weight_sum: u128,
         pub data_length: u32,
         pub data: Vec<SubnetNodeConsensusData>,
@@ -2025,10 +2119,12 @@ pub mod pallet {
     ///   consensus data, represented as 1e18.
     /// * `validator_reward_factor` - The reward factor of the validator for this epoch, represented as 1e18.
     /// * `validator_ids` - A vector of all subnet node IDs that are eligible to attest consensus (and be validators)
+    /// * `validator_identity_ids` - The proposal-time mapping from each eligible subnet node ID
+    ///   to its validator identity, used to count independent attestors.
     /// * `attests` - A map of subnet node IDs to their attestation entries, tracking which
     ///   validators have attested to this consensus submission. Each entry contains the block
-    ///   number when the attestation was made and optional attestation data. The proposing
-    ///   validator automatically attests to their own submission upon proposal.
+    ///   number when the attestation was made and optional attestation data. The proposer is added
+    ///   automatically when it submits the consensus data.
     /// * `subnet_nodes` - A vector of all active subnet nodes that are eligible for consensus
     ///   and rewards at the time of submission. This includes nodes with `Idle` classification
     ///   and above, captured during proposal for efficient processing during reward distribution.
@@ -2055,7 +2151,8 @@ pub mod pallet {
         pub block: u32,
         pub validator_epoch_progress: u128,
         pub validator_reward_factor: u128,
-        pub validator_ids: Vec<u32>, // All validators of the epoch
+        pub validator_ids: Vec<u32>, // All validator subnet node IDs of the epoch
+        pub validator_identity_ids: BTreeMap<u32, u32>, // subnet node ID -> validator ID, snapshotted at proposal time
         pub attests: BTreeMap<u32, AttestEntry<T>>, // Count of attestations of the submitted data (node ID, (block, data))
         pub subnet_nodes: Vec<SubnetNode<T>>,
         pub prioritize_queue_node_id: Option<u32>,
@@ -2168,6 +2265,27 @@ pub mod pallet {
 
     // Overwatch nodes
 
+    /// A closed Overwatch epoch waiting to be finalized.
+    ///
+    /// The multiplier is snapshotted from the epoch that just closed so a configuration update
+    /// for the next epoch cannot change the completed epoch's reward budget.
+    #[derive(
+        Encode,
+        Decode,
+        Copy,
+        Clone,
+        PartialOrd,
+        PartialEq,
+        Eq,
+        RuntimeDebugNoBound,
+        Ord,
+        scale_info::TypeInfo,
+    )]
+    pub struct PendingOverwatchSettlementData {
+        pub epoch: u32,
+        pub epoch_length_multiplier: u32,
+    }
+
     #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, scale_info::TypeInfo)]
     pub struct OverwatchNodeInfo<AccountId> {
         pub overwatch_node_id: u32,
@@ -2245,8 +2363,9 @@ pub mod pallet {
         Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
     pub struct Reputation {
-        /// Epoch when the node first elected subnet validator node to submit consensus.
-        pub start_epoch: u32,
+        /// General-chain epoch when one of the validator's subnet nodes was first elected, or
+        /// `None` if the validator has never been elected.
+        pub start_epoch: Option<u32>,
 
         /// Current reputation weight.
         pub score: u128,
@@ -2266,8 +2385,9 @@ pub mod pallet {
         /// Average attestation rate.
         pub average_attestation: u128,
 
-        /// Last epoch the node was selected as validator.
-        pub last_validator_epoch: u32,
+        /// General-chain epoch when one of the validator's subnet nodes was most recently elected,
+        /// or `None` if the validator has never been elected.
+        pub last_validator_epoch: Option<u32>,
 
         /// Current overwatch node reputation weight.
         pub ow_score: u128,
@@ -2357,7 +2477,6 @@ pub mod pallet {
     }
 
     /// This type value is referenced in:
-    /// - PreviousSubnetPauseEpoch
     /// - PrevSubnetActivationEpoch
     /// - TotalNodes
     /// - TotalActiveNodes
@@ -2565,32 +2684,37 @@ pub mod pallet {
         1e+18 as u128
     }
     /// This type value is referenced in:
+    /// - ValidatorDelegateStakeSlashThreshold
+    #[pallet::type_value]
+    pub fn DefaultValidatorDelegateStakeSlashThreshold() -> u128 {
+        // Fixed-point representation of one third, rounded down.
+        333333333333333333
+    }
+    /// This type value is referenced in:
+    /// - BaseValidatorDelegateStakeSlashPercentage
+    #[pallet::type_value]
+    pub fn DefaultBaseValidatorDelegateStakeSlashPercentage() -> u128 {
+        0
+    }
+    /// This type value is referenced in:
+    /// - MaxValidatorDelegateStakeSlashAmount
+    #[pallet::type_value]
+    pub fn DefaultMaxValidatorDelegateStakeSlashAmount() -> u128 {
+        0
+    }
+    /// This type value is referenced in:
     /// - MinAttestationPercentage
     #[pallet::type_value]
     pub fn DefaultMinAttestationPercentage() -> u128 {
-        // 2/3
-        660000000000000000
+        // Fixed-point representation of 2/3, rounded down.
+        666666666666666666
     }
     /// This type value is referenced in:
-    /// - SubnetMinConsensusNodeAttestationPercentage
+    /// - ConsensusValidatorIdentityAttestationPercentage
     #[pallet::type_value]
-    pub fn DefaultSubnetMinConsensusNodeAttestationPercentage() -> u128 {
-        // 20%
-        200000000000000000
-    }
-    /// This type value is referenced in:
-    /// - MinSubnetConsensusNodeAttestationPercentage
-    #[pallet::type_value]
-    pub fn DefaultMinSubnetConsensusNodeAttestationPercentage() -> u128 {
+    pub fn DefaultConsensusValidatorIdentityAttestationPercentage() -> u128 {
         // 10%
         100000000000000000
-    }
-    /// This type value is referenced in:
-    /// - MaxSubnetConsensusNodeAttestationPercentage
-    #[pallet::type_value]
-    pub fn DefaultMaxSubnetConsensusNodeAttestationPercentage() -> u128 {
-        // 33%
-        330000000000000000
     }
     /// This type value is referenced in:
     /// - SuperMajorityAttestationRatio
@@ -2630,8 +2754,12 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - MaxSubnets
     #[pallet::type_value]
-    pub fn DefaultMaxSubnets() -> u32 {
-        64
+    pub fn DefaultMaxSubnets<T: Config>() -> u32 {
+        // `do_register_subnet` intentionally permits `MaxSubnets + 1` live records so a new
+        // subnet can enter before the weakest subnet is rotated out. Reserve that extra physical
+        // epoch slot in the default as well as in the collective setter.
+        let available_slots = T::EpochLength::get().saturating_sub(T::DesignatedEpochSlots::get());
+        64.min(available_slots.saturating_sub(1))
     }
     /// This type value is referenced in:
     /// - MaxBootnodes
@@ -3010,14 +3138,14 @@ pub mod pallet {
     #[pallet::type_value]
     pub fn DefaultColdkeyReputation() -> Reputation {
         return Reputation {
-            start_epoch: 0,
+            start_epoch: None,
             score: 500_000_000_000_000_000, // 0.5 / 50%
             lifetime_node_count: 0,
             total_active_nodes: 0,
             total_increases: 0,
             total_decreases: 0,
             average_attestation: 0,
-            last_validator_epoch: 0,
+            last_validator_epoch: None,
             ow_score: 500_000_000_000_000, // 0.5 / 50%
         };
     }
@@ -3077,8 +3205,8 @@ pub mod pallet {
     /// - OverwatchMinAge
     #[pallet::type_value]
     pub fn DefaultOverwatchMinAge<T: Config>() -> u32 {
-        // ~3 months
-        T::EpochLength::get() / 4
+        // ~3 months, expressed in general blockchain epochs.
+        T::EpochsPerYear::get() / 4
     }
     /// This type value is referenced in:
     /// - MaxMinDelegateStakeMultiplier
@@ -3150,11 +3278,9 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - SubnetPauseCooldownEpochs
     #[pallet::type_value]
-    pub fn DefaultSubnetPausePeriodDelta<T: Config>() -> u32 {
-        // 1 month / 30 days
-        // T::EpochsPerYear::get() / 12
-        // Start off with 0 to be liberal
-        0
+    pub fn DefaultSubnetPauseCooldownEpochs<T: Config>() -> u32 {
+        // A subnet must complete at least one local consensus round before it can pause again.
+        1
     }
     /// This type value is referenced in:
     /// - LastRegistrationCost
@@ -3291,23 +3417,11 @@ pub mod pallet {
     #[pallet::storage] // subnet_id => AccountId
     pub type SubnetOwner<T: Config> = StorageMap<_, Identity, u32, T::AccountId>;
 
-    /// Minimum time between subnet pauses
+    /// Minimum completed subnet consensus rounds between activation/unpause and the next pause.
+    /// Governance may update this immediately, but the value must be at least one.
     #[pallet::storage]
     pub type SubnetPauseCooldownEpochs<T> =
-        StorageValue<_, u32, ValueQuery, DefaultSubnetPausePeriodDelta<T>>;
-
-    /// Most recent re-activation (from paused)
-    #[pallet::storage]
-    pub type PreviousSubnetPauseEpoch<T> =
-        StorageMap<_, Identity, u32, u32, ValueQuery, DefaultZeroU32>;
-
-    /// Subnet-epoch label observed when a subnet is paused.
-    ///
-    /// `SubnetsData::start_epoch` retains the general pause epoch for maximum-pause
-    /// enforcement. This phase-aware marker lets unpause compensate queued-node timing
-    /// for exactly the subnet slots that were skipped.
-    #[pallet::storage]
-    pub type SubnetPauseSubnetEpoch<T> = StorageMap<_, Identity, u32, u32, OptionQuery>;
+        StorageValue<_, u32, ValueQuery, DefaultSubnetPauseCooldownEpochs<T>>;
 
     /// Most recent epoch a subnet was activated on
     /// Used to calculate subnet removal intervals
@@ -3535,7 +3649,7 @@ pub mod pallet {
     /// Max subnets in the network
     #[pallet::storage]
     #[pallet::getter(fn max_subnets)]
-    pub type MaxSubnets<T> = StorageValue<_, u32, ValueQuery, DefaultMaxSubnets>;
+    pub type MaxSubnets<T> = StorageValue<_, u32, ValueQuery, DefaultMaxSubnets<T>>;
 
     /// Max bootnodes for a subnet to manage
     #[pallet::storage]
@@ -3723,30 +3837,28 @@ pub mod pallet {
     #[pallet::storage]
     pub type MaxSlashAmount<T> = StorageValue<_, u128, ValueQuery, DefaultMaxSlashAmount>;
 
-    /// Per-subnet minimum percentage of eligible validator nodes that must attest.
+    /// Stake-weighted attestation rate below which a validator's delegate pool may be slashed.
     #[pallet::storage]
-    pub type SubnetMinConsensusNodeAttestationPercentage<T> = StorageMap<
-        _,
-        Identity,
-        u32,
-        u128,
-        ValueQuery,
-        DefaultSubnetMinConsensusNodeAttestationPercentage,
-    >;
+    pub type ValidatorDelegateStakeSlashThreshold<T> =
+        StorageValue<_, u128, ValueQuery, DefaultValidatorDelegateStakeSlashThreshold>;
 
+    /// Maximum percentage of the elected-round pool snapshot lost at zero attestation.
+    /// A zero value disables validator delegate-pool slashing.
     #[pallet::storage]
-    pub type PendingSubnetMinConsensusNodeAttestationPercentage<T: Config> =
-        StorageMap<_, Identity, u32, PendingOwnerU128Update<T>, OptionQuery>;
+    pub type BaseValidatorDelegateStakeSlashPercentage<T> =
+        StorageValue<_, u128, ValueQuery, DefaultBaseValidatorDelegateStakeSlashPercentage>;
 
-    /// Network lower bound for subnet owner node-count attestation requirements.
+    /// Absolute cap on one elected round's validator delegate-pool slash.
+    /// A zero value disables validator delegate-pool slashing.
     #[pallet::storage]
-    pub type MinSubnetConsensusNodeAttestationPercentage<T> =
-        StorageValue<_, u128, ValueQuery, DefaultMinSubnetConsensusNodeAttestationPercentage>;
+    pub type MaxValidatorDelegateStakeSlashAmount<T> =
+        StorageValue<_, u128, ValueQuery, DefaultMaxValidatorDelegateStakeSlashAmount>;
 
-    /// Network upper bound for subnet owner node-count attestation requirements.
+    /// Network-wide percentage of eligible validator identities required to attest. The value is
+    /// snapshotted into each elected consensus round and is controlled by the admin collective.
     #[pallet::storage]
-    pub type MaxSubnetConsensusNodeAttestationPercentage<T> =
-        StorageValue<_, u128, ValueQuery, DefaultMaxSubnetConsensusNodeAttestationPercentage>;
+    pub type ConsensusValidatorIdentityAttestationPercentage<T> =
+        StorageValue<_, u128, ValueQuery, DefaultConsensusValidatorIdentityAttestationPercentage>;
 
     //
     // Weight helpers
@@ -3909,6 +4021,10 @@ pub mod pallet {
     #[pallet::storage] // subnet_uid --> u32
     pub type SubnetNodeQueueEpochs<T> =
         StorageMap<_, Identity, u32, u32, ValueQuery, DefaultMinRegistrationQueueEpochs>;
+
+    #[pallet::storage]
+    pub type PendingSubnetNodeQueueEpochs<T: Config> =
+        StorageMap<_, Identity, u32, PendingOwnerU32Update<T>, OptionQuery>;
 
     /// Length of epochs a Idle classified node must be in that class for
     #[pallet::storage] // subnet_uid --> u32
@@ -4310,6 +4426,12 @@ pub mod pallet {
     #[pallet::storage]
     pub type TotalValidatorDelegateStakeBalance<T> = StorageValue<_, u128, ValueQuery>;
 
+    /// Validator identity => first block at which outgoing pool stake is unlocked.
+    /// Slash-enabled overlapping elections extend this value to their latest settlement block.
+    #[pallet::storage]
+    pub type ValidatorDelegateStakeSlashLockUntil<T> =
+        StorageMap<_, Identity, u32, u32, ValueQuery>;
+
     //
     // Node burn
     //
@@ -4375,10 +4497,10 @@ pub mod pallet {
     // Validate / Attestation
     //
 
-    // subnet ID => epoch  => Subnet Node ID
+    // subnet ID => epoch => elected validator and immutable round policy
     #[pallet::storage]
     pub type SubnetElectedValidator<T> =
-        StorageDoubleMap<_, Identity, u32, Identity, u32, u32, OptionQuery>;
+        StorageDoubleMap<_, Identity, u32, Identity, u32, ElectedConsensusRound, OptionQuery>;
 
     #[pallet::storage] // subnet ID => epoch  => data
     pub type SubnetConsensusSubmission<T: Config> =
@@ -4675,19 +4797,54 @@ pub mod pallet {
     #[pallet::storage]
     pub type TotalOverwatchNodeUids<T> = StorageValue<_, u32, ValueQuery, DefaultZeroU32>;
 
-    /// Overwatch epoch multipler vs T::EpochLength
-    /// i.e. Overwatch nodes submit data every /x/ epochs
+    /// Active Overwatch epoch multiplier relative to `T::EpochLength`.
+    /// Collective updates take effect immediately.
     #[pallet::storage]
     pub type OverwatchEpochLengthMultiplier<T> =
         StorageValue<_, u32, ValueQuery, DefaultOverwatchEpochLengthMultiplier>;
 
-    /// The percent progress of the overwatch interval where the node can:
+    /// Epoch-length multiplier snapshotted when the active Overwatch epoch started.
+    /// Configuration updates are written to `OverwatchEpochLengthMultiplier` and are
+    /// adopted here only when the next epoch begins.
+    #[pallet::storage]
+    pub type ActiveOverwatchEpochLengthMultiplier<T> =
+        StorageValue<_, u32, ValueQuery, DefaultOverwatchEpochLengthMultiplier>;
+
+    /// The percent progress of the current Overwatch interval where the node can:
     /// - no longer commit
     /// - can reveal
     /// i.e. Node can commit for 80% of the period, and reveal in the latter 20% of the period
     #[pallet::storage]
     pub type OverwatchCommitCutoffPercent<T> =
         StorageValue<_, u128, ValueQuery, DefaultOverwatchCommitCutoffPercent>;
+
+    /// Commit cutoff snapshotted when the active Overwatch epoch started.
+    /// This cannot change phase while an epoch is already in progress.
+    #[pallet::storage]
+    pub type ActiveOverwatchCommitCutoffPercent<T> =
+        StorageValue<_, u128, ValueQuery, DefaultOverwatchCommitCutoffPercent>;
+
+    /// Monotonically increasing active Overwatch epoch identifier.
+    #[pallet::storage]
+    pub type CurrentOverwatchEpoch<T> = StorageValue<_, u32, ValueQuery, DefaultZeroU32>;
+
+    /// Logical start block of the active Overwatch epoch.
+    /// Global transaction pause shifts this anchor forward to freeze elapsed round time.
+    #[pallet::storage]
+    pub type OverwatchEpochStartBlock<T> = StorageValue<_, u32, ValueQuery, DefaultZeroU32>;
+
+    /// Block at which global transaction pause froze the active Overwatch epoch.
+    #[pallet::storage]
+    pub type OverwatchTxPauseStartBlock<T> = StorageValue<_, u32, OptionQuery>;
+
+    /// The closed epoch awaiting reward and score finalization.
+    #[pallet::storage]
+    pub type PendingOverwatchSettlement<T> =
+        StorageValue<_, PendingOverwatchSettlementData, OptionQuery>;
+
+    /// Most recent Overwatch epoch that has been finalized, including an empty epoch.
+    #[pallet::storage]
+    pub type LastFinalizedOverwatchEpoch<T> = StorageValue<_, u32, OptionQuery>;
 
     // Overwatch Node ID => OverwatchNode
     #[pallet::storage]
@@ -4728,7 +4885,7 @@ pub mod pallet {
     pub type OverwatchCommits<T: Config> = StorageNMap<
         _,
         (
-            NMapKey<Identity, u32>, // Epoch
+            NMapKey<Identity, u32>, // Monotonic Overwatch epoch ID
             NMapKey<Identity, u32>, // Overwatch ID
             NMapKey<Identity, u32>, // Subnet ID
         ),
@@ -4740,7 +4897,7 @@ pub mod pallet {
     pub type OverwatchReveals<T> = StorageNMap<
         _,
         (
-            NMapKey<Identity, u32>, // Epoch
+            NMapKey<Identity, u32>, // Monotonic Overwatch epoch ID
             NMapKey<Identity, u32>, // Subnet ID
             NMapKey<Identity, u32>, // Overwatch ID
         ),
@@ -4758,25 +4915,25 @@ pub mod pallet {
     pub type OverwatchStakeWeightFactor<T> =
         StorageValue<_, u128, ValueQuery, DefaultOverwatchStakeWeightFactor>;
 
-    /// Finalized calculated subnet weights from overwatch nodes
-    /// Epoch => Subnet ID => Weight
+    /// Finalized calculated subnet weights from Overwatch nodes.
+    /// Monotonic Overwatch epoch ID => Subnet ID => Weight.
     #[pallet::storage]
     pub type OverwatchSubnetWeights<T> = StorageDoubleMap<
         _,
         Identity,
-        u32, // Epoch
+        u32, // Monotonic Overwatch epoch ID
         Identity,
         u32,  // Subnet ID
         u128, // Weight
         OptionQuery,
     >;
 
-    /// Overwatch node scores
+    /// Finalized Overwatch node scores.
     #[pallet::storage]
     pub type OverwatchNodeWeights<T> = StorageDoubleMap<
         _,
         Identity,
-        u32, // Epoch
+        u32, // Monotonic Overwatch epoch ID
         Identity,
         u32,  // Node ID
         u128, // Weight
@@ -5263,8 +5420,8 @@ pub mod pallet {
     ///
     /// The [`call_index`] macro is used to explicitly
     /// define an index for calls in the [`Call`] enum. This is useful for pallets that may
-    /// introduce new dispatchables over time. If the order of a dispatchable changes, its index
-    /// will also change which will break backwards compatibility.
+    /// introduce new dispatchables over time. Without an explicit index, changing a dispatchable's
+    /// order would also change its encoded call identifier.
     ///
     /// The [`weight`] macro is used to assign a weight to each call.
     #[pallet::call]
@@ -5493,6 +5650,7 @@ pub mod pallet {
 
         #[pallet::call_index(9)]
         #[pallet::weight(T::WeightInfo::owner_unpause_subnet())]
+        #[frame_support::transactional]
         pub fn owner_unpause_subnet(origin: OriginFor<T>, subnet_id: u32) -> DispatchResult {
             Self::is_paused()?;
             Self::do_owner_unpause_subnet(origin, subnet_id)
@@ -6326,7 +6484,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(61)]
-        #[pallet::weight({0})]
+        #[pallet::weight(T::WeightInfo::remove_validator_delegate_stake())]
         pub fn remove_validator_delegate_stake(
             origin: OriginFor<T>,
             validator_id: u32,
@@ -6342,7 +6500,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(62)]
-        #[pallet::weight({0})]
+        #[pallet::weight(T::WeightInfo::swap_from_validator_to_validator())]
         pub fn swap_from_validator_to_validator(
             origin: OriginFor<T>,
             from_validator_id: u32,
@@ -6410,7 +6568,7 @@ pub mod pallet {
         // ==============================================
 
         #[pallet::call_index(64)]
-        #[pallet::weight({0})]
+        #[pallet::weight(T::WeightInfo::swap_from_validator_to_subnet())]
         pub fn swap_from_validator_to_subnet(
             origin: OriginFor<T>,
             from_validator_id: u32,
@@ -7163,6 +7321,8 @@ pub mod pallet {
 
         #[pallet::call_index(125)]
         #[pallet::weight({0})]
+        /// Configure the Overwatch epoch-length multiplier for the next epoch.
+        /// The active epoch retains the multiplier snapshotted when it started.
         pub fn set_overwatch_epoch_length_multiplier(
             origin: OriginFor<T>,
             value: u32,
@@ -7173,6 +7333,8 @@ pub mod pallet {
 
         #[pallet::call_index(126)]
         #[pallet::weight({0})]
+        /// Configure the Overwatch commit cutoff for the next epoch.
+        /// The active epoch retains its snapshotted commit/reveal boundary.
         pub fn set_overwatch_commit_cutoff_percent(
             origin: OriginFor<T>,
             value: u128,
@@ -7634,26 +7796,12 @@ pub mod pallet {
 
         #[pallet::call_index(176)]
         #[pallet::weight({0})]
-        pub fn owner_update_min_consensus_node_attestation_percentage(
+        pub fn set_consensus_validator_identity_attestation_percentage(
             origin: OriginFor<T>,
-            subnet_id: u32,
             value: u128,
         ) -> DispatchResult {
-            Self::is_paused()?;
-            Self::do_owner_update_min_consensus_node_attestation_percentage(
-                origin, subnet_id, value,
-            )
-        }
-
-        #[pallet::call_index(177)]
-        #[pallet::weight({0})]
-        pub fn set_min_max_consensus_node_attestation_percentage(
-            origin: OriginFor<T>,
-            min: u128,
-            max: u128,
-        ) -> DispatchResult {
             T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_min_max_consensus_node_attestation_percentage(min, max)
+            Self::do_set_consensus_validator_identity_attestation_percentage(value)
         }
 
         #[pallet::call_index(179)]
@@ -7686,6 +7834,22 @@ pub mod pallet {
         ) -> DispatchResult {
             T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
             Self::do_set_min_max_consensus_validator_stake_weight_power(min, max)
+        }
+
+        #[pallet::call_index(182)]
+        #[pallet::weight(T::WeightInfo::set_validator_delegate_stake_slash_config())]
+        pub fn set_validator_delegate_stake_slash_config(
+            origin: OriginFor<T>,
+            threshold: u128,
+            base_percentage: u128,
+            max_amount: u128,
+        ) -> DispatchResult {
+            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_validator_delegate_stake_slash_config(
+                threshold,
+                base_percentage,
+                max_amount,
+            )
         }
     }
 
@@ -7834,8 +7998,12 @@ pub mod pallet {
             // Get total subnets ever
             let subnet_uids: u32 = TotalSubnetUids::<T>::get();
 
-            // Start the subnet_ids at 1
-            let subnet_id = subnet_uids.saturating_add(1);
+            // Start subnet IDs at one and fail closed once the identifier space is exhausted.
+            // Saturation here would reuse `u32::MAX`, overwrite its forward slot lookup, and
+            // leave the former reverse slot assignment behind.
+            let subnet_id = subnet_uids
+                .checked_add(1)
+                .ok_or(Error::<T>::SubnetIdExhausted)?;
 
             Self::ensure_subnet_registration_allowed(&owner, subnet_id)?;
             Self::ensure_subnet_registration_metadata_bounded(&subnet_registration_data)?;
@@ -7975,7 +8143,8 @@ pub mod pallet {
                 description: subnet_registration_data.description,
                 misc: subnet_registration_data.misc,
                 state: SubnetState::Registered,
-                start_epoch: u32::MAX, // updates on activation
+                consensus_eligible_from_subnet_epoch: None,
+                pause: None,
             };
 
             // Store subnet data
@@ -8106,13 +8275,13 @@ pub mod pallet {
             // ===============
 
             // --- Activate subnet
-            // Subnet start_epoch uses general blockchain epoch (not subnet epoch)
             SubnetsData::<T>::try_mutate(subnet_id, |maybe_params| -> DispatchResult {
                 let params = maybe_params.as_mut().ok_or(Error::<T>::InvalidSubnetId)?;
                 params.state = SubnetState::Active;
-                // Start consensus after 1 fresh epoch.
-                // Consensus starts once epoch >= start_epoch
-                params.start_epoch = epoch + 1;
+                // Preserve the activation policy of starting at the subnet slot in the next
+                // general epoch. At that assigned slot the phase-aware subnet label is identical.
+                params.consensus_eligible_from_subnet_epoch = Some(epoch.saturating_add(1));
+                params.pause = None;
                 Ok(())
             })?;
 
@@ -8135,15 +8304,12 @@ pub mod pallet {
                 Self::get_current_block_as_u32(),
             );
 
-            // --- Set pause epoch now to abide by pause logic
-            PreviousSubnetPauseEpoch::<T>::insert(subnet_id, epoch);
-
             // --- Set most recent activation epoch
             PrevSubnetActivationEpoch::<T>::set(epoch);
 
             // SubnetsData | TotalActiveSubnets | SubnetRegistrationEpoch |
-            // NodeRegistrationInitialValidatorIds | LastSubnetDelegateStakeRewardsUpdate
-            // PreviousSubnetPauseEpoch | PrevSubnetActivationEpoch
+            // NodeRegistrationInitialValidatorIds | InitialValidatorData |
+            // LastSubnetDelegateStakeRewardsUpdate | PrevSubnetActivationEpoch
             weight = weight.saturating_add(db_weight.writes(7));
             // SubnetsData | TotalActiveSubnets
             weight = weight.saturating_add(db_weight.reads(2));
@@ -8221,12 +8387,13 @@ pub mod pallet {
         /// - `PendingSubnetOwner` - Pending ownership transfer (if any)
         /// - `SubnetRegistrationEpoch` - Registration timestamp (if still registered)
         ///
-        /// ## 2. Subnet Configuration Parameters (27 items)
+        /// ## 2. Subnet Configuration Parameters (28 items)
         ///
         /// ### Operational Parameters
         /// - `ChurnLimit` - Maximum nodes that can enter/exit per epoch
         /// - `ChurnLimitMultiplier` - Churn limit scaling factor
         /// - `SubnetNodeQueueEpochs` - Epochs nodes must wait in queue
+        /// - `PendingSubnetNodeQueueEpochs` - Scheduled queue-duration update
         /// - `IdleClassificationEpochs` - Epochs before marking nodes idle
         /// - `IncludedClassificationEpochs` - Epochs for inclusion classification
         /// - `QueueImmunityEpochs` - Protection period for queued nodes
@@ -8257,7 +8424,7 @@ pub mod pallet {
         /// - `SubnetReputationFactorSchedules` - Current and pending node reputation factors
         ///
         /// ### State Tracking
-        /// - `PreviousSubnetPauseEpoch` - Last pause timestamp
+        /// - `SubnetsData::pause` - Atomic global/subnet pause timestamps
         /// - `EmergencySubnetNodeElectionData` - Emergency validator election state
         ///
         /// ## 3. Subnet Identifiers (2 items)
@@ -8330,14 +8497,17 @@ pub mod pallet {
         ///
         /// This function carefully accounts for database operations:
         ///
-        /// - **Base Reads**: 2 (SubnetsData check + state check)
-        /// - **Base Writes**: 26 (core subnet data + configurations)
-        /// - **Conditional Writes**: +1 (FriendlyUidSubnetId if exists)
-        /// - **Slot Cleanup**: +1 read, +3 writes (via `free_slot_of_subnet`)
+        /// - **Lifecycle Lookup**: 1 read (`SubnetsData`)
+        /// - **Keyed Cleanup**: +1 read, +50 writes (49 removals plus
+        ///   `SubnetIdFriendlyUid::take`)
+        /// - **Conditional Writes**: +1 (`FriendlyUidSubnetId` if a friendly ID exists)
+        /// - **Slot Cleanup**: +2 reads, +3 writes (via `free_slot_of_subnet`)
         /// - **Active Counter**: +1 read, +1 write (if subnet was active)
+        /// - **Total Counter**: +1 read, +1 write (`TotalSubnets`)
         /// - **Node Cleanup**: Variable (see `clean_subnet_nodes` - scales with node count)
         ///
-        /// Total approximate weight: ~4 reads + ~30 writes + node cleanup weight
+        /// Fixed storage weight before event and node cleanup is 5 reads and 54 writes, plus the
+        /// conditional friendly-ID write and, for active/paused subnets, 1 read and 1 write.
         ///
         /// # Events
         ///
@@ -8407,7 +8577,7 @@ pub mod pallet {
         /// ### 7. Paused Too Long with Low Reputation
         /// - **State**: Subnet in `Paused` state
         /// - **Condition**:
-        ///   1. `start_epoch + MaxSubnetPauseEpochs < current_epoch` (paused beyond limit)
+        ///   1. `pause.started_global_epoch + MaxSubnetPauseEpochs < current_epoch`
         ///   2. Reputation decreased by `MaxPauseEpochsSubnetReputationFactor`
         ///   3. Resulting reputation < `MinSubnetReputation`
         /// - **Reason**: `SubnetRemovalReason::PauseExpired`
@@ -8435,12 +8605,12 @@ pub mod pallet {
         ///   - Other runtime logic
         ///
         /// ### 10. Excess Subnets (Lowest Stake Removal)
-        /// - **State**: Subnet in `Active` state
+        /// - **State**: Subnet in `Active` or `Paused` state
         /// - **Condition**:
         ///   1. `total_subnets > MaxSubnets`
         ///   2. `epoch % MaxSubnetRemovalInterval == 0` (designated removal epochs)
         ///   3. `epoch >= PrevSubnetActivationEpoch + MinSubnetRemovalInterval` (cooldown period)
-        ///   4. Subnet has lowest `TotalSubnetDelegateStakeBalance` among all active subnets
+        ///   4. Subnet has lowest `TotalSubnetDelegateStakeBalance` among all active and paused subnets
         /// - **Reason**: `SubnetRemovalReason::MaxSubnets`
         /// - **Rationale**: Network at capacity, least-supported subnet removed
         /// - **Note**: Network allows `MaxSubnets + 1` to facilitate rotation; weakest removed periodically
@@ -8459,6 +8629,7 @@ pub mod pallet {
         ///     IF paused_too_long:
         ///       Decrease reputation
         ///       IF reputation < min → Remove (PauseExpired)
+        ///     IF excess_subnets AND is_removal_epoch AND can_remove → Track for removal
         ///   
         ///   IF state == Active:
         ///     IF delegate_stake < min AND is_dstake_epoch → Remove (MinSubnetDelegateStake)
@@ -8508,13 +8679,12 @@ pub mod pallet {
             PendingSubnetOwner::<T>::remove(subnet_id);
 
             SubnetRegistrationEpoch::<T>::remove(subnet_id);
-            PreviousSubnetPauseEpoch::<T>::remove(subnet_id);
-            SubnetPauseSubnetEpoch::<T>::remove(subnet_id);
 
             // Subnet parameters
             ChurnLimit::<T>::remove(subnet_id);
             ChurnLimitMultiplier::<T>::remove(subnet_id);
             SubnetNodeQueueEpochs::<T>::remove(subnet_id);
+            PendingSubnetNodeQueueEpochs::<T>::remove(subnet_id);
             IdleClassificationEpochs::<T>::remove(subnet_id);
             PendingIdleClassificationEpochs::<T>::remove(subnet_id);
             IncludedClassificationEpochs::<T>::remove(subnet_id);
@@ -8532,8 +8702,6 @@ pub mod pallet {
             CurrentNodeBurnRate::<T>::remove(subnet_id);
             QueueImmunityEpochs::<T>::remove(subnet_id);
             PendingQueueImmunityEpochs::<T>::remove(subnet_id);
-            SubnetMinConsensusNodeAttestationPercentage::<T>::remove(subnet_id);
-            PendingSubnetMinConsensusNodeAttestationPercentage::<T>::remove(subnet_id);
             ConsensusValidatorNodeCountDecay::<T>::remove(subnet_id);
             PendingConsensusValidatorNodeCountDecay::<T>::remove(subnet_id);
             LastConsensusValidatorNodeCountDecayUpdate::<T>::remove(subnet_id);
@@ -8560,16 +8728,18 @@ pub mod pallet {
                 weight = weight.saturating_add(T::DbWeight::get().writes(1));
             }
 
-            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 35));
+            // The cleanup above removes 49 keyed values. `take` additionally reads and removes
+            // SubnetIdFriendlyUid; the reverse FriendlyUidSubnetId write remains conditional.
+            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 50));
 
             // Remove from slot
             Self::free_slot_of_subnet(subnet_id);
             // Add weight here of `free_slot_of_subnet`
             // reads:
-            // AssignedSlots
+            // AssignedSlots | SubnetSlot (`take`)
             // writes:
             // SubnetSlot | SlotAssignment | AssignedSlots
-            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 3));
+            weight = weight.saturating_add(T::DbWeight::get().reads_writes(2, 3));
 
             if subnet.state != SubnetState::Registered {
                 // A subnet is counted in `TotalActiveSubnets` as long as it isn't registered
@@ -8582,6 +8752,7 @@ pub mod pallet {
             }
 
             TotalSubnets::<T>::mutate(|total| *total = total.saturating_sub(1));
+            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
 
             // We have removed all of the data required to assist in blockchain logic
             // `clean_subnet_nodes` cleans up non-required data
@@ -9314,60 +9485,16 @@ pub mod pallet {
 
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
-        fn on_runtime_upgrade() -> Weight {
-            let db_weight = T::DbWeight::get();
-            let onchain_version = StorageVersion::get::<Pallet<T>>();
-
-            if onchain_version >= STORAGE_VERSION {
-                return db_weight.reads(1);
-            }
-
-            let min_max_registered_nodes = MinMaxRegisteredNodes::<T>::get();
-            let max_max_registered_nodes = MaxMaxRegisteredNodes::<T>::get();
-            let min_queue_epochs = MinQueueEpochs::<T>::get();
-            let max_queue_epochs = MaxQueueEpochs::<T>::get();
-
-            let mut reads = 5u64;
-            let mut writes = 0u64;
-
-            for subnet_id in SubnetsData::<T>::iter_keys() {
-                reads = reads.saturating_add(4);
-
-                let max_registered_nodes = MaxRegisteredNodes::<T>::get(subnet_id);
-                let normalized_max_registered_nodes = max_registered_nodes
-                    .max(min_max_registered_nodes)
-                    .min(max_max_registered_nodes);
-                if normalized_max_registered_nodes != max_registered_nodes {
-                    MaxRegisteredNodes::<T>::insert(subnet_id, normalized_max_registered_nodes);
-                    writes = writes.saturating_add(1);
-                }
-
-                let target_registrations = TargetNodeRegistrationsPerEpoch::<T>::get(subnet_id);
-                let normalized_target_registrations = target_registrations
-                    .max(1)
-                    .min(normalized_max_registered_nodes);
-                if normalized_target_registrations != target_registrations {
-                    TargetNodeRegistrationsPerEpoch::<T>::insert(
-                        subnet_id,
-                        normalized_target_registrations,
-                    );
-                    writes = writes.saturating_add(1);
-                }
-
-                let queue_immunity_epochs = QueueImmunityEpochs::<T>::get(subnet_id);
-                let normalized_queue_immunity_epochs = queue_immunity_epochs
-                    .max(min_queue_epochs)
-                    .min(max_queue_epochs);
-                if normalized_queue_immunity_epochs != queue_immunity_epochs {
-                    QueueImmunityEpochs::<T>::insert(subnet_id, normalized_queue_immunity_epochs);
-                    writes = writes.saturating_add(1);
-                }
-            }
-
-            STORAGE_VERSION.put::<Pallet<T>>();
-            writes = writes.saturating_add(1);
-
-            db_weight.reads_writes(reads, writes)
+        fn integrity_test() {
+            assert_eq!(
+                T::DesignatedEpochSlots::get(),
+                3,
+                "network pallet hard-codes general epoch work at slots 0, 1, and 2"
+            );
+            assert!(
+                T::EpochLength::get() > 3,
+                "network epoch must contain at least one subnet slot after slots 0, 1, and 2"
+            );
         }
 
         /// Run block functions
@@ -9376,10 +9503,11 @@ pub mod pallet {
         ///
         /// At the start of each epoch
         ///
-        /// 1. Epoch prelims (removing or penalizing subnets) (block)
-        /// 2. Calculate overwatch subnet weights (block - 1) (called on overwatch epochs only)
-        /// 3. Calculate subnet emissions distribution (block - 2)
-        /// 4. Handle subnet slots (slot)
+        /// 1. Close an elapsed Overwatch epoch and queue its immutable settlement snapshot
+        /// 2. Epoch prelims (removing or penalizing subnets) (block)
+        /// 3. Finalize a previously queued Overwatch epoch (normally block + 1)
+        /// 4. Calculate subnet emissions using the last finalized Overwatch weights (block + 2)
+        /// 5. Handle subnet slots (slot)
         ///		* Distribute rewards
         /// 	* Elect validator
         ///
@@ -9407,13 +9535,16 @@ pub mod pallet {
             let epoch_slot = block % epoch_length;
             let current_epoch = block.saturating_div(epoch_length);
 
-            // Overwatch epochs
-            let multiplier: u32 = OverwatchEpochLengthMultiplier::<T>::get();
-
-            // OverwatchEpochLengthMultiplier
+            // Only settle an epoch that was already pending when this block began. A rollover
+            // created below is therefore finalized no earlier than the following block, preserving
+            // the hook's staggered workload and reserved slot ordering.
+            let has_pending_overwatch_settlement = PendingOverwatchSettlement::<T>::exists();
             weight_meter.consume(db_weight.reads(1));
 
-            let overwatch_epoch_length = epoch_length.saturating_mul(multiplier);
+            // Close an Overwatch epoch before processing this block's extrinsics. This keeps the
+            // stored epoch identifier and commit/reveal phase anchored even when its configuration
+            // changes.
+            weight_meter.consume(Self::advance_overwatch_epoch(block));
 
             if block >= epoch_length && block % epoch_length == 0 {
                 // Remove unqualified subnets
@@ -9423,9 +9554,7 @@ pub mod pallet {
                 // block weight. The maximum number of subnets being removed does not currently surpass the
                 // maximum block weight, although, this is meant for future-proofing and optimizing
                 Self::do_epoch_preliminaries(&mut weight_meter, block, current_epoch);
-            } else if block.saturating_sub(1) >= overwatch_epoch_length
-                && block.saturating_sub(1) % overwatch_epoch_length == 0
-            {
+            } else if has_pending_overwatch_settlement && epoch_slot == 1 {
                 // Calculate Overwatch Node Weights
                 let block_step_weight = Self::calculate_overwatch_rewards();
                 // `consume(..)` saturates at zero
@@ -9443,7 +9572,11 @@ pub mod pallet {
                 // SlotAssignment
                 weight_meter.consume(db_weight.reads(1));
 
-                let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+                let subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(subnet_id, block);
+                // Resolve the subnet-oriented index using the hook's block argument, avoiding a
+                // redundant frame-system block-number read.
+                // SubnetSlot
+                weight_meter.consume(db_weight.reads(1));
 
                 // Uses `WeightMeter` so we don't consume after
                 Self::emission_step(
@@ -9670,7 +9803,7 @@ pub mod pallet {
             // NodeRewardRateUpdatePeriod::<T>::put(0);
             // MinSubnetDelegateStakeFactor::<T>::put(0);
             // MaxMinDelegateStakeMultiplier::<T>::put(1000000000000000000); // 100%
-            // SubnetPauseCooldownEpochs::<T>::put(0);
+            // SubnetPauseCooldownEpochs::<T>::put(1);
 
             // // [TESTING: EVM TESTS]
             // // Enable subnets to register right when conditions are met
@@ -9688,7 +9821,7 @@ pub mod pallet {
             // NodeRewardRateUpdatePeriod::<T>::put(0);
             // MinSubnetDelegateStakeFactor::<T>::put(0);
             // MaxMinDelegateStakeMultiplier::<T>::put(1000000000000000000); // 100%
-            // SubnetPauseCooldownEpochs::<T>::put(0);
+            // SubnetPauseCooldownEpochs::<T>::put(1);
 
             // [TESTING: TESTNET HOSKINSON]
             // Enable subnets to register right when conditions are met
@@ -9706,7 +9839,7 @@ pub mod pallet {
             // NodeRewardRateUpdatePeriod::<T>::put(0);
             // MinSubnetDelegateStakeFactor::<T>::put(0);
             // MaxMinDelegateStakeMultiplier::<T>::put(1000000000000000000); // 100%
-            // SubnetPauseCooldownEpochs::<T>::put(0);
+            // SubnetPauseCooldownEpochs::<T>::put(1);
 
             // use fp_account::AccountId20;
             // use sp_core::H160;

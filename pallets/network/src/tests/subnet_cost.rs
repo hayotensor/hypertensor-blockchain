@@ -1,8 +1,34 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
-use crate::Error;
-use frame_support::traits::Currency;
-use frame_support::{assert_err, assert_ok};
+use crate::{
+    AssignedSlots, Error, MaxSubnetNodes, MinSubnetNodes, SlotAssignment, SubnetSlot,
+    TotalSubnetUids,
+};
+use frame_support::assert_err;
+
+#[test]
+fn subnet_registration_rejects_exhausted_subnet_id_without_touching_slot_indexes() {
+    new_test_ext().execute_with(|| {
+        TotalSubnetUids::<Test>::put(u32::MAX);
+        let registration = default_registration_subnet_data(
+            1,
+            MaxSubnetNodes::<Test>::get(),
+            b"id-exhaustion".to_vec(),
+            0,
+            MinSubnetNodes::<Test>::get().saturating_add(1),
+        );
+
+        assert_err!(
+            Network::register_subnet(RuntimeOrigin::signed(account(1)), u128::MAX, registration),
+            Error::<Test>::SubnetIdExhausted
+        );
+
+        assert_eq!(TotalSubnetUids::<Test>::get(), u32::MAX);
+        assert_eq!(SubnetSlot::<Test>::iter().count(), 0);
+        assert_eq!(SlotAssignment::<Test>::iter().count(), 0);
+        assert!(AssignedSlots::<Test>::get().is_empty());
+    });
+}
 
 // #[test]
 // fn registration_cost_no_registration_various_epochs() {
