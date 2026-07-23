@@ -56,6 +56,10 @@ fn test_network_bound_config_values() {
         assert_eq!(<Test as crate::Config>::MaxSocialIdLength::get(), 255);
         assert_eq!(<Test as crate::Config>::ValidatorArgsLimit::get(), 4096);
         assert_eq!(<Test as crate::Config>::MaxSwapQueueLength::get(), 1000);
+        assert_eq!(
+            <Test as crate::Config>::MaxSubnetNodesUpperBound::get(),
+            512
+        );
     });
 }
 
@@ -1592,7 +1596,7 @@ fn test_set_min_max_subnet_node() {
         System::set_block_number(System::block_number() + 1);
 
         let min: u32 = 5;
-        let max: u32 = 500;
+        let max = <Test as crate::Config>::MaxSubnetNodesUpperBound::get();
 
         assert_ok!(Network::set_min_max_subnet_node(
             RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
@@ -1606,6 +1610,29 @@ fn test_set_min_max_subnet_node() {
             *network_events().last().unwrap(),
             Event::SetMinMaxSubnetNodes(min, max)
         );
+    });
+}
+
+#[test]
+fn test_set_min_max_subnet_node_rejects_above_runtime_upper_bound() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(System::block_number() + 1);
+
+        let previous_min = MinSubnetNodes::<Test>::get();
+        let previous_max = MaxSubnetNodes::<Test>::get();
+        let upper_bound = <Test as crate::Config>::MaxSubnetNodesUpperBound::get();
+
+        assert_err!(
+            Network::set_min_max_subnet_node(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                5,
+                upper_bound + 1,
+            ),
+            Error::<Test>::InvalidMaxSubnetNodes
+        );
+
+        assert_eq!(MinSubnetNodes::<Test>::get(), previous_min);
+        assert_eq!(MaxSubnetNodes::<Test>::get(), previous_max);
     });
 }
 

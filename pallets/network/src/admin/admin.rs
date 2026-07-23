@@ -570,6 +570,10 @@ impl<T: Config> Pallet<T> {
 
     pub fn do_set_min_max_subnet_node(min: u32, max: u32) -> DispatchResult {
         ensure!(min < max && min > 0, Error::<T>::InvalidValues);
+        ensure!(
+            max <= T::MaxSubnetNodesUpperBound::get(),
+            Error::<T>::InvalidMaxSubnetNodes
+        );
 
         MinSubnetNodes::<T>::set(min);
         MaxSubnetNodes::<T>::set(max);

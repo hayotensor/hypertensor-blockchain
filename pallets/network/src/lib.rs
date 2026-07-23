@@ -172,6 +172,10 @@ pub mod pallet {
         #[pallet::constant]
         type MaximumHooksWeight: Get<Weight>;
 
+        /// Runtime ceiling for the governance-configurable maximum active nodes in each subnet.
+        #[pallet::constant]
+        type MaxSubnetNodesUpperBound: Get<u32>;
+
         /// Epoch slots (see `on_initialize`)
         #[pallet::constant]
         type DesignatedEpochSlots: Get<u32>;
@@ -9494,6 +9498,10 @@ pub mod pallet {
             assert!(
                 T::EpochLength::get() > 3,
                 "network epoch must contain at least one subnet slot after slots 0, 1, and 2"
+            );
+            assert!(
+                DefaultMaxSubnetNodes::get() <= T::MaxSubnetNodesUpperBound::get(),
+                "default max subnet nodes must not exceed the runtime upper bound"
             );
         }
 

@@ -305,29 +305,4 @@ impl<T: Config> Pallet<T> {
         let delta = Self::percent_mul(prev_reputation, factor);
         prev_reputation.saturating_sub(delta).min(one)
     }
-
-    /// Get the non consensus attestor factor
-    ///
-    /// # Arguments
-    /// * `non_consensus_attestor_decrease_factor` - The resolved factor for the evaluated epoch
-    /// * `attestation_ratio` - The attestation ratio
-    /// * `min_attestation_percentage` - The minimum attestation percentage
-    /// * `percentage_factor` - The percentage factor (1e18)
-    ///
-    /// # Returns
-    /// The non consensus attestor factor
-    pub fn get_non_consensus_attestor_factor(
-        non_consensus_attestor_decrease_factor: u128,
-        attestation_ratio: u128,
-        min_attestation_percentage: u128,
-        percentage_factor: u128,
-    ) -> u128 {
-        Self::percent_mul(
-            non_consensus_attestor_decrease_factor,
-            percentage_factor.saturating_sub(Self::percent_div(
-                attestation_ratio,
-                min_attestation_percentage,
-            )),
-        )
-    }
 }

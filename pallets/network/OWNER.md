@@ -124,6 +124,17 @@ Owners can update subnet reputation factors. These factors determine how node re
 
 Reputation factors are a core part of subnet quality control. They define the incentives and penalties that shape long-term node behavior, and updates are bounded and scheduled so changes remain predictable.
 
+`non_consensus_attestor_decrease` is the maximum percentage of current reputation that a
+supporting attestor can lose when a proposal is strongly rejected. The actual loss is linear: it
+is zero at the network-controlled strong-rejection threshold and reaches the owner-configured
+maximum at 0% distinct validator-identity support. Each validator identity counts once regardless
+of how many of its nodes attest, while every attesting node receives the resulting reputation
+decrease. This includes the elected proposer through its automatic attestation. The factor affects
+node reputation only: it does not slash attestors' node stake or validator delegate pools, and
+economic slashing remains specific to the elected proposer. For that proposer, the supporter
+decrease compounds after the proposer-specific reputation decrease before minimum-reputation
+removal is evaluated.
+
 ### Consensus and Attestation Settings
 
 Owners can adjust subnet-specific consensus policy such as the validator node count decay used in

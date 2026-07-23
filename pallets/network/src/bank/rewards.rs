@@ -574,23 +574,30 @@ impl<T: Config> Pallet<T> {
         weight_meter: &mut WeightMeter,
     ) {
         let db_weight = T::DbWeight::get();
+        let validator_subnet_node_id = consensus_submission_data.validator_subnet_node_id;
+        let stake_attestation_ratio = consensus_submission_data.attestation_ratio;
+        let identity_attestation_ratio = consensus_submission_data.identity_attestation_ratio;
+        let strong_rejection_threshold = consensus_submission_data
+            .policy
+            .validator_delegate_stake_slash_threshold;
 
         // --- Slash validator
         // Slashes stake balance
         // Decreases reputation
-        // Possibly removes node if under min reputation
+        // Node removal is deliberately deferred until after the attestor-role decrease below so
+        // the proposer can receive both sequential reputation penalties before removal.
         let slash_validator_weight = Self::slash_validator_for_round_with_policy(
             subnet_id,
-            consensus_submission_data.validator_subnet_node_id,
+            validator_subnet_node_id,
             penalty_attestation_ratio,
             penalty_attestation_threshold,
             coldkey_reputation_decrease_factor,
-            min_validator_reputation,
+            0,
             electable_nodes_count,
             reputation_factors.validator_non_consensus_decrease,
             base_slash_percentage,
             max_slash_amount,
-            consensus_submission_data.attestation_ratio,
+            stake_attestation_ratio,
             consensus_submission_data.validator_delegate_stake_balance,
             consensus_submission_data
                 .policy
@@ -618,59 +625,68 @@ impl<T: Config> Pallet<T> {
         // NotInConsensusSubnetReputationFactor | SubnetReputation
         weight_meter.consume(db_weight.reads_writes(2, 1));
 
-        // Get the decrease factor based on the attestation ratio
-        let non_consensus_attestor_factor = Self::get_non_consensus_attestor_factor(
-            reputation_factors.non_consensus_attestor_decrease,
-            penalty_attestation_ratio,
-            penalty_attestation_threshold,
-            percentage_factor,
-        );
+        // Every node that attested to this rejected proposal, including the proposer through its
+        // automatic attestation, is accountable only when support by distinct validator identities
+        // is below the round's snapshotted strong-rejection threshold. Stake support continues to
+        // govern the proposer's economic penalties above, but does not gate or scale this decrease.
+        if strong_rejection_threshold > 0 && identity_attestation_ratio < strong_rejection_threshold
+        {
+            // Linear severity is based only on distinct validator-identity support: zero at the
+            // strict strong-rejection boundary and 100% at zero identity support. `decrease_rep`
+            // multiplies this shortfall by the subnet's configured maximum decrease factor.
+            let identity_shortfall = percentage_factor.saturating_sub(
+                Self::percent_div(identity_attestation_ratio, strong_rejection_threshold)
+                    .min(percentage_factor),
+            );
 
-        // --- Decrease reputation of attestors
-        for (subnet_node_id, attest_data) in consensus_submission_data.attests {
-            if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id) {
-                // We read the sn reputation for 1 reason:
-                // 1. Make sure the node currently is active
-                //
-                // Note: It's possible for the node to had been removed in this step
-                // if the node was the elecated validator and was removed in the ``slash_validator`` step, or
-                // if the node removed itself prior to this rewards distribution call.
-                let new_reputation = Self::decrease_and_return_node_reputation(
-                    subnet_id,
-                    subnet_node_id,
-                    rep,
-                    non_consensus_attestor_factor,
-                    None,
-                );
+            if Self::percent_mul(
+                reputation_factors.non_consensus_attestor_decrease,
+                identity_shortfall,
+            ) > 0
+            {
+                // --- Decrease reputation of attestors to a strongly rejected proposal
+                for (subnet_node_id, _attest_data) in consensus_submission_data.attests {
+                    if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id) {
+                        // The reputation entry also establishes that the node is still active. A
+                        // node may have removed itself between attestation and settlement.
+                        let new_reputation = Self::decrease_and_return_node_reputation(
+                            subnet_id,
+                            subnet_node_id,
+                            rep,
+                            reputation_factors.non_consensus_attestor_decrease,
+                            Some(identity_shortfall),
+                        );
 
-                // `decrease_and_return_node_reputation`: SubnetNodeReputation (r/w)
-                weight_meter.consume(db_weight.reads_writes(2, 1));
+                        // SubnetNodeReputation::get + try_mutate_exists, plus the
+                        // NodeReputationUpdate event's System event storage accesses.
+                        weight_meter.consume(db_weight.reads_writes(6, 3));
 
-                if new_reputation < min_validator_reputation {
-                    weight_meter.consume(db_weight.reads(1));
-                    if let Some(validator_id) =
-                        SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
-                    {
-                        weight_meter.consume(db_weight.reads(1));
-                        let (x, c) =
-                            Self::validator_subnet_nodes_weight_params(validator_id, subnet_id);
-
-                        if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
-                            x,
-                            electable_nodes_count,
-                            c,
-                        )) {
-                            Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-                            weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
-                                x,
+                        if new_reputation < min_validator_reputation {
+                            Self::handle_consensus_remove_active_node(
+                                weight_meter,
+                                subnet_id,
+                                subnet_node_id,
                                 electable_nodes_count,
-                                c,
-                            ));
+                            );
                         }
                     }
                 }
             }
-            continue;
+        }
+
+        // The proposer is normally in `attests` through automatic attestation and was therefore
+        // removed above only after both decreases. This final check preserves proposer removal at
+        // or above the strong-rejection boundary and safely covers a malformed/missing entry.
+        weight_meter.consume(db_weight.reads(1));
+        if SubnetNodeReputation::<T>::get(subnet_id, validator_subnet_node_id)
+            .is_some_and(|reputation| reputation < min_validator_reputation)
+        {
+            Self::handle_consensus_remove_active_node(
+                weight_meter,
+                subnet_id,
+                validator_subnet_node_id,
+                electable_nodes_count,
+            );
         }
     }
 

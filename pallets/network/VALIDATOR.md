@@ -46,7 +46,18 @@ Validator-owned subnet nodes can participate in subnet consensus once they reach
 
 Consensus submissions contain the elected subnet node's view of subnet node scores and may include queue decisions, such as prioritizing or removing queued nodes when the subnet rules allow it. Attestations from other eligible subnet nodes signal agreement with the submitted data.
 
-Timely and accurate subnet node participation affects rewards and reputation. Missing proposals, failing to gather enough attestation, or participating outside consensus can reduce reputation or rewards according to network and subnet policy.
+Timely and accurate subnet node participation affects rewards and reputation. Missing a proposal
+or failing to gather enough attestation can reduce the elected proposer's reputation or rewards.
+For a rejected submitted proposal, every attesting node can receive the configured proportional
+reputation decrease when distinct validator-identity support is strictly below the round's
+snapshotted configurable strong-rejection threshold, which defaults to one-third. Each identity
+counts once even if several of its nodes attest, but all of those attesting nodes are processed.
+The elected proposer is included because submitting the proposal creates its automatic
+attestation; its supporter decrease compounds after its proposer-specific reputation decrease
+before minimum-reputation removal is evaluated. This supporter penalty affects node reputation
+only; attestors are not economically slashed for attesting, while proposer node and delegate-pool
+slashing remain specific to the elected proposer. A missing proposal has no attestors to penalize
+and follows the separate absence and proposer-economic-penalty path.
 
 The validator identity records its first and most recent election epochs when one of its subnet
 nodes is elected. These election timestamps are written immediately, including when the elected
@@ -93,9 +104,11 @@ from the pool balance and slashing configuration snapshotted when the node is el
 capped by the pool's current balance and the configured absolute maximum.
 
 The delegate-pool penalty launches disabled: its base percentage and maximum slash amount both
-default to zero. A supermajority collective may later enable or reconfigure both values atomically.
-Delegators should inspect the current on-chain configuration and remember that an already elected
-round keeps its snapshot even if governance changes the live settings afterward.
+default to zero. The strong-rejection threshold defaults to one-third. A supermajority collective
+may later update the threshold, base percentage, and maximum amount atomically, including enabling
+or disabling the economic tier. Delegators should inspect the current on-chain configuration and
+remember that an already elected round keeps its snapshot even if governance changes the live
+settings afterward.
 
 For an enabled elected round, outgoing unstaking and swaps from the pool are temporarily locked
 until its next settlement slot. Incoming stake and share transfers remain permitted, and
