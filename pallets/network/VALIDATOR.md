@@ -47,17 +47,41 @@ Validator-owned subnet nodes can participate in subnet consensus once they reach
 Consensus submissions contain the elected subnet node's view of subnet node scores and may include queue decisions, such as prioritizing or removing queued nodes when the subnet rules allow it. Attestations from other eligible subnet nodes signal agreement with the submitted data.
 
 Timely and accurate subnet node participation affects rewards and reputation. Missing a proposal
-or failing to gather enough attestation can reduce the elected proposer's reputation or rewards.
-For a rejected submitted proposal, every attesting node can receive the configured proportional
-reputation decrease when distinct validator-identity support is strictly below the round's
-snapshotted configurable strong-rejection threshold, which defaults to one-third. Each identity
-counts once even if several of its nodes attest, but all of those attesting nodes are processed.
-The elected proposer is included because submitting the proposal creates its automatic
-attestation; its supporter decrease compounds after its proposer-specific reputation decrease
-before minimum-reputation removal is evaluated. This supporter penalty affects node reputation
-only; attestors are not economically slashed for attesting, while proposer node and delegate-pool
-slashing remain specific to the elected proposer. A missing proposal has no attestors to penalize
-and follows the separate absence and proposer-economic-penalty path.
+uses the separate proposer-absence reputation rule. When a submitted proposal fails consensus, its
+economic, validator-identity-reputation, and subnet-reputation consequences remain governed by
+their existing rules.
+
+For an accepted proposal with a nonzero score sum, `non_attestor_decrease` applies to a scored
+Validator-class node that did not attest only when distinct validator-identity participation is at
+least the round's snapshotted supermajority threshold, including equality. The identity ratio is
+the number of unique eligible validator identities with an attestation divided by all unique
+eligible validator identities in the proposal-time snapshot. Multiple attesting nodes owned by one
+validator count as one identity, and the proposer's automatic attestation counts its identity
+once. The gate is identity-level, but attestation responsibility remains node-level: a
+non-attesting sibling can lose the fixed configured reputation percentage even when another node
+of the same validator attested. The factor is not a severity curve and does not slash node stake
+or validator delegate pools. Rejected, missing, and zero-score proposals do not apply it.
+
+Queue decisions use a separate stake-weighted supermajority check. Reaching the identity
+supermajority for the non-attestor rule does not by itself authorize queue prioritization or
+removal.
+
+The elected proposer's node receives `validator_non_consensus_decrease` only when distinct
+validator-identity support is strictly below the round's snapshotted configurable
+strong-rejection threshold, which defaults to one-third. The decrease scales linearly with the
+identity-support shortfall: it is zero at the threshold and reaches the configured maximum at 0%
+identity support. A failed proposal at or above the threshold does not apply this proposer-node
+decrease.
+
+Under the same strong-rejection condition, every attesting node receives the separately configured
+supporter decrease. Each identity counts once even if several of its nodes attest, but all of those
+attesting nodes are processed. The elected proposer first receives its proposer-role decrease and
+then, because submitting creates its automatic attestation, receives the supporter decrease
+against its remaining reputation. Minimum-reputation removal is evaluated after both. The
+supporter penalty affects node reputation only; attestors are not economically slashed for
+attesting, while proposer direct-node-stake and delegate-pool slashing remain specific to the
+elected proposer. A missing proposal has no attestors to penalize and follows the separate absence
+and proposer-economic-penalty path.
 
 The validator identity records its first and most recent election epochs when one of its subnet
 nodes is elected. These election timestamps are written immediately, including when the elected

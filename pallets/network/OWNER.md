@@ -124,6 +124,14 @@ Owners can update subnet reputation factors. These factors determine how node re
 
 Reputation factors are a core part of subnet quality control. They define the incentives and penalties that shape long-term node behavior, and updates are bounded and scheduled so changes remain predictable.
 
+`validator_non_consensus_decrease` is the maximum percentage of current node reputation that the
+elected proposer can lose when its submitted proposal is strongly rejected. The actual loss is
+linear in the distinct-validator-identity support shortfall: it is zero at the
+network-controlled strong-rejection threshold and reaches the owner-configured maximum at 0%
+identity support. A failed proposal at or above that threshold does not apply this proposer-node
+factor, although the existing economic, validator-identity-reputation, and subnet-reputation
+failure paths remain separate.
+
 `non_consensus_attestor_decrease` is the maximum percentage of current reputation that a
 supporting attestor can lose when a proposal is strongly rejected. The actual loss is linear: it
 is zero at the network-controlled strong-rejection threshold and reaches the owner-configured
@@ -132,8 +140,20 @@ of how many of its nodes attest, while every attesting node receives the resulti
 decrease. This includes the elected proposer through its automatic attestation. The factor affects
 node reputation only: it does not slash attestors' node stake or validator delegate pools, and
 economic slashing remains specific to the elected proposer. For that proposer, the supporter
-decrease compounds after the proposer-specific reputation decrease before minimum-reputation
-removal is evaluated.
+decrease uses the same identity shortfall and compounds after
+`validator_non_consensus_decrease` has been applied to the proposer node. Minimum-reputation
+removal is evaluated after both decreases.
+
+`non_attestor_decrease` is a separate fixed node-reputation factor for a scored Validator-class
+node that does not attest to an accepted, nonzero-score proposal. It is applied in full only when
+the distinct-validator-identity attestation ratio is at least the round's snapshotted network
+supermajority threshold; equality qualifies. The ratio counts each eligible parent validator
+identity once and each identity with at least one attesting node once. The proposer contributes
+through its automatic attestation. Identity deduplication protects the gate from stake
+concentration, but responsibility remains node-level: if one node attests and a sibling owned by
+the same validator does not, the sibling can still receive the configured decrease. This factor
+does not slash node stake or validator delegate pools. Rejected, missing, and zero-score proposals
+do not apply it. Queue mutations remain separately gated by stake-weighted supermajority.
 
 ### Consensus and Attestation Settings
 

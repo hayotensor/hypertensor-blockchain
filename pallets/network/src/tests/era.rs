@@ -4,7 +4,8 @@ use crate::{
     ConsensusValidatorIdentityAttestationPercentage, CurrentOverwatchEpoch,
     LastFinalizedOverwatchEpoch, OverwatchCommitCutoffPercent, OverwatchEpochLengthMultiplier,
     OverwatchEpochStartBlock, PendingOverwatchSettlement, PendingOverwatchSettlementData,
-    SubnetElectedValidator, SubnetNodeElectionSlots, SubnetNodeValidatorId, SubnetSlot,
+    SubnetElectedValidator, SubnetNodeElectionSlots, SubnetNodeValidatorId,
+    SubnetReputationFactorSchedules, SubnetSlot, SuperMajorityAttestationRatio,
     ValidatorReputation,
 };
 use frame_support::{assert_ok, traits::OnInitialize};
@@ -140,17 +141,35 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
         let validator_id = 20;
         let subnet_epoch = 3;
         let elected_slash_percentage = Network::percent_div(1, 100);
+        let elected_supermajority = Network::percent_div(7, 8);
+        let elected_non_attestor_decrease = Network::percent_div(3, 100);
 
         SubnetNodeElectionSlots::<Test>::insert(subnet_id, vec![subnet_node_id]);
         SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
         BaseSlashPercentage::<Test>::put(elected_slash_percentage);
+        SuperMajorityAttestationRatio::<Test>::put(elected_supermajority);
+        SubnetReputationFactorSchedules::<Test>::mutate(subnet_id, |schedule| {
+            schedule.current.non_attestor_decrease = elected_non_attestor_decrease;
+        });
 
         Network::elect_validator(subnet_id, subnet_epoch, 0);
         BaseSlashPercentage::<Test>::put(Network::percent_div(9, 100));
+        SuperMajorityAttestationRatio::<Test>::put(Network::percent_div(9, 10));
+        SubnetReputationFactorSchedules::<Test>::mutate(subnet_id, |schedule| {
+            schedule.current.non_attestor_decrease = Network::percent_div(4, 100);
+        });
 
         let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
         assert_eq!(round.validator_subnet_node_id, subnet_node_id);
         assert_eq!(round.policy.base_slash_percentage, elected_slash_percentage);
+        assert_eq!(
+            round.policy.super_majority_attestation_ratio,
+            elected_supermajority
+        );
+        assert_eq!(
+            round.policy.reputation_factors.non_attestor_decrease,
+            elected_non_attestor_decrease
+        );
     });
 }
 

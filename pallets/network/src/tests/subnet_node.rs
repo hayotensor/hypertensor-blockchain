@@ -4375,6 +4375,19 @@ fn test_slash_validator() {
         let starting_account_stake = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
         let starting_total_subnet_stake = TotalSubnetStake::<Test>::get(subnet_id);
         let starting_total_stake = TotalStake::<Test>::get();
+        // Reputation severity is supplied independently from the 50%/66% economic-slash inputs.
+        // One-sixth identity support against the one-third strong-rejection threshold is a 50%
+        // proposer node-reputation shortfall.
+        let proposer_identity_reputation_shortfall = Network::percentage_factor_as_u128()
+            .saturating_sub(Network::percent_div(test_percent(1, 6), test_percent(1, 3)));
+        let validator_non_consensus_reputation_factor =
+            Network::get_reputation_factors_for_epoch(subnet_id, 1)
+                .validator_non_consensus_decrease;
+        let expected_node_reputation = Network::decrease_rep(
+            starting_node_rep.unwrap(),
+            validator_non_consensus_reputation_factor,
+            Some(proposer_identity_reputation_shortfall),
+        );
 
         Network::slash_validator(
             subnet_id,
@@ -4384,16 +4397,58 @@ fn test_slash_validator() {
             test_percent(1, 10),   // 10%
             test_percent(1, 10),   // 10%
             1,
-            Network::get_reputation_factors_for_epoch(subnet_id, 1)
-                .validator_non_consensus_decrease,
+            validator_non_consensus_reputation_factor,
+            Some(proposer_identity_reputation_shortfall),
         );
 
-        assert!(starting_node_rep > SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id));
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id),
+            Some(expected_node_reputation)
+        );
         assert!(starting_ck_rep > ValidatorReputation::<Test>::get(validator_id).score);
 
         assert!(starting_account_stake > NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id));
         assert!(starting_total_subnet_stake > TotalSubnetStake::<Test>::get(subnet_id));
         assert!(starting_total_stake > TotalStake::<Test>::get());
+
+        // The explicit identity-reputation input remains effective even when the independent
+        // economic ratio passes. No economic or validator-identity penalty applies in this case.
+        let node_reputation_after_economic_failure =
+            SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id).unwrap();
+        let validator_reputation_after_economic_failure =
+            ValidatorReputation::<Test>::get(validator_id).score;
+        let node_stake_after_economic_failure =
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
+        let expected_identity_only_reputation = Network::decrease_rep(
+            node_reputation_after_economic_failure,
+            validator_non_consensus_reputation_factor,
+            Some(proposer_identity_reputation_shortfall),
+        );
+
+        Network::slash_validator(
+            subnet_id,
+            subnet_node_id,
+            test_percent(2, 3),
+            test_percent(2, 3),
+            test_percent(1, 10),
+            test_percent(1, 10),
+            1,
+            validator_non_consensus_reputation_factor,
+            Some(proposer_identity_reputation_shortfall),
+        );
+
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id),
+            Some(expected_identity_only_reputation)
+        );
+        assert_eq!(
+            ValidatorReputation::<Test>::get(validator_id).score,
+            validator_reputation_after_economic_failure
+        );
+        assert_eq!(
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
+            node_stake_after_economic_failure
+        );
     });
 }
 

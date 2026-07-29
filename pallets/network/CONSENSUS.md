@@ -316,7 +316,25 @@ participation threshold fails, the epoch is treated as not in consensus.
 
 Some actions require a stronger signal than the normal two-thirds consensus threshold. `SuperMajorityAttestationRatio` defaults to `0.875e18`, or 87.5%.
 
-The supermajority threshold is used for queue mutations and non-attestor reputation penalties. For example, prioritizing or removing a queued node only executes if the proposal reaches supermajority attestation.
+The same snapshotted threshold supplies two separate supermajority gates:
+
+- queue prioritization or removal requires the **stake-weighted** attestation ratio to be at least
+  the threshold;
+- `non_attestor_decrease` requires the **distinct-validator-identity** attestation ratio to be at
+  least the threshold.
+
+Equality qualifies for both gates. The identity ratio is:
+
+```text
+identity_attestation_ratio =
+  unique eligible validator identities that attested
+  / unique eligible validator identities
+```
+
+The eligible nodes and their parent validator identities are fixed by the proposal-time snapshot,
+while the threshold comes from the elected round's policy snapshot. Multiple attesting nodes owned
+by one validator identity contribute one identity to the numerator. The proposer's automatic
+attestation contributes its identity once.
 
 ## Rewards
 
@@ -353,13 +371,28 @@ When consensus succeeds:
 - included nodes can progress toward validator classification;
 - nodes below the minimum reputation can be removed;
 - nodes whose score share is below the subnet's minimum weight threshold can lose reputation;
-- validator-class nodes that fail to attest while the proposal reaches supermajority can lose reputation.
+- scored validator-class nodes that fail to attest can lose reputation when distinct
+  validator-identity participation reaches the snapshotted supermajority threshold.
+
+The identity supermajority establishes that participation was broad enough to hold individual
+non-attesting nodes accountable. Once it is met, each applicable non-attesting node receives the
+full configured `non_attestor_decrease`; the factor is not scaled by stake, identity participation,
+or distance above the threshold. Identity deduplication affects only the gate. Attestation duty
+remains node-level, so a non-attesting node can be penalized even if another node belonging to the
+same validator identity attested. The decrease changes node reputation only and does not slash
+direct node stake or a validator delegate pool.
+
+This rule runs only while distributing a successful, nonzero-score proposal. Rejected and missing
+proposals do not apply `non_attestor_decrease`, and the existing zero-score accepted-proposal early
+return remains unchanged. In an emergency-validator round, the identity ratio and applicable
+non-attestors are limited to the snapshotted emergency validator set.
 
 When consensus fails:
 
 - subnet reputation decreases;
-- the elected proposer loses node reputation;
 - the proposer's validator identity reputation decreases;
+- the elected proposer loses node reputation only when distinct validator-identity support is
+  strictly below the round's snapshotted strong-rejection threshold;
 - every attesting node, including the proposer's automatic attestation, loses node reputation only
   when distinct validator-identity support is strictly below the round's snapshotted
   strong-rejection threshold;
@@ -369,9 +402,9 @@ Reputation decreases generally scale with configured reputation factors. Several
 
 ## Penalties and Slashing
 
-The elected proposer is economically penalized when the proposal fails quorum. The ordinary
-penalty applies whenever the proposal is below the snapshotted two-thirds consensus threshold and
-slashes the elected subnet node's direct stake.
+The elected proposer is economically penalized when the proposal fails either quorum. The
+ordinary penalty slashes the elected subnet node's direct stake using the worse normalized
+shortfall among the failed stake and validator-identity thresholds.
 
 The shortfall is calculated against the failed threshold:
 
@@ -379,8 +412,9 @@ The shortfall is calculated against the failed threshold:
 shortfall = 1 - actual_ratio / required_ratio
 ```
 
-If both the stake threshold and validator-identity participation threshold fail, the pallet uses
-the worse shortfall for the proposer penalty.
+The selected failure ratio and threshold continue to drive the direct-stake,
+validator-identity-reputation, and subnet-reputation penalty paths. They do not drive the
+proposer's node-reputation decrease.
 
 The stake slash is:
 
@@ -397,33 +431,38 @@ only when the stake-weighted attestation rate is strictly below the round's snap
 one-third. This economic penalty applies only to the elected proposer's validator identity; an
 attesting node is not slashed merely for attesting to the proposal.
 
-The same snapshotted configurable threshold is also used for a separate node-reputation rule,
-but that rule is based solely on distinct validator-identity support rather than stake-weighted
-support. The proposal-time validator snapshot fixes the eligible identity denominator. Each
-validator identity with one or more attesting nodes contributes exactly one supporter, and the
-proposer contributes one through its automatic attestation.
+The same snapshotted configurable threshold also gates two node-reputation decreases based solely
+on distinct validator-identity support rather than stake-weighted support. The proposal-time
+validator snapshot fixes the eligible identity denominator. Each validator identity with one or
+more attesting nodes contributes exactly one supporter, and the proposer contributes one through
+its automatic attestation.
 
-The supporter-reputation decrease uses the subnet's snapshotted
-`non_consensus_attestor_decrease` as the maximum loss factor:
+The proposer-role decrease uses the subnet's snapshotted `validator_non_consensus_decrease` as its
+maximum loss factor. The supporter decrease uses the separately snapshotted
+`non_consensus_attestor_decrease`:
 
 ```text
 identity_support = distinct attesting validator identities
   / distinct eligible validator identities
-supporter_shortfall = 1 - identity_support / strong_rejection_threshold
+identity_shortfall = 1 - identity_support / strong_rejection_threshold
+proposer_reputation_loss = current_reputation
+  * validator_non_consensus_decrease
+  * identity_shortfall
 supporter_reputation_loss = current_reputation
   * non_consensus_attestor_decrease
-  * supporter_shortfall
+  * identity_shortfall
 ```
 
-The curve is zero at the strict threshold and reaches the configured maximum percentage of the
-supporter's current node reputation at 0% identity support. If several nodes belonging to one
-validator identity attest, that identity still counts once when calculating support, but every
-attesting node receives the resulting node-reputation decrease. This includes the elected
-proposer because proposal submission creates its automatic attestation. The attestor rule does
-not slash those nodes' direct stake or their validator delegate pools; proposer economic slashing
-remains role-specific. For the proposer, the supporter decrease is applied to the reputation
-remaining after the proposer-specific decrease, and the minimum-reputation removal check runs
-after both decreases.
+Both curves are zero at the strict threshold and reach their respective configured maximum
+percentages at 0% identity support. At or above the threshold, a failed submitted proposal does not
+apply either node-reputation decrease. Below it, the elected proposer first receives the
+proposer-role decrease. Every attesting node then receives the supporter decrease; this includes
+the proposer because proposal submission creates its automatic attestation. If several nodes
+belonging to one validator identity attest, that identity still counts once when calculating
+support, but every attesting node is processed. The attestor rule does not slash those nodes'
+direct stake or validator delegate pools; proposer economic slashing remains role-specific. For
+the proposer, the supporter decrease is applied to the reputation remaining after the
+proposer-role decrease, and the minimum-reputation removal check runs after both.
 
 The delegate-pool shortfall and slash are:
 
@@ -453,7 +492,7 @@ Delegate-pool slashing is enabled only when both
 `BaseValidatorDelegateStakeSlashPercentage` and `MaxValidatorDelegateStakeSlashAmount` are
 nonzero. Both launch as zero, which disables only the delegate-pool balance loss and protects
 delegator principal. The threshold continues to govern the distinct-identity-support
-node-reputation curve. A supermajority collective can later enable, reconfigure, or atomically
+node-reputation curves. A supermajority collective can later enable, reconfigure, or atomically
 disable the economic tier. The configured threshold must remain above zero and below
 `MinAttestationPercentage`; the base percentage cannot exceed 100%.
 
@@ -462,10 +501,12 @@ until the round's settlement slot, `election_block + EpochLength`. Incoming dele
 transfers of pool shares remain available because neither removes value from the slashable pool.
 Overlapping elected rounds extend the lock to the latest settlement block.
 
-Every failed-consensus result can decrease the elected proposer's node reputation and validator
-identity reputation. Every node recorded as attesting, including the proposer, receives the
-separate identity-support-based node-reputation decrease only for a strongly rejected submitted
-proposal. These attestors receive no attestor-specific economic slash. If a node's reputation
+Every failed-consensus result can decrease the proposer's validator identity reputation and the
+subnet's reputation under their existing rules. The elected proposer's node reputation decreases
+under `validator_non_consensus_decrease` only for a strongly rejected submitted proposal, using
+the identity-support curve above. Every node recorded as attesting, including the proposer,
+receives the separate `non_consensus_attestor_decrease` only under the same strong-rejection
+condition. These attestors receive no attestor-specific economic slash. If a node's reputation
 falls below the subnet's minimum, the node can be removed from the active subnet and election set.
 
 If no proposal is submitted for an epoch where a validator was elected, the pallet treats the
@@ -479,7 +520,10 @@ The proposer can include two optional queue decisions:
 - prioritize a queued node by moving it to the front of the queue;
 - remove a queued node that has passed the queue immunity period.
 
-These decisions are validated when submitted and only executed if the proposal reaches the supermajority threshold. Emergency validator-set consensus cannot mutate the normal registration queue.
+These decisions are validated when submitted and only executed if the proposal's stake-weighted
+attestation ratio is at least the snapshotted supermajority threshold. This queue gate remains
+stake-weighted and is independent of the distinct-identity gate for `non_attestor_decrease`.
+Emergency validator-set consensus cannot mutate the normal registration queue.
 
 Queue duration and immunity changes become effective at the next subnet epoch. Both periods use the same strict elapsed-period boundary:
 

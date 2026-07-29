@@ -632,6 +632,7 @@ impl<T: Config> Pallet<T> {
     /// * `min_attestation_percentage` - Blockchain's minimum stake-attestation percentage
     /// * `coldkey_reputation_decrease_factor`: `ValidatorReputationDecreaseFactor`
     /// * `validator_non_consensus_reputation_factor`: Resolved subnet node factor for this epoch
+    /// * `proposer_identity_reputation_shortfall`: Precomputed distinct-identity rejection severity
     pub fn slash_validator(
         subnet_id: u32,
         subnet_node_id: u32,
@@ -641,6 +642,7 @@ impl<T: Config> Pallet<T> {
         min_validator_reputation: u128,
         electable_nodes: u32,
         validator_non_consensus_reputation_factor: u128,
+        proposer_identity_reputation_shortfall: Option<u128>,
     ) -> Weight {
         Self::slash_validator_with_policy(
             subnet_id,
@@ -651,6 +653,7 @@ impl<T: Config> Pallet<T> {
             min_validator_reputation,
             electable_nodes,
             validator_non_consensus_reputation_factor,
+            proposer_identity_reputation_shortfall,
             BaseSlashPercentage::<T>::get(),
             MaxSlashAmount::<T>::get(),
         )
@@ -665,6 +668,7 @@ impl<T: Config> Pallet<T> {
         min_validator_reputation: u128,
         electable_nodes: u32,
         validator_non_consensus_reputation_factor: u128,
+        proposer_identity_reputation_shortfall: Option<u128>,
         base_slash_percentage: u128,
         max_slash_amount: u128,
     ) -> Weight {
@@ -677,6 +681,7 @@ impl<T: Config> Pallet<T> {
             min_validator_reputation,
             electable_nodes,
             validator_non_consensus_reputation_factor,
+            proposer_identity_reputation_shortfall,
             base_slash_percentage,
             max_slash_amount,
             attestation_percentage,
@@ -687,9 +692,10 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    /// Apply snapshotted economic policy and existing reputation penalties to a submitted round.
+    /// Apply snapshotted economic policy and reputation penalties to a submitted round.
     /// Direct node-stake severity continues to use the selected consensus-failure ratio, while
-    /// delegate-pool severity always uses the stake-weighted attestation ratio.
+    /// delegate-pool severity always uses the stake-weighted attestation ratio. Proposer node
+    /// reputation uses only the caller-provided distinct-identity strong-rejection shortfall.
     pub fn slash_validator_for_round_with_policy(
         subnet_id: u32,
         subnet_node_id: u32,
@@ -699,6 +705,7 @@ impl<T: Config> Pallet<T> {
         min_validator_reputation: u128,
         electable_nodes: u32,
         validator_non_consensus_reputation_factor: u128,
+        proposer_identity_reputation_shortfall: Option<u128>,
         base_slash_percentage: u128,
         max_slash_amount: u128,
         stake_attestation_percentage: u128,
@@ -710,75 +717,90 @@ impl<T: Config> Pallet<T> {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
-        // Redundant
-        if attestation_percentage >= min_attestation_percentage {
+        let proposer_identity_reputation_shortfall = proposer_identity_reputation_shortfall
+            .map(|shortfall| shortfall.min(Self::percentage_factor_as_u128()))
+            .filter(|shortfall| {
+                Self::percent_mul(validator_non_consensus_reputation_factor, *shortfall) > 0
+            });
+        let economic_consensus_failed = attestation_percentage < min_attestation_percentage;
+
+        if !economic_consensus_failed && proposer_identity_reputation_shortfall.is_none() {
             return weight;
         }
 
-        // --- Get percent difference between attestation ratio and min attestation ratio
-        // 1.0 - attestation ratio / min attestation ratio
-        let attestation_delta = Self::percentage_factor_as_u128().saturating_sub(
-            Self::percent_div(attestation_percentage, min_attestation_percentage),
-        );
-
-        let (validator_id, _, _, slash_weight) = Self::apply_validator_economic_slashes(
-            subnet_id,
-            subnet_node_id,
-            attestation_percentage,
-            min_attestation_percentage,
-            base_slash_percentage,
-            max_slash_amount,
-            stake_attestation_percentage,
-            snapshotted_validator_delegate_stake_balance,
-            validator_delegate_stake_slash_threshold,
-            base_validator_delegate_stake_slash_percentage,
-            max_validator_delegate_stake_slash_amount,
-        );
-        weight = weight.saturating_add(slash_weight);
-
-        let reputation = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id).map(|rep| {
-            Self::decrease_and_return_node_reputation(
+        let validator_id = if economic_consensus_failed {
+            let (validator_id, _, _, slash_weight) = Self::apply_validator_economic_slashes(
                 subnet_id,
                 subnet_node_id,
-                rep,
-                validator_non_consensus_reputation_factor,
-                Some(attestation_delta),
-            )
-        });
-        // SubnetNodeReputation::get + try_mutate_exists, plus the
-        // NodeReputationUpdate event's System event storage accesses.
-        weight = weight.saturating_add(db_weight.reads_writes(6, 3));
-
-        if let Some(validator_id) = validator_id {
-            Self::decrease_validator_reputation(
-                validator_id,
                 attestation_percentage,
                 min_attestation_percentage,
-                coldkey_reputation_decrease_factor,
+                base_slash_percentage,
+                max_slash_amount,
+                stake_attestation_percentage,
+                snapshotted_validator_delegate_stake_balance,
+                validator_delegate_stake_slash_threshold,
+                base_validator_delegate_stake_slash_percentage,
+                max_validator_delegate_stake_slash_amount,
             );
-            // ValidatorReputation::contains_key + get + insert (worst-case enabled path).
-            weight = weight.saturating_add(db_weight.reads_writes(2, 1));
+            weight = weight.saturating_add(slash_weight);
 
-            // Remove validator if below min node reputation.
-            if let Some(reputation) = reputation {
-                if reputation < min_validator_reputation {
-                    weight = weight.saturating_add(db_weight.reads(1));
-                    let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
-                    // x = number of subnets (outer BTreeMap size)
-                    let x = validator_subnet_nodes.len() as u32;
-                    // c = number of nodes in the specific subnet (inner BTreeSet size)
-                    let c = validator_subnet_nodes
-                        .get(&subnet_id)
-                        .map(|nodes| nodes.len() as u32)
-                        .unwrap_or(0);
+            if let Some(validator_id) = validator_id {
+                Self::decrease_validator_reputation(
+                    validator_id,
+                    attestation_percentage,
+                    min_attestation_percentage,
+                    coldkey_reputation_decrease_factor,
+                );
+                // ValidatorReputation::contains_key + get + insert (worst-case enabled path).
+                weight = weight.saturating_add(db_weight.reads_writes(2, 1));
+            }
+            validator_id
+        } else {
+            // An explicit identity shortfall is independent from economic consensus. Resolve the
+            // validator only for the possible minimum-reputation removal below.
+            weight = weight.saturating_add(db_weight.reads(1));
+            SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
+        };
 
-                    Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-                    weight = weight.saturating_add(T::WeightInfo::remove_active_subnet_node(
-                        x,
-                        electable_nodes,
-                        c,
-                    ));
-                }
+        let reputation = if let Some(identity_shortfall) = proposer_identity_reputation_shortfall {
+            weight = weight.saturating_add(db_weight.reads(1));
+            SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id).map(|rep| {
+                let new_reputation = Self::decrease_and_return_node_reputation(
+                    subnet_id,
+                    subnet_node_id,
+                    rep,
+                    validator_non_consensus_reputation_factor,
+                    Some(identity_shortfall),
+                );
+                // try_mutate_exists, plus the NodeReputationUpdate event's System event storage
+                // accesses. The explicit `get` read is metered above even when no entry exists.
+                weight = weight.saturating_add(db_weight.reads_writes(5, 3));
+                new_reputation
+            })
+        } else {
+            None
+        };
+
+        // Remove validator if below min node reputation. Callers that need the proposer to receive
+        // a subsequent attestor-role decrease pass a zero minimum and perform the final check later.
+        if let (Some(validator_id), Some(reputation)) = (validator_id, reputation) {
+            if reputation < min_validator_reputation {
+                weight = weight.saturating_add(db_weight.reads(1));
+                let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
+                // x = number of subnets (outer BTreeMap size)
+                let x = validator_subnet_nodes.len() as u32;
+                // c = number of nodes in the specific subnet (inner BTreeSet size)
+                let c = validator_subnet_nodes
+                    .get(&subnet_id)
+                    .map(|nodes| nodes.len() as u32)
+                    .unwrap_or(0);
+
+                Self::remove_active_subnet_node(subnet_id, subnet_node_id);
+                weight = weight.saturating_add(T::WeightInfo::remove_active_subnet_node(
+                    x,
+                    electable_nodes,
+                    c,
+                ));
             }
         }
 

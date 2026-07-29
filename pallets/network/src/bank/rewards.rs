@@ -45,7 +45,8 @@ impl<T: Config> Pallet<T> {
 
         let percentage_factor = Self::percentage_factor_as_u128();
         let policy = consensus_submission_data.policy;
-        let super_majority_threshold = policy.super_majority_attestation_ratio;
+        let has_identity_super_majority = consensus_submission_data.identity_attestation_ratio
+            >= policy.super_majority_attestation_ratio;
         let emergency_snapshot = consensus_submission_data.emergency.clone();
         let min_validator_reputation = emergency_snapshot
             .as_ref()
@@ -164,7 +165,7 @@ impl<T: Config> Pallet<T> {
         }
 
         //
-        // --- We are now in consensus (>=2/3 attestation ratio by default)
+        // --- We are now in consensus (both the stake and distinct-identity quorums passed)
         //
 
         let idle_epochs = policy.idle_classification_epochs;
@@ -406,14 +407,11 @@ impl<T: Config> Pallet<T> {
                     match consensus_submission_data.attests.get(&subnet_node.id) {
                         Some(data) => data.reward_factor,
                         None => {
-                            // If node didn't attest in super majority, decrease reputation
-                            // We can likely assume the validator is offline in the current epoch and
-                            // failed to attest. The `non_attestor_factor` is suggested to the be lowest
-                            // decreasing factor of all node reputation factors.
-                            if node_exists
-                                && consensus_submission_data.attestation_ratio
-                                    >= super_majority_threshold
-                            {
+                            // When a supermajority of distinct eligible validator identities
+                            // participated, treat this emergency validator node as offline for
+                            // failing to attest. The `non_attestor_factor` is intended to be the
+                            // lowest decreasing factor of all node reputation factors.
+                            if node_exists && has_identity_super_majority {
                                 reputation = Self::decrease_and_return_node_reputation(
                                     subnet_id,
                                     subnet_node.id,
@@ -434,10 +432,10 @@ impl<T: Config> Pallet<T> {
                 // Subnet is not forked and node attested
                 data.reward_factor
             } else {
-                // Node not attested but in in-consensus data, decrease reputation, return 1.0 reward factor
-                if node_exists
-                    && consensus_submission_data.attestation_ratio >= super_majority_threshold
-                {
+                // A distinct-identity supermajority makes node-level non-participation
+                // attributable. Decrease this non-attesting node's reputation while preserving its
+                // existing reward factor.
+                if node_exists && has_identity_super_majority {
                     reputation = Self::decrease_and_return_node_reputation(
                         subnet_id,
                         subnet_node.id,
@@ -580,10 +578,30 @@ impl<T: Config> Pallet<T> {
         let strong_rejection_threshold = consensus_submission_data
             .policy
             .validator_delegate_stake_slash_threshold;
+        let strong_rejection_identity_shortfall = if strong_rejection_threshold > 0
+            && identity_attestation_ratio < strong_rejection_threshold
+        {
+            Some(
+                percentage_factor.saturating_sub(
+                    Self::percent_div(identity_attestation_ratio, strong_rejection_threshold)
+                        .min(percentage_factor),
+                ),
+            )
+        } else {
+            None
+        };
+        let proposer_identity_reputation_shortfall =
+            strong_rejection_identity_shortfall.filter(|identity_shortfall| {
+                Self::percent_mul(
+                    reputation_factors.validator_non_consensus_decrease,
+                    *identity_shortfall,
+                ) > 0
+            });
 
         // --- Slash validator
         // Slashes stake balance
-        // Decreases reputation
+        // Decreases validator-identity reputation using the existing consensus-failure ratio.
+        // Proposer node reputation uses only the distinct-identity strong-rejection shortfall.
         // Node removal is deliberately deferred until after the attestor-role decrease below so
         // the proposer can receive both sequential reputation penalties before removal.
         let slash_validator_weight = Self::slash_validator_for_round_with_policy(
@@ -595,6 +613,7 @@ impl<T: Config> Pallet<T> {
             0,
             electable_nodes_count,
             reputation_factors.validator_non_consensus_decrease,
+            proposer_identity_reputation_shortfall,
             base_slash_percentage,
             max_slash_amount,
             stake_attestation_ratio,
@@ -629,16 +648,7 @@ impl<T: Config> Pallet<T> {
         // automatic attestation, is accountable only when support by distinct validator identities
         // is below the round's snapshotted strong-rejection threshold. Stake support continues to
         // govern the proposer's economic penalties above, but does not gate or scale this decrease.
-        if strong_rejection_threshold > 0 && identity_attestation_ratio < strong_rejection_threshold
-        {
-            // Linear severity is based only on distinct validator-identity support: zero at the
-            // strict strong-rejection boundary and 100% at zero identity support. `decrease_rep`
-            // multiplies this shortfall by the subnet's configured maximum decrease factor.
-            let identity_shortfall = percentage_factor.saturating_sub(
-                Self::percent_div(identity_attestation_ratio, strong_rejection_threshold)
-                    .min(percentage_factor),
-            );
-
+        if let Some(identity_shortfall) = strong_rejection_identity_shortfall {
             if Self::percent_mul(
                 reputation_factors.non_consensus_attestor_decrease,
                 identity_shortfall,
@@ -646,6 +656,7 @@ impl<T: Config> Pallet<T> {
             {
                 // --- Decrease reputation of attestors to a strongly rejected proposal
                 for (subnet_node_id, _attest_data) in consensus_submission_data.attests {
+                    weight_meter.consume(db_weight.reads(1));
                     if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id) {
                         // The reputation entry also establishes that the node is still active. A
                         // node may have removed itself between attestation and settlement.
@@ -657,9 +668,10 @@ impl<T: Config> Pallet<T> {
                             Some(identity_shortfall),
                         );
 
-                        // SubnetNodeReputation::get + try_mutate_exists, plus the
-                        // NodeReputationUpdate event's System event storage accesses.
-                        weight_meter.consume(db_weight.reads_writes(6, 3));
+                        // try_mutate_exists, plus the NodeReputationUpdate event's System event
+                        // storage accesses. The explicit `get` read is metered above even when the
+                        // reputation entry no longer exists.
+                        weight_meter.consume(db_weight.reads_writes(5, 3));
 
                         if new_reputation < min_validator_reputation {
                             Self::handle_consensus_remove_active_node(
@@ -742,7 +754,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Handles node queue operations based on consensus data.
+    /// Handles node queue operations based on stake-weighted consensus data.
     ///
     /// This function allows the validator to prioritize or remove nodes from the registration queue.
     ///
@@ -751,11 +763,11 @@ impl<T: Config> Pallet<T> {
     /// * `weight_meter` - Weight meter for tracking weight consumption
     /// * `subnet_id` - The ID of the subnet
     /// * `consensus_submission_data` - Consensus submission data containing queue operations
-    /// * `super_majority_threshold` - The super majority threshold for consensus
+    /// * `super_majority_threshold` - The stake-weighted supermajority threshold for queue actions
     /// # Behavior
     ///
     /// The function performs the following steps:
-    /// 1. Checks if the consensus submission has super majority
+    /// 1. Checks if the consensus submission has a stake-weighted supermajority
     /// 2. Retrieves the node queue for the subnet
     /// 3. Handles prioritize node operation if specified
     /// 4. Handles remove node operation if specified

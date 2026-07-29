@@ -182,6 +182,12 @@ fn set_validator_delegate_weight_for_subnet_node(
     ValidatorDelegateStakeBalance::<Test>::insert(validator_id, weight);
 }
 
+fn set_equal_validator_delegate_weights_for_elected_round(subnet_id: u32, node_count: u32) {
+    for subnet_node_id in 1..=node_count {
+        set_validator_delegate_weight_for_subnet_node(subnet_id, subnet_node_id, 1);
+    }
+}
+
 fn set_validator_node_delegate_stake_weights(validator_id: u32, weights: &[(u32, u32, u128)]) {
     ValidatorNodeDelegateStakeWeights::<Test>::insert(
         validator_id,
@@ -305,6 +311,52 @@ fn attest_subnet_nodes(subnet_id: u32, subnet_node_ids: &[u32]) {
             None,
         ));
     }
+}
+
+fn propose_and_precheck_identity_gate_round(
+    subnet_id: u32,
+    subnet_epoch: u32,
+    proposer_hotkey: AccountId,
+    consensus_data: Vec<SubnetNodeConsensusData>,
+    additional_attestors: &[u32],
+) -> ConsensusSubmissionData<Test> {
+    assert_ok!(Network::propose_attestation(
+        RuntimeOrigin::signed(proposer_hotkey),
+        subnet_id,
+        consensus_data,
+        None,
+        None,
+        None,
+        None,
+    ));
+    attest_subnet_nodes(subnet_id, additional_attestors);
+
+    let (submission, _) = Network::precheck_subnet_consensus_submission(
+        subnet_id,
+        subnet_epoch,
+        Network::get_current_epoch_as_u32(),
+    );
+    submission.expect("submitted identity-gate round must precheck")
+}
+
+fn distribute_identity_gate_round(
+    subnet_id: u32,
+    subnet_epoch: u32,
+    submission: ConsensusSubmissionData<Test>,
+) {
+    Network::distribute_rewards(
+        &mut WeightMeter::new(),
+        subnet_id,
+        System::block_number(),
+        Network::get_current_epoch_as_u32(),
+        subnet_epoch.saturating_add(1),
+        submission,
+        RewardsData::default(),
+        0,
+        0,
+        0,
+        0,
+    );
 }
 
 #[test]
@@ -1618,6 +1670,37 @@ fn test_strong_rejection_deduplicates_identity_but_penalizes_each_attesting_node
         let sibling_reputation_before =
             SubnetNodeReputation::<Test>::get(subnet_id, sibling_node_id).unwrap();
         let sibling_stake_before = NodeSubnetStake::<Test>::get(sibling_node_id, subnet_id);
+        let identity_shortfall = Network::percentage_factor_as_u128().saturating_sub(
+            Network::percent_div(
+                submission.identity_attestation_ratio,
+                submission.policy.validator_delegate_stake_slash_threshold,
+            )
+            .min(Network::percentage_factor_as_u128()),
+        );
+        let proposer_after_proposer_role = Network::decrease_rep(
+            proposer_reputation_before,
+            submission
+                .policy
+                .reputation_factors
+                .validator_non_consensus_decrease,
+            Some(identity_shortfall),
+        );
+        let expected_proposer_reputation = Network::decrease_rep(
+            proposer_after_proposer_role,
+            submission
+                .policy
+                .reputation_factors
+                .non_consensus_attestor_decrease,
+            Some(identity_shortfall),
+        );
+        let expected_sibling_reputation = Network::decrease_rep(
+            sibling_reputation_before,
+            submission
+                .policy
+                .reputation_factors
+                .non_consensus_attestor_decrease,
+            Some(identity_shortfall),
+        );
 
         submission.policy.min_subnet_node_reputation = 0;
         Network::distribute_rewards(
@@ -1634,13 +1717,13 @@ fn test_strong_rejection_deduplicates_identity_but_penalizes_each_attesting_node
             0,
         );
 
-        assert!(
-            SubnetNodeReputation::<Test>::get(subnet_id, proposer_node_id).unwrap()
-                < proposer_reputation_before
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, proposer_node_id).unwrap(),
+            expected_proposer_reputation
         );
-        assert!(
-            SubnetNodeReputation::<Test>::get(subnet_id, sibling_node_id).unwrap()
-                < sibling_reputation_before
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, sibling_node_id).unwrap(),
+            expected_sibling_reputation
         );
         assert_eq!(
             NodeSubnetStake::<Test>::get(sibling_node_id, subnet_id),
@@ -1693,6 +1776,8 @@ fn test_distribute_rewards_fails_when_stake_passes_but_node_count_fails() {
 
         let old_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
         assert!(old_stake > 0);
+        let old_proposer_reputation =
+            SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id).unwrap();
         let old_attestor_reputation =
             SubnetNodeReputation::<Test>::get(subnet_id, second_attestor).unwrap();
 
@@ -1713,6 +1798,12 @@ fn test_distribute_rewards_fails_when_stake_passes_but_node_count_fails() {
 
         let new_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
         assert!(new_stake < old_stake);
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id).unwrap(),
+            old_proposer_reputation,
+            "identity support at one-half is above strong rejection, so identity-quorum failure \
+             must not decrease proposer node reputation"
+        );
         assert_eq!(
             SubnetNodeReputation::<Test>::get(subnet_id, second_attestor).unwrap(),
             old_attestor_reputation
@@ -1908,6 +1999,8 @@ fn test_distribute_rewards_fails_when_node_count_passes_but_stake_fails() {
 
         let old_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
         assert!(old_stake > 0);
+        let old_proposer_reputation =
+            SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id).unwrap();
 
         let mut weight_meter = WeightMeter::new();
         Network::distribute_rewards(
@@ -1926,6 +2019,12 @@ fn test_distribute_rewards_fails_when_node_count_passes_but_stake_fails() {
 
         let new_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
         assert!(new_stake < old_stake);
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id).unwrap(),
+            old_proposer_reputation,
+            "a stake-only quorum failure must retain economic penalties without decreasing \
+             proposer node reputation when identity support is above strong rejection"
+        );
     });
 }
 
@@ -4773,6 +4872,8 @@ fn test_distribute_rewards_non_consensus_reputation() {
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
         assert_ne!(validator_stake, 0);
+        let elected_proposer_reputation =
+            SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id.unwrap()).unwrap();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -4806,6 +4907,12 @@ fn test_distribute_rewards_non_consensus_reputation() {
             SubnetReputation::<Test>::get(subnet_id)
         );
         assert!(starting_subnet_rep > SubnetReputation::<Test>::get(subnet_id));
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id.unwrap()).unwrap(),
+            elected_proposer_reputation,
+            "identity support above strong rejection must preserve the elected proposer's node \
+             reputation regardless of whether it appears in the fixture's attestor subset"
+        );
 
         for n in 0..max_subnet_nodes {
             let subnet_node_id = n + 1;
@@ -4827,8 +4934,10 @@ fn test_distribute_rewards_non_consensus_reputation() {
 
             if let Some(old_rep) = reputation_snapshot.get(&(n + 1)) {
                 if n + 1 == elected_node_id.unwrap() {
-                    // The proposer still receives its ordinary under-consensus reputation penalty.
-                    assert!(rep < *old_rep);
+                    // This rejected proposal retains its economic penalty, but identity support is
+                    // above strong rejection, so neither proposer-role nor supporter reputation
+                    // decreases apply.
+                    assert_eq!(rep, *old_rep);
                 } else {
                     // Supporting attestors are not penalized between strong rejection and quorum.
                     assert_eq!(rep, *old_rep);
@@ -4914,8 +5023,9 @@ fn run_strong_rejection_attestor_reputation_case(
             emergency: None,
         };
 
-        // Make the ordinary proposer penalty maximal. The separate supporting-attestor curve must
-        // use only identity support and the round's snapshotted strong-rejection threshold.
+        // Make the selected consensus-failure economic penalty maximal. Both proposer-node and
+        // supporting-attestor reputation curves must instead use only identity support and the
+        // round's snapshotted strong-rejection threshold.
         Network::handle_non_consensus(
             subnet_id,
             consensus_submission_data,
@@ -4949,14 +5059,9 @@ fn test_identity_rejection_attestor_reputation_curve_penalizes_every_attestor() 
     let threshold = test_percent(1, 3);
     let starting_reputation = test_percent(4, 5);
     let reputation_factors = SubnetReputationFactors::default();
-    let proposer_reputation_after_ordinary_penalty = Network::decrease_rep(
-        starting_reputation,
-        reputation_factors.validator_non_consensus_decrease,
-        Some(percentage_factor),
-    );
 
-    // Identity support at or above the strict boundary does not apply the supporter penalty,
-    // regardless of how little stake supports the rejected proposal.
+    // Identity support at or above the strict boundary applies neither proposer-role nor supporter
+    // node-reputation penalties, regardless of how little stake supports the rejected proposal.
     for identity_attestation_ratio in [threshold, test_percent(1, 2)] {
         let (
             attestor_reputation,
@@ -4966,10 +5071,7 @@ fn test_identity_rejection_attestor_reputation_curve_penalizes_every_attestor() 
             attestor_pool_balance,
         ) = run_strong_rejection_attestor_reputation_case(0, identity_attestation_ratio, threshold);
         assert_eq!(attestor_reputation, starting_reputation);
-        assert_eq!(
-            proposer_reputation,
-            proposer_reputation_after_ordinary_penalty
-        );
+        assert_eq!(proposer_reputation, starting_reputation);
         assert_eq!(attestor_stake, 1_000, "supporter stake must not be slashed");
         assert_eq!(
             attestor_pool_balance, 500,
@@ -4994,8 +5096,13 @@ fn test_identity_rejection_attestor_reputation_curve_penalizes_every_attestor() 
             reputation_factors.non_consensus_attestor_decrease,
             Some(shortfall),
         );
+        let proposer_reputation_after_identity_rejection = Network::decrease_rep(
+            starting_reputation,
+            reputation_factors.validator_non_consensus_decrease,
+            Some(shortfall),
+        );
         let expected_proposer_reputation = Network::decrease_rep(
-            proposer_reputation_after_ordinary_penalty,
+            proposer_reputation_after_identity_rejection,
             reputation_factors.non_consensus_attestor_decrease,
             Some(shortfall),
         );
@@ -5040,8 +5147,12 @@ fn test_identity_rejection_attestor_reputation_curve_ignores_stake_ratio() {
     );
 
     assert_eq!(
-        low_stake_result, high_stake_result,
-        "stake support must not change the identity-based reputation curve"
+        low_stake_result.0, high_stake_result.0,
+        "stake support must not change the attestor's identity-based reputation curve"
+    );
+    assert_eq!(
+        low_stake_result.1, high_stake_result.1,
+        "stake support must not change the proposer's identity-based reputation curves"
     );
 
     // A custom snapshotted threshold, rather than a live/default value, controls the curve.
@@ -5055,13 +5166,24 @@ fn test_identity_rejection_attestor_reputation_curve_ignores_stake_ratio() {
         SubnetReputationFactors::default().non_consensus_attestor_decrease,
         Some(shortfall),
     );
-    let (attestor_reputation, _, attestor_stake, _, attestor_pool_balance) =
+    let proposer_reputation_after_identity_rejection = Network::decrease_rep(
+        test_percent(4, 5),
+        SubnetReputationFactors::default().validator_non_consensus_decrease,
+        Some(shortfall),
+    );
+    let expected_proposer_reputation = Network::decrease_rep(
+        proposer_reputation_after_identity_rejection,
+        SubnetReputationFactors::default().non_consensus_attestor_decrease,
+        Some(shortfall),
+    );
+    let (attestor_reputation, proposer_reputation, attestor_stake, _, attestor_pool_balance) =
         run_strong_rejection_attestor_reputation_case(
             percentage_factor,
             custom_identity_ratio,
             custom_threshold,
         );
     assert_eq!(attestor_reputation, expected_attestor_reputation);
+    assert_eq!(proposer_reputation, expected_proposer_reputation);
     assert_eq!(attestor_stake, 1_000, "supporter stake must not be slashed");
     assert_eq!(
         attestor_pool_balance, 500,
@@ -5102,6 +5224,29 @@ fn test_strong_rejection_applies_proposer_attestor_decrease_before_removal() {
             submission.identity_attestation_ratio
                 < submission.policy.validator_delegate_stake_slash_threshold
         );
+        let identity_shortfall = Network::percentage_factor_as_u128().saturating_sub(
+            Network::percent_div(
+                submission.identity_attestation_ratio,
+                submission.policy.validator_delegate_stake_slash_threshold,
+            )
+            .min(Network::percentage_factor_as_u128()),
+        );
+        let expected_after_proposer = Network::decrease_rep(
+            starting_reputation,
+            submission
+                .policy
+                .reputation_factors
+                .validator_non_consensus_decrease,
+            Some(identity_shortfall),
+        );
+        let expected_after_attestor = Network::decrease_rep(
+            expected_after_proposer,
+            submission
+                .policy
+                .reputation_factors
+                .non_consensus_attestor_decrease,
+            Some(identity_shortfall),
+        );
 
         // The first proposer-role decrease crosses the removal threshold. Settlement must still
         // apply the proposer's automatic-attestor decrease before removing the active node.
@@ -5137,10 +5282,14 @@ fn test_strong_rejection_applies_proposer_attestor_decrease_before_removal() {
             .collect::<Vec<_>>();
 
         assert_eq!(proposer_updates.len(), 2);
-        assert_eq!(proposer_updates[0].0, starting_reputation);
-        assert_eq!(proposer_updates[1].0, proposer_updates[0].1);
-        assert!(proposer_updates[0].1 < proposer_updates[0].0);
-        assert!(proposer_updates[1].1 < proposer_updates[1].0);
+        assert_eq!(
+            proposer_updates[0],
+            (starting_reputation, expected_after_proposer)
+        );
+        assert_eq!(
+            proposer_updates[1],
+            (expected_after_proposer, expected_after_attestor)
+        );
         assert!(!SubnetNodeReputation::<Test>::contains_key(
             subnet_id,
             proposer_node_id
@@ -5676,6 +5825,498 @@ fn test_distribute_rewards_below_min_weight_reputation() {
                 assert!(false); // auto-fail
             }
         }
+    });
+}
+
+#[test]
+fn test_non_attestor_decrease_requires_identity_supermajority_despite_stake_supermajority() {
+    new_test_ext().execute_with(|| {
+        let node_count = 8;
+        let (subnet_id, subnet_epoch, proposer_node_id, proposer_hotkey, consensus_data) =
+            build_elected_subnet_for_consensus(
+                b"non-attestor-identity-gate-stake-whale".to_vec(),
+                node_count,
+            );
+        set_equal_validator_delegate_weights_for_elected_round(subnet_id, node_count);
+
+        // Six of eight identities participate, while the proposer's stake makes their submitted
+        // support exceed the stake supermajority. Stake alone must not authorize penalties.
+        set_validator_delegate_weight_for_subnet_node(subnet_id, proposer_node_id, 1_000);
+        let additional_attestors = (1..=node_count)
+            .filter(|subnet_node_id| *subnet_node_id != proposer_node_id)
+            .take(5)
+            .collect::<Vec<_>>();
+        let submission = propose_and_precheck_identity_gate_round(
+            subnet_id,
+            subnet_epoch,
+            proposer_hotkey,
+            consensus_data,
+            &additional_attestors,
+        );
+
+        assert_eq!(submission.identity_attestation_count, 6);
+        assert_eq!(submission.eligible_validator_identity_count, 8);
+        assert_eq!(submission.identity_attestation_ratio, test_percent(3, 4));
+        assert!(submission.attestation_ratio >= submission.policy.super_majority_attestation_ratio);
+        assert!(
+            submission.identity_attestation_ratio
+                < submission.policy.super_majority_attestation_ratio
+        );
+        assert!(
+            submission.policy.reputation_factors.non_attestor_decrease > 0,
+            "the real snapshotted non-attestor factor must be enabled"
+        );
+
+        let non_attestors = (1..=node_count)
+            .filter(|subnet_node_id| !submission.attests.contains_key(subnet_node_id))
+            .collect::<Vec<_>>();
+        assert_eq!(non_attestors.len(), 2);
+        let max_reputation = Network::percentage_factor_as_u128();
+        for subnet_node_id in &non_attestors {
+            SubnetNodeReputation::<Test>::insert(subnet_id, subnet_node_id, max_reputation);
+        }
+
+        distribute_identity_gate_round(subnet_id, subnet_epoch, submission);
+
+        for subnet_node_id in non_attestors {
+            assert_eq!(
+                SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id),
+                Some(max_reputation),
+                "stake supermajority must not substitute for identity supermajority"
+            );
+        }
+    });
+}
+
+#[test]
+fn test_non_attestor_decrease_applies_at_exact_identity_supermajority_below_stake_supermajority() {
+    new_test_ext().execute_with(|| {
+        let node_count = 8;
+        let (subnet_id, subnet_epoch, proposer_node_id, proposer_hotkey, consensus_data) =
+            build_elected_subnet_for_consensus(
+                b"non-attestor-exact-identity-supermajority".to_vec(),
+                node_count,
+            );
+        set_equal_validator_delegate_weights_for_elected_round(subnet_id, node_count);
+
+        let non_attestor = (1..=node_count)
+            .find(|subnet_node_id| *subnet_node_id != proposer_node_id)
+            .unwrap();
+        // Seven equal attestors against a double-weight non-attestor produces 7/9 stake support:
+        // accepted, but below the 7/8 stake supermajority.
+        set_validator_delegate_weight_for_subnet_node(subnet_id, non_attestor, 2);
+        let additional_attestors = (1..=node_count)
+            .filter(|subnet_node_id| {
+                *subnet_node_id != proposer_node_id && *subnet_node_id != non_attestor
+            })
+            .collect::<Vec<_>>();
+        let submission = propose_and_precheck_identity_gate_round(
+            subnet_id,
+            subnet_epoch,
+            proposer_hotkey,
+            consensus_data,
+            &additional_attestors,
+        );
+
+        assert!(
+            submission.attests.contains_key(&proposer_node_id),
+            "the elected proposer's automatic attestation must count"
+        );
+        assert_eq!(submission.attests.len(), 7);
+        assert_eq!(
+            submission.identity_attestation_ratio,
+            submission.policy.super_majority_attestation_ratio
+        );
+        assert!(submission.attestation_ratio >= submission.policy.min_attestation_percentage);
+        assert!(submission.attestation_ratio < submission.policy.super_majority_attestation_ratio);
+
+        let starting_reputation = Network::percentage_factor_as_u128();
+        let non_attestor_factor = submission.policy.reputation_factors.non_attestor_decrease;
+        assert!(non_attestor_factor > 0);
+        SubnetNodeReputation::<Test>::insert(subnet_id, non_attestor, starting_reputation);
+        let expected_reputation =
+            Network::decrease_rep(starting_reputation, non_attestor_factor, None);
+
+        distribute_identity_gate_round(subnet_id, subnet_epoch, submission);
+
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, non_attestor),
+            Some(expected_reputation)
+        );
+    });
+}
+
+#[test]
+fn test_non_attestor_decrease_skips_one_identity_step_below_supermajority() {
+    new_test_ext().execute_with(|| {
+        let node_count = 16;
+        let (subnet_id, subnet_epoch, proposer_node_id, proposer_hotkey, consensus_data) =
+            build_elected_subnet_for_consensus(
+                b"non-attestor-below-identity-supermajority".to_vec(),
+                node_count,
+            );
+        set_equal_validator_delegate_weights_for_elected_round(subnet_id, node_count);
+
+        let non_attestors = (1..=node_count)
+            .filter(|subnet_node_id| *subnet_node_id != proposer_node_id)
+            .take(3)
+            .collect::<Vec<_>>();
+        let additional_attestors = (1..=node_count)
+            .filter(|subnet_node_id| {
+                *subnet_node_id != proposer_node_id && !non_attestors.contains(subnet_node_id)
+            })
+            .collect::<Vec<_>>();
+        let submission = propose_and_precheck_identity_gate_round(
+            subnet_id,
+            subnet_epoch,
+            proposer_hotkey,
+            consensus_data,
+            &additional_attestors,
+        );
+
+        assert_eq!(submission.identity_attestation_count, 13);
+        assert_eq!(submission.eligible_validator_identity_count, 16);
+        assert_eq!(submission.identity_attestation_ratio, test_percent(13, 16));
+        assert!(submission.attestation_ratio >= submission.policy.min_attestation_percentage);
+        assert!(
+            submission.identity_attestation_ratio
+                < submission.policy.super_majority_attestation_ratio
+        );
+
+        let max_reputation = Network::percentage_factor_as_u128();
+        for subnet_node_id in &non_attestors {
+            SubnetNodeReputation::<Test>::insert(subnet_id, subnet_node_id, max_reputation);
+        }
+
+        distribute_identity_gate_round(subnet_id, subnet_epoch, submission);
+
+        for subnet_node_id in non_attestors {
+            assert_eq!(
+                SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id),
+                Some(max_reputation)
+            );
+        }
+    });
+}
+
+#[test]
+fn test_non_attestor_identity_gate_deduplicates_identity_but_keeps_per_node_duty() {
+    new_test_ext().execute_with(|| {
+        let node_count = 9;
+        let (subnet_id, subnet_epoch, proposer_node_id, proposer_hotkey, consensus_data) =
+            build_elected_subnet_for_consensus(
+                b"non-attestor-duplicate-identity-sibling".to_vec(),
+                node_count,
+            );
+        set_equal_validator_delegate_weights_for_elected_round(subnet_id, node_count);
+
+        let mut non_proposer_nodes =
+            (1..=node_count).filter(|subnet_node_id| *subnet_node_id != proposer_node_id);
+        let attesting_identity_node = non_proposer_nodes.next().unwrap();
+        let non_attesting_sibling = non_proposer_nodes.next().unwrap();
+        let distinct_non_attestor = non_proposer_nodes.next_back().unwrap();
+        let shared_validator_id =
+            SubnetNodeValidatorId::<Test>::get(subnet_id, attesting_identity_node).unwrap();
+        set_subnet_node_validator(subnet_id, non_attesting_sibling, shared_validator_id);
+
+        // Keep the shared identity's attesting node economically dominant so this fixture remains
+        // accepted while independently exercising identity deduplication and node-level duty.
+        let percentage_factor = Network::percentage_factor_as_u128();
+        set_validator_delegate_weight_for_subnet_node(subnet_id, attesting_identity_node, 100);
+        set_validator_node_delegate_stake_weights(
+            shared_validator_id,
+            &[
+                (
+                    subnet_id,
+                    attesting_identity_node,
+                    percentage_factor.saturating_sub(test_percent(1, 100)),
+                ),
+                (subnet_id, non_attesting_sibling, test_percent(1, 100)),
+            ],
+        );
+
+        let additional_attestors = (1..=node_count)
+            .filter(|subnet_node_id| {
+                *subnet_node_id != proposer_node_id
+                    && *subnet_node_id != non_attesting_sibling
+                    && *subnet_node_id != distinct_non_attestor
+            })
+            .collect::<Vec<_>>();
+        let submission = propose_and_precheck_identity_gate_round(
+            subnet_id,
+            subnet_epoch,
+            proposer_hotkey,
+            consensus_data,
+            &additional_attestors,
+        );
+
+        assert!(submission.attests.contains_key(&attesting_identity_node));
+        assert!(!submission.attests.contains_key(&non_attesting_sibling));
+        assert_eq!(submission.eligible_validator_identity_count, 8);
+        assert_eq!(submission.identity_attestation_count, 7);
+        assert_eq!(
+            submission.identity_attestation_ratio,
+            submission.policy.super_majority_attestation_ratio
+        );
+        assert!(submission.attestation_ratio >= submission.policy.min_attestation_percentage);
+
+        let starting_reputation = Network::percentage_factor_as_u128();
+        let non_attestor_factor = submission.policy.reputation_factors.non_attestor_decrease;
+        let expected_reputation =
+            Network::decrease_rep(starting_reputation, non_attestor_factor, None);
+        for subnet_node_id in [non_attesting_sibling, distinct_non_attestor] {
+            SubnetNodeReputation::<Test>::insert(subnet_id, subnet_node_id, starting_reputation);
+        }
+        SubnetNodeReputation::<Test>::insert(
+            subnet_id,
+            attesting_identity_node,
+            starting_reputation,
+        );
+
+        distribute_identity_gate_round(subnet_id, subnet_epoch, submission);
+
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, non_attesting_sibling),
+            Some(expected_reputation),
+            "a sibling node retains its own attestation duty even when its identity participated"
+        );
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, distinct_non_attestor),
+            Some(expected_reputation)
+        );
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, attesting_identity_node),
+            Some(starting_reputation)
+        );
+    });
+}
+
+#[test]
+fn test_identity_gated_non_attestor_decrease_can_remove_node_below_minimum_reputation() {
+    new_test_ext().execute_with(|| {
+        let node_count = 8;
+        let (subnet_id, subnet_epoch, proposer_node_id, proposer_hotkey, consensus_data) =
+            build_elected_subnet_for_consensus(
+                b"non-attestor-identity-gate-removal".to_vec(),
+                node_count,
+            );
+        set_equal_validator_delegate_weights_for_elected_round(subnet_id, node_count);
+
+        let non_attestor = (1..=node_count)
+            .find(|subnet_node_id| *subnet_node_id != proposer_node_id)
+            .unwrap();
+        let additional_attestors = (1..=node_count)
+            .filter(|subnet_node_id| {
+                *subnet_node_id != proposer_node_id && *subnet_node_id != non_attestor
+            })
+            .collect::<Vec<_>>();
+        let submission = propose_and_precheck_identity_gate_round(
+            subnet_id,
+            subnet_epoch,
+            proposer_hotkey,
+            consensus_data,
+            &additional_attestors,
+        );
+
+        assert_eq!(
+            submission.identity_attestation_ratio,
+            submission.policy.super_majority_attestation_ratio
+        );
+        let min_reputation = submission.policy.min_subnet_node_reputation;
+        let starting_reputation = min_reputation.saturating_add(1);
+        let after_included_increase = Network::increase_rep(
+            starting_reputation,
+            submission.policy.reputation_factors.included_increase,
+            None,
+        );
+        let expected_after_non_attestor = Network::decrease_rep(
+            after_included_increase,
+            submission.policy.reputation_factors.non_attestor_decrease,
+            None,
+        );
+        assert!(starting_reputation >= min_reputation);
+        assert!(expected_after_non_attestor < min_reputation);
+        SubnetNodeReputation::<Test>::insert(subnet_id, non_attestor, starting_reputation);
+
+        distribute_identity_gate_round(subnet_id, subnet_epoch, submission);
+
+        assert!(
+            SubnetNodeReputation::<Test>::get(subnet_id, non_attestor).is_none(),
+            "the gate-qualified decrease must preserve minimum-reputation removal"
+        );
+        assert_eq!(
+            SubnetNodesData::<Test>::try_get(subnet_id, non_attestor),
+            Err(())
+        );
+    });
+}
+
+#[test]
+fn test_emergency_non_attestor_decrease_uses_identity_supermajority_gate() {
+    new_test_ext().execute_with(|| {
+        let node_count = 9;
+        let (subnet_id, subnet_epoch, proposer_node_id, proposer_hotkey, consensus_data) =
+            build_elected_subnet_for_consensus(
+                b"emergency-non-attestor-identity-gate".to_vec(),
+                node_count,
+            );
+        set_equal_validator_delegate_weights_for_elected_round(subnet_id, node_count);
+
+        let mut emergency_validator_ids = vec![proposer_node_id];
+        emergency_validator_ids.extend(
+            (1..=node_count)
+                .filter(|subnet_node_id| *subnet_node_id != proposer_node_id)
+                .take(7),
+        );
+        emergency_validator_ids.sort_unstable();
+        let excluded_normal_validator = (1..=node_count)
+            .find(|subnet_node_id| !emergency_validator_ids.contains(subnet_node_id))
+            .unwrap();
+        EmergencySubnetNodeElectionData::<Test>::insert(
+            subnet_id,
+            EmergencySubnetValidatorData {
+                subnet_node_ids: emergency_validator_ids.clone(),
+                target_emergency_validators_epochs: 1,
+                max_emergency_validators_epoch: subnet_epoch.saturating_add(1),
+                total_epochs: 0,
+                activated: true,
+                started_subnet_epoch: subnet_epoch,
+                reputation_factors: Network::get_reputation_factors_for_epoch(
+                    subnet_id,
+                    subnet_epoch,
+                ),
+                min_subnet_node_reputation: MinSubnetNodeReputation::<Test>::get(subnet_id),
+                min_weight_decrease_reputation_threshold:
+                    SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::get(subnet_id),
+            },
+        );
+
+        let non_attestor = emergency_validator_ids
+            .iter()
+            .copied()
+            .find(|subnet_node_id| *subnet_node_id != proposer_node_id)
+            .unwrap();
+        set_validator_delegate_weight_for_subnet_node(subnet_id, non_attestor, 2);
+        let additional_attestors = emergency_validator_ids
+            .iter()
+            .copied()
+            .filter(|subnet_node_id| {
+                *subnet_node_id != proposer_node_id && *subnet_node_id != non_attestor
+            })
+            .collect::<Vec<_>>();
+        let submission = propose_and_precheck_identity_gate_round(
+            subnet_id,
+            subnet_epoch,
+            proposer_hotkey,
+            consensus_data,
+            &additional_attestors,
+        );
+
+        assert!(submission.emergency.is_some());
+        assert_eq!(submission.eligible_validator_identity_count, 8);
+        assert_eq!(
+            submission.identity_attestation_ratio,
+            submission.policy.super_majority_attestation_ratio
+        );
+        assert!(submission.attestation_ratio >= submission.policy.min_attestation_percentage);
+        assert!(submission.attestation_ratio < submission.policy.super_majority_attestation_ratio);
+        let emergency_factors = submission.emergency.as_ref().unwrap().reputation_factors;
+        assert!(emergency_factors.non_attestor_decrease > 0);
+
+        let starting_reputation = Network::percentage_factor_as_u128();
+        let expected_reputation = Network::decrease_rep(
+            starting_reputation,
+            emergency_factors.non_attestor_decrease,
+            None,
+        );
+        SubnetNodeReputation::<Test>::insert(subnet_id, non_attestor, starting_reputation);
+        SubnetNodeReputation::<Test>::insert(
+            subnet_id,
+            excluded_normal_validator,
+            starting_reputation,
+        );
+
+        distribute_identity_gate_round(subnet_id, subnet_epoch, submission);
+
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, non_attestor),
+            Some(expected_reputation),
+            "the emergency settlement branch must use the same identity gate"
+        );
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, excluded_normal_validator),
+            Some(starting_reputation),
+            "normal validators outside the emergency snapshot must remain exempt"
+        );
+    });
+}
+
+#[test]
+fn test_rejected_and_missing_rounds_do_not_apply_non_attestor_decrease() {
+    new_test_ext().execute_with(|| {
+        let node_count = 8;
+        let (
+            rejected_subnet_id,
+            rejected_subnet_epoch,
+            rejected_proposer,
+            rejected_hotkey,
+            rejected_data,
+        ) = build_elected_subnet_for_consensus(b"non-attestor-rejected-round".to_vec(), node_count);
+        set_equal_validator_delegate_weights_for_elected_round(rejected_subnet_id, node_count);
+        let rejected_non_attestor = (1..=node_count)
+            .find(|subnet_node_id| *subnet_node_id != rejected_proposer)
+            .unwrap();
+        let max_reputation = Network::percentage_factor_as_u128();
+        SubnetNodeReputation::<Test>::insert(
+            rejected_subnet_id,
+            rejected_non_attestor,
+            max_reputation,
+        );
+
+        let rejected_submission = propose_and_precheck_identity_gate_round(
+            rejected_subnet_id,
+            rejected_subnet_epoch,
+            rejected_hotkey,
+            rejected_data,
+            &[],
+        );
+        assert!(
+            rejected_submission.attestation_ratio
+                < rejected_submission.policy.min_attestation_percentage
+        );
+        distribute_identity_gate_round(
+            rejected_subnet_id,
+            rejected_subnet_epoch,
+            rejected_submission,
+        );
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(rejected_subnet_id, rejected_non_attestor),
+            Some(max_reputation),
+            "rejected rounds penalize supporters, not nodes that declined to attest"
+        );
+
+        let (missing_subnet_id, missing_subnet_epoch, missing_proposer, _, _) =
+            build_elected_subnet_for_consensus(b"non-attestor-missing-round".to_vec(), node_count);
+        let missing_non_attestor = (1..=node_count)
+            .find(|subnet_node_id| *subnet_node_id != missing_proposer)
+            .unwrap();
+        SubnetNodeReputation::<Test>::insert(
+            missing_subnet_id,
+            missing_non_attestor,
+            max_reputation,
+        );
+
+        let (missing_submission, _) = Network::precheck_subnet_consensus_submission(
+            missing_subnet_id,
+            missing_subnet_epoch,
+            Network::get_current_epoch_as_u32(),
+        );
+        assert!(missing_submission.is_none());
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(missing_subnet_id, missing_non_attestor),
+            Some(max_reputation),
+            "a missing proposal applies proposer absence handling only"
+        );
     });
 }
 
@@ -6478,6 +7119,33 @@ fn test_distribute_rewards_under_min_attest_slash_validator() {
 
         let starting_rep =
             SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id.unwrap()).unwrap();
+        let strong_rejection_threshold = consensus_submission_data
+            .policy
+            .validator_delegate_stake_slash_threshold;
+        assert!(consensus_submission_data.identity_attestation_ratio < strong_rejection_threshold);
+        let identity_shortfall = Network::percentage_factor_as_u128().saturating_sub(
+            Network::percent_div(
+                consensus_submission_data.identity_attestation_ratio,
+                strong_rejection_threshold,
+            )
+            .min(Network::percentage_factor_as_u128()),
+        );
+        let expected_after_proposer = Network::decrease_rep(
+            starting_rep,
+            consensus_submission_data
+                .policy
+                .reputation_factors
+                .validator_non_consensus_decrease,
+            Some(identity_shortfall),
+        );
+        let expected_reputation = Network::decrease_rep(
+            expected_after_proposer,
+            consensus_submission_data
+                .policy
+                .reputation_factors
+                .non_consensus_attestor_decrease,
+            Some(identity_shortfall),
+        );
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -6508,9 +7176,9 @@ fn test_distribute_rewards_under_min_attest_slash_validator() {
             "launch-default zero configuration must not slash delegators",
         );
 
-        assert!(
-            starting_rep
-                > SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id.unwrap()).unwrap()
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id.unwrap()).unwrap(),
+            expected_reputation
         );
 
         for n in 0..max_subnet_nodes {
@@ -6639,6 +7307,33 @@ fn test_distribute_rewards_fork_under_min_attest_slash_validator() {
 
         let starting_rep =
             SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id.unwrap()).unwrap();
+        let strong_rejection_threshold = consensus_submission_data
+            .policy
+            .validator_delegate_stake_slash_threshold;
+        assert!(consensus_submission_data.identity_attestation_ratio < strong_rejection_threshold);
+        let identity_shortfall = Network::percentage_factor_as_u128().saturating_sub(
+            Network::percent_div(
+                consensus_submission_data.identity_attestation_ratio,
+                strong_rejection_threshold,
+            )
+            .min(Network::percentage_factor_as_u128()),
+        );
+        let expected_after_proposer = Network::decrease_rep(
+            starting_rep,
+            consensus_submission_data
+                .policy
+                .reputation_factors
+                .validator_non_consensus_decrease,
+            Some(identity_shortfall),
+        );
+        let expected_reputation = Network::decrease_rep(
+            expected_after_proposer,
+            consensus_submission_data
+                .policy
+                .reputation_factors
+                .non_consensus_attestor_decrease,
+            Some(identity_shortfall),
+        );
 
         Network::distribute_rewards(
             &mut WeightMeter::new(),
@@ -6658,9 +7353,9 @@ fn test_distribute_rewards_fork_under_min_attest_slash_validator() {
             NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
         assert!(validator_stake > post_validator_stake);
 
-        assert!(
-            starting_rep
-                > SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id.unwrap()).unwrap()
+        assert_eq!(
+            SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id.unwrap()).unwrap(),
+            expected_reputation
         );
 
         for n in 0..max_subnet_nodes {
