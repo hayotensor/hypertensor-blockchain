@@ -1098,6 +1098,7 @@ pub mod pallet {
     /// * `repo` - Unique repository of the subnet.
     /// * `description` - Description of what the subnet does and use cases.
     /// * `misc` - Misc data.
+    /// * `consensus_mechanism` - Consensus mechanism assigned to the subnet.
     /// * `state` - Registered, Active, or Paused.
     /// * `consensus_eligible_from_subnet_epoch` - First subnet epoch in which an active subnet may
     ///   elect a validator. `None` while registered or paused.
@@ -1121,6 +1122,32 @@ pub mod pallet {
         pub started_subnet_epoch: u32,
     }
 
+    /// Consensus mechanism used by a subnet.
+    ///
+    /// New variants must be appended with an explicit, previously unused SCALE codec index.
+    #[derive(
+        Encode,
+        Decode,
+        Copy,
+        Clone,
+        PartialOrd,
+        PartialEq,
+        Eq,
+        RuntimeDebugNoBound,
+        Ord,
+        scale_info::TypeInfo,
+    )]
+    pub enum ConsensusMechanism {
+        #[codec(index = 0)]
+        Attestation,
+    }
+
+    impl Default for ConsensusMechanism {
+        fn default() -> Self {
+            Self::Attestation
+        }
+    }
+
     #[derive(
         Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
     )]
@@ -1131,6 +1158,7 @@ pub mod pallet {
         pub repo: Vec<u8>,
         pub description: Vec<u8>,
         pub misc: Vec<u8>,
+        pub consensus_mechanism: ConsensusMechanism,
         pub state: SubnetState,
         pub consensus_eligible_from_subnet_epoch: Option<u32>,
         pub pause: Option<SubnetPauseData>,
@@ -1249,6 +1277,7 @@ pub mod pallet {
     /// * `repo` - Repository URL where the subnet's code or documentation is hosted.
     /// * `description` - A text description explaining the subnet's purpose and functionality.
     /// * `misc` - Miscellaneous metadata that doesn't fit other categories.
+    /// * `consensus_mechanism` - Consensus mechanism assigned to the subnet.
     /// * `state` - The current operational state of the subnet (e.g., active, paused, removed).
     ///   See `SubnetState` for possible values.
     /// * `consensus_eligible_from_subnet_epoch` - First subnet-local epoch in which an active subnet
@@ -1491,6 +1520,7 @@ pub mod pallet {
         pub repo: Vec<u8>,
         pub description: Vec<u8>,
         pub misc: Vec<u8>,
+        pub consensus_mechanism: ConsensusMechanism,
         pub state: SubnetState,
         pub consensus_eligible_from_subnet_epoch: Option<u32>,
         pub pause_started_global_epoch: Option<u32>,
@@ -2380,14 +2410,18 @@ pub mod pallet {
         /// Track total nodes under a coldkey.
         pub total_active_nodes: u32,
 
-        /// Number of times the node's weight increased (i.e., successful validation).
+        /// Number of identity-verified accepted proposals with a nonzero configured increase factor.
         pub total_increases: u32,
 
-        /// Number of times the node's weight decreased (i.e., failed validation).
+        /// Number of strongly identity-rejected proposals with a nonzero effective decrease factor.
         pub total_decreases: u32,
 
-        /// Average attestation rate.
-        pub average_attestation: u128,
+        /// Average distinct-validator-identity support received by this validator's proposals.
+        pub average_proposal_identity_support: u128,
+
+        /// Number of settled elections represented by `average_proposal_identity_support`,
+        /// saturated at `u32::MAX`.
+        pub identity_support_samples: u32,
 
         /// General-chain epoch when one of the validator's subnet nodes was most recently elected,
         /// or `None` if the validator has never been elected.
@@ -3148,7 +3182,8 @@ pub mod pallet {
             total_active_nodes: 0,
             total_increases: 0,
             total_decreases: 0,
-            average_attestation: 0,
+            average_proposal_identity_support: 0,
+            identity_support_samples: 0,
             last_validator_epoch: None,
             ow_score: 500_000_000_000_000, // 0.5 / 50%
         };
@@ -3202,7 +3237,7 @@ pub mod pallet {
     /// - OverwatchMinAvgAttestationRatio
     #[pallet::type_value]
     pub fn DefaultOverwatchMinAvgAttestationRatio() -> u128 {
-        // 75%
+        // 72%
         720000000000000000
     }
     /// This type value is referenced in:
@@ -4628,19 +4663,22 @@ pub mod pallet {
     pub type ValidatorAbsentSubnetReputationFactor<T> =
         StorageValue<_, u128, ValueQuery, DefaultValidatorAbsentSubnetReputationFactor>;
 
-    /// Subnet reputation factor when a subnet validator node doesn't submit consensus data (set by collective)
+    /// Subnet reputation increase factor for accepted proposals endorsed by an identity
+    /// supermajority (set by collective).
     #[pallet::storage]
     pub type InConsensusSubnetReputationFactor<T> =
         StorageValue<_, u128, ValueQuery, DefaultInConsensusSubnetReputationFactor>;
 
     // Validator Reputation (used for Overwatch Nodes)
 
-    /// Weight used to increase a subnet validator nodes reputation
+    /// Weight used to increase a proposer validator identity's reputation after an
+    /// identity-supermajority endorsement.
     #[pallet::storage]
     pub type ValidatorReputationIncreaseFactor<T> =
         StorageValue<_, u128, ValueQuery, DefaultValidatorReputationIncreaseFactor>;
 
-    /// Weight used to decrease a subnet validator nodes reputation
+    /// Maximum weight used to decrease a proposer validator identity's reputation after a
+    /// strong rejection by distinct validator identities.
     #[pallet::storage]
     pub type ValidatorReputationDecreaseFactor<T> =
         StorageValue<_, u128, ValueQuery, DefaultValidatorReputationDecreaseFactor>;
@@ -4959,7 +4997,7 @@ pub mod pallet {
     pub type OverwatchMinRepScore<T> =
         StorageValue<_, u128, ValueQuery, DefaultOverwatchMinRepScore>;
 
-    /// The minimum coldkey reputation attestation ratio
+    /// The minimum average distinct-validator-identity support for the coldkey's proposals.
     #[pallet::storage]
     pub type OverwatchMinAvgAttestationRatio<T> =
         StorageValue<_, u128, ValueQuery, DefaultOverwatchMinAvgAttestationRatio>;
@@ -8146,6 +8184,7 @@ pub mod pallet {
                 repo: subnet_registration_data.repo,
                 description: subnet_registration_data.description,
                 misc: subnet_registration_data.misc,
+                consensus_mechanism: ConsensusMechanism::default(),
                 state: SubnetState::Registered,
                 consensus_eligible_from_subnet_epoch: None,
                 pause: None,

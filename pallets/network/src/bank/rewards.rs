@@ -132,7 +132,6 @@ impl<T: Config> Pallet<T> {
                 policy.not_in_consensus_subnet_reputation_factor,
                 policy.base_slash_percentage,
                 policy.max_slash_amount,
-                subnet_reputation,
                 percentage_factor,
                 weight_meter,
             );
@@ -152,6 +151,7 @@ impl<T: Config> Pallet<T> {
                 consensus_submission_data.validator_subnet_node_id,
                 &consensus_submission_data,
                 policy.min_attestation_percentage,
+                policy.super_majority_attestation_ratio,
                 policy.validator_reputation_increase_factor,
                 policy.base_validator_reward,
             );
@@ -193,14 +193,16 @@ impl<T: Config> Pallet<T> {
         );
 
         // Increase reputation because subnet consensus is in consensus
-        // Only increase if subnet has >= min subnet nodes
-        if subnet_reputation != percentage_factor
+        // Only a distinct-identity supermajority can endorse this proposal strongly enough to
+        // increase subnet reputation, and only when the subnet has >= min subnet nodes.
+        if has_identity_super_majority
+            && subnet_reputation != percentage_factor
             && consensus_submission_data.data_length >= policy.min_subnet_nodes
         {
             Self::increase_subnet_reputation(
                 subnet_id,
                 policy.in_consensus_subnet_reputation_factor,
-                consensus_submission_data.attestation_ratio,
+                consensus_submission_data.identity_attestation_ratio,
             );
             weight_meter.consume(db_weight.reads_writes(2, 1));
         }
@@ -301,7 +303,7 @@ impl<T: Config> Pallet<T> {
             // Handle case where node is found in consensus data
             let subnet_node_data = if let Some(data) = subnet_node_data_find {
                 // --- Is in consensus data, increase reputation if not at max
-                if node_exists && reputation != percentage_factor {
+                if node_exists && has_identity_super_majority && reputation != percentage_factor {
                     // If the validator submits themselves in the data and passes consensus, this also
                     // increases the validators reputation
                     reputation = Self::increase_and_return_node_reputation(
@@ -317,8 +319,8 @@ impl<T: Config> Pallet<T> {
                 }
                 data
             } else {
-                if node_exists {
-                    // Not included in consensus, decrease reputation
+                if node_exists && has_identity_super_majority {
+                    // A distinct-identity supermajority endorsed this node's omission.
                     reputation = Self::decrease_and_return_node_reputation(
                         subnet_id,
                         subnet_node.id,
@@ -353,15 +355,17 @@ impl<T: Config> Pallet<T> {
                 && subnet_node.classification.node_class == SubnetNodeClass::Included
                 && forked_subnet_node_ids.is_none()
             {
-                Self::handle_included_node(
-                    weight_meter,
-                    subnet_id,
-                    subnet_node.id,
-                    reputation,
-                    percentage_factor,
-                    included_epochs,
-                    current_subnet_epoch,
-                );
+                if has_identity_super_majority {
+                    Self::handle_included_node(
+                        weight_meter,
+                        subnet_id,
+                        subnet_node.id,
+                        reputation,
+                        percentage_factor,
+                        included_epochs,
+                        current_subnet_epoch,
+                    );
+                }
 
                 // SubnetNodeClass::Included does not get rewards yet, they must pass the gauntlet
                 continue;
@@ -382,9 +386,10 @@ impl<T: Config> Pallet<T> {
 
             // * Optional logic:
             // Decrease reputation if under subnets weight threshold
-            // We don't automatically decrease reputation if a node is at ZERO
-            // This is an optional feature for subnets
-            if node_exists && node_weight < weight_threshold {
+            // A zero score is below any enabled positive threshold.
+            // This is an optional feature for subnets and requires identity-supermajority
+            // endorsement of the accepted score vector.
+            if node_exists && has_identity_super_majority && node_weight < weight_threshold {
                 reputation = Self::decrease_and_return_node_reputation(
                     subnet_id,
                     subnet_node.id,
@@ -567,7 +572,6 @@ impl<T: Config> Pallet<T> {
         not_in_consensus_subnet_reputation_factor: u128,
         base_slash_percentage: u128,
         max_slash_amount: u128,
-        subnet_reputation: u128,
         percentage_factor: u128,
         weight_meter: &mut WeightMeter,
     ) {
@@ -590,18 +594,10 @@ impl<T: Config> Pallet<T> {
         } else {
             None
         };
-        let proposer_identity_reputation_shortfall =
-            strong_rejection_identity_shortfall.filter(|identity_shortfall| {
-                Self::percent_mul(
-                    reputation_factors.validator_non_consensus_decrease,
-                    *identity_shortfall,
-                ) > 0
-            });
-
         // --- Slash validator
         // Slashes stake balance
-        // Decreases validator-identity reputation using the existing consensus-failure ratio.
-        // Proposer node reputation uses only the distinct-identity strong-rejection shortfall.
+        // Validator-identity and proposer-node reputation use only the distinct-identity
+        // strong-rejection shortfall.
         // Node removal is deliberately deferred until after the attestor-role decrease below so
         // the proposer can receive both sequential reputation penalties before removal.
         let slash_validator_weight = Self::slash_validator_for_round_with_policy(
@@ -609,11 +605,12 @@ impl<T: Config> Pallet<T> {
             validator_subnet_node_id,
             penalty_attestation_ratio,
             penalty_attestation_threshold,
+            identity_attestation_ratio,
             coldkey_reputation_decrease_factor,
             0,
             electable_nodes_count,
             reputation_factors.validator_non_consensus_decrease,
-            proposer_identity_reputation_shortfall,
+            strong_rejection_identity_shortfall,
             base_slash_percentage,
             max_slash_amount,
             stake_attestation_ratio,
@@ -630,19 +627,23 @@ impl<T: Config> Pallet<T> {
         );
         weight_meter.consume(slash_validator_weight);
 
-        // Decrease subnet reputation
-        let factor_2 = percentage_factor.saturating_sub(Self::percent_div(
-            penalty_attestation_ratio,
-            penalty_attestation_threshold,
-        ));
-
-        Self::decrease_subnet_reputation(
-            subnet_id,
-            not_in_consensus_subnet_reputation_factor,
-            Some(factor_2),
-        );
-        // NotInConsensusSubnetReputationFactor | SubnetReputation
-        weight_meter.consume(db_weight.reads_writes(2, 1));
+        // Submitted proposals can decrease subnet reputation only when a distinct-identity
+        // strong rejection exists. Stake-only rejection retains its economic consequences but
+        // cannot damage subnet reputation.
+        if strong_rejection_identity_shortfall.is_some_and(|identity_shortfall| {
+            Self::percent_mul(
+                not_in_consensus_subnet_reputation_factor,
+                identity_shortfall,
+            ) > 0
+        }) {
+            Self::decrease_subnet_reputation(
+                subnet_id,
+                not_in_consensus_subnet_reputation_factor,
+                strong_rejection_identity_shortfall,
+            );
+            // NotInConsensusSubnetReputationFactor | SubnetReputation
+            weight_meter.consume(db_weight.reads_writes(2, 1));
+        }
 
         // Every node that attested to this rejected proposal, including the proposer through its
         // automatic attestation, is accountable only when support by distinct validator identities
@@ -709,6 +710,7 @@ impl<T: Config> Pallet<T> {
         subnet_node_id: u32,
         consensus_submission_data: &ConsensusSubmissionData<T>,
         min_attestation_percentage: u128,
+        identity_super_majority_threshold: u128,
         coldkey_reputation_increase_factor: u128,
         base_validator_reward: u128,
     ) {
@@ -725,12 +727,12 @@ impl<T: Config> Pallet<T> {
         );
         Self::increase_validator_reputation(
             validator_id,
-            consensus_submission_data.attestation_ratio,
-            min_attestation_percentage,
+            consensus_submission_data.identity_attestation_ratio,
+            identity_super_majority_threshold,
             coldkey_reputation_increase_factor,
         );
-
-        // weight_meter.consume(T::WeightInfo::increase_validator_reputation());
+        // ValidatorReputation::contains_key + get + insert.
+        weight_meter.consume(db_weight.reads_writes(2, 1));
 
         //
         weight_meter.consume(db_weight.reads(1));

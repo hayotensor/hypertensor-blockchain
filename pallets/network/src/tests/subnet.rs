@@ -4,23 +4,23 @@ use crate::Event;
 use crate::{
     AccountSubnetDelegateStakeShares, AssignedSlots, BootnodePeerIdSubnetNodeId, ChurnLimit,
     ChurnLimitMultiplier, ClientPeerIdSubnetNodeId, ConsensusAttestorWeightSnapshot, ConsensusData,
-    ConsensusValidatorNodeCountDecay, ConsensusValidatorStakeWeightPower, CurrentNodeBurnRate,
-    DistributionData, EmergencySubnetNodeElectionData, EmergencySubnetValidatorData, Error,
-    FinalSubnetEmissionWeights, FriendlyUidSubnetId, IdleClassificationEpochs,
-    IncludedClassificationEpochs, InitialValidatorData, LastConsensusValidatorNodeCountDecayUpdate,
-    LastConsensusValidatorStakeWeightPowerUpdate, LastEmergencyValidatorEndEpoch,
-    LastRegistrationCost, LastSubnetDelegateStakeRewardsUpdate, LastSubnetRegistrationBlock,
-    MaxBootnodes, MaxChurnLimit, MaxDelegateStakePercentage, MaxIdleClassificationEpochs,
-    MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes, MaxMinDelegateStakeMultiplier,
-    MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetMinStake, MaxSubnetNodes, MaxSubnetPauseEpochs,
-    MaxSubnetRemovalInterval, MaxSubnets, MinChurnLimit, MinDelegateStakeDeposit,
-    MinDelegateStakePercentage, MinIdleClassificationEpochs, MinIncludedClassificationEpochs,
-    MinMaxRegisteredNodes, MinQueueEpochs, MinRegistrationCost, MinSubnetMinStake, MinSubnetNodes,
-    MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
-    MultiaddrSubnetNodeId, NetworkBytes, NetworkMaxStakeBalance, NodeBurnRateAlpha,
-    NodeRegistrationInitialValidatorIds, NodeRegistrationsThisEpoch, NodeSlotIndex,
-    NodeSubnetStake, OverwatchNodeIndex, OverwatchSubnetWeights, PeerIdOverwatchNodeId,
-    PeerIdSubnetNodeId, PeerInfo, PendingConsensusValidatorNodeCountDecay,
+    ConsensusMechanism, ConsensusValidatorNodeCountDecay, ConsensusValidatorStakeWeightPower,
+    CurrentNodeBurnRate, DistributionData, EmergencySubnetNodeElectionData,
+    EmergencySubnetValidatorData, Error, FinalSubnetEmissionWeights, FriendlyUidSubnetId,
+    IdleClassificationEpochs, IncludedClassificationEpochs, InitialValidatorData,
+    LastConsensusValidatorNodeCountDecayUpdate, LastConsensusValidatorStakeWeightPowerUpdate,
+    LastEmergencyValidatorEndEpoch, LastRegistrationCost, LastSubnetDelegateStakeRewardsUpdate,
+    LastSubnetRegistrationBlock, MaxBootnodes, MaxChurnLimit, MaxDelegateStakePercentage,
+    MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes,
+    MaxMinDelegateStakeMultiplier, MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetMinStake,
+    MaxSubnetNodes, MaxSubnetPauseEpochs, MaxSubnetRemovalInterval, MaxSubnets, MinChurnLimit,
+    MinDelegateStakeDeposit, MinDelegateStakePercentage, MinIdleClassificationEpochs,
+    MinIncludedClassificationEpochs, MinMaxRegisteredNodes, MinQueueEpochs, MinRegistrationCost,
+    MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetRemovalInterval,
+    MinSubnetReputation, MultiaddrSubnetNodeId, NetworkBytes, NetworkMaxStakeBalance,
+    NodeBurnRateAlpha, NodeRegistrationInitialValidatorIds, NodeRegistrationsThisEpoch,
+    NodeSlotIndex, NodeSubnetStake, OverwatchNodeIndex, OverwatchSubnetWeights,
+    PeerIdOverwatchNodeId, PeerIdSubnetNodeId, PeerInfo, PendingConsensusValidatorNodeCountDecay,
     PendingConsensusValidatorStakeWeightPower, PendingIdleClassificationEpochs,
     PendingIncludedClassificationEpochs, PendingMinSubnetNodeReputation, PendingOwnerU128Update,
     PendingOwnerU32Update, PendingQueueImmunityEpochs, PendingSubnetDelegateStakeRewardsPercentage,
@@ -46,6 +46,7 @@ use crate::{
     UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorNodeDelegateStakeWeights,
     ValidatorReputation, ValidatorSubnetNodes,
 };
+use codec::{Decode, Encode};
 use frame_support::traits::{Currency, ExistenceRequirement, Get};
 use frame_support::weights::WeightMeter;
 use frame_support::{assert_err, assert_noop, assert_ok};
@@ -96,6 +97,18 @@ fn assert_subnet_slot_indexes_are_consistent() {
 //
 
 #[test]
+fn consensus_mechanism_defaults_to_attestation_with_stable_scale_index() {
+    let mechanism = ConsensusMechanism::default();
+
+    assert_eq!(mechanism, ConsensusMechanism::Attestation);
+    assert_eq!(mechanism.encode(), vec![0]);
+    assert_eq!(
+        ConsensusMechanism::decode(&mut &[0][..]).unwrap(),
+        ConsensusMechanism::Attestation
+    );
+}
+
+#[test]
 fn test_register_subnet() {
     new_test_ext().execute_with(|| {
         increase_epochs(1);
@@ -135,6 +148,7 @@ fn test_register_subnet() {
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet = SubnetsData::<Test>::get(subnet_id).unwrap();
 
+        assert_eq!(subnet.consensus_mechanism, ConsensusMechanism::Attestation);
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SubnetRegistered {
@@ -2739,6 +2753,7 @@ fn test_update_bootnodes() {
             repo: subnet_name.clone(),
             description: subnet_name.clone(),
             misc: subnet_name.clone(),
+            consensus_mechanism: Default::default(),
             state: SubnetState::Registered,
             consensus_eligible_from_subnet_epoch: None,
             pause: None,

@@ -124,13 +124,29 @@ Owners can update subnet reputation factors. These factors determine how node re
 
 Reputation factors are a core part of subnet quality control. They define the incentives and penalties that shape long-term node behavior, and updates are bounded and scheduled so changes remain predictable.
 
+The proposal-derived factors `included_increase`, `absent_decrease`,
+`below_min_weight_decrease`, and `non_attestor_decrease` take effect only for an accepted proposal
+whose distinct-validator-identity support reaches the round's snapshotted network supermajority
+threshold, 87.5% by default. Equality qualifies. This identity-verification gate also controls
+whether an Included node's consecutive-inclusion state can advance or reset because of the score
+vector. It prevents one large delegated-stake position from making subjective score data
+reputation-authoritative.
+
+Once the gate is met, these node factors retain their configured meanings and are applied at the
+node level. `included_increase` applies to a node present in the score vector;
+`absent_decrease` applies to a node omitted from it; and `below_min_weight_decrease` applies when a
+scored Validator-class node's score share is below the owner's configured threshold. Identity
+deduplication does not merge sibling-node duties or outcomes. Rewards, Idle-to-Included time
+progression, minimum-reputation removal, and objective lifecycle penalties are not controlled by
+this gate.
+
 `validator_non_consensus_decrease` is the maximum percentage of current node reputation that the
 elected proposer can lose when its submitted proposal is strongly rejected. The actual loss is
 linear in the distinct-validator-identity support shortfall: it is zero at the
 network-controlled strong-rejection threshold and reaches the owner-configured maximum at 0%
 identity support. A failed proposal at or above that threshold does not apply this proposer-node
-factor, although the existing economic, validator-identity-reputation, and subnet-reputation
-failure paths remain separate.
+factor. The proposer economic paths remain separate and can still apply, but the proposer
+validator-identity and subnet reputation paths use the same identity threshold and shortfall.
 
 `non_consensus_attestor_decrease` is the maximum percentage of current reputation that a
 supporting attestor can lose when a proposal is strongly rejected. The actual loss is linear: it
@@ -154,6 +170,26 @@ concentration, but responsibility remains node-level: if one node attests and a 
 the same validator does not, the sibling can still receive the configured decrease. This factor
 does not slash node stake or validator delegate pools. Rejected, missing, and zero-score proposals
 do not apply it. Queue mutations remain separately gated by stake-weighted supermajority.
+
+`validator_absent_decrease` remains an objective missing-proposal penalty for the elected proposer
+node. A missing proposal also uses the separate network
+`ValidatorAbsentSubnetReputationFactor`, records zero proposal identity support for the elected
+validator identity, and does not run the submitted-proposal reputation curves. Pause, minimum-node,
+and other subnet lifecycle reputation losses likewise remain independent of validator-identity
+support because they are not claims derived from proposal contents.
+
+The subnet's proposal-derived reputation is identity-based as well. An accepted proposal can apply
+`InConsensusSubnetReputationFactor` only after identity verification, with the distinct-identity
+support ratio as its multiplier. A rejected submitted proposal applies
+`NotInConsensusSubnetReputationFactor` only below the network's one-third strong-rejection
+threshold, scaled from zero loss at the threshold to the full configured factor at 0% identity
+support. These are network factors rather than owner-controlled node factors.
+
+Every settled elected round also updates the proposer's validator-identity support history.
+Submitted proposals record their actual distinct-identity ratio and missing proposals record zero
+in `average_proposal_identity_support`; `identity_support_samples` tracks the denominator. These
+network-maintained statistics are independent of whether an owner-configured node factor changed a
+node's reputation. The bounded count and average freeze together at `u32::MAX`.
 
 ### Consensus and Attestation Settings
 

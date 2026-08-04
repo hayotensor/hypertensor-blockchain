@@ -2,202 +2,215 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{Reputation, ValidatorReputation};
 
+fn validator_reputation(score: u128, election_epoch: u32) -> Reputation {
+    Reputation {
+        start_epoch: Some(election_epoch),
+        score,
+        lifetime_node_count: 0,
+        total_active_nodes: 0,
+        total_increases: 0,
+        total_decreases: 0,
+        average_proposal_identity_support: 0,
+        identity_support_samples: 0,
+        last_validator_epoch: Some(election_epoch),
+        ow_score: score,
+    }
+}
+
 #[test]
-fn test_increase_coldkey_reputation_with_weight_factor() {
+fn identity_supermajority_increases_validator_reputation_and_records_support() {
     new_test_ext().execute_with(|| {
-        let coldkey: AccountId = account(1);
         let validator_id = 1;
         let election_epoch = 7;
-        let min_attestation = test_percent(66, 100);
-        let attestation = test_percent(9, 10);
-        let weight_factor = test_percent(1, 2);
+        let identity_supermajority = test_percent(7, 8);
+        let identity_support = identity_supermajority;
+        let increase_factor = test_percent(1, 2);
         let starting_score = test_percent(1, 2);
 
-        // Set initial reputation
         ValidatorReputation::<Test>::insert(
             validator_id,
-            Reputation {
-                start_epoch: Some(election_epoch),
-                score: starting_score,
-                lifetime_node_count: 0,
-                total_active_nodes: 0,
-                total_increases: 0,
-                total_decreases: 0,
-                average_attestation: 0,
-                last_validator_epoch: Some(election_epoch),
-                ow_score: starting_score,
-            },
+            validator_reputation(starting_score, election_epoch),
         );
 
         Network::increase_validator_reputation(
             validator_id,
-            attestation,
-            min_attestation,
-            weight_factor,
+            identity_support,
+            identity_supermajority,
+            increase_factor,
         );
 
         let rep = ValidatorReputation::<Test>::get(validator_id);
 
+        assert_eq!(
+            rep.score,
+            Network::increase_rep(starting_score, increase_factor, None)
+        );
         assert_eq!(rep.total_increases, 1);
+        assert_eq!(rep.total_decreases, 0);
         assert_eq!(rep.start_epoch, Some(election_epoch));
         assert_eq!(rep.last_validator_epoch, Some(election_epoch));
-        assert_eq!(rep.average_attestation, attestation);
-        assert!(rep.score > starting_score);
+        assert_eq!(rep.average_proposal_identity_support, identity_support);
+        assert_eq!(rep.identity_support_samples, 1);
     });
 }
 
 #[test]
-fn test_average_attestation_over_multiple_increases() {
+fn below_identity_supermajority_is_neutral_but_records_support() {
     new_test_ext().execute_with(|| {
-        let coldkey: AccountId = account(1);
         let validator_id = 1;
-        let min_attestation = test_percent(66, 100);
-        let weight_factor = test_percent(1, 2);
+        let identity_supermajority = test_percent(7, 8);
+        let identity_support = identity_supermajority - 1;
+        let increase_factor = test_percent(1, 2);
         let starting_score = test_percent(1, 2);
-        let perc = Network::percentage_factor_as_u128(); // 1e18
 
-        // Step 1: insert initial rep
-        ValidatorReputation::<Test>::insert(
+        ValidatorReputation::<Test>::insert(validator_id, validator_reputation(starting_score, 5));
+
+        Network::increase_validator_reputation(
             validator_id,
-            Reputation {
-                start_epoch: Some(5),
-                score: starting_score,
-                lifetime_node_count: 0,
-                total_active_nodes: 0,
-                total_increases: 0,
-                total_decreases: 0,
-                average_attestation: 0,
-                last_validator_epoch: Some(5),
-                ow_score: starting_score,
-            },
+            identity_support,
+            identity_supermajority,
+            increase_factor,
         );
 
-        // Step 1: 90%
-        let att1 = test_percent(9, 10);
-        Network::increase_validator_reputation(validator_id, att1, min_attestation, weight_factor);
-        let rep1 = ValidatorReputation::<Test>::get(validator_id);
-        assert_eq!(rep1.average_attestation, att1);
-        assert_eq!(rep1.total_increases, 1);
-
-        // Step 2: 70%
-        let att2 = test_percent(7, 10);
-        Network::increase_validator_reputation(validator_id, att2, min_attestation, weight_factor);
-        let rep2 = ValidatorReputation::<Test>::get(validator_id);
-        let expected_avg2 = (att1 + att2) / 2;
-        assert_eq!(rep2.average_attestation, expected_avg2);
-        assert_eq!(rep2.total_increases, 2);
-
-        // Step 3: 100%
-        let att3 = Network::percentage_factor_as_u128();
-        Network::increase_validator_reputation(validator_id, att3, min_attestation, weight_factor);
-        let rep3 = ValidatorReputation::<Test>::get(validator_id);
-        let expected_avg3 = (expected_avg2 * 2 + att3) / 3;
-        assert_eq!(rep3.average_attestation, expected_avg3);
-        assert_eq!(rep3.total_increases, 3);
-
-        // Step 4: 80%
-        let att4 = test_percent(4, 5);
-        Network::increase_validator_reputation(validator_id, att4, min_attestation, weight_factor);
-        let rep4 = ValidatorReputation::<Test>::get(validator_id);
-        let expected_avg4 = (expected_avg3 * 3 + att4) / 4;
-        assert_eq!(rep4.average_attestation, expected_avg4);
-        assert_eq!(rep4.total_increases, 4);
-        assert_eq!(rep4.start_epoch, Some(5));
-        assert_eq!(rep4.last_validator_epoch, Some(5));
+        let rep = ValidatorReputation::<Test>::get(validator_id);
+        assert_eq!(rep.score, starting_score);
+        assert_eq!(rep.total_increases, 0);
+        assert_eq!(rep.total_decreases, 0);
+        assert_eq!(rep.average_proposal_identity_support, identity_support);
+        assert_eq!(rep.identity_support_samples, 1);
     });
 }
 
 #[test]
-fn test_single_decrease_updates_average_and_weight() {
+fn identity_shortfall_scales_validator_reputation_decrease_and_records_support() {
     new_test_ext().execute_with(|| {
-        let coldkey: AccountId = account(1);
         let validator_id = 1;
-        let min_attestation = test_percent(66, 100);
-        let attestation = test_percent(1, 2);
-        let weight_factor = test_percent(1, 2);
+        let identity_support = test_percent(1, 6);
+        let identity_shortfall = test_percent(1, 2);
+        let decrease_factor = test_percent(1, 5);
         let start_score = test_percent(4, 5);
 
-        ValidatorReputation::<Test>::insert(
-            validator_id,
-            Reputation {
-                start_epoch: Some(6),
-                score: start_score,
-                lifetime_node_count: 0,
-                total_active_nodes: 0,
-                total_increases: 0,
-                total_decreases: 0,
-                average_attestation: 0,
-                last_validator_epoch: Some(6),
-                ow_score: test_percent(1, 2),
-            },
-        );
+        ValidatorReputation::<Test>::insert(validator_id, validator_reputation(start_score, 6));
 
         Network::decrease_validator_reputation(
             validator_id,
-            attestation,
-            min_attestation,
-            weight_factor,
+            identity_support,
+            Some(identity_shortfall),
+            decrease_factor,
         );
 
         let rep = ValidatorReputation::<Test>::get(validator_id);
+        assert_eq!(
+            rep.score,
+            Network::decrease_rep(start_score, decrease_factor, Some(identity_shortfall))
+        );
+        assert_eq!(rep.total_increases, 0);
         assert_eq!(rep.total_decreases, 1);
-        assert_eq!(rep.average_attestation, attestation);
-        assert!(rep.score < start_score);
+        assert_eq!(rep.average_proposal_identity_support, identity_support);
+        assert_eq!(rep.identity_support_samples, 1);
         assert_eq!(rep.start_epoch, Some(6));
         assert_eq!(rep.last_validator_epoch, Some(6));
     });
 }
 
 #[test]
-fn test_average_attestation_over_multiple_decreases() {
+fn neutral_rejected_proposal_records_support_without_decreasing_score() {
     new_test_ext().execute_with(|| {
-        let coldkey: AccountId = account(1);
         let validator_id = 1;
-        let min_attestation = test_percent(66, 100);
-        let weight_factor = test_percent(1, 2);
-        let start_score = test_percent(9, 10);
+        let identity_support = test_percent(1, 2);
+        let decrease_factor = test_percent(1, 5);
+        let start_score = test_percent(4, 5);
 
-        // Initial insert
-        ValidatorReputation::<Test>::insert(
+        ValidatorReputation::<Test>::insert(validator_id, validator_reputation(start_score, 8));
+
+        Network::decrease_validator_reputation(
             validator_id,
-            Reputation {
-                start_epoch: Some(8),
-                score: start_score,
-                lifetime_node_count: 0,
-                total_active_nodes: 0,
-                total_increases: 0,
-                total_decreases: 0,
-                average_attestation: 0,
-                last_validator_epoch: Some(8),
-                ow_score: test_percent(1, 2),
-            },
+            identity_support,
+            None,
+            decrease_factor,
         );
 
-        // Step 1: 50%
-        let att1 = test_percent(1, 2);
-        Network::decrease_validator_reputation(validator_id, att1, min_attestation, weight_factor);
-        let rep1 = ValidatorReputation::<Test>::get(validator_id);
-        assert_eq!(rep1.average_attestation, att1);
+        let rep = ValidatorReputation::<Test>::get(validator_id);
+        assert_eq!(rep.score, start_score);
+        assert_eq!(rep.total_increases, 0);
+        assert_eq!(rep.total_decreases, 0);
+        assert_eq!(rep.average_proposal_identity_support, identity_support);
+        assert_eq!(rep.identity_support_samples, 1);
+    });
+}
 
-        // Step 2: 40%
-        let att2 = 400_000_000_000_000_000u128;
-        Network::decrease_validator_reputation(validator_id, att2, min_attestation, weight_factor);
-        let rep2 = ValidatorReputation::<Test>::get(validator_id);
-        let expected_avg2 = (att1 + att2) / 2;
-        assert_eq!(rep2.average_attestation, expected_avg2);
+#[test]
+fn identity_support_average_includes_increase_decrease_and_neutral_samples() {
+    new_test_ext().execute_with(|| {
+        let validator_id = 1;
+        let starting_score = test_percent(1, 2);
+        let factor = test_percent(1, 10);
+        ValidatorReputation::<Test>::insert(validator_id, validator_reputation(starting_score, 8));
 
-        // Step 3: 60%
-        let att3 = 600_000_000_000_000_000u128;
-        Network::decrease_validator_reputation(validator_id, att3, min_attestation, weight_factor);
-        let rep3 = ValidatorReputation::<Test>::get(validator_id);
-        let expected_avg3 = (expected_avg2 * 2 + att3) / 3;
-        assert_eq!(rep3.average_attestation, expected_avg3);
+        Network::increase_validator_reputation(
+            validator_id,
+            test_percent(9, 10),
+            test_percent(7, 8),
+            factor,
+        );
+        Network::decrease_validator_reputation(
+            validator_id,
+            test_percent(1, 10),
+            Some(test_percent(7, 10)),
+            factor,
+        );
+        Network::decrease_validator_reputation(validator_id, test_percent(1, 2), None, factor);
 
-        // Confirm all other reputation fields are tracking
-        assert_eq!(rep3.total_decreases, 3);
-        assert_eq!(rep3.start_epoch, Some(8));
-        assert_eq!(rep3.last_validator_epoch, Some(8));
-        assert!(rep3.score < start_score); // score has gone down over 3 decreases
+        let rep = ValidatorReputation::<Test>::get(validator_id);
+        assert_eq!(rep.total_increases, 1);
+        assert_eq!(rep.total_decreases, 1);
+        assert_eq!(rep.average_proposal_identity_support, test_percent(1, 2));
+        assert_eq!(rep.identity_support_samples, 3);
+    });
+}
+
+#[test]
+fn missing_proposal_records_zero_identity_support_without_changing_score() {
+    new_test_ext().execute_with(|| {
+        let validator_id = 1;
+        let start_score = test_percent(4, 5);
+        let previous_average = test_percent(3, 5);
+        let mut reputation = validator_reputation(start_score, 8);
+        reputation.total_increases = 4;
+        reputation.total_decreases = 2;
+        reputation.average_proposal_identity_support = previous_average;
+        reputation.identity_support_samples = 2;
+        ValidatorReputation::<Test>::insert(validator_id, reputation);
+
+        Network::record_validator_identity_support(validator_id, 0);
+
+        let rep = ValidatorReputation::<Test>::get(validator_id);
+        assert_eq!(rep.score, start_score);
+        assert_eq!(rep.total_increases, 4);
+        assert_eq!(rep.total_decreases, 2);
+        assert_eq!(
+            rep.average_proposal_identity_support,
+            previous_average.saturating_mul(2).saturating_div(3)
+        );
+        assert_eq!(rep.identity_support_samples, 3);
+    });
+}
+
+#[test]
+fn saturated_identity_support_sample_count_freezes_the_average() {
+    new_test_ext().execute_with(|| {
+        let validator_id = 1;
+        let starting_average = test_percent(3, 5);
+        let mut reputation = validator_reputation(test_percent(4, 5), 8);
+        reputation.average_proposal_identity_support = starting_average;
+        reputation.identity_support_samples = u32::MAX;
+        ValidatorReputation::<Test>::insert(validator_id, reputation);
+
+        Network::record_validator_identity_support(validator_id, 0);
+
+        let rep = ValidatorReputation::<Test>::get(validator_id);
+        assert_eq!(rep.average_proposal_identity_support, starting_average);
+        assert_eq!(rep.identity_support_samples, u32::MAX);
     });
 }
 

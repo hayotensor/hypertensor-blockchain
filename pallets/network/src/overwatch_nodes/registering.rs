@@ -230,7 +230,7 @@ impl<T: Config> Pallet<T> {
             return false;
         }
 
-        if reputation.average_attestation < min_avg_attestation {
+        if reputation.average_proposal_identity_support < min_avg_attestation {
             return false;
         }
 

@@ -46,32 +46,51 @@ Validator-owned subnet nodes can participate in subnet consensus once they reach
 
 Consensus submissions contain the elected subnet node's view of subnet node scores and may include queue decisions, such as prioritizing or removing queued nodes when the subnet rules allow it. Attestations from other eligible subnet nodes signal agreement with the submitted data.
 
-Timely and accurate subnet node participation affects rewards and reputation. Missing a proposal
-uses the separate proposer-absence reputation rule. When a submitted proposal fails consensus, its
-economic, validator-identity-reputation, and subnet-reputation consequences remain governed by
-their existing rules.
+Timely and accurate subnet node participation affects rewards and reputation. Proposal-derived
+reputation uses distinct validator identities so a large delegated-stake position cannot make its
+subjective score vector reputation-authoritative by itself. The identity ratio is:
 
-For an accepted proposal with a nonzero score sum, `non_attestor_decrease` applies to a scored
-Validator-class node that did not attest only when distinct validator-identity participation is at
-least the round's snapshotted supermajority threshold, including equality. The identity ratio is
-the number of unique eligible validator identities with an attestation divided by all unique
-eligible validator identities in the proposal-time snapshot. Multiple attesting nodes owned by one
-validator count as one identity, and the proposer's automatic attestation counts its identity
-once. The gate is identity-level, but attestation responsibility remains node-level: a
-non-attesting sibling can lose the fixed configured reputation percentage even when another node
-of the same validator attested. The factor is not a severity curve and does not slash node stake
-or validator delegate pools. Rejected, missing, and zero-score proposals do not apply it.
+```text
+unique eligible validator identities with an attestation
+/ all unique eligible validator identities
+```
+
+Multiple attesting nodes owned by one validator count as one identity, and the proposer's automatic
+attestation contributes its identity once. An accepted proposal is **identity-verified** when this
+ratio reaches the round's snapshotted supermajority threshold, 87.5% by default; equality qualifies.
+
+Only an identity-verified accepted proposal can apply proposal-derived reputation-score and
+classification changes. This includes node `included_increase`, `absent_decrease`,
+`below_min_weight_decrease`, and `non_attestor_decrease`; the proposer validator identity's
+reputation increase; the subnet-reputation increase; and Included-to-Validator consecutive
+progression or reset based on score-vector presence. Identity deduplication controls the gate, but
+responsibility remains node-level. An omitted sibling can receive `absent_decrease`, while a
+low-scored or non-attesting Validator-class sibling can receive its corresponding consequence even
+if another node owned by the same validator attested. The subnet-reputation increase is scaled by
+identity support; the node and validator-identity factors are not increased for support above the
+gate.
+
+An accepted proposal below the identity-verification gate can still distribute rewards. Its score
+vector is simply neutral for reputation scores and Included-to-Validator classification. Queue
+decisions use their separate stake-weighted supermajority check. Idle-to-Included time progression,
+minimum-reputation removal, and other objective lifecycle processing are unchanged. Accepted
+zero-score proposals retain their early-return behavior, including skipping the per-node
+distribution loop. In an emergency round, only the snapshotted emergency identities establish the
+identity gate, non-attestor accountability is limited to emergency validators, and ordinary
+classification progression remains disabled.
 
 Queue decisions use a separate stake-weighted supermajority check. Reaching the identity
-supermajority for the non-attestor rule does not by itself authorize queue prioritization or
-removal.
+supermajority for reputation scores does not by itself authorize queue prioritization or removal.
 
 The elected proposer's node receives `validator_non_consensus_decrease` only when distinct
 validator-identity support is strictly below the round's snapshotted configurable
 strong-rejection threshold, which defaults to one-third. The decrease scales linearly with the
 identity-support shortfall: it is zero at the threshold and reaches the configured maximum at 0%
 identity support. A failed proposal at or above the threshold does not apply this proposer-node
-decrease.
+decrease. The proposer validator identity and subnet use the same one-third identity gate and
+shortfall for their submitted-proposal reputation decreases. A stake-only rejection with at least
+one-third identity support can still slash the proposer economically, but causes no
+submitted-proposal reputation loss.
 
 Under the same strong-rejection condition, every attesting node receives the separately configured
 supporter decrease. Each identity counts once even if several of its nodes attest, but all of those
@@ -81,13 +100,23 @@ against its remaining reputation. Minimum-reputation removal is evaluated after 
 supporter penalty affects node reputation only; attestors are not economically slashed for
 attesting, while proposer direct-node-stake and delegate-pool slashing remain specific to the
 elected proposer. A missing proposal has no attestors to penalize and follows the separate absence
-and proposer-economic-penalty path.
+and proposer-economic-penalty path. Specifically, it records a zero identity-support sample and
+applies the objective proposer-node and subnet absence factors exactly once; it does not apply the
+general validator-identity or submitted-proposal strong-rejection reputation decreases.
 
 The validator identity records its first and most recent election epochs when one of its subnet
 nodes is elected. These election timestamps are written immediately, including when the elected
-node never submits a proposal. The election's score, attestation average, reward, or penalty is
-settled at the subnet's next slot from the completed epoch's data; settlement does not relabel the
-election as belonging to the later epoch.
+node never submits a proposal. At settlement,
+`average_proposal_identity_support` records the average distinct-identity support across elected
+rounds, and `identity_support_samples` records the number of rounds represented. Submitted
+proposals contribute their actual identity ratio; missing proposals contribute zero. If the
+bounded counter ever reaches `u32::MAX`, both the count and average freeze together.
+`total_increases` counts identity-verified accepted proposals with a nonzero configured increase
+factor, while `total_decreases` counts proposals below the one-third identity threshold with a
+nonzero effective decrease factor. Reputation-score-neutral submitted rounds still update the
+support average without changing either score counter. The runtime's Overwatch
+minimum-average-attestation eligibility check reads this identity-support average. Settlement does
+not relabel the election as belonging to the later epoch.
 
 ### Key Management
 

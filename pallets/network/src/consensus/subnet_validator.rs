@@ -628,32 +628,35 @@ impl<T: Config> Pallet<T> {
     ///
     /// * `subnet_id` - Subnet ID
     /// * `subnet_node_id` - Subnet node ID
-    /// * `attestation_percentage` - The attestation ratio of the validator nodes consensus
-    /// * `min_attestation_percentage` - Blockchain's minimum stake-attestation percentage
+    /// * `attestation_percentage` - The selected consensus-failure ratio used for economics
+    /// * `min_attestation_percentage` - The selected consensus-failure threshold
+    /// * `identity_attestation_percentage` - Distinct-validator-identity proposal support
     /// * `coldkey_reputation_decrease_factor`: `ValidatorReputationDecreaseFactor`
     /// * `validator_non_consensus_reputation_factor`: Resolved subnet node factor for this epoch
-    /// * `proposer_identity_reputation_shortfall`: Precomputed distinct-identity rejection severity
+    /// * `identity_reputation_shortfall`: Precomputed distinct-identity rejection severity
     pub fn slash_validator(
         subnet_id: u32,
         subnet_node_id: u32,
         attestation_percentage: u128,
         min_attestation_percentage: u128,
+        identity_attestation_percentage: u128,
         coldkey_reputation_decrease_factor: u128,
         min_validator_reputation: u128,
         electable_nodes: u32,
         validator_non_consensus_reputation_factor: u128,
-        proposer_identity_reputation_shortfall: Option<u128>,
+        identity_reputation_shortfall: Option<u128>,
     ) -> Weight {
         Self::slash_validator_with_policy(
             subnet_id,
             subnet_node_id,
             attestation_percentage,
             min_attestation_percentage,
+            identity_attestation_percentage,
             coldkey_reputation_decrease_factor,
             min_validator_reputation,
             electable_nodes,
             validator_non_consensus_reputation_factor,
-            proposer_identity_reputation_shortfall,
+            identity_reputation_shortfall,
             BaseSlashPercentage::<T>::get(),
             MaxSlashAmount::<T>::get(),
         )
@@ -664,11 +667,12 @@ impl<T: Config> Pallet<T> {
         subnet_node_id: u32,
         attestation_percentage: u128,
         min_attestation_percentage: u128,
+        identity_attestation_percentage: u128,
         coldkey_reputation_decrease_factor: u128,
         min_validator_reputation: u128,
         electable_nodes: u32,
         validator_non_consensus_reputation_factor: u128,
-        proposer_identity_reputation_shortfall: Option<u128>,
+        identity_reputation_shortfall: Option<u128>,
         base_slash_percentage: u128,
         max_slash_amount: u128,
     ) -> Weight {
@@ -677,11 +681,12 @@ impl<T: Config> Pallet<T> {
             subnet_node_id,
             attestation_percentage,
             min_attestation_percentage,
+            identity_attestation_percentage,
             coldkey_reputation_decrease_factor,
             min_validator_reputation,
             electable_nodes,
             validator_non_consensus_reputation_factor,
-            proposer_identity_reputation_shortfall,
+            identity_reputation_shortfall,
             base_slash_percentage,
             max_slash_amount,
             attestation_percentage,
@@ -695,17 +700,19 @@ impl<T: Config> Pallet<T> {
     /// Apply snapshotted economic policy and reputation penalties to a submitted round.
     /// Direct node-stake severity continues to use the selected consensus-failure ratio, while
     /// delegate-pool severity always uses the stake-weighted attestation ratio. Proposer node
-    /// reputation uses only the caller-provided distinct-identity strong-rejection shortfall.
+    /// reputation uses only the caller-provided distinct-identity support and strong-rejection
+    /// shortfall.
     pub fn slash_validator_for_round_with_policy(
         subnet_id: u32,
         subnet_node_id: u32,
         attestation_percentage: u128,
         min_attestation_percentage: u128,
+        identity_attestation_percentage: u128,
         coldkey_reputation_decrease_factor: u128,
         min_validator_reputation: u128,
         electable_nodes: u32,
         validator_non_consensus_reputation_factor: u128,
-        proposer_identity_reputation_shortfall: Option<u128>,
+        identity_reputation_shortfall: Option<u128>,
         base_slash_percentage: u128,
         max_slash_amount: u128,
         stake_attestation_percentage: u128,
@@ -717,16 +724,13 @@ impl<T: Config> Pallet<T> {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
-        let proposer_identity_reputation_shortfall = proposer_identity_reputation_shortfall
-            .map(|shortfall| shortfall.min(Self::percentage_factor_as_u128()))
-            .filter(|shortfall| {
+        let identity_reputation_shortfall = identity_reputation_shortfall
+            .map(|shortfall| shortfall.min(Self::percentage_factor_as_u128()));
+        let proposer_node_reputation_shortfall =
+            identity_reputation_shortfall.filter(|shortfall| {
                 Self::percent_mul(validator_non_consensus_reputation_factor, *shortfall) > 0
             });
         let economic_consensus_failed = attestation_percentage < min_attestation_percentage;
-
-        if !economic_consensus_failed && proposer_identity_reputation_shortfall.is_none() {
-            return weight;
-        }
 
         let validator_id = if economic_consensus_failed {
             let (validator_id, _, _, slash_weight) = Self::apply_validator_economic_slashes(
@@ -743,26 +747,26 @@ impl<T: Config> Pallet<T> {
                 max_validator_delegate_stake_slash_amount,
             );
             weight = weight.saturating_add(slash_weight);
-
-            if let Some(validator_id) = validator_id {
-                Self::decrease_validator_reputation(
-                    validator_id,
-                    attestation_percentage,
-                    min_attestation_percentage,
-                    coldkey_reputation_decrease_factor,
-                );
-                // ValidatorReputation::contains_key + get + insert (worst-case enabled path).
-                weight = weight.saturating_add(db_weight.reads_writes(2, 1));
-            }
             validator_id
         } else {
-            // An explicit identity shortfall is independent from economic consensus. Resolve the
-            // validator only for the possible minimum-reputation removal below.
+            // Identity reputation and its support statistics are independent from economic
+            // consensus, so resolve the validator even when the economic ratio passed.
             weight = weight.saturating_add(db_weight.reads(1));
             SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
         };
 
-        let reputation = if let Some(identity_shortfall) = proposer_identity_reputation_shortfall {
+        if let Some(validator_id) = validator_id {
+            Self::decrease_validator_reputation(
+                validator_id,
+                identity_attestation_percentage,
+                identity_reputation_shortfall,
+                coldkey_reputation_decrease_factor,
+            );
+            // ValidatorReputation::contains_key + get + insert.
+            weight = weight.saturating_add(db_weight.reads_writes(2, 1));
+        }
+
+        let reputation = if let Some(identity_shortfall) = proposer_node_reputation_shortfall {
             weight = weight.saturating_add(db_weight.reads(1));
             SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id).map(|rep| {
                 let new_reputation = Self::decrease_and_return_node_reputation(

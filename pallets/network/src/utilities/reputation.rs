@@ -51,95 +51,108 @@ impl<T: Config> Pallet<T> {
             .factors_for_epoch(evaluated_subnet_epoch)
     }
 
+    fn append_validator_identity_support(
+        validator_reputation: &mut Reputation,
+        identity_attestation_ratio: u128,
+    ) {
+        // Freeze the arithmetic mean once its bounded sample counter saturates. Updating the mean
+        // while leaving the denominator at `u32::MAX` would give later samples inconsistent
+        // historical weight.
+        if validator_reputation.identity_support_samples == u32::MAX {
+            return;
+        }
+
+        let identity_attestation_ratio =
+            identity_attestation_ratio.min(Self::percentage_factor_as_u128());
+        let previous_samples = validator_reputation.identity_support_samples as u128;
+
+        validator_reputation.average_proposal_identity_support = if previous_samples == 0 {
+            identity_attestation_ratio
+        } else {
+            validator_reputation
+                .average_proposal_identity_support
+                .saturating_mul(previous_samples)
+                .saturating_add(identity_attestation_ratio)
+                .saturating_div(previous_samples.saturating_add(1))
+        };
+        validator_reputation.identity_support_samples += 1;
+    }
+
+    /// Record a settled election's distinct-validator-identity support without changing score.
+    pub fn record_validator_identity_support(validator_id: u32, identity_attestation_ratio: u128) {
+        if !ValidatorReputation::<T>::contains_key(validator_id) {
+            return;
+        }
+
+        let mut validator_reputation = ValidatorReputation::<T>::get(validator_id);
+        Self::append_validator_identity_support(
+            &mut validator_reputation,
+            identity_attestation_ratio,
+        );
+        ValidatorReputation::<T>::insert(validator_id, validator_reputation);
+    }
+
+    /// Record an accepted proposal and increase its validator identity's score only when a
+    /// supermajority of distinct eligible validator identities endorsed it.
     pub fn increase_validator_reputation(
         validator_id: u32,
-        attestation_percentage: u128,
-        min_attestation_percentage: u128,
+        identity_attestation_ratio: u128,
+        identity_super_majority_threshold: u128,
         increase_weight_factor: u128,
     ) {
         if !ValidatorReputation::<T>::contains_key(validator_id) {
             return;
         }
 
-        if attestation_percentage < min_attestation_percentage {
-            return;
-        }
-
-        // Safe get, has Default value
         let mut validator_reputation = ValidatorReputation::<T>::get(validator_id);
-        let current_score = validator_reputation.score;
+        Self::append_validator_identity_support(
+            &mut validator_reputation,
+            identity_attestation_ratio,
+        );
 
-        let new_score = Self::increase_rep(current_score, increase_weight_factor, None);
-
-        // Update fields
-        validator_reputation.score = new_score;
-        validator_reputation.total_increases += 1;
-
-        // Update average attestation
-        let prev_total = validator_reputation
-            .total_increases
-            .saturating_add(validator_reputation.total_decreases)
-            .saturating_sub(1) as u128;
-
-        validator_reputation.average_attestation = if prev_total == 0 {
-            attestation_percentage
-        } else {
-            (validator_reputation
-                .average_attestation
-                .saturating_mul(prev_total)
-                .saturating_add(attestation_percentage))
-            .saturating_div(prev_total + 1)
-        };
+        if identity_attestation_ratio >= identity_super_majority_threshold
+            && increase_weight_factor > 0
+        {
+            validator_reputation.score =
+                Self::increase_rep(validator_reputation.score, increase_weight_factor, None);
+            validator_reputation.total_increases =
+                validator_reputation.total_increases.saturating_add(1);
+        }
 
         ValidatorReputation::<T>::insert(validator_id, validator_reputation);
     }
 
-    /// Decrease coldkey reptuation
-    ///
-    /// # Arguments
-    ///
-    /// * `coldkey` - Nodes coldkey
-    /// * `attestation_percentage` - The attestation ratio of the validator nodes consensus
-    /// * `min_attestation_percentage` - Blockchain's minimum stake-attestation percentage
-    /// * `decrease_weight_factor` - `ValidatorReputationDecreaseFactor`.
+    /// Record a rejected proposal and decrease its validator identity's score only by the supplied
+    /// distinct-identity strong-rejection shortfall.
     pub fn decrease_validator_reputation(
         validator_id: u32,
-        attestation_percentage: u128,
-        min_attestation_percentage: u128,
-        decrease_weight_factor: u128, // <- slope/steepness control
+        identity_attestation_ratio: u128,
+        identity_shortfall: Option<u128>,
+        decrease_weight_factor: u128,
     ) {
         if !ValidatorReputation::<T>::contains_key(validator_id) {
             return;
         }
 
-        if attestation_percentage >= min_attestation_percentage {
-            return;
-        }
-
-        // Safe get, has Default value
         let mut validator_reputation = ValidatorReputation::<T>::get(validator_id);
-        let current_score = validator_reputation.score;
+        Self::append_validator_identity_support(
+            &mut validator_reputation,
+            identity_attestation_ratio,
+        );
 
-        // Penalty increases as score increases (same pattern as reward logic)
-        let new_score = Self::decrease_rep(current_score, decrease_weight_factor, None);
-
-        validator_reputation.score = new_score;
-        validator_reputation.total_decreases += 1;
-
-        let prev_total = validator_reputation
-            .total_increases
-            .saturating_add(validator_reputation.total_decreases)
-            .saturating_sub(1) as u128;
-
-        validator_reputation.average_attestation = if prev_total == 0 {
-            attestation_percentage
-        } else {
-            (validator_reputation
-                .average_attestation
-                .saturating_mul(prev_total)
-                .saturating_add(attestation_percentage))
-            .saturating_div(prev_total + 1)
-        };
+        let identity_shortfall =
+            identity_shortfall.map(|value| value.min(Self::percentage_factor_as_u128()));
+        if identity_shortfall
+            .is_some_and(|shortfall| Self::percent_mul(decrease_weight_factor, shortfall) > 0)
+        {
+            validator_reputation.score = Self::decrease_rep(
+                validator_reputation.score,
+                decrease_weight_factor,
+                identity_shortfall,
+            );
+            validator_reputation.total_decreases =
+                validator_reputation.total_decreases.saturating_add(1);
+        }
 
         ValidatorReputation::<T>::insert(validator_id, validator_reputation);
     }

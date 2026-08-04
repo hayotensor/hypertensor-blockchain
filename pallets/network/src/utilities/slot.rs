@@ -791,10 +791,10 @@ impl<T: Config> Pallet<T> {
                 {
                     let validator_subnet_node_id = round.validator_subnet_node_id;
 
-                    // A missing proposal has zero stake-weighted support. Apply only economic
-                    // losses here; the existing absence-specific reputation penalties below must
-                    // remain the sole reputation update for this path.
-                    let (_, _, _, slash_weight) = Self::apply_validator_economic_slashes(
+                    // A missing proposal has zero support. Apply economic losses and record a zero
+                    // validator-identity support sample, while leaving score loss to the existing
+                    // absence-specific node and subnet penalties below.
+                    let (validator_id, _, _, slash_weight) = Self::apply_validator_economic_slashes(
                         subnet_id,
                         validator_subnet_node_id,
                         0,
@@ -808,6 +808,11 @@ impl<T: Config> Pallet<T> {
                         round.policy.max_validator_delegate_stake_slash_amount,
                     );
                     weight = weight.saturating_add(slash_weight);
+                    if let Some(validator_id) = validator_id {
+                        Self::record_validator_identity_support(validator_id, 0);
+                        // ValidatorReputation::contains_key + get + insert.
+                        weight = weight.saturating_add(db_weight.reads_writes(2, 1));
+                    }
 
                     //
                     // Update subnet rep

@@ -2,11 +2,14 @@ use super::mock::*;
 use crate::{
     ActiveOverwatchCommitCutoffPercent, ActiveOverwatchEpochLengthMultiplier, BaseSlashPercentage,
     ConsensusValidatorIdentityAttestationPercentage, CurrentOverwatchEpoch,
-    LastFinalizedOverwatchEpoch, OverwatchCommitCutoffPercent, OverwatchEpochLengthMultiplier,
-    OverwatchEpochStartBlock, PendingOverwatchSettlement, PendingOverwatchSettlementData,
-    SubnetElectedValidator, SubnetNodeElectionSlots, SubnetNodeValidatorId,
-    SubnetReputationFactorSchedules, SubnetSlot, SuperMajorityAttestationRatio,
-    ValidatorReputation,
+    InConsensusSubnetReputationFactor, LastFinalizedOverwatchEpoch,
+    NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
+    OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock, PendingOverwatchSettlement,
+    PendingOverwatchSettlementData, SubnetElectedValidator, SubnetNodeElectionSlots,
+    SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeValidatorId,
+    SubnetReputationFactorSchedules, SubnetReputationFactors, SubnetSlot,
+    SuperMajorityAttestationRatio, ValidatorReputation, ValidatorReputationDecreaseFactor,
+    ValidatorReputationIncreaseFactor,
 };
 use frame_support::{assert_ok, traits::OnInitialize};
 
@@ -142,22 +145,59 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
         let subnet_epoch = 3;
         let elected_slash_percentage = Network::percent_div(1, 100);
         let elected_supermajority = Network::percent_div(7, 8);
-        let elected_non_attestor_decrease = Network::percent_div(3, 100);
+        let elected_reputation_factors = SubnetReputationFactors {
+            absent_decrease: Network::percent_div(1, 100),
+            included_increase: Network::percent_div(2, 100),
+            below_min_weight_decrease: Network::percent_div(3, 100),
+            non_attestor_decrease: Network::percent_div(4, 100),
+            non_consensus_attestor_decrease: Network::percent_div(5, 100),
+            validator_absent_decrease: Network::percent_div(6, 100),
+            validator_non_consensus_decrease: Network::percent_div(7, 100),
+        };
+        let elected_validator_reputation_increase = Network::percent_div(8, 100);
+        let elected_validator_reputation_decrease = Network::percent_div(9, 100);
+        let elected_subnet_reputation_increase = Network::percent_div(10, 100);
+        let elected_subnet_reputation_decrease = Network::percent_div(11, 100);
+        let elected_min_weight_threshold = Network::percent_div(12, 100);
 
         SubnetNodeElectionSlots::<Test>::insert(subnet_id, vec![subnet_node_id]);
         SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
         BaseSlashPercentage::<Test>::put(elected_slash_percentage);
         SuperMajorityAttestationRatio::<Test>::put(elected_supermajority);
         SubnetReputationFactorSchedules::<Test>::mutate(subnet_id, |schedule| {
-            schedule.current.non_attestor_decrease = elected_non_attestor_decrease;
+            schedule.current = elected_reputation_factors;
         });
+        ValidatorReputationIncreaseFactor::<Test>::put(elected_validator_reputation_increase);
+        ValidatorReputationDecreaseFactor::<Test>::put(elected_validator_reputation_decrease);
+        InConsensusSubnetReputationFactor::<Test>::put(elected_subnet_reputation_increase);
+        NotInConsensusSubnetReputationFactor::<Test>::put(elected_subnet_reputation_decrease);
+        SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::insert(
+            subnet_id,
+            elected_min_weight_threshold,
+        );
 
         Network::elect_validator(subnet_id, subnet_epoch, 0);
         BaseSlashPercentage::<Test>::put(Network::percent_div(9, 100));
         SuperMajorityAttestationRatio::<Test>::put(Network::percent_div(9, 10));
         SubnetReputationFactorSchedules::<Test>::mutate(subnet_id, |schedule| {
-            schedule.current.non_attestor_decrease = Network::percent_div(4, 100);
+            schedule.current = SubnetReputationFactors {
+                absent_decrease: Network::percent_div(21, 100),
+                included_increase: Network::percent_div(22, 100),
+                below_min_weight_decrease: Network::percent_div(23, 100),
+                non_attestor_decrease: Network::percent_div(24, 100),
+                non_consensus_attestor_decrease: Network::percent_div(25, 100),
+                validator_absent_decrease: Network::percent_div(26, 100),
+                validator_non_consensus_decrease: Network::percent_div(27, 100),
+            };
         });
+        ValidatorReputationIncreaseFactor::<Test>::put(Network::percent_div(28, 100));
+        ValidatorReputationDecreaseFactor::<Test>::put(Network::percent_div(29, 100));
+        InConsensusSubnetReputationFactor::<Test>::put(Network::percent_div(30, 100));
+        NotInConsensusSubnetReputationFactor::<Test>::put(Network::percent_div(31, 100));
+        SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::insert(
+            subnet_id,
+            Network::percent_div(32, 100),
+        );
 
         let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
         assert_eq!(round.validator_subnet_node_id, subnet_node_id);
@@ -166,9 +206,26 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
             round.policy.super_majority_attestation_ratio,
             elected_supermajority
         );
+        assert_eq!(round.policy.reputation_factors, elected_reputation_factors);
         assert_eq!(
-            round.policy.reputation_factors.non_attestor_decrease,
-            elected_non_attestor_decrease
+            round.policy.validator_reputation_increase_factor,
+            elected_validator_reputation_increase
+        );
+        assert_eq!(
+            round.policy.validator_reputation_decrease_factor,
+            elected_validator_reputation_decrease
+        );
+        assert_eq!(
+            round.policy.in_consensus_subnet_reputation_factor,
+            elected_subnet_reputation_increase
+        );
+        assert_eq!(
+            round.policy.not_in_consensus_subnet_reputation_factor,
+            elected_subnet_reputation_decrease
+        );
+        assert_eq!(
+            round.policy.min_weight_decrease_reputation_threshold,
+            elected_min_weight_threshold
         );
     });
 }

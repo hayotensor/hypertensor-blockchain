@@ -2,15 +2,15 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    AccountNodeDelegateStakeShares, ColdkeyValidatorId, ConsensusValidatorNodeCountDecay,
-    ConsensusValidatorStakeWeightPower, IdleClassificationEpochs, IncludedClassificationEpochs,
-    LastConsensusValidatorNodeCountDecayUpdate, LastConsensusValidatorStakeWeightPowerUpdate,
-    LastSubnetDelegateStakeRewardsUpdate, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
-    MinSubnetNodeReputation, OverwatchCommits, OverwatchReveals, PeerIdOverwatchNodeId, PeerInfo,
-    PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
-    PendingIdleClassificationEpochs, PendingIncludedClassificationEpochs,
-    PendingMinSubnetNodeReputation, PendingOwnerU128Update, PendingOwnerU32Update,
-    PendingQueueImmunityEpochs, PendingSubnetDelegateStakeRewardsPercentage,
+    AccountNodeDelegateStakeShares, ColdkeyValidatorId, ConsensusMechanism,
+    ConsensusValidatorNodeCountDecay, ConsensusValidatorStakeWeightPower, IdleClassificationEpochs,
+    IncludedClassificationEpochs, LastConsensusValidatorNodeCountDecayUpdate,
+    LastConsensusValidatorStakeWeightPowerUpdate, LastSubnetDelegateStakeRewardsUpdate,
+    MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodeReputation, OverwatchCommits,
+    OverwatchReveals, PeerIdOverwatchNodeId, PeerInfo, PendingConsensusValidatorNodeCountDecay,
+    PendingConsensusValidatorStakeWeightPower, PendingIdleClassificationEpochs,
+    PendingIncludedClassificationEpochs, PendingMinSubnetNodeReputation, PendingOwnerU128Update,
+    PendingOwnerU32Update, PendingQueueImmunityEpochs, PendingSubnetDelegateStakeRewardsPercentage,
     PendingSubnetDelegateStakeRewardsPercentageUpdate,
     PendingSubnetNodeMinWeightDecreaseReputationThreshold, PendingSubnetNodeQueueEpochs,
     QueueImmunityEpochs, SlotAssignment, SubnetBootnodes, SubnetDelegateStakeRewardsPercentage,
@@ -570,6 +570,7 @@ fn test_get_subnet_info() {
         let info = subnet_info.unwrap();
         assert_eq!(info.id, subnet_id);
         assert_eq!(info.name, subnet_name);
+        assert_eq!(info.consensus_mechanism, ConsensusMechanism::Attestation);
         assert_eq!(
             info.consensus_eligible_from_subnet_epoch,
             SubnetsData::<Test>::get(subnet_id)
@@ -764,6 +765,9 @@ fn test_get_all_subnets_info() {
         let all_subnets = Network::get_all_subnets_info();
 
         assert!(all_subnets.len() >= 2, "Should have at least 2 subnets");
+        assert!(all_subnets
+            .iter()
+            .all(|info| info.consensus_mechanism == ConsensusMechanism::Attestation));
     })
 }
 

@@ -31,6 +31,7 @@ impl<T: Config> Pallet<T> {
             repo: subnet_data.repo,
             description: subnet_data.description,
             misc: subnet_data.misc,
+            consensus_mechanism: subnet_data.consensus_mechanism,
             state: subnet_data.state,
             consensus_eligible_from_subnet_epoch: subnet_data.consensus_eligible_from_subnet_epoch,
             pause_started_global_epoch: subnet_data.pause.map(|pause| pause.started_global_epoch),

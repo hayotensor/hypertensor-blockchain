@@ -848,6 +848,7 @@ pub fn new_subnet_data<T: Config>(id: u32, state: SubnetState, epoch: u32) -> Su
         repo: vec![],
         description: vec![],
         misc: vec![],
+        consensus_mechanism: Default::default(),
         state,
         consensus_eligible_from_subnet_epoch,
         pause,
@@ -985,7 +986,8 @@ pub fn make_overwatch_qualified<T: Config>(coldkey_n: u32) {
             total_active_nodes: max_subnets * max_subnet_nodes,
             total_increases: 999,
             total_decreases: 0,
-            average_attestation: 1_000_000_000_000_000_000,
+            average_proposal_identity_support: 1_000_000_000_000_000_000,
+            identity_support_samples: 999,
             last_validator_epoch: Some(0),
             ow_score: 1_000_000_000_000_000_000,
         },
@@ -1040,7 +1042,8 @@ fn make_overwatch_node_qualified<T: Config>(coldkey_n: u32, x: u32) {
             total_active_nodes: max_subnets * max_subnet_nodes,
             total_increases: 999,
             total_decreases: 0,
-            average_attestation: 1_000_000_000_000_000_000,
+            average_proposal_identity_support: 1_000_000_000_000_000_000,
+            identity_support_samples: 999,
             last_validator_epoch: Some(0),
             ow_score: 1_000_000_000_000_000_000,
         },
@@ -1296,6 +1299,12 @@ pub fn run_subnet_consensus_step<T: Config>(
                 continue;
             }
             attested_nodes += 1;
+            if SubnetConsensusSubmission::<T>::get(subnet_id, subnet_epoch)
+                .is_some_and(|submission| submission.attests.contains_key(&_n))
+            {
+                // `propose_attestation` automatically records the elected proposer.
+                continue;
+            }
             let hotkey = Network::<T>::get_subnet_node_associated_hotkey(subnet_id, _n).unwrap();
             assert_ok!(Network::<T>::attest(
                 RawOrigin::Signed(hotkey.clone()).into(),
@@ -6787,6 +6796,22 @@ mod benchmarks {
             DEFAULT_SUBNET_NODE_STAKE,
         );
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
+        for subnet_node_id in 1..=n {
+            let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
+                .expect("benchmark node must retain its validator identity");
+            if ValidatorDelegateStakeBalance::<T>::get(validator_id) == 0 {
+                ValidatorDelegateStakeBalance::<T>::insert(validator_id, 1);
+                TotalValidatorDelegateStakeBalance::<T>::mutate(|total| {
+                    *total = total.saturating_add(1);
+                });
+            }
+            ValidatorNodeDelegateStakeWeights::<T>::mutate(validator_id, |weights| {
+                weights.insert(
+                    (subnet_id, subnet_node_id),
+                    Network::<T>::percentage_factor_as_u128(),
+                );
+            });
+        }
 
         // Get to activation epoch (not needed for this test but do anyway)
         increase_epochs::<T>(1);
@@ -6799,6 +6824,14 @@ mod benchmarks {
             subnet_epoch,
             Network::<T>::get_current_block_as_u32(),
         );
+        let elected_subnet_node_id = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
+            .expect("benchmark election must persist")
+            .validator_subnet_node_id;
+        let elected_validator_id =
+            SubnetNodeValidatorId::<T>::get(subnet_id, elected_subnet_node_id)
+                .expect("elected node must retain its validator identity");
+        let starting_identity_support_samples =
+            ValidatorReputation::<T>::get(elected_validator_id).identity_support_samples;
 
         // Run consensus, submit proposal, attest
         run_subnet_consensus_step::<T>(subnet_id, None, None);
@@ -6847,13 +6880,22 @@ mod benchmarks {
             let _n = n + 1;
             let hotkey = Network::<T>::get_subnet_node_associated_hotkey(subnet_id, _n).unwrap();
             let stake = NodeSubnetStake::<T>::get(_n, subnet_id);
-
-            if let Some(old_stake) = stake_snapshot.get(&hotkey) {
-                assert!(stake > *old_stake);
-            } else {
-                assert!(false); // auto-fail
-            }
+            assert!(
+                stake
+                    > *stake_snapshot
+                        .get(&hotkey)
+                        .expect("every benchmark node must have a pre-settlement stake snapshot")
+            );
         }
+        let validator_reputation = ValidatorReputation::<T>::get(elected_validator_id);
+        assert_eq!(
+            validator_reputation.identity_support_samples,
+            starting_identity_support_samples.saturating_add(1),
+        );
+        assert_eq!(
+            validator_reputation.average_proposal_identity_support,
+            Network::<T>::percentage_factor_as_u128(),
+        );
     }
 
     // Informational purposes only
