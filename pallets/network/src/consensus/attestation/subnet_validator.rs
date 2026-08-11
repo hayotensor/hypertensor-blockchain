@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-use super::*;
+use crate::*;
 use frame_support::pallet_prelude::DispatchResultWithPostInfo;
 use frame_support::pallet_prelude::Pays;
 use frame_support::pallet_prelude::Weight;
@@ -330,16 +330,11 @@ impl<T: Config> Pallet<T> {
         // call of this function as the official point of time of which nodes can attest on this epoch.
         //
         // This is in case the owner "suedo-forks" or pauses the subnet after the validator has submitted their data.
-        let emergency_snapshot = if let Some(emergency_validator_data) =
+        let (validator_ids, emergency_active) =
+            Self::effective_consensus_validator_ids(subnet_id, subnet_epoch);
+        let emergency_snapshot = if emergency_active {
             EmergencySubnetNodeElectionData::<T>::get(subnet_id)
-        {
-            if emergency_validator_data.activated {
-                Some(Self::emergency_consensus_snapshot(
-                    &emergency_validator_data,
-                ))
-            } else {
-                None
-            }
+                .map(|data| Self::emergency_consensus_snapshot(&data, validator_ids.clone()))
         } else {
             None
         };
@@ -350,12 +345,6 @@ impl<T: Config> Pallet<T> {
             return Err(Error::<T>::EmergencyQueueMutationNotAllowed.into());
         }
 
-        let validator_ids: Vec<u32> = if let Some(snapshot) = &emergency_snapshot {
-            snapshot.subnet_node_ids.iter().cloned().collect()
-        } else {
-            SubnetNodeElectionSlots::<T>::get(subnet_id)
-        };
-        let validator_ids = Self::canonicalize_consensus_validator_ids(validator_ids);
         let validator_identity_ids = validator_ids
             .iter()
             .map(|subnet_node_id| {

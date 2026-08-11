@@ -14,11 +14,10 @@ use crate::{
     SubnetRegistrationEpochs, SubnetState, TotalActiveNodes, TotalActiveSubnetNodes,
     TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake, TotalSubnetElectableNodes,
     TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorIds,
-    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorIdHotkey, ValidatorReputation,
-    ValidatorSubnetNodes,
+    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorIdHotkey,
+    ValidatorNodeDelegateStakeWeights, ValidatorReputation, ValidatorSubnetNodes,
 };
-use frame_support::traits::Currency;
-use frame_support::traits::ExistenceRequirement;
+use frame_support::traits::{Currency, ExistenceRequirement};
 use frame_support::weights::WeightMeter;
 use frame_support::BoundedVec;
 use frame_support::{assert_err, assert_ok};
@@ -140,6 +139,130 @@ fn test_activate_subnet_then_register_subnet_node_then_activate_v2() {
         let new_total_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
         assert_eq!(total_subnet_nodes + 1, new_total_nodes);
     })
+}
+
+#[test]
+fn test_register_subnet_node_enforces_cumulative_validator_node_cap() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount = MinSubnetMinStake::<Test>::get();
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let max_subnets = MaxSubnets::<Test>::get();
+        let end = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
+        let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
+        let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
+        let burn_amount = Network::calculate_burn_amount(subnet_id);
+        let _ = Balances::deposit_creating(&coldkey, deposit_amount + burn_amount);
+
+        assert_ok!(Network::register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            50000000000,
+            None,
+            None,
+        ));
+
+        let validator_id = TotalValidatorIds::<Test>::get();
+        let validator_node_cap = <Test as crate::Config>::MaxValidatorNodesUpperBound::get();
+        assert!(validator_node_cap > 1);
+
+        let total_uids_before = TotalSubnetNodeUids::<Test>::get(subnet_id);
+        let next_real_node_id = total_uids_before + 1;
+        let synthetic_node_id_start = next_real_node_id + 1_000_000;
+        let capped_minus_one_node_ids = (0..validator_node_cap - 1)
+            .map(|offset| synthetic_node_id_start + offset)
+            .collect::<BTreeSet<_>>();
+        assert!(!capped_minus_one_node_ids.contains(&next_real_node_id));
+        let mut validator_subnet_nodes = BTreeMap::new();
+        validator_subnet_nodes.insert(subnet_id, capped_minus_one_node_ids);
+        ValidatorSubnetNodes::<Test>::insert(validator_id, validator_subnet_nodes);
+
+        assert_ok!(Network::register_subnet_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            validator_id,
+            subnet_id,
+            None,
+            Some(PeerInfo::<Test> {
+                peer_id: peer_id.clone(),
+                multiaddr: None,
+            }),
+            None,
+            None,
+            stake_amount,
+            None,
+            None,
+            u128::MAX,
+        ));
+
+        let registered_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
+        assert_eq!(registered_node_id, next_real_node_id);
+        assert_eq!(
+            ValidatorSubnetNodes::<Test>::get(validator_id)
+                .values()
+                .map(BTreeSet::len)
+                .sum::<usize>(),
+            validator_node_cap as usize
+        );
+        assert_eq!(
+            PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id),
+            registered_node_id
+        );
+
+        let second_peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end + 2);
+        let balance_at_cap = Balances::free_balance(&coldkey);
+        let total_uids_at_cap = TotalSubnetNodeUids::<Test>::get(subnet_id);
+        let queued_nodes_at_cap = SubnetNodeQueue::<Test>::get(subnet_id);
+        let ownership_at_cap = ValidatorSubnetNodes::<Test>::get(validator_id);
+        let allocation_weights_at_cap =
+            ValidatorNodeDelegateStakeWeights::<Test>::get(validator_id);
+        assert!(allocation_weights_at_cap.contains_key(&(subnet_id, registered_node_id)));
+
+        assert_err!(
+            Network::register_subnet_node(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
+                subnet_id,
+                None,
+                Some(PeerInfo::<Test> {
+                    peer_id: second_peer_id.clone(),
+                    multiaddr: None,
+                }),
+                None,
+                None,
+                stake_amount,
+                None,
+                None,
+                u128::MAX,
+            ),
+            Error::<Test>::MaxValidatorNodes
+        );
+
+        assert_eq!(Balances::free_balance(&coldkey), balance_at_cap);
+        assert_eq!(
+            TotalSubnetNodeUids::<Test>::get(subnet_id),
+            total_uids_at_cap
+        );
+        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id), queued_nodes_at_cap);
+        assert_eq!(
+            ValidatorSubnetNodes::<Test>::get(validator_id),
+            ownership_at_cap
+        );
+        assert_eq!(
+            ValidatorNodeDelegateStakeWeights::<Test>::get(validator_id),
+            allocation_weights_at_cap
+        );
+        assert_eq!(
+            PeerIdSubnetNodeId::<Test>::try_get(subnet_id, second_peer_id),
+            Err(())
+        );
+    });
 }
 
 #[test]

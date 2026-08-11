@@ -36,6 +36,7 @@ pallet-treasury.workspace = true
 fp-account = { workspace = true, features = ["serde"] }
 pallet-evm.workspace = true
 bs58.workspace = true
+network-rpc-types.workspace = true
 
 [dev-dependencies]
 sp-io = { default-features = true, workspace = true }
@@ -52,6 +53,7 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"log/std",
+	"network-rpc-types/std",
 	"pallet-balances/std",
 	"pallet-collective/std",
 	"pallet-evm/std",

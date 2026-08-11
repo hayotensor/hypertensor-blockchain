@@ -7,9 +7,9 @@ use crate::{
     OverwatchSubnetWeights, PendingOverwatchSettlement, QueueImmunityEpochs,
     RegisteredSubnetNodesData, SubnetConsensusSubmission, SubnetDelegateStakeRewardsPercentage,
     SubnetElectedValidator, SubnetName, SubnetNetFlow, SubnetNetFlowSmoothedWeight,
-    SubnetNetFlowSmoothingAlpha, SubnetNodeQueue, SubnetRemovalReason, SubnetsData,
-    TotalActiveSubnets, TotalDelegateStake, TotalElectableNodes, TotalSubnetDelegateStakeBalance,
-    TotalSubnetElectableNodes,
+    SubnetNetFlowSmoothingAlpha, SubnetNodeQueue, SubnetRemovalReason, SubnetWeightFactors,
+    SubnetWeightFactorsData, SubnetsData, TotalActiveSubnets, TotalDelegateStake,
+    TotalElectableNodes, TotalSubnetDelegateStakeBalance, TotalSubnetElectableNodes,
 };
 use frame_support::traits::OnInitialize;
 use frame_support::weights::WeightMeter;
@@ -247,6 +247,32 @@ fn test_calculate_subnet_weights() {
             assert!(*subnet_weight.unwrap() > 0);
             assert!(*subnet_weight.unwrap() <= Network::percentage_factor_as_u128());
         }
+    });
+}
+
+#[test]
+fn test_calculate_subnet_weights_never_exceeds_full_allocation() {
+    new_test_ext().execute_with(|| {
+        let subnet_ids = build_active_subnet_ids(11);
+        SubnetWeightFactors::<Test>::put(SubnetWeightFactorsData {
+            delegate_stake: 0,
+            node_count: Network::percentage_factor_as_u128(),
+            net_flow: 0,
+        });
+
+        let current_epoch = Network::get_current_epoch_as_u32();
+        for subnet_id in subnet_ids.iter().copied() {
+            seed_exact_prior_election(subnet_id, current_epoch);
+        }
+
+        let (subnet_weights, _) = Network::calculate_subnet_weights(current_epoch);
+        let total_weight = subnet_weights
+            .values()
+            .copied()
+            .fold(0u128, u128::saturating_add);
+
+        assert_eq!(subnet_weights.len(), subnet_ids.len());
+        assert!(total_weight <= Network::percentage_factor_as_u128());
     });
 }
 

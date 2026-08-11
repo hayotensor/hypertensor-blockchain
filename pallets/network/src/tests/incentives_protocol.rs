@@ -7,17 +7,18 @@ use crate::{
     DelegateStakeSubnetRemovalInterval, EmergencySubnetNodeElectionData,
     EmergencySubnetValidatorData, Error, FinalSubnetEmissionWeights, IdleClassificationEpochs,
     IncludedClassificationEpochs, MaxSubnetNodes, MaxSubnets, MinAttestationPercentage,
-    MinSubnetMinStake, MinSubnetNodeReputation, MinSubnetReputation, NodeSubnetStake, PeerInfo,
+    MinSubnetMinStake, MinSubnetNodeReputation, MinSubnetNodes, MinSubnetReputation,
+    NodeSubnetStake, PeerInfo,
     PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
-    PendingOwnerU128Update, QueueImmunityEpochs, RegisteredSubnetNodesData, RewardsCapacitor,
-    RewardsData, SubnetConsensusAttestorWeights, SubnetConsensusSubmission, SubnetData,
-    SubnetElectedValidator, SubnetName, SubnetNodeClass, SubnetNodeConsecutiveIncludedEpochs,
-    SubnetNodeConsensusData, SubnetNodeElectionSlots, SubnetNodeIdleConsecutiveEpochs,
-    SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeQueue, SubnetNodeQueueEpochs,
-    SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
-    SubnetPauseCooldownEpochs, SubnetPauseData, SubnetRemovalReason, SubnetReputation,
-    SubnetReputationFactorSchedules, SubnetState, SubnetsData, SuperMajorityAttestationRatio,
-    TotalActiveSubnets, TotalNodeDelegateStakeBalance, TotalSubnetDelegateStakeBalance,
+    PendingOwnerU128Update, QueueImmunityEpochs, RegisteredSubnetNodesData, RewardsData,
+    SubnetConsensusAttestorWeights, SubnetConsensusSubmission, SubnetData, SubnetElectedValidator,
+    SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification,
+    SubnetNodeConsecutiveIncludedEpochs, SubnetNodeConsensusData, SubnetNodeElectionSlots,
+    SubnetNodeIdleConsecutiveEpochs, SubnetNodeMinWeightDecreaseReputationThreshold,
+    SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId,
+    SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs, SubnetPauseData, SubnetRemovalReason,
+    SubnetReputation, SubnetReputationFactorSchedules, SubnetState, SubnetsData,
+    SuperMajorityAttestationRatio, TotalActiveSubnets, TotalSubnetDelegateStakeBalance,
     TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetUids, TotalValidatorDelegateStakeBalance,
     ValidatorAbsentSubnetReputationFactor, ValidatorColdkey, ValidatorDelegateStakeBalance,
     ValidatorDelegateStakeShares, ValidatorNodeDelegateStakeWeightUpdateInterval,
@@ -2397,15 +2398,16 @@ fn test_precheck_uses_proposal_time_attestor_weight_snapshot() {
 #[test]
 fn test_propose_attestation_snapshots_only_emergency_validator_weights() {
     new_test_ext().execute_with(|| {
-        let node_count = 4;
+        let emergency_validator_count = MinSubnetNodes::<Test>::get();
+        let node_count = emergency_validator_count.saturating_add(1);
         let (subnet_id, subnet_epoch, elected_node_id, hotkey, base_data) =
             build_elected_subnet_for_consensus("subnet-name".into(), node_count);
 
         let mut emergency_validator_ids = vec![elected_node_id];
-        emergency_validator_ids.push(
+        emergency_validator_ids.extend(
             (1..=node_count)
-                .find(|subnet_node_id| *subnet_node_id != elected_node_id)
-                .unwrap(),
+                .filter(|subnet_node_id| *subnet_node_id != elected_node_id)
+                .take(emergency_validator_count.saturating_sub(1) as usize),
         );
         emergency_validator_ids.sort_unstable();
 
@@ -2432,8 +2434,12 @@ fn test_propose_attestation_snapshots_only_emergency_validator_weights() {
             },
         );
 
-        set_validator_delegate_weight_for_subnet_node(subnet_id, emergency_validator_ids[0], 10);
-        set_validator_delegate_weight_for_subnet_node(subnet_id, emergency_validator_ids[1], 20);
+        let mut expected_total_weight = 0u128;
+        for (index, subnet_node_id) in emergency_validator_ids.iter().copied().enumerate() {
+            let weight = (index as u128 + 1) * 10;
+            set_validator_delegate_weight_for_subnet_node(subnet_id, subnet_node_id, weight);
+            expected_total_weight += weight;
+        }
         set_validator_delegate_weight_for_subnet_node(subnet_id, excluded_node, 1_000);
 
         assert_ok!(Network::propose_attestation(
@@ -2454,7 +2460,7 @@ fn test_propose_attestation_snapshots_only_emergency_validator_weights() {
             emergency_validator_ids
         );
         assert!(!snapshot.weights.contains_key(&excluded_node));
-        assert_eq!(snapshot.total_weight, 30);
+        assert_eq!(snapshot.total_weight, expected_total_weight);
     });
 }
 
@@ -4363,11 +4369,9 @@ fn test_distribute_rewards_delegate_account_50_percent() {
         let node_weight = Network::percent_div(DEFAULT_SCORE, total_weight as u128);
         let full_node_reward =
             Network::percent_mul(node_weight, rewards_data.clone().subnet_node_rewards);
-        let expected_node_reward = Network::percent_mul(
-            full_node_reward,
-            Network::percentage_factor_as_u128() - delegate_account_rate,
-        );
-        let expected_delegate_reward = full_node_reward - expected_node_reward;
+        let expected_delegate_reward =
+            Network::percent_mul(full_node_reward, delegate_account_rate);
+        let expected_node_reward = full_node_reward - expected_delegate_reward;
 
         let post_validator_stake =
             NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
@@ -11091,555 +11095,191 @@ fn test_emergency_validator_proposal_rejects_queue_mutation() {
 }
 
 #[test]
-fn test_rewards_capacitor() {
+fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
     new_test_ext().execute_with(|| {
-        let subnet_name: Vec<u8> = "subnet-name".into();
-        let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
+        System::set_block_number(1);
+        let subnet_id = 1;
+        let subnet_node_id = 1;
+        let validator_id = 1;
+        let owner = account(1);
+        let percentage_factor = Network::percentage_factor_as_u128();
+        let overall_rewards = 1_000_000;
+        let base_validator_reward = 100;
+        let initial_node_stake = 10_000;
 
-        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
-        let subnets = TotalActiveSubnets::<Test>::get() + 1;
-        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let max_subnets = MaxSubnets::<Test>::get();
+        let policy = ConsensusPolicySnapshot {
+            min_attestation_percentage: test_percent(2, 3),
+            super_majority_attestation_ratio: test_percent(2, 3),
+            base_validator_reward,
+            subnet_owner_percentage: test_percent(1, 10),
+            validator_identity_attestation_percentage: test_percent(2, 3),
+            min_subnet_nodes: 1,
+            subnet_delegate_stake_rewards_percentage: test_percent(1, 4),
+            ..Default::default()
+        };
+        let subnet_node = SubnetNode::<Test> {
+            id: subnet_node_id,
+            validator_id,
+            peer_info: None,
+            bootnode_peer_info: None,
+            client_peer_info: None,
+            classification: SubnetNodeClassification {
+                node_class: SubnetNodeClass::Validator,
+                start_epoch: 0,
+            },
+            unique: None,
+            non_unique: None,
+        };
+        let zero_score_submission = ConsensusSubmissionData::<Test> {
+            policy,
+            validator_subnet_node_id: subnet_node_id,
+            validator_delegate_stake_balance: 0,
+            validator_epoch_progress: 0,
+            validator_reward_factor: percentage_factor,
+            attestation_ratio: percentage_factor,
+            identity_attestation_ratio: percentage_factor,
+            identity_attestation_count: 3,
+            eligible_validator_identity_count: 3,
+            weight_sum: 0,
+            data_length: 1,
+            data: vec![SubnetNodeConsensusData {
+                subnet_node_id,
+                score: 0,
+            }],
+            attests: BTreeMap::from([(
+                subnet_node_id,
+                AttestEntry::<Test> {
+                    block: 0,
+                    attestor_progress: 0,
+                    reward_factor: percentage_factor,
+                    data: None,
+                },
+            )]),
+            subnet_nodes: vec![subnet_node],
+            prioritize_queue_node_id: None,
+            remove_queue_node_id: None,
+            emergency: None,
+        };
 
-        build_activated_subnet(
-            subnet_name.clone(),
-            0,
-            max_subnet_nodes,
-            deposit_amount,
-            stake_amount,
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
+        SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
+        SubnetNodeReputation::<Test>::insert(subnet_id, subnet_node_id, percentage_factor);
+        SubnetReputation::<Test>::insert(subnet_id, percentage_factor);
+        NodeSubnetStake::<Test>::insert(subnet_node_id, subnet_id, initial_node_stake);
+
+        let (fresh_rewards, _) =
+            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy);
+        assert_eq!(
+            fresh_rewards,
+            RewardsData {
+                overall_subnet_reward: 1_000_000,
+                subnet_owner_reward: 100_000,
+                subnet_rewards: 900_000,
+                delegate_stake_rewards: 225_000,
+                subnet_node_rewards: 675_000,
+            }
         );
 
-        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-        seed_equal_validator_delegate_stake_for_subnet(subnet_id);
-        let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
+        let owner_balance_before = Balances::free_balance(&owner);
+        let delegate_stake_before = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
 
-        let epoch_length = EpochLength::get();
-        let block_number = System::block_number();
-        let starting_epoch = block_number / epoch_length;
-
-        for e in 0..2 {
-            log::error!("e: {:?}", e);
-
-            // ⸺ Submit consnesus data
-            let block_number = System::block_number();
-            let epoch = block_number / epoch_length;
-            set_block_to_subnet_slot_epoch(epoch, subnet_id);
-            let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-
-            Network::elect_validator(subnet_id, subnet_epoch, block_number);
-
-            let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
-            assert!(elected_node_id != None, "Validator is None");
-            assert!(elected_node_id != Some(0), "Validator is 0");
-
-            let mut validator =
-                Network::get_subnet_node_associated_hotkey(subnet_id, elected_node_id.unwrap())
-                    .unwrap();
-
-            let mut subnet_node_data_vec: Vec<SubnetNodeConsensusData> = if e == 0 {
-                let mut subnet_node_data: Vec<SubnetNodeConsensusData> = Vec::new();
-                for n in 0..total_subnet_nodes {
-                    let peer_subnet_node_data: SubnetNodeConsensusData = SubnetNodeConsensusData {
-                        subnet_node_id: n + 1,
-                        score: 0,
-                    };
-
-                    subnet_node_data.push(peer_subnet_node_data);
-                }
-                subnet_node_data
-            } else {
-                get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes)
-            };
-
-            assert_ok!(Network::propose_attestation(
-                RuntimeOrigin::signed(validator.clone()),
-                subnet_id,
-                subnet_node_data_vec.clone(),
-                None,
-                None,
-                None,
-                None,
-            ));
-
-            for n in 0..total_subnet_nodes {
-                let hotkey = Network::get_subnet_node_associated_hotkey(subnet_id, n + 1).unwrap();
-                assert_ok!(attest_or_accept_automatic(
-                    RuntimeOrigin::signed(hotkey.clone()),
-                    subnet_id,
-                    n + 1,
-                    None,
-                ));
-            }
-
-            increase_epochs(1);
-            let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-            let epoch = Network::get_current_epoch_as_u32();
-
-            // ⸺ Generate subnet weights from stake/node count weights
-            let _ = Network::handle_subnet_emission_weights(epoch);
-            let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-
-            let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
-            assert!(subnet_weight.is_some());
-
-            let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-                subnet_id,
-                subnet_epoch - 1,
-                Network::get_current_epoch_as_u32(),
-            );
-
-            assert!(result.is_some(), "Precheck consensus failed");
-
-            let mut consensus_submission_data = result.unwrap();
-            assert_eq!(
-                consensus_submission_data.clone().validator_subnet_node_id,
-                elected_node_id.unwrap()
-            );
-            assert_eq!(
-                consensus_submission_data.clone().validator_epoch_progress,
-                0
-            );
-            assert!(
-                consensus_submission_data.clone().validator_reward_factor > test_percent(99, 100)
-            );
-            assert_eq!(
-                consensus_submission_data.clone().attestation_ratio,
-                Network::percentage_factor_as_u128()
-            );
-            if e == 0 {
-                assert_eq!(consensus_submission_data.clone().weight_sum, 0 as u128);
-            } else {
-                assert_eq!(
-                    consensus_submission_data.clone().weight_sum,
-                    test_percent(1, 2) * total_subnet_nodes as u128
-                );
-            }
-            assert_eq!(
-                consensus_submission_data.clone().data_length,
-                max_subnet_nodes
-            );
-            assert_eq!(
-                consensus_submission_data.clone().data,
-                subnet_node_data_vec.clone()
-            );
-            assert_eq!(
-                consensus_submission_data.clone().attests.len(),
-                max_subnet_nodes as usize
-            );
-            assert_eq!(
-                consensus_submission_data.clone().subnet_nodes.len(),
-                max_subnet_nodes as usize
-            );
-            assert_eq!(
-                consensus_submission_data.clone().prioritize_queue_node_id,
-                None
-            );
-            assert_eq!(consensus_submission_data.clone().remove_queue_node_id, None);
-
-            let zero_score_per_node_state = if e == 0 {
-                assert!(
-                    consensus_submission_data
-                        .policy
-                        .reputation_factors
-                        .included_increase
-                        > 0
-                );
-                let included_node_id = (1..=total_subnet_nodes)
-                    .find(|subnet_node_id| Some(*subnet_node_id) != elected_node_id)
-                    .unwrap();
-                let original_reputation =
-                    SubnetNodeReputation::<Test>::get(subnet_id, included_node_id).unwrap();
-                let test_reputation = test_percent(1, 2);
-                let consecutive_included_epochs = 2;
-                consensus_submission_data
-                    .subnet_nodes
-                    .iter_mut()
-                    .find(|subnet_node| subnet_node.id == included_node_id)
-                    .unwrap()
-                    .classification
-                    .node_class = SubnetNodeClass::Included;
-                force_subnet_node_to_included(subnet_id, included_node_id);
-                SubnetNodeReputation::<Test>::insert(subnet_id, included_node_id, test_reputation);
-                SubnetNodeConsecutiveIncludedEpochs::<Test>::insert(
-                    subnet_id,
-                    included_node_id,
-                    consecutive_included_epochs,
-                );
-                Some((
-                    included_node_id,
-                    original_reputation,
-                    test_reputation,
-                    consecutive_included_epochs,
-                ))
-            } else {
-                None
-            };
-
-            // ⸺ Calculate subnet distribution of rewards
-            let (rewards_data, rewards_weight) = Network::calculate_rewards(
-                subnet_id,
-                subnet_emission_weights.subnets_emissions,
-                *subnet_weight.unwrap(),
-            );
-
-            let subnet_rewards = rewards_data.subnet_rewards;
-
-            let mut stake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
-            for n in 0..max_subnet_nodes {
-                let stake = NodeSubnetStake::<Test>::get(n + 1, subnet_id);
-
-                assert_ne!(stake, 0);
-                stake_snapshot.insert(n + 1, stake);
-            }
-
-            let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
-            let coldkey_reputation_increase_factor =
-                ValidatorReputationIncreaseFactor::<Test>::get();
-            let coldkey_reputation_decrease_factor =
-                ValidatorReputationDecreaseFactor::<Test>::get();
-            let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
-
-            let epoch = Network::get_current_epoch_as_u32();
-            set_block_to_subnet_slot_epoch(epoch, subnet_id);
-
-            let block_number = System::block_number();
-            let dstake_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-            let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-
-            let set_rep = test_percent(1, 2);
-            SubnetReputation::<Test>::insert(subnet_id, set_rep);
-
-            let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
-
+        for _ in 0..2 {
             Network::distribute_rewards(
                 &mut WeightMeter::new(),
                 subnet_id,
-                block_number,
-                epoch,
-                subnet_epoch,
-                consensus_submission_data.clone(),
-                rewards_data.clone(),
-                min_attestation_percentage,
-                coldkey_reputation_increase_factor,
-                coldkey_reputation_decrease_factor,
-                super_majority_threshold,
+                System::block_number(),
+                Network::get_current_epoch_as_u32(),
+                Network::get_current_subnet_epoch_as_u32(subnet_id),
+                zero_score_submission.clone(),
+                fresh_rewards.clone(),
+                policy.min_attestation_percentage,
+                policy.validator_reputation_increase_factor,
+                policy.validator_reputation_decrease_factor,
+                policy.super_majority_attestation_ratio,
             );
-
-            let (total_weight, node_weight, expected_node_reward) = if e == 0 {
-                (0, 0, 0)
-            } else {
-                let total_weight = DEFAULT_SCORE * total_subnet_nodes as u128;
-                let node_weight = Network::percent_div(DEFAULT_SCORE, total_weight as u128);
-                let expected_node_reward =
-                    Network::percent_mul(node_weight, rewards_data.clone().subnet_node_rewards);
-                (total_weight, node_weight, expected_node_reward)
-            };
-
-            let post_validator_stake =
-                NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
-            let expected_validator_reward = Network::percent_mul(
-                BaseValidatorReward::<Test>::get(),
-                consensus_submission_data.clone().validator_reward_factor,
-            );
-
-            assert_eq!(
-                validator_stake + expected_validator_reward + expected_node_reward,
-                post_validator_stake
-            );
-
-            if let Some((
-                included_node_id,
-                original_reputation,
-                test_reputation,
-                consecutive_included_epochs,
-            )) = zero_score_per_node_state
-            {
-                assert_eq!(
-                    SubnetNodeReputation::<Test>::get(subnet_id, included_node_id),
-                    Some(test_reputation),
-                    "a zero-score accepted proposal must skip per-node reputation updates"
-                );
-                assert_eq!(
-                    SubnetNodeConsecutiveIncludedEpochs::<Test>::get(subnet_id, included_node_id),
-                    consecutive_included_epochs,
-                    "a zero-score accepted proposal must skip Included classification progression"
-                );
-                assert_eq!(
-                    SubnetNodesData::<Test>::get(subnet_id, included_node_id)
-                        .classification
-                        .node_class,
-                    SubnetNodeClass::Included
-                );
-
-                // Restore this node so the second capacitor round keeps the fixture's original
-                // all-validator shape.
-                SubnetNodesData::<Test>::mutate(subnet_id, included_node_id, |subnet_node| {
-                    subnet_node.classification.node_class = SubnetNodeClass::Validator;
-                });
-                SubnetNodeReputation::<Test>::insert(
-                    subnet_id,
-                    included_node_id,
-                    original_reputation,
-                );
-                SubnetNodeConsecutiveIncludedEpochs::<Test>::remove(subnet_id, included_node_id);
-            }
-
-            // Ensure stake balances did NOT change
-            for n in 0..max_subnet_nodes {
-                let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, n + 1);
-
-                let reward_factor = match consensus_submission_data.attests.get(&(n + 1)) {
-                    Some(data) => data.reward_factor,
-                    None => return assert!(false),
-                };
-
-                assert_eq!(reward_factor, Network::percentage_factor_as_u128());
-
-                let stake = NodeSubnetStake::<Test>::get(n + 1, subnet_id);
-
-                if let Some(old_stake) = stake_snapshot.get(&(n + 1)) {
-                    let validator_reward = if Some(n + 1) == elected_node_id {
-                        expected_validator_reward
-                    } else {
-                        0
-                    };
-                    if e == 0 {
-                        if validator_reward == 0 {
-                            assert_eq!(stake, *old_stake);
-                        } else {
-                            assert!(stake > *old_stake);
-                        }
-                    } else {
-                        assert!(stake > *old_stake);
-                    }
-                    assert_eq!(stake, *old_stake + expected_node_reward + validator_reward);
-                } else {
-                    assert!(false); // auto-fail
-                }
-            }
-
-            assert!(SubnetReputation::<Test>::get(subnet_id) > set_rep);
-            let post_dstake_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-
-            if e == 0 {
-                assert_eq!(post_dstake_balance, dstake_balance);
-                assert!(RewardsCapacitor::<Test>::get(subnet_id) > 0);
-            } else {
-                assert!(post_dstake_balance > dstake_balance);
-                assert_eq!(RewardsCapacitor::<Test>::get(subnet_id), 0);
-            }
         }
-        // // ⸺ Submit consnesus data
-        // set_block_to_subnet_slot_epoch(epoch, subnet_id);
-        // let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        // Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        assert_eq!(Balances::free_balance(&owner), owner_balance_before);
+        assert_eq!(
+            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
+            delegate_stake_before
+        );
+        assert_eq!(
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
+            initial_node_stake + 2 * base_validator_reward,
+            "accepted zero-score rounds must retain only the base validator reward"
+        );
+        assert!(
+            !network_events().iter().any(|event| matches!(
+                event,
+                Event::SubnetRewards {
+                    subnet_id: event_subnet_id,
+                    ..
+                } if *event_subnet_id == subnet_id
+            )),
+            "zero-score rounds must not emit a subnet reward settlement"
+        );
 
-        // let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
-        // assert!(elected_node_id != None, "Validator is None");
-        // assert!(elected_node_id != Some(0), "Validator is 0");
+        let (next_rewards, _) =
+            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy);
+        assert_eq!(
+            next_rewards, fresh_rewards,
+            "forfeited zero-score allocations must not carry into a later round"
+        );
 
-        // let mut validator =
-        //     Network::get_subnet_node_associated_hotkey(subnet_id, elected_node_id.unwrap()).unwrap();
+        let mut nonzero_score_submission = zero_score_submission;
+        nonzero_score_submission.weight_sum = 1;
+        nonzero_score_submission.data[0].score = 1;
+        let node_stake_before_nonzero = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
 
-        // let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        // let epoch = Network::get_current_epoch_as_u32();
+        Network::distribute_rewards(
+            &mut WeightMeter::new(),
+            subnet_id,
+            System::block_number(),
+            Network::get_current_epoch_as_u32(),
+            Network::get_current_subnet_epoch_as_u32(subnet_id),
+            nonzero_score_submission,
+            next_rewards.clone(),
+            policy.min_attestation_percentage,
+            policy.validator_reputation_increase_factor,
+            policy.validator_reputation_decrease_factor,
+            policy.super_majority_attestation_ratio,
+        );
 
-        // let mut subnet_node_data_vec: Vec<SubnetNodeConsensusData> = Vec::new();
-        // for n in 0..total_subnet_nodes {
-        //     let peer_subnet_node_data: SubnetNodeConsensusData = SubnetNodeConsensusData {
-        //         subnet_node_id: n + 1,
-        //         score: 0,
-        //     };
+        assert_eq!(
+            Balances::free_balance(&owner),
+            owner_balance_before + next_rewards.subnet_owner_reward
+        );
+        assert_eq!(
+            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
+            delegate_stake_before + next_rewards.delegate_stake_rewards
+        );
+        assert_eq!(
+            NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
+            node_stake_before_nonzero + base_validator_reward + next_rewards.subnet_node_rewards
+        );
 
-        //     subnet_node_data_vec.push(peer_subnet_node_data);
-        // }
-
-        // assert_ok!(Network::propose_attestation(
-        //     RuntimeOrigin::signed(validator.clone()),
-        //     subnet_id,
-        //             elected_node_id.unwrap(),
-        //     subnet_node_data_vec.clone(),
-        //     None,
-        //     None,
-        //     None,
-        //     None,
-        // ));
-
-        // for n in 0..total_subnet_nodes {
-        //     let _n = n + 1;
-        //     let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, _n);
-        //     if n + 1 == elected_node_id.unwrap() {
-        //         continue;
-        //     }
-        //     assert_ok!(attest_or_accept_automatic(
-        //         RuntimeOrigin::signed(hotkey.clone()),
-        //         subnet_id,
-        //         n + 1,
-        //         None,
-        //     ));
-        // }
-
-        // increase_epochs(1);
-        // let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        // let epoch = Network::get_current_epoch_as_u32();
-
-        // // ⸺ Generate subnet weights from stake/node count weights
-        // let _ = Network::handle_subnet_emission_weights(epoch);
-        // let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(epoch);
-
-        // let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
-        // assert!(subnet_weight.is_some());
-
-        // let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-        //     subnet_id,
-        //     subnet_epoch - 1,
-        //     Network::get_current_epoch_as_u32(),
-        // );
-
-        // assert!(result.is_some(), "Precheck consensus failed");
-
-        // let consensus_submission_data = result.unwrap();
-        // assert_eq!(
-        //     consensus_submission_data.clone().validator_subnet_node_id,
-        //     elected_node_id.unwrap()
-        // );
-        // assert_eq!(
-        //     consensus_submission_data.clone().validator_epoch_progress,
-        //     0
-        // );
-        // assert!(consensus_submission_data.clone().validator_reward_factor > test_percent(99, 100));
-        // assert_eq!(
-        //     consensus_submission_data.clone().attestation_ratio,
-        //     Network::percentage_factor_as_u128()
-        // );
-        // assert_eq!(
-        //     consensus_submission_data.clone().weight_sum,
-        //     0 as u128
-        // );
-        // assert_eq!(
-        //     consensus_submission_data.clone().data_length,
-        //     max_subnet_nodes
-        // );
-        // assert_eq!(
-        //     consensus_submission_data.clone().data,
-        //     subnet_node_data_vec.clone()
-        // );
-        // assert_eq!(
-        //     consensus_submission_data.clone().attests.len(),
-        //     max_subnet_nodes as usize
-        // );
-        // assert_eq!(
-        //     consensus_submission_data.clone().subnet_nodes.len(),
-        //     max_subnet_nodes as usize
-        // );
-        // assert_eq!(
-        //     consensus_submission_data.clone().prioritize_queue_node_id,
-        //     None
-        // );
-        // assert_eq!(consensus_submission_data.clone().remove_queue_node_id, None);
-
-        // // ⸺ Calculate subnet distribution of rewards
-        // let (rewards_data, rewards_weight) = Network::calculate_rewards(
-        //     subnet_id,
-        //     subnet_emission_weights.subnets_emissions,
-        //     *subnet_weight.unwrap(),
-        // );
-
-        // let subnet_rewards = rewards_data.subnet_rewards;
-
-        // let mut stake_snapshot: BTreeMap<<Test as frame_system::Config>::AccountId, u128> =
-        //     BTreeMap::new();
-        // for n in 0..max_subnet_nodes {
-        //     let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, n + 1);
-
-        //     let stake = NodeSubnetStake::<Test>::get(n+1, subnet_id);
-
-        //     assert_ne!(stake, 0);
-        //     stake_snapshot.insert(hotkey.clone(), stake);
-        // }
-
-        // let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
-        // let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
-        // let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        // let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
-
-        // let epoch = Network::get_current_epoch_as_u32();
-        // set_block_to_subnet_slot_epoch(epoch, subnet_id);
-
-        // let block_number = System::block_number();
-        // let dstake_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-        // let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-
-        // let set_rep = test_percent(1, 2);
-        // SubnetReputation::<Test>::insert(subnet_id, set_rep);
-
-        // let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
-
-        // Network::distribute_rewards(
-        //     &mut WeightMeter::new(),
-        //     subnet_id,
-        //     block_number,
-        //     epoch,
-        //     subnet_epoch,
-        //     consensus_submission_data.clone(),
-        //     rewards_data.clone(),
-        //     min_attestation_percentage,
-        //     coldkey_reputation_increase_factor,
-        //     coldkey_reputation_decrease_factor,
-        //     super_majority_threshold,
-        // );
-
-        // let total_weight = 0 * total_subnet_nodes as u128;
-        // let node_weight = Network::percent_div(0, total_weight as u128);
-        // let expected_node_reward =
-        //     Network::percent_mul(node_weight, rewards_data.clone().subnet_node_rewards);
-
-        // let post_validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
-        // let expected_validator_reward = Network::percent_mul(
-        //     BaseValidatorReward::<Test>::get(),
-        //     consensus_submission_data.clone().validator_reward_factor,
-        // );
-
-        // let reputation = SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id.unwrap()).unwrap();
-
-        // assert_eq!(
-        //     validator_stake + expected_validator_reward + expected_node_reward,
-        //     post_validator_stake
-        // );
-
-        // // Ensure stake balances did NOT change
-        // for n in 0..max_subnet_nodes {
-        //     let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, n + 1);
-        //     if n + 1 == elected_node_id.unwrap() {
-        //         continue;
-        //     }
-
-        //     let subnet_node_id = n + 1;
-
-        //     let reward_factor = match consensus_submission_data.attests.get(&subnet_node_id) {
-        //         Some(data) => data.reward_factor,
-        //         None => return assert!(false),
-        //     };
-
-        //     assert_eq!(reward_factor, Network::percentage_factor_as_u128());
-
-        //     let stake = NodeSubnetStake::<Test>::get(n+1, subnet_id);
-
-        //     if let Some(old_stake) = stake_snapshot.get(&(n+1)) {
-        //         assert!(stake == *old_stake);
-        //         assert_eq!(stake, *old_stake + expected_node_reward);
-        //     } else {
-        //         assert!(false); // auto-fail
-        //     }
-        // }
-
-        // let post_dstake_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-        // assert_eq!(post_dstake_balance, dstake_balance);
-
-        // assert!(SubnetReputation::<Test>::get(subnet_id) > set_rep);
-
-        // assert!(RewardsCapacitor::<Test>::get(subnet_id) > 0);
+        let reward_events = network_events()
+            .into_iter()
+            .filter(|event| {
+                matches!(
+                    event,
+                    Event::SubnetRewards {
+                        subnet_id: event_subnet_id,
+                        ..
+                    } if *event_subnet_id == subnet_id
+                )
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(
+            reward_events,
+            vec![Event::SubnetRewards {
+                subnet_id,
+                node_rewards: vec![(subnet_node_id, next_rewards.subnet_node_rewards)],
+                delegate_stake_reward: next_rewards.delegate_stake_rewards,
+                node_delegate_stake_rewards: Vec::new(),
+                node_delegate_account_allocations: Vec::new(),
+            }]
+        );
     });
 }

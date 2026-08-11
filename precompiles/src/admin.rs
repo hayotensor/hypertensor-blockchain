@@ -554,18 +554,6 @@ where
         )
     }
 
-    #[precompile::public("setInflationSigmoidSteepness(uint256)")]
-    fn set_inflation_sigmoid_steepness(
-        handle: &mut impl PrecompileHandle,
-        value: U256,
-    ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_inflation_sigmoid_steepness { value },
-        )
-    }
-
     #[precompile::public("setMaxOverwatchNodes(uint256)")]
     fn set_max_overwatch_nodes(handle: &mut impl PrecompileHandle, value: U256) -> EvmResult<()> {
         let value = try_u256_to_u32(value)?;
@@ -773,15 +761,6 @@ where
         dispatch_call::<R>(
             handle,
             pallet_network::Call::<R>::set_max_unbondings { value },
-        )
-    }
-
-    #[precompile::public("setSigmoidMidpoint(uint256)")]
-    fn set_sigmoid_midpoint(handle: &mut impl PrecompileHandle, value: U256) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_sigmoid_midpoint { value },
         )
     }
 

@@ -1,144 +1,100 @@
 use super::mock::*;
 use crate::inflation::Inflation;
-use crate::tests::test_utils::*;
-use crate::{InflationSigmoidMidpoint, InflationSigmoidSteepness};
+use crate::{MaxSubnetNodes, MaxSubnets, TotalActiveNodes};
 
-//
-//
-//
-//
-//
-//
-//
-// Inflation
-//
-//
-//
-//
-//
-//
-//
-
-// #[test]
-// fn inflation_should_decrease_as_utilization_increases() {
-//     new_test_ext().execute_with(|| {
-//         let inflation = Inflation::default();
-//         let max_rate = inflation.initial_max;
-//         let min_rate = inflation.initial_min;
-
-//         let low_util = Network::get_inflation(0.0, 1.0);
-//         let mid_util = Network::get_inflation(0.5, 1.0);
-//         let high_util = Network::get_inflation(1.0, 1.0);
-
-//         // Ensure inflation starts high and decreases
-//         assert!(
-//             low_util > mid_util,
-//             "Inflation at 0.0 should be higher than at 0.5"
-//         );
-//         assert!(
-//             mid_util > high_util,
-//             "Inflation at 0.5 should be higher than at 1.0"
-//         );
-
-//         // log::error!("(low_util - max_rate).abs()  {:?}", (low_util - max_rate).abs());
-//         // log::error!("(high_util - min_rate).abs() {:?}", (high_util - min_rate).abs());
-
-//         // // Check that boundaries are roughly as expected
-//         // assert!(
-//         //     (low_util - max_rate).abs() < 0.01,
-//         //     "Low inflation not near max"
-//         // );
-//         // assert!(
-//         //     (high_util - min_rate).abs() < 0.01,
-//         //     "High inflation not near min"
-//         // );
-//     });
-// }
-
-// Interest rate decreases as utilization increases
-// #[test]
-// fn test_get_interest_rate() {
-//     new_test_ext().execute_with(|| {
-//         let _ = env_logger::builder().is_test(true).try_init();
-
-//         let mut last = f64::MAX;
-
-//         for util in &[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0] {
-//             let inflation = Network::get_inflation(*util, 1.0);
-//             assert!(inflation < last);
-//             last = inflation;
-//         }
-//     });
-// }
-
-// #[test]
-// fn test_get_interest_rate_year() {
-//     new_test_ext().execute_with(|| {
-//         let _ = env_logger::builder().is_test(true).try_init();
-
-//         let mut last = f64::MAX;
-
-//         for year in &[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0] {
-//             let inflation = Network::get_inflation(0.0, *year);
-//             assert!(inflation < last);
-//             last = inflation;
-//         }
-//     });
-// }
-
-// #[test]
-// fn test_get_interest_rate_total() {
-//     new_test_ext().execute_with(|| {
-//         let _ = env_logger::builder().is_test(true).try_init();
-
-//         let mut last_v_r = f64::MAX;
-//         let mut last_f_r = f64::MAX;
-
-//         let inflation = Inflation::default();
-
-//         let mid = Network::get_percent_as_f64(InflationSigmoidMidpoint::<Test>::get());
-//         let k = InflationSigmoidSteepness::<Test>::get() as f64;
-
-//         for u in &[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0] {
-//             let (validator_rate, foundation_rate) = {
-//                 let inflation = Inflation::default();
-//                 (
-//                     (inflation).validator(*u, mid, k, 1.0),
-//                     (inflation).foundation(*u, mid, k, 1.0),
-//                 )
-//             };
-
-//             assert!(validator_rate < last_v_r);
-//             assert!(foundation_rate < last_f_r);
-
-//             last_v_r = validator_rate;
-//             last_f_r = foundation_rate;
-//         }
-//     });
-// }
+const TOKEN: u128 = 1_000_000_000_000_000_000;
 
 #[test]
-fn test_get_inflation_v2() {
-    new_test_ext().execute_with(|| {
-        let inflation = Inflation::default();
-        let mut last_emissions = f64::MAX;
+fn inflation_follows_the_annual_decay_schedule_and_terminal_floor() {
+    let inflation = Inflation::default();
 
-        for u in &[0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0] {
-            let emissions = Network::get_inflation(*u);
-            assert!(emissions < last_emissions);
-            last_emissions = emissions;
+    assert_eq!(inflation.initial_annual_emissions, 100_000 * TOKEN);
+    assert_eq!(inflation.terminal_annual_emissions, 75_000 * TOKEN);
+    assert_eq!(inflation.inflation(0), 100_000 * TOKEN);
+    assert_eq!(inflation.inflation(1), 90_000 * TOKEN);
+    assert_eq!(inflation.inflation(2), 81_000 * TOKEN);
+    assert_eq!(inflation.inflation(3), 75_000 * TOKEN);
+    assert_eq!(inflation.inflation(4), 75_000 * TOKEN);
+    assert_eq!(inflation.inflation(u32::MAX), 75_000 * TOKEN);
+}
+
+#[test]
+fn integer_decay_does_not_overflow_at_u128_max() {
+    let inflation = Inflation {
+        initial_annual_emissions: u128::MAX,
+        terminal_annual_emissions: 0,
+    };
+    let expected = (u128::MAX / 100) * 90 + ((u128::MAX % 100) * 90) / 100;
+
+    assert_eq!(inflation.inflation(1), expected);
+}
+
+#[test]
+fn get_inflation_changes_only_at_year_boundaries() {
+    new_test_ext().execute_with(|| {
+        let epochs_per_year = EPOCHS_PER_YEAR;
+
+        assert!(epochs_per_year > 0);
+        assert_eq!(epochs_per_year, YEAR / EPOCH_LENGTH);
+        assert_eq!(Network::get_inflation(0), 100_000 * TOKEN);
+        assert_eq!(Network::get_inflation(epochs_per_year - 1), 100_000 * TOKEN);
+        assert_eq!(Network::get_inflation(epochs_per_year), 90_000 * TOKEN);
+        assert_eq!(
+            Network::get_inflation(2 * epochs_per_year - 1),
+            90_000 * TOKEN
+        );
+        assert_eq!(Network::get_inflation(2 * epochs_per_year), 81_000 * TOKEN);
+        assert_eq!(Network::get_inflation(3 * epochs_per_year), 75_000 * TOKEN);
+    });
+}
+
+#[test]
+fn epoch_emissions_preserve_the_annual_95_5_split() {
+    new_test_ext().execute_with(|| {
+        let epochs_per_year = EPOCHS_PER_YEAR as u128;
+
+        for epoch in [
+            0,
+            EPOCHS_PER_YEAR - 1,
+            EPOCHS_PER_YEAR,
+            2 * EPOCHS_PER_YEAR,
+            3 * EPOCHS_PER_YEAR,
+            u32::MAX,
+        ] {
+            let annual_emissions = Network::get_inflation(epoch);
+            let annual_foundation_emissions = annual_emissions * 5 / 100;
+            let annual_subnet_emissions = annual_emissions - annual_foundation_emissions;
+            let (subnet_emissions, foundation_emissions) = Network::get_epoch_emissions(epoch);
+
+            assert_eq!(annual_subnet_emissions, annual_emissions * 95 / 100);
+            assert_eq!(subnet_emissions, annual_subnet_emissions / epochs_per_year);
+            assert_eq!(
+                foundation_emissions,
+                annual_foundation_emissions / epochs_per_year
+            );
+
+            let combined_epoch_emissions = subnet_emissions + foundation_emissions;
+            let epoch_budget = annual_emissions / epochs_per_year;
+            assert!(combined_epoch_emissions <= epoch_budget);
+            assert!(epoch_budget - combined_epoch_emissions <= 1);
         }
     });
 }
 
 #[test]
-fn test_get_epoch_emissions_v2() {
+fn epoch_emissions_are_independent_of_subnet_node_utilization() {
     new_test_ext().execute_with(|| {
-        let inflation = Inflation::default();
-        let (validator_emissions, foundation_emissions) = Network::get_epoch_emissions();
-        log::error!("validator_emissions {:?}: ", validator_emissions);
-        log::error!("foundation_emissions {:?}: ", foundation_emissions);
+        let epoch = 2 * EPOCHS_PER_YEAR;
+        let expected = Network::get_epoch_emissions(epoch);
 
-        // assert!(false);
+        MaxSubnets::<Test>::put(0);
+        MaxSubnetNodes::<Test>::put(0);
+        TotalActiveNodes::<Test>::put(0);
+        assert_eq!(Network::get_epoch_emissions(epoch), expected);
+
+        MaxSubnets::<Test>::put(u32::MAX);
+        MaxSubnetNodes::<Test>::put(u32::MAX);
+        TotalActiveNodes::<Test>::put(u32::MAX);
+        assert_eq!(Network::get_epoch_emissions(epoch), expected);
     });
 }

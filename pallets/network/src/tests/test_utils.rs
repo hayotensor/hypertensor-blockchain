@@ -54,12 +54,18 @@ pub fn insert_elected_subnet_node(subnet_id: u32, subnet_epoch: u32, subnet_node
         SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id)
             .map(ValidatorDelegateStakeBalance::<Test>::get)
             .unwrap_or_default();
+    let validator_id =
+        SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id).unwrap_or_default();
 
     SubnetElectedValidator::<Test>::insert(
         subnet_id,
         subnet_epoch,
         crate::ElectedConsensusRound {
             validator_subnet_node_id: subnet_node_id,
+            validator_id,
+            emergency: false,
+            eligible_subnet_node_ids: vec![subnet_node_id],
+            eligible_validator_identity_ids: BTreeMap::from([(subnet_node_id, validator_id)]),
             policy: Network::consensus_policy_snapshot(subnet_id, subnet_epoch),
             validator_delegate_stake_balance,
         },
@@ -1889,16 +1895,14 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
     let included_subnet_nodes: Vec<SubnetNode<Test>> =
         Network::get_active_classified_subnet_nodes(subnet_id, &SubnetNodeClass::Included, epoch);
 
-    let emergency = EmergencySubnetNodeElectionData::<Test>::get(subnet_id)
-        .filter(|emergency_validator_data| emergency_validator_data.activated)
-        .map(|emergency_validator_data| {
-            Network::emergency_consensus_snapshot(&emergency_validator_data)
-        });
-
-    let validator_ids: Vec<u32> = if let Some(snapshot) = &emergency {
-        snapshot.subnet_node_ids.clone()
+    let (validator_ids, emergency_active) =
+        Network::effective_consensus_validator_ids(subnet_id, epoch);
+    let emergency = if emergency_active {
+        EmergencySubnetNodeElectionData::<Test>::get(subnet_id).map(|emergency_validator_data| {
+            Network::emergency_consensus_snapshot(&emergency_validator_data, validator_ids.clone())
+        })
     } else {
-        SubnetNodeElectionSlots::<Test>::get(subnet_id)
+        None
     };
     let validator_identity_ids = validator_ids
         .iter()

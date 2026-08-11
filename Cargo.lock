@@ -4215,6 +4215,7 @@ dependencies = [
  "hex-literal",
  "hypertensor-precompiles",
  "network-custom-rpc-runtime-api",
+ "network-rpc-types",
  "pallet-atomic-swap",
  "pallet-aura",
  "pallet-author-subsidy",
@@ -6305,6 +6306,7 @@ dependencies = [
  "frame-support",
  "jsonrpsee 0.24.9",
  "network-custom-rpc-runtime-api",
+ "network-rpc-types",
  "pallet-network",
  "parity-scale-codec",
  "serde",
@@ -6320,10 +6322,10 @@ version = "0.0.1"
 dependencies = [
  "fp-account",
  "frame-support",
+ "network-rpc-types",
  "pallet-network",
  "serde",
  "sp-api",
- "sp-std",
 ]
 
 [[package]]
@@ -6336,6 +6338,17 @@ dependencies = [
  "libc",
  "thiserror 1.0.69",
  "winapi",
+]
+
+[[package]]
+name = "network-rpc-types"
+version = "0.1.0"
+dependencies = [
+ "impl-serde 0.5.0",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -6962,6 +6975,7 @@ dependencies = [
  "frame-system",
  "libm",
  "log",
+ "network-rpc-types",
  "pallet-balances",
  "pallet-collective",
  "pallet-evm",

@@ -631,36 +631,31 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        // Check for emergency validators
-        let slot_list = if let Some(emergency_validator_data) =
-            EmergencySubnetNodeElectionData::<T>::get(subnet_id)
-        {
-            if !emergency_validator_data.activated {
-                SubnetNodeElectionSlots::<T>::get(subnet_id)
-            } else {
-                if Self::is_emergency_validator_set_expired(
-                    &emergency_validator_data,
-                    subnet_id,
-                    subnet_epoch,
-                ) {
-                    // Temporary emergency validators is complete, remove and return default election slots
-                    Self::finish_emergency_validator_set(subnet_id);
-                    SubnetNodeElectionSlots::<T>::get(subnet_id)
-                } else {
-                    Self::active_emergency_validator_ids(
-                        &emergency_validator_data,
-                        subnet_id,
-                        subnet_epoch,
-                    )
-                }
-            }
-        } else {
-            SubnetNodeElectionSlots::<T>::get(subnet_id)
-        };
+        let (slot_list, emergency) =
+            Self::effective_consensus_validator_ids(subnet_id, subnet_epoch);
+
+        // Runtime queries use the same resolver without mutating state. Election is a state-changing
+        // lifecycle point, so it also performs the cleanup once an emergency set has expired.
+        if !emergency {
+            Self::maybe_finish_expired_emergency_validator_set(subnet_id, subnet_epoch);
+        }
 
         if slot_list.is_empty() {
             return;
         }
+
+        let Some(eligible_validator_identity_ids) = slot_list
+            .iter()
+            .map(|subnet_node_id| {
+                SubnetNodeValidatorId::<T>::get(subnet_id, *subnet_node_id)
+                    .map(|validator_id| (*subnet_node_id, validator_id))
+            })
+            .collect::<Option<BTreeMap<_, _>>>()
+        else {
+            // Do not persist a partially attributable candidate set. A later lifecycle pass can
+            // elect once the node-to-validator index is internally consistent again.
+            return;
+        };
 
         let Some(idx) = Self::get_bounded_random_index(
             (subnet_id, subnet_epoch, block),
@@ -673,10 +668,11 @@ impl<T: Config> Pallet<T> {
 
         if let Some(node_id) = subnet_node_id {
             let policy = Self::consensus_policy_snapshot(subnet_id, subnet_epoch);
-            let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, node_id);
-            let validator_delegate_stake_balance = validator_id
-                .map(ValidatorDelegateStakeBalance::<T>::get)
-                .unwrap_or_default();
+            let Some(validator_id) = eligible_validator_identity_ids.get(&node_id).copied() else {
+                return;
+            };
+            let validator_delegate_stake_balance =
+                ValidatorDelegateStakeBalance::<T>::get(validator_id);
 
             // Persist the election before recording its validator-level metadata. Settlement for
             // this election happens at the next subnet slot and must not relabel the election.
@@ -685,27 +681,29 @@ impl<T: Config> Pallet<T> {
                 subnet_epoch,
                 ElectedConsensusRound {
                     validator_subnet_node_id: node_id,
+                    validator_id,
+                    emergency,
+                    eligible_subnet_node_ids: slot_list,
+                    eligible_validator_identity_ids,
                     policy,
                     validator_delegate_stake_balance,
                 },
             );
 
-            if let Some(validator_id) = validator_id {
-                // An enabled round locks outgoing pool operations through its settlement block.
-                // Incoming stake and share transfers do not use this lock. Taking the maximum
-                // preserves every outstanding liability when one identity has overlapping rounds.
-                if policy.base_validator_delegate_stake_slash_percentage > 0
-                    && policy.max_validator_delegate_stake_slash_amount > 0
-                {
-                    let settlement_block = block.saturating_add(T::EpochLength::get());
-                    ValidatorDelegateStakeSlashLockUntil::<T>::mutate(validator_id, |lock_until| {
-                        *lock_until = (*lock_until).max(settlement_block);
-                    });
-                }
-
-                let election_epoch = Self::get_current_epoch_with_block_as_u32(block);
-                Self::record_validator_election(validator_id, election_epoch);
+            // An enabled round locks outgoing pool operations through its settlement block.
+            // Incoming stake and share transfers do not use this lock. Taking the maximum
+            // preserves every outstanding liability when one identity has overlapping rounds.
+            if policy.base_validator_delegate_stake_slash_percentage > 0
+                && policy.max_validator_delegate_stake_slash_amount > 0
+            {
+                let settlement_block = block.saturating_add(T::EpochLength::get());
+                ValidatorDelegateStakeSlashLockUntil::<T>::mutate(validator_id, |lock_until| {
+                    *lock_until = (*lock_until).max(settlement_block);
+                });
             }
+
+            let election_epoch = Self::get_current_epoch_with_block_as_u32(block);
+            Self::record_validator_election(validator_id, election_epoch);
         }
     }
 }

@@ -76,11 +76,8 @@ pub const TARGET_MAX_TOTAL_SUPPLY: u128 = 2_800_000_000_000_000_000_000_000;
 pub const INITIAL_REWARD_PER_BLOCK: u128 =
     (TARGET_MAX_TOTAL_SUPPLY / 2) / BLOCKS_PER_HALVING as u128;
 
-pub const SECS_PER_BLOCK: u32 = 6000 / 1000;
-
 pub const EPOCH_LENGTH: u32 = 100;
-pub const BLOCKS_PER_EPOCH: u32 = SECS_PER_BLOCK * EPOCH_LENGTH;
-pub const EPOCHS_PER_YEAR: u32 = (YEAR as u32) / BLOCKS_PER_EPOCH;
+pub const EPOCHS_PER_YEAR: u32 = (YEAR as u32) / EPOCH_LENGTH;
 
 pub const OVERWATCH_YEARLY_EMISSIONS: u128 = 10_000_000_000_000_000_000_000; // 10,000
 pub const OVERWATCH_EPOCH_EMISSIONS: u128 = OVERWATCH_YEARLY_EMISSIONS / (EPOCHS_PER_YEAR as u128);
@@ -214,6 +211,8 @@ parameter_types! {
     pub MaximumHooksWeight: Weight = Perbill::from_percent(50) *
         BlockWeights::get().max_block;
     pub const NetworkMaxSubnetNodesUpperBound: u32 = 512;
+    pub const NetworkMaxValidatorNodesUpperBound: u32 = 512;
+    pub const NetworkMaxOverwatchNodesUpperBound: u32 = 64;
     pub const DesignatedEpochSlots: u32 = 3;
     pub const NetworkMaxVectorLength: u32 = 1024;
     pub const NetworkMaxUrlLength: u32 = 1024;
@@ -239,6 +238,8 @@ impl Config for Test {
     type OverwatchEpochEmissions = OverwatchEpochEmissions;
     type MaximumHooksWeight = MaximumHooksWeight;
     type MaxSubnetNodesUpperBound = NetworkMaxSubnetNodesUpperBound;
+    type MaxValidatorNodesUpperBound = NetworkMaxValidatorNodesUpperBound;
+    type MaxOverwatchNodesUpperBound = NetworkMaxOverwatchNodesUpperBound;
     type DesignatedEpochSlots = DesignatedEpochSlots;
     type MaxVectorLength = NetworkMaxVectorLength;
     type MaxUrlLength = NetworkMaxUrlLength;

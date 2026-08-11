@@ -124,6 +124,8 @@ parameter_types! {
     pub const OverwatchEpochEmissions: u128 = OVERWATCH_EPOCH_EMISSIONS;
     pub MaximumHooksWeight: Weight = sp_runtime::Perbill::from_percent(50) * BlockWeights::get().max_block;
     pub const NetworkMaxSubnetNodesUpperBound: u32 = 512;
+    pub const NetworkMaxValidatorNodesUpperBound: u32 = 512;
+    pub const NetworkMaxOverwatchNodesUpperBound: u32 = 64;
     pub const DesignatedEpochSlots: u32 = 3;
     pub const NetworkMaxVectorLength: u32 = 1024;
     pub const NetworkMaxUrlLength: u32 = 1024;
@@ -149,6 +151,8 @@ impl pallet_network::Config for Test {
     type OverwatchEpochEmissions = OverwatchEpochEmissions;
     type MaximumHooksWeight = MaximumHooksWeight;
     type MaxSubnetNodesUpperBound = NetworkMaxSubnetNodesUpperBound;
+    type MaxValidatorNodesUpperBound = NetworkMaxValidatorNodesUpperBound;
+    type MaxOverwatchNodesUpperBound = NetworkMaxOverwatchNodesUpperBound;
     type DesignatedEpochSlots = DesignatedEpochSlots;
     type MaxVectorLength = NetworkMaxVectorLength;
     type MaxUrlLength = NetworkMaxUrlLength;

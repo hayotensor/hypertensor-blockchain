@@ -19,31 +19,55 @@
 
 #![cfg_attr(not(feature = "std"), no_std)]
 use fp_account::AccountId20;
-use sp_std::vec::Vec;
+use network_rpc_types::{
+    ConsensusRoundInfo, NetworkQueryError, OverwatchNodeInfo, OverwatchNodesPage, PageRequest,
+    SubnetBootnodes, SubnetEpochStatus, SubnetInfo, SubnetNodeCursor, SubnetNodeInfo,
+    SubnetNodesPage, SubnetValidatorNodesPage, SubnetsPage, ValidatorInfo,
+    ValidatorNodeAllocationsPage, ValidatorNodeStakesPage, ValidatorNodesPage,
+};
 
 sp_api::decl_runtime_apis! {
   pub trait NetworkRuntimeApi {
-    fn get_subnet_info(subnet_id: u32) -> Vec<u8>;
-    fn get_all_subnets_info() -> Vec<u8>;
-    fn get_subnet_node_info(subnet_id: u32, subnet_node_id: u32) -> Vec<u8>;
-    fn get_subnet_nodes_info(subnet_id: u32) -> Vec<u8>;
-    fn get_all_subnet_nodes_info() -> Vec<u8>;
-    fn proof_of_stake_v2(
+    fn get_subnet_info(subnet_id: u32) -> Option<SubnetInfo<AccountId20>>;
+    fn get_subnets(request: PageRequest<u32>)
+      -> Result<SubnetsPage<AccountId20>, NetworkQueryError>;
+    fn get_subnet_node_info(
       subnet_id: u32,
-      peer_id: Option<Vec<u8>>,
-      hotkey: Option<AccountId20>,
-      min_class: u8,
-      min_stake: Option<u128>,
-    ) -> bool;
-    fn get_bootnodes(subnet_id: u32) -> Vec<u8>;
-    fn get_validator_subnet_nodes_info(validator_id: u32) -> Vec<u8>;
-    fn get_validator_stakes(validator_id: u32) -> Vec<u8>;
-    fn get_delegate_stakes(account_id: AccountId20) -> Vec<u8>;
-    fn get_node_delegate_stakes(account_id: AccountId20) -> Vec<u8>;
-    fn get_overwatch_commits_for_epoch_and_node(epoch: u32,overwatch_node_id: u32) -> Vec<u8>;
-    fn get_overwatch_reveals_for_epoch_and_node(epoch: u32,overwatch_node_id: u32) -> Vec<u8>;
-    fn get_elected_validator_info(subnet_id: u32,subnet_epoch: u32) -> Vec<u8>;
-    fn get_validators_and_attestors(subnet_id: u32) -> Vec<u8>;
-    fn get_all_overwatch_nodes_info() -> Vec<u8>;
+      subnet_node_id: u32,
+    ) -> Option<SubnetNodeInfo<AccountId20>>;
+    fn get_subnet_nodes(
+      subnet_id: u32,
+      request: PageRequest<u32>,
+    ) -> Result<SubnetNodesPage<AccountId20>, NetworkQueryError>;
+    fn get_bootnodes(subnet_id: u32) -> Option<SubnetBootnodes>;
+    fn get_validator_info(validator_id: u32) -> Option<ValidatorInfo<AccountId20>>;
+    fn get_validator_by_coldkey(coldkey: AccountId20) -> Option<ValidatorInfo<AccountId20>>;
+    fn get_validator_by_hotkey(hotkey: AccountId20) -> Option<ValidatorInfo<AccountId20>>;
+    fn get_validator_nodes(
+      validator_id: u32,
+      request: PageRequest<SubnetNodeCursor>,
+    ) -> Result<ValidatorNodesPage<AccountId20>, NetworkQueryError>;
+    fn get_validator_node_stakes(
+      validator_id: u32,
+      request: PageRequest<SubnetNodeCursor>,
+    ) -> Result<ValidatorNodeStakesPage, NetworkQueryError>;
+    fn get_validator_node_allocations(
+      validator_id: u32,
+      request: PageRequest<SubnetNodeCursor>,
+    ) -> Result<ValidatorNodeAllocationsPage, NetworkQueryError>;
+    fn get_consensus_round(
+      subnet_id: u32,
+      subnet_epoch: u32,
+    ) -> Result<Option<ConsensusRoundInfo>, NetworkQueryError>;
+    fn get_subnet_validator_nodes(
+      subnet_id: u32,
+      request: PageRequest<u32>,
+    ) -> Result<SubnetValidatorNodesPage<AccountId20>, NetworkQueryError>;
+    fn get_subnet_epoch_status(subnet_id: u32)
+      -> Result<SubnetEpochStatus, NetworkQueryError>;
+    fn get_overwatch_node_info(overwatch_node_id: u32)
+      -> Option<OverwatchNodeInfo<AccountId20>>;
+    fn get_overwatch_nodes(request: PageRequest<u32>)
+      -> Result<OverwatchNodesPage<AccountId20>, NetworkQueryError>;
   }
 }

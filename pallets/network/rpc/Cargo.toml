@@ -30,6 +30,7 @@ fp-account = { workspace = true, features = ["serde"] }
 # Local
 network-custom-rpc-runtime-api.workspace = true
 pallet-network.workspace = true
+network-rpc-types.workspace = true
 
 [features]
 default = ["std"]
@@ -37,6 +38,7 @@ std = [
   "sp-api/std",
   "frame-support/std",
   "pallet-network/std",
+  "network-rpc-types/std",
   "sp-runtime/std",
   "serde/std",
   "network-custom-rpc-runtime-api/std",

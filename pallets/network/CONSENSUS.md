@@ -343,6 +343,51 @@ attestation contributes its identity once. A proposal meeting this identity gate
 **identity-verified**. The identity ratio gates reputation-score and classification consequences; it
 does not replace either normal consensus quorum and does not gate rewards.
 
+## Inflation and subnet emission budget
+
+The inflation mechanism defines one annual budget for the foundation and subnet rewards. It is
+independent of subnet count, node count, and node utilization. Network demand therefore does not
+change the issuance schedule.
+
+For global epoch `E`, let `Y = floor(E / EpochsPerYear)`. The annual schedule is the integer
+recurrence:
+
+```text
+annual_emissions(0) = max(initial_annual_emissions, terminal_annual_emissions)
+annual_emissions(Y) = max(
+  terminal_annual_emissions,
+  floor(annual_emissions(Y - 1) * 90 / 100)
+) for Y > 0
+```
+
+The current source placeholders are 100,000 tokens initially, a 75,000-token terminal floor, and
+90% retention, corresponding to 10% geometric decay after each full year. The two token amounts
+can be finalized before launch without changing the formula.
+
+The annual budget is split before subnet weighting:
+
+```text
+annual_foundation_emissions = floor(annual_emissions(Y) * 5 / 100)
+annual_subnet_emissions = annual_emissions(Y) - annual_foundation_emissions
+
+epoch_foundation_emissions = floor(annual_foundation_emissions / EpochsPerYear)
+epoch_subnet_emissions = floor(annual_subnet_emissions / EpochsPerYear)
+```
+
+All calculations use deterministic integer arithmetic. The foundation allocation is 5% before
+indivisible atomic-unit rounding and has no separate term or time-based cutoff. Dividing the two
+annual pools independently can leave at most one atomic unit of the per-epoch budget unissued. The
+remaining subnet budget is subsequently normalized across eligible subnets and distributed by the
+existing owner, delegate, and consensus-weight rules. The elected proposer's configured base
+validator reward is separate from this decaying budget.
+
+Normalized subnet weights are cumulatively capped at 100%, so floating-point normalization cannot
+allocate more than the subnet emissions budget.
+
+These values are issuance ceilings, not a promise that the full budget is minted. If an epoch has
+no eligible subnet emission weights, neither the subnet allocation nor the foundation allocation is
+issued, and there is no carry-forward.
+
 ## Rewards
 
 When both quorum checks pass, the subnet is in consensus for the evaluated epoch.
@@ -364,7 +409,7 @@ node_score_share = node_score / total_score
 node_reward = subnet_node_rewards * node_score_share * reward_factor
 ```
 
-If the canonical score sum is zero but consensus is reached, subnet rewards are held in the rewards capacitor for a future epoch. In that case the proposer reward has already been handled, but normal owner, delegate, and node reward distribution is skipped for that epoch.
+If the canonical score sum is zero but consensus is reached, the proposer reward has already been handled, but normal owner, delegate, and node rewards are forfeited for that epoch. No rewards are carried into a future epoch.
 
 ## Reputation Updates
 

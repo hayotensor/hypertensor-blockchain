@@ -717,6 +717,8 @@ parameter_types! {
     pub MaximumHooksWeight: Weight = Perbill::from_percent(50) *
         BlockWeights::get().max_block;
     pub const NetworkMaxSubnetNodesUpperBound: u32 = 512;
+    pub const NetworkMaxValidatorNodesUpperBound: u32 = 512;
+    pub const NetworkMaxOverwatchNodesUpperBound: u32 = 64;
     pub const DesignatedEpochSlots: u32 = 3;
     pub const NetworkMaxVectorLength: u32 = 1024;
     pub const NetworkMaxUrlLength: u32 = 1024;
@@ -742,6 +744,8 @@ impl pallet_network::Config for Runtime {
     type OverwatchEpochEmissions = OverwatchEpochEmissions;
     type MaximumHooksWeight = MaximumHooksWeight;
     type MaxSubnetNodesUpperBound = NetworkMaxSubnetNodesUpperBound;
+    type MaxValidatorNodesUpperBound = NetworkMaxValidatorNodesUpperBound;
+    type MaxOverwatchNodesUpperBound = NetworkMaxOverwatchNodesUpperBound;
     type DesignatedEpochSlots = DesignatedEpochSlots;
     type MaxVectorLength = NetworkMaxVectorLength;
     type MaxUrlLength = NetworkMaxUrlLength;
@@ -1493,74 +1497,132 @@ impl_runtime_apis! {
     }
 
     impl network_custom_rpc_runtime_api::NetworkRuntimeApi<Block> for Runtime {
-        fn get_subnet_info(subnet_id: u32) -> Vec<u8> {
-            let result = Network::get_subnet_info(subnet_id);
-            result.encode()
-        }
-        fn get_all_subnets_info() -> Vec<u8> {
-            let result = Network::get_all_subnets_info();
-            result.encode()
-        }
-        fn get_subnet_node_info(subnet_id: u32, subnet_node_id: u32) -> Vec<u8> {
-            let result = Network::get_subnet_node_info(subnet_id, subnet_node_id);
-            result.encode()
-        }
-        fn get_subnet_nodes_info(subnet_id: u32) -> Vec<u8> {
-            let result = Network::get_subnet_nodes_info(subnet_id);
-            result.encode()
-        }
-        fn get_all_subnet_nodes_info() -> Vec<u8> {
-            let result = Network::get_all_subnet_nodes_info();
-            result.encode()
-        }
-        fn get_bootnodes(subnet_id: u32) -> Vec<u8> {
-            let result = Network::get_bootnodes(subnet_id);
-            result.encode()
-        }
-        fn proof_of_stake_v2(
+        fn get_subnet_info(
             subnet_id: u32,
-            peer_id: Option<Vec<u8>>,
-            hotkey: Option<AccountId>,
-            min_class: u8,
-            min_stake: Option<u128>,
-        ) -> bool {
-            Network::proof_of_stake_v2(subnet_id, peer_id, hotkey, min_class, min_stake)
+        ) -> Option<network_rpc_types::SubnetInfo<AccountId>> {
+            Network::rpc_get_subnet_info(subnet_id)
         }
-        fn get_validator_subnet_nodes_info(validator_id: u32) -> Vec<u8> {
-            let result = Network::get_validator_subnet_nodes_info(validator_id);
-            result.encode()
+
+        fn get_subnets(
+            request: network_rpc_types::PageRequest<u32>,
+        ) -> Result<
+            network_rpc_types::SubnetsPage<AccountId>,
+            network_rpc_types::NetworkQueryError,
+        > {
+            Network::rpc_get_subnets(request)
         }
-        fn get_validator_stakes(validator_id: u32) -> Vec<u8> {
-            let result = Network::get_validator_stakes(validator_id);
-            result.encode()
+
+        fn get_subnet_node_info(
+            subnet_id: u32,
+            subnet_node_id: u32,
+        ) -> Option<network_rpc_types::SubnetNodeInfo<AccountId>> {
+            Network::rpc_get_subnet_node_info(subnet_id, subnet_node_id)
         }
-        fn get_delegate_stakes(account_id: AccountId) -> Vec<u8> {
-            let result = Network::get_delegate_stakes(account_id);
-            result.encode()
+
+        fn get_subnet_nodes(
+            subnet_id: u32,
+            request: network_rpc_types::PageRequest<u32>,
+        ) -> Result<
+            network_rpc_types::SubnetNodesPage<AccountId>,
+            network_rpc_types::NetworkQueryError,
+        > {
+            Network::rpc_get_subnet_nodes(subnet_id, request)
         }
-        fn get_node_delegate_stakes(account_id: AccountId) -> Vec<u8> {
-            let result = Network::get_node_delegate_stakes(account_id);
-            result.encode()
+
+        fn get_bootnodes(subnet_id: u32) -> Option<network_rpc_types::SubnetBootnodes> {
+            Network::rpc_get_bootnodes(subnet_id)
         }
-        fn get_overwatch_commits_for_epoch_and_node(epoch: u32, overwatch_node_id: u32) -> Vec<u8> {
-            let result = Network::get_overwatch_commits_for_epoch_and_node(epoch, overwatch_node_id);
-            result.encode()
+
+        fn get_validator_info(
+            validator_id: u32,
+        ) -> Option<network_rpc_types::ValidatorInfo<AccountId>> {
+            Network::rpc_get_validator_info(validator_id)
         }
-        fn get_overwatch_reveals_for_epoch_and_node(epoch: u32, overwatch_node_id: u32) -> Vec<u8> {
-            let result = Network::get_overwatch_reveals_for_epoch_and_node(epoch, overwatch_node_id);
-            result.encode()
+
+        fn get_validator_by_coldkey(
+            coldkey: AccountId,
+        ) -> Option<network_rpc_types::ValidatorInfo<AccountId>> {
+            Network::rpc_get_validator_by_coldkey(&coldkey)
         }
-        fn get_elected_validator_info(subnet_id: u32, subnet_epoch: u32) -> Vec<u8> {
-            let result = Network::get_elected_validator_info(subnet_id, subnet_epoch);
-            result.encode()
+
+        fn get_validator_by_hotkey(
+            hotkey: AccountId,
+        ) -> Option<network_rpc_types::ValidatorInfo<AccountId>> {
+            Network::rpc_get_validator_by_hotkey(&hotkey)
         }
-        fn get_validators_and_attestors(subnet_id: u32) -> Vec<u8> {
-            let result = Network::get_validators_and_attestors(subnet_id);
-            result.encode()
+
+        fn get_validator_nodes(
+            validator_id: u32,
+            request: network_rpc_types::PageRequest<network_rpc_types::SubnetNodeCursor>,
+        ) -> Result<
+            network_rpc_types::ValidatorNodesPage<AccountId>,
+            network_rpc_types::NetworkQueryError,
+        > {
+            Network::rpc_get_validator_nodes(validator_id, request)
         }
-        fn get_all_overwatch_nodes_info() -> Vec<u8> {
-            let result = Network::get_all_overwatch_nodes_info();
-            result.encode()
+
+        fn get_validator_node_stakes(
+            validator_id: u32,
+            request: network_rpc_types::PageRequest<network_rpc_types::SubnetNodeCursor>,
+        ) -> Result<
+            network_rpc_types::ValidatorNodeStakesPage,
+            network_rpc_types::NetworkQueryError,
+        > {
+            Network::rpc_get_validator_node_stakes(validator_id, request)
+        }
+
+        fn get_validator_node_allocations(
+            validator_id: u32,
+            request: network_rpc_types::PageRequest<network_rpc_types::SubnetNodeCursor>,
+        ) -> Result<
+            network_rpc_types::ValidatorNodeAllocationsPage,
+            network_rpc_types::NetworkQueryError,
+        > {
+            Network::rpc_get_validator_node_allocations(validator_id, request)
+        }
+
+        fn get_consensus_round(
+            subnet_id: u32,
+            subnet_epoch: u32,
+        ) -> Result<
+            Option<network_rpc_types::ConsensusRoundInfo>,
+            network_rpc_types::NetworkQueryError,
+        > {
+            Network::rpc_get_consensus_round(subnet_id, subnet_epoch)
+        }
+
+        fn get_subnet_validator_nodes(
+            subnet_id: u32,
+            request: network_rpc_types::PageRequest<u32>,
+        ) -> Result<
+            network_rpc_types::SubnetValidatorNodesPage<AccountId>,
+            network_rpc_types::NetworkQueryError,
+        > {
+            Network::rpc_get_subnet_validator_nodes(subnet_id, request)
+        }
+
+        fn get_subnet_epoch_status(
+            subnet_id: u32,
+        ) -> Result<
+            network_rpc_types::SubnetEpochStatus,
+            network_rpc_types::NetworkQueryError,
+        > {
+            Network::rpc_get_subnet_epoch_status(subnet_id)
+        }
+
+        fn get_overwatch_node_info(
+            overwatch_node_id: u32,
+        ) -> Option<network_rpc_types::OverwatchNodeInfo<AccountId>> {
+            Network::rpc_get_overwatch_node_info(overwatch_node_id)
+        }
+
+        fn get_overwatch_nodes(
+            request: network_rpc_types::PageRequest<u32>,
+        ) -> Result<
+            network_rpc_types::OverwatchNodesPage<AccountId>,
+            network_rpc_types::NetworkQueryError,
+        > {
+            Network::rpc_get_overwatch_nodes(request)
         }
     }
 

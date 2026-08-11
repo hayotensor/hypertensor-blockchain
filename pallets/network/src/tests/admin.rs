@@ -8,14 +8,14 @@ use crate::{
     ConsensusValidatorNodeCountDecayUpdateInterval,
     ConsensusValidatorStakeWeightPowerUpdateInterval, DefaultOverwatchSubnetWeight,
     DelegateStakeCooldownEpochs, DelegateStakeSubnetRemovalInterval, DelegateStakeWeightFactor,
-    Error, InConsensusSubnetReputationFactor, InflationSigmoidMidpoint, InflationSigmoidSteepness,
-    LessThanMinNodesSubnetReputationFactor, MaxBootnodes, MaxChurnLimit, MaxChurnLimitMultiplier,
-    MaxConsensusValidatorStakeWeightPower, MaxDelegateStakePercentage, MaxEmergencySubnetNodes,
-    MaxEmergencyValidatorEpochsMultiplier, MaxIdleClassificationEpochs,
-    MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes, MaxMinDelegateStakeMultiplier,
-    MaxMinSubnetNodeReputation, MaxNodeBurnRate, MaxNodeReputationFactor, MaxOverwatchNodes,
-    MaxPauseEpochsSubnetReputationFactor, MaxQueueEpochs, MaxRewardRateDecrease, MaxSlashAmount,
-    MaxSubnetBootnodeAccess, MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
+    Error, InConsensusSubnetReputationFactor, LessThanMinNodesSubnetReputationFactor, MaxBootnodes,
+    MaxChurnLimit, MaxChurnLimitMultiplier, MaxConsensusValidatorStakeWeightPower,
+    MaxDelegateStakePercentage, MaxEmergencySubnetNodes, MaxEmergencyValidatorEpochsMultiplier,
+    MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes,
+    MaxMinDelegateStakeMultiplier, MaxMinSubnetNodeReputation, MaxNodeBurnRate,
+    MaxNodeReputationFactor, MaxOverwatchNodes, MaxPauseEpochsSubnetReputationFactor,
+    MaxQueueEpochs, MaxRewardRateDecrease, MaxSlashAmount, MaxSubnetBootnodeAccess,
+    MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
     MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnetPauseEpochs,
     MaxSubnetRemovalInterval, MaxSubnets, MaxSwapQueueCallsPerBlock, MaxUnbondings,
     MaxValidatorDelegateStakeSlashAmount, MaximumHooksWeightV2, MinActiveNodeStakeEpochs,
@@ -1451,31 +1451,19 @@ fn test_set_validator_node_delegate_stake_weight_update_interval() {
 }
 
 #[test]
-fn test_set_inflation_sigmoid_steepness() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let new_value: u128 = 5000000000000000000;
-
-        assert_ok!(Network::set_inflation_sigmoid_steepness(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-            new_value
-        ));
-
-        assert_eq!(InflationSigmoidSteepness::<Test>::get(), new_value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetSigmoidSteepness(new_value)
-        );
-    });
-}
-
-#[test]
 fn test_set_max_overwatch_nodes() {
     new_test_ext().execute_with(|| {
         System::set_block_number(System::block_number() + 1);
 
         let new_value: u32 = 50;
+
+        assert_err!(
+            Network::set_max_overwatch_nodes(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                NetworkMaxOverwatchNodesUpperBound::get().saturating_add(1),
+            ),
+            Error::<Test>::MaxOverwatchNodes
+        );
 
         assert_ok!(Network::set_max_overwatch_nodes(
             RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
@@ -2005,28 +1993,6 @@ fn test_set_min_active_node_stake_epochs() {
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SetMinActiveNodeStakeEpochs(new_value)
-        );
-    });
-}
-
-// === Sigmoid  and Burn Parameter Tests ===
-
-#[test]
-fn test_set_sigmoid_midpoint() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let new_value: u128 = test_percent(1, 2);
-
-        assert_ok!(Network::set_sigmoid_midpoint(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-            new_value
-        ));
-
-        assert_eq!(InflationSigmoidMidpoint::<Test>::get(), new_value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetInflationSigmoidMidpoint(new_value)
         );
     });
 }

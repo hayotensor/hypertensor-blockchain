@@ -60,6 +60,7 @@ pallet-atomic-swap = { path = "./pallets/atomic-swap", default-features = false 
 pallet-collective = { path = "./pallets/collective", default-features = false }
 pallet-author-subsidy = { path = "./pallets/author-subsidy", default-features = false }
 pallet-network = { path = "./pallets/network", default-features = false }
+network-rpc-types = { path = "./pallets/network-rpc-types", default-features = false }
 network-custom-rpc = { path = "./pallets/network/rpc", default-features = false }
 network-custom-rpc-runtime-api = { path = "./pallets/network/runtime-api", default-features = false }
 hypertensor-precompiles = { path = "./precompiles", default-features = false }
@@ -210,4 +211,3 @@ panic = "unwind"
 codegen-units = 1
 inherits = "release"
 lto = true
-

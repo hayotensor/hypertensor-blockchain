@@ -16,7 +16,7 @@
 // Handles all slot block steps
 
 use super::*;
-use frame_support::pallet_prelude::{Weight, Zero};
+use frame_support::pallet_prelude::Weight;
 
 impl<T: Config> Pallet<T> {
     pub const MIN_CONSENSUS_VALIDATOR_IDENTITIES: u32 = 3;
@@ -285,7 +285,6 @@ impl<T: Config> Pallet<T> {
                         // Calculate rewards
                         let (rewards_data, rewards_block_weight) =
                             Self::calculate_rewards_with_policy(
-                                subnet_id,
                                 subnet_emission_weights.subnets_emissions,
                                 subnet_weight,
                                 &consensus_submission_data.policy,
@@ -473,7 +472,8 @@ impl<T: Config> Pallet<T> {
 
         // Store weights and handle foundation
         if !subnet_weights.is_empty() {
-            let (subnets_emissions, foundation_emissions_as_u128) = Self::get_epoch_emissions();
+            let (subnets_emissions, foundation_emissions_as_u128) =
+                Self::get_epoch_emissions(epoch);
 
             if let Some(foundation_emissions) = Self::u128_to_balance(foundation_emissions_as_u128)
             {
@@ -639,6 +639,7 @@ impl<T: Config> Pallet<T> {
         weight = weight.saturating_add(db_weight.reads(total_subnet_reads));
         let mut subnet_weights_normalized: BTreeMap<u32, u128> = BTreeMap::new();
         let percentage_factor = Self::percentage_factor_as_u128();
+        let mut remaining_weight = percentage_factor;
 
         // --- Normalize delegate stake weights from power
         for (subnet_id, subnet_weight) in subnet_weights {
@@ -650,9 +651,16 @@ impl<T: Config> Pallet<T> {
             if !weight_normalized_f64.is_finite() || weight_normalized_f64 <= 0.0 {
                 continue;
             }
-            let weight_normalized: u128 =
-                weight_normalized_f64.min(percentage_factor as f64) as u128;
+            // Independent f64-to-integer conversion can round the aggregate a few atomic units
+            // above 100%. Cap each deterministic BTreeMap entry by the remaining allocation so
+            // downstream subnet rewards can never exceed the subnet emissions budget.
+            let weight_normalized =
+                (weight_normalized_f64.min(percentage_factor as f64) as u128).min(remaining_weight);
+            if weight_normalized == 0 {
+                continue;
+            }
             subnet_weights_normalized.insert(subnet_id, weight_normalized);
+            remaining_weight = remaining_weight.saturating_sub(weight_normalized);
             weight = weight.saturating_add(Weight::from_parts(400_000, 0));
         }
 
@@ -979,11 +987,6 @@ impl<T: Config> Pallet<T> {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
-        // Add rewards from capacitor, and reset capacitor to 0
-        // If `calculdate_rewards` is called, then `distribute_rewards` is always called
-        let overall_rewards = overall_rewards.saturating_add(RewardsCapacitor::<T>::get(subnet_id));
-        weight = weight.saturating_add(db_weight.reads(1));
-
         let overall_subnet_reward: u128 = Self::percent_mul(overall_rewards, emission_weight);
 
         // --- Get owner rewards
@@ -1030,14 +1033,10 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn calculate_rewards_with_policy(
-        subnet_id: u32,
         overall_rewards: u128,
         emission_weight: u128,
         policy: &ConsensusPolicySnapshot,
     ) -> (RewardsData, Weight) {
-        let db_weight = T::DbWeight::get();
-        let weight = db_weight.reads(1);
-        let overall_rewards = overall_rewards.saturating_add(RewardsCapacitor::<T>::get(subnet_id));
         let overall_subnet_reward = Self::percent_mul(overall_rewards, emission_weight);
         let subnet_owner_reward =
             Self::percent_mul(overall_subnet_reward, policy.subnet_owner_percentage);
@@ -1058,6 +1057,6 @@ impl<T: Config> Pallet<T> {
             subnet_node_rewards,
         };
 
-        (rewards_data, weight)
+        (rewards_data, Weight::zero())
     }
 }

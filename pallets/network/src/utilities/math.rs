@@ -123,21 +123,6 @@ impl<T: Config> Pallet<T> {
         sigmoid.clamp(min, max)
     }
 
-    pub fn sigmoid_decreasing_v2(x: f64, mid: f64, k: f64) -> f64 {
-        let c = (x - mid).abs();
-        let d = k * c;
-        let exp = exp(d);
-
-        // symmetric sigmoid around mid
-        let sigmoid = if x > mid {
-            1.0 / (1.0 + exp)
-        } else {
-            exp / (1.0 + exp)
-        };
-
-        sigmoid.clamp(0.0, 1.0)
-    }
-
     /// Offset and scale the sigmoid curve
     ///
     /// # Parameters

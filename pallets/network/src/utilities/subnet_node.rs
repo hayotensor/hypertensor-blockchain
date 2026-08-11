@@ -1105,6 +1105,49 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    /// Return a conservative dispatch weight for either node-removal branch.
+    ///
+    /// The active and registered paths scale along different bounded storage dimensions. Reading
+    /// those dimensions before dispatch lets the call use the generated `Linear` models rather
+    /// than the fixed four-node fixture used by the baseline extrinsic benchmark.
+    pub fn remove_subnet_node_dispatch_weight(subnet_id: u32, subnet_node_id: u32) -> Weight {
+        let db_reads = T::DbWeight::get().reads(4);
+        let baseline = T::WeightInfo::remove_subnet_node();
+        let maximum_branch = T::WeightInfo::remove_active_subnet_node(17, 512, 512)
+            .max(T::WeightInfo::remove_registered_subnet_node(17, 64, 512));
+
+        let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) else {
+            return baseline.max(maximum_branch).saturating_add(db_reads);
+        };
+
+        let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
+        let subnet_count = (validator_subnet_nodes.len() as u32).clamp(1, 17);
+        let validator_nodes_in_subnet = validator_subnet_nodes
+            .get(&subnet_id)
+            .map(|nodes| nodes.len() as u32)
+            .unwrap_or(1)
+            .clamp(1, 512);
+
+        let branch_weight = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
+            let election_slots =
+                (SubnetNodeElectionSlots::<T>::get(subnet_id).len() as u32).clamp(3, 512);
+            T::WeightInfo::remove_active_subnet_node(
+                subnet_count,
+                election_slots,
+                validator_nodes_in_subnet,
+            )
+        } else {
+            let queue_len = (SubnetNodeQueue::<T>::get(subnet_id).len() as u32).clamp(1, 64);
+            T::WeightInfo::remove_registered_subnet_node(
+                subnet_count,
+                queue_len,
+                validator_nodes_in_subnet,
+            )
+        };
+
+        baseline.max(branch_weight).saturating_add(db_reads)
+    }
+
     // pub fn get_subnet_node(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNode<T>> {
     //     if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
     //         Some(SubnetNodesData::<T>::get(subnet_id, subnet_node_id))

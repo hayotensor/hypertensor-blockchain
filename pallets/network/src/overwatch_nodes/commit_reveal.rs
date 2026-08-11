@@ -7,8 +7,12 @@ impl<T: Config> Pallet<T> {
     pub fn do_commit_overwatch_subnet_weights(
         origin: T::RuntimeOrigin,
         overwatch_node_id: u32,
-        mut commit_weights: Vec<OverwatchCommit<T::Hash>>,
+        commit_weights: Vec<OverwatchCommit<T::Hash>>,
     ) -> DispatchResultWithPostInfo {
+        ensure!(
+            commit_weights.len() as u32 <= MaxSubnets::<T>::get().saturating_add(1),
+            Error::<T>::MaxSubnets
+        );
         let hotkey: T::AccountId = ensure_signed(origin)?;
 
         ensure!(
@@ -42,8 +46,9 @@ impl<T: Config> Pallet<T> {
         overwatch_node_id: u32,
         mut commit_weights: Vec<OverwatchCommit<T::Hash>>,
     ) -> DispatchResultWithPostInfo {
-        // Remove dups
-        commit_weights.dedup_by(|a, b| a.subnet_id == b.subnet_id);
+        // Remove duplicate subnet IDs regardless of their position in the submitted vector.
+        let mut seen_subnets = BTreeSet::new();
+        commit_weights.retain(|commit| seen_subnets.insert(commit.subnet_id));
 
         let subnets: BTreeSet<_> = SubnetsData::<T>::iter().map(|(id, _)| id).collect();
 
@@ -89,6 +94,10 @@ impl<T: Config> Pallet<T> {
         overwatch_node_id: u32,
         reveals: Vec<OverwatchReveal>,
     ) -> DispatchResultWithPostInfo {
+        ensure!(
+            reveals.len() as u32 <= MaxSubnets::<T>::get().saturating_add(1),
+            Error::<T>::MaxSubnets
+        );
         let hotkey: T::AccountId = ensure_signed(origin)?;
 
         ensure!(

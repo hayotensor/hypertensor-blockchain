@@ -518,6 +518,33 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
+    /// Resolve the validator nodes that are effective for a subnet epoch.
+    ///
+    /// Pending and expired emergency sets never replace the regular election slots. Keeping this
+    /// decision in one helper prevents election, proposal snapshots, and runtime queries from
+    /// exposing different validator sets for the same epoch.
+    pub fn effective_consensus_validator_ids(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> (Vec<u32>, bool) {
+        let emergency_ids = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
+            .filter(|data| {
+                data.activated
+                    && !Self::is_emergency_validator_set_expired(data, subnet_id, subnet_epoch)
+            })
+            .map(|data| Self::active_emergency_validator_ids(&data, subnet_id, subnet_epoch));
+
+        let (validator_ids, emergency) = match emergency_ids {
+            Some(validator_ids) => (validator_ids, true),
+            None => (SubnetNodeElectionSlots::<T>::get(subnet_id), false),
+        };
+
+        (
+            Self::canonicalize_consensus_validator_ids(validator_ids),
+            emergency,
+        )
+    }
+
     pub fn is_emergency_validator_set_expired(
         data: &EmergencySubnetValidatorData,
         subnet_id: u32,
@@ -544,9 +571,10 @@ impl<T: Config> Pallet<T> {
 
     pub fn emergency_consensus_snapshot(
         data: &EmergencySubnetValidatorData,
+        effective_subnet_node_ids: Vec<u32>,
     ) -> EmergencyConsensusSnapshot {
         EmergencyConsensusSnapshot {
-            subnet_node_ids: data.subnet_node_ids.clone(),
+            subnet_node_ids: effective_subnet_node_ids,
             reputation_factors: data.reputation_factors,
             min_subnet_node_reputation: data.min_subnet_node_reputation,
             min_weight_decrease_reputation_threshold: data.min_weight_decrease_reputation_threshold,

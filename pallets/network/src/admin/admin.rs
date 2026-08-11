@@ -487,14 +487,11 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_inflation_sigmoid_steepness(value: u128) -> DispatchResult {
-        InflationSigmoidSteepness::<T>::set(value);
-
-        Self::deposit_event(Event::SetSigmoidSteepness(value));
-
-        Ok(())
-    }
     pub fn do_set_max_overwatch_nodes(value: u32) -> DispatchResult {
+        ensure!(
+            value <= T::MaxOverwatchNodesUpperBound::get(),
+            Error::<T>::MaxOverwatchNodes
+        );
         MaxOverwatchNodes::<T>::set(value);
 
         Self::deposit_event(Event::SetMaxOverwatchNodes(value));
@@ -695,18 +692,6 @@ impl<T: Config> Pallet<T> {
         MaxUnbondings::<T>::set(value);
 
         Self::deposit_event(Event::SetMaxUnbondings(value));
-
-        Ok(())
-    }
-    pub fn do_set_sigmoid_midpoint(value: u128) -> DispatchResult {
-        ensure!(
-            value <= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
-        );
-
-        InflationSigmoidMidpoint::<T>::put(value);
-
-        Self::deposit_event(Event::SetInflationSigmoidMidpoint(value));
 
         Ok(())
     }

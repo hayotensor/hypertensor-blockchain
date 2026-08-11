@@ -42,6 +42,7 @@ pallet-tx-pause.workspace = true
 pallet-collective.workspace = true
 pallet-author-subsidy.workspace = true
 pallet-network.workspace = true
+network-rpc-types.workspace = true
 network-custom-rpc-runtime-api.workspace = true
 
 scale-info = { features = ["derive", "serde"], workspace = true }
@@ -118,6 +119,7 @@ std = [
 	"pallet-collective/std",
 	"pallet-author-subsidy/std",
 	"pallet-network/std",
+	"network-rpc-types/std",
 	"network-custom-rpc-runtime-api/std",
 	"hypertensor-precompiles/std",
 	"scale-info/std",

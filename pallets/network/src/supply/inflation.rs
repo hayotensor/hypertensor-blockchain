@@ -13,99 +13,104 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Enables accounts to delegate stake to subnets for a portion of emissions
+// Defines the deterministic annual emissions schedule and foundation/subnet split.
 
 use super::*;
-use sp_runtime::traits::Saturating;
 
 pub struct Inflation {
-    /// Initial maximum inflation percentage, from time=0
-    pub initial_max: f64,
-
-    /// Initial minimum inflation percentage, from time=0
-    pub initial_min: f64,
-
-    /// Percentage of total inflation allocated to the foundation
-    pub foundation: f64,
-    /// Duration of foundation pool inflation, in years
-    pub foundation_term: f64,
+    /// Annual emissions at network launch, in atomic token units.
+    pub initial_annual_emissions: u128,
+    /// Minimum annual emissions after decay, in atomic token units.
+    pub terminal_annual_emissions: u128,
 }
 
-const DEFAULT_INITIAL_MAX: f64 = 100000000000000000000000.0; // 100,000 (initially 10% @ 10,000,000 units)
-const DEFAULT_INITIAL_MIN: f64 = 75000000000000000000000.0; // 75,000 (initially 7.5% @ 10,000,000 units)
-const DEFAULT_FOUNDATION: f64 = 0.2;
-const DEFAULT_FOUNDATION_TERM: f64 = 7.0;
+const TOKEN: u128 = 1_000_000_000_000_000_000;
+const DEFAULT_INITIAL_ANNUAL_EMISSIONS: u128 = 100_000 * TOKEN;
+const DEFAULT_TERMINAL_ANNUAL_EMISSIONS: u128 = 75_000 * TOKEN;
+
+/// Retain 90% of the previous year's emissions (a 10% annual decay).
+const ANNUAL_RETENTION_NUMERATOR: u128 = 90;
+const ANNUAL_RETENTION_DENOMINATOR: u128 = 100;
+
+/// Reserve 5% of the annual emissions budget for the foundation.
+const FOUNDATION_NUMERATOR: u128 = 5;
+const EMISSIONS_SPLIT_DENOMINATOR: u128 = 100;
 
 impl Default for Inflation {
     fn default() -> Self {
         Self {
-            initial_max: DEFAULT_INITIAL_MAX,
-            initial_min: DEFAULT_INITIAL_MIN,
-            foundation: DEFAULT_FOUNDATION,
-            foundation_term: DEFAULT_FOUNDATION_TERM,
+            initial_annual_emissions: DEFAULT_INITIAL_ANNUAL_EMISSIONS,
+            terminal_annual_emissions: DEFAULT_TERMINAL_ANNUAL_EMISSIONS,
         }
     }
 }
 
 impl Inflation {
-    /// Get the yearly inflation rate
-    ///
-    /// * called by get_epoch_emissions()
-    ///
-    /// # Uses
-    /// `initial_max`: Max interest rate
-    /// `initial_min`: Min interest rate
-    ///
-    /// *x: Node utilization ratio
-    /// *mid: Sigmoid midpoint
-    /// *f: Sigmoid steepness
-    /// *sigmoid_fn: Sigmoid function
-    pub fn inflation<F>(&self, x: f64, mid: f64, k: f64, sigmoid_fn: F) -> f64
-    where
-        F: Fn(f64, f64, f64) -> f64,
-    {
-        let max = self.initial_max;
-        let min = self.initial_min;
+    /// Multiply `value` by a proper fraction without overflowing `u128`.
+    fn mul_ratio(value: u128, numerator: u128, denominator: u128) -> u128 {
+        debug_assert!(denominator > 0);
+        debug_assert!(numerator <= denominator);
 
-        min + (max - min) * sigmoid_fn(x, mid, k)
+        let whole = value / denominator;
+        let remainder = value % denominator;
+
+        whole
+            .saturating_mul(numerator)
+            .saturating_add(remainder.saturating_mul(numerator) / denominator)
+    }
+
+    /// Return the annual emissions budget after `elapsed_years` of geometric decay.
+    pub fn inflation(&self, elapsed_years: u32) -> u128 {
+        let terminal = self.terminal_annual_emissions;
+        let mut emissions = self.initial_annual_emissions.max(terminal);
+        let mut remaining_years = elapsed_years;
+
+        // The loop terminates as soon as the terminal floor is reached. With the default
+        // parameters this requires at most three iterations, regardless of chain age.
+        while remaining_years > 0 && emissions > terminal {
+            emissions = Self::mul_ratio(
+                emissions,
+                ANNUAL_RETENTION_NUMERATOR,
+                ANNUAL_RETENTION_DENOMINATOR,
+            )
+            .max(terminal);
+            remaining_years = remaining_years.saturating_sub(1);
+        }
+
+        emissions
     }
 }
 
 impl<T: Config> Pallet<T> {
-    pub fn get_inflation(node_utilization: f64) -> f64 {
-        let mid = Self::get_percent_as_f64(InflationSigmoidMidpoint::<T>::get());
-        let k = InflationSigmoidSteepness::<T>::get() as f64;
+    /// Return the annual emissions budget applicable to `epoch`.
+    pub fn get_inflation(epoch: u32) -> u128 {
+        let epochs_per_year = T::EpochsPerYear::get();
+        if epochs_per_year == 0 {
+            return 0;
+        }
 
-        let inflation = Inflation::default();
-
-        inflation.inflation(node_utilization, mid, k, Self::sigmoid_decreasing_v2)
+        let elapsed_years = epoch / epochs_per_year;
+        Inflation::default().inflation(elapsed_years)
     }
 
-    fn get_subnet_node_utilization() -> f64 {
-        let max_subnets: u32 = MaxSubnets::<T>::get();
-        let max_nodes: u32 = max_subnets.saturating_mul(MaxSubnetNodes::<T>::get());
-        let total_active_nodes: u32 = TotalActiveNodes::<T>::get();
+    /// Return `(subnet_emissions, foundation_emissions)` for `epoch`.
+    pub fn get_epoch_emissions(epoch: u32) -> (u128, u128) {
+        let epochs_per_year = T::EpochsPerYear::get() as u128;
+        if epochs_per_year == 0 {
+            return (0, 0);
+        }
 
-        (total_active_nodes as f64 / max_nodes as f64).clamp(0.0, 1.0)
-    }
-
-    pub fn get_epoch_emissions() -> (u128, u128) {
-        let node_utilization = Self::get_subnet_node_utilization().min(1.0);
-        let emissions = Self::get_inflation(node_utilization);
-
-        let (validator_emissions, foundation_emissions) = {
-            let inflation = Inflation::default();
-            (
-                emissions - emissions * inflation.foundation,
-                emissions * inflation.foundation,
-            )
-        };
-
-        let epochs_per_year: f64 = T::EpochsPerYear::get() as f64;
+        let annual_emissions = Self::get_inflation(epoch);
+        let annual_foundation_emissions = Inflation::mul_ratio(
+            annual_emissions,
+            FOUNDATION_NUMERATOR,
+            EMISSIONS_SPLIT_DENOMINATOR,
+        );
+        let annual_subnet_emissions = annual_emissions.saturating_sub(annual_foundation_emissions);
 
         (
-            (validator_emissions / epochs_per_year) as u128,
-            (foundation_emissions / epochs_per_year) as u128,
+            annual_subnet_emissions / epochs_per_year,
+            annual_foundation_emissions / epochs_per_year,
         )
     }
 }

@@ -28,23 +28,22 @@ use crate::{
     PendingSubnetNodeMinWeightDecreaseReputationThreshold, PendingSubnetNodeQueueEpochs,
     PendingSubnetOwner, PrevSubnetActivationEpoch, QueueImmunityEpochs, RegisteredSubnetNodesData,
     RegistrationCostDecayBlocks, RegistrationSubnetData, RequireSubnetRegistrationWhitelist,
-    RewardsCapacitor, SlotAssignment, SubnetBootnodeAccess, SubnetBootnodes,
-    SubnetConsensusAttestorWeights, SubnetConsensusSubmission, SubnetData,
-    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetEnactmentEpochs,
-    SubnetIdFriendlyUid, SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNetFlow,
-    SubnetNetFlowSmoothedWeight, SubnetNode, SubnetNodeClass, SubnetNodeClassification,
-    SubnetNodeConsecutiveIncludedEpochs, SubnetNodeElectionSlots, SubnetNodeIdHotkey,
-    SubnetNodeIdleConsecutiveEpochs, SubnetNodeMinWeightDecreaseReputationThreshold,
-    SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId,
-    SubnetNodesData, SubnetOwner, SubnetPauseData, SubnetRegistrationEpoch,
-    SubnetRegistrationEpochs, SubnetRegistrationWhitelist, SubnetRemovalReason, SubnetRepo,
-    SubnetReputation, SubnetReputationFactorSchedule, SubnetReputationFactorSchedules, SubnetSlot,
-    SubnetState, SubnetsData, TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets,
-    TotalDelegateStake, TotalElectableNodes, TotalNodes, TotalSubnetDelegateStakeBalance,
-    TotalSubnetDelegateStakeShares, TotalSubnetElectableNodes, TotalSubnetNodeUids,
-    TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalSubnets, TotalValidatorIds,
-    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorNodeDelegateStakeWeights,
-    ValidatorReputation, ValidatorSubnetNodes,
+    SlotAssignment, SubnetBootnodeAccess, SubnetBootnodes, SubnetConsensusAttestorWeights,
+    SubnetConsensusSubmission, SubnetData, SubnetDelegateStakeRewardsPercentage,
+    SubnetElectedValidator, SubnetEnactmentEpochs, SubnetIdFriendlyUid, SubnetMaxStakeBalance,
+    SubnetMinStakeBalance, SubnetName, SubnetNetFlow, SubnetNetFlowSmoothedWeight, SubnetNode,
+    SubnetNodeClass, SubnetNodeClassification, SubnetNodeConsecutiveIncludedEpochs,
+    SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeIdleConsecutiveEpochs,
+    SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeQueue, SubnetNodeQueueEpochs,
+    SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseData,
+    SubnetRegistrationEpoch, SubnetRegistrationEpochs, SubnetRegistrationWhitelist,
+    SubnetRemovalReason, SubnetRepo, SubnetReputation, SubnetReputationFactorSchedule,
+    SubnetReputationFactorSchedules, SubnetSlot, SubnetState, SubnetsData, TotalActiveNodes,
+    TotalActiveSubnetNodes, TotalActiveSubnets, TotalDelegateStake, TotalElectableNodes,
+    TotalNodes, TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeShares,
+    TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
+    TotalSubnetUids, TotalSubnets, TotalValidatorIds, UniqueParamSubnetNodeId, ValidatorColdkey,
+    ValidatorNodeDelegateStakeWeights, ValidatorReputation, ValidatorSubnetNodes,
 };
 use codec::{Decode, Encode};
 use frame_support::traits::{Currency, ExistenceRequirement, Get};
@@ -487,7 +486,6 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
         );
         SubnetNetFlow::<Test>::insert(subnet_id, -22);
         SubnetNetFlowSmoothedWeight::<Test>::insert(subnet_id, 23);
-        RewardsCapacitor::<Test>::insert(subnet_id, 24);
         EmergencySubnetNodeElectionData::<Test>::insert(
             subnet_id,
             EmergencySubnetValidatorData {
@@ -635,7 +633,6 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
         assert!(!SubnetNetFlowSmoothedWeight::<Test>::contains_key(
             subnet_id
         ));
-        assert!(!RewardsCapacitor::<Test>::contains_key(subnet_id));
         assert!(!EmergencySubnetNodeElectionData::<Test>::contains_key(
             subnet_id
         ));
@@ -711,7 +708,10 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
             subnet_id,
             queued_node_id
         ));
-        assert!(!SubnetElectedValidator::<Test>::contains_key(subnet_id, 1));
+        // Historical election data is deliberately retained: clearing every past epoch during
+        // `on_initialize` would be unbounded, and the record remains useful for auditing settled
+        // consensus after the subnet's live state is removed.
+        assert!(SubnetElectedValidator::<Test>::contains_key(subnet_id, 1));
         assert!(!NodeSlotIndex::<Test>::contains_key(
             subnet_id,
             active_node_id

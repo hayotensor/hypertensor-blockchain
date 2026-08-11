@@ -207,25 +207,11 @@ impl<T: Config> Pallet<T> {
             weight_meter.consume(db_weight.reads_writes(2, 1));
         }
 
-        // --- Check if we should hold off rewards and increase the capacitor vault
-        // If weight_sum is 0, and in consensus, this means the subnet agrees to hold off rewards
-        // for now, so we increase the rewards capacitor
+        // An accepted zero-score round has no rewardable subnet contribution. The validator's
+        // base reward was handled above, but owner, delegate, and node rewards are forfeited.
         if consensus_submission_data.weight_sum == 0 {
-            // We increase the rewards capacitor
-            RewardsCapacitor::<T>::mutate(subnet_id, |total| {
-                *total = total.saturating_add(rewards_data.overall_subnet_reward)
-            });
-            weight_meter.consume(db_weight.reads_writes(1, 1));
-
-            // Return before any rewards are distributed
-            // The only node that gets rewards when weight_sum is 0 is the validator
-            // But we already handled the validator reward above
             return;
         }
-
-        // If we proceed to distribute rewards, reset the capacitor to 0
-        RewardsCapacitor::<T>::insert(subnet_id, 0);
-        weight_meter.consume(db_weight.writes(1));
 
         // --- Reward owner
         Self::handle_subnet_owner_reward(weight_meter, subnet_id, rewards_data.subnet_owner_reward);
