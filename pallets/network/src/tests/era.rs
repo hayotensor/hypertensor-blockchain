@@ -7,9 +7,8 @@ use crate::{
     OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock, PendingOverwatchSettlement,
     PendingOverwatchSettlementData, SubnetElectedValidator, SubnetNodeElectionSlots,
     SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeValidatorId,
-    SubnetReputationFactorSchedules, SubnetReputationFactors, SubnetSlot,
-    SuperMajorityAttestationRatio, ValidatorReputation, ValidatorReputationDecreaseFactor,
-    ValidatorReputationIncreaseFactor,
+    SubnetReputationFactorSchedules, SubnetReputationFactors, SubnetSlot, ValidatorReputation,
+    ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor,
 };
 use frame_support::{assert_ok, traits::OnInitialize};
 
@@ -144,7 +143,7 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
         let validator_id = 20;
         let subnet_epoch = 3;
         let elected_slash_percentage = Network::percent_div(1, 100);
-        let elected_supermajority = Network::percent_div(7, 8);
+        let elected_supermajority = <Test as crate::Config>::SuperMajorityAttestationRatio::get();
         let elected_reputation_factors = SubnetReputationFactors {
             absent_decrease: Network::percent_div(1, 100),
             included_increase: Network::percent_div(2, 100),
@@ -163,7 +162,6 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
         SubnetNodeElectionSlots::<Test>::insert(subnet_id, vec![subnet_node_id]);
         SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
         BaseSlashPercentage::<Test>::put(elected_slash_percentage);
-        SuperMajorityAttestationRatio::<Test>::put(elected_supermajority);
         SubnetReputationFactorSchedules::<Test>::mutate(subnet_id, |schedule| {
             schedule.current = elected_reputation_factors;
         });
@@ -178,7 +176,6 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
 
         Network::elect_validator(subnet_id, subnet_epoch, 0);
         BaseSlashPercentage::<Test>::put(Network::percent_div(9, 100));
-        SuperMajorityAttestationRatio::<Test>::put(Network::percent_div(9, 10));
         SubnetReputationFactorSchedules::<Test>::mutate(subnet_id, |schedule| {
             schedule.current = SubnetReputationFactors {
                 absent_decrease: Network::percent_div(21, 100),

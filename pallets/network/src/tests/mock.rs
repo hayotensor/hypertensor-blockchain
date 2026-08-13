@@ -126,7 +126,7 @@ impl pallet_balances::Config for Test {
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {
     type BaseCallFilter = Everything;
-    type BlockWeights = ();
+    type BlockWeights = BlockWeights;
     type BlockLength = ();
     type Block = Block;
     type DbWeight = ();
@@ -210,9 +210,19 @@ parameter_types! {
     pub const OverwatchEpochEmissions: u128 = OVERWATCH_EPOCH_EMISSIONS;
     pub MaximumHooksWeight: Weight = Perbill::from_percent(50) *
         BlockWeights::get().max_block;
+    pub const NetworkMinAttestationPercentage: u128 = 666_666_666_666_666_666;
+    pub const NetworkSuperMajorityAttestationRatio: u128 = 875_000_000_000_000_000;
+    pub const NetworkInitialSubnetUid: u32 = 128_000;
     pub const NetworkMaxSubnetNodesUpperBound: u32 = 512;
     pub const NetworkMaxValidatorNodesUpperBound: u32 = 512;
     pub const NetworkMaxOverwatchNodesUpperBound: u32 = 64;
+    pub const NetworkMaxBootnodesUpperBound: u32 = 256;
+    pub const NetworkMaxSubnetBootnodeAccessUpperBound: u32 = 256;
+    pub const NetworkMaxChurnLimitUpperBound: u32 = 64;
+    pub const NetworkMaxRegisteredNodesUpperBound: u32 = 64;
+    pub const NetworkMaxUnbondingsUpperBound: u32 = 256;
+    pub const NetworkMaxSwapCallsPerBlockUpperBound: u32 = 1_000;
+    pub const NetworkMaxEmergencySubnetNodesUpperBound: u32 = 64;
     pub const DesignatedEpochSlots: u32 = 3;
     pub const NetworkMaxVectorLength: u32 = 1024;
     pub const NetworkMaxUrlLength: u32 = 1024;
@@ -237,9 +247,19 @@ impl Config for Test {
     type TreasuryAccount = TreasuryAccount;
     type OverwatchEpochEmissions = OverwatchEpochEmissions;
     type MaximumHooksWeight = MaximumHooksWeight;
+    type MinAttestationPercentage = NetworkMinAttestationPercentage;
+    type SuperMajorityAttestationRatio = NetworkSuperMajorityAttestationRatio;
+    type InitialSubnetUid = NetworkInitialSubnetUid;
     type MaxSubnetNodesUpperBound = NetworkMaxSubnetNodesUpperBound;
     type MaxValidatorNodesUpperBound = NetworkMaxValidatorNodesUpperBound;
     type MaxOverwatchNodesUpperBound = NetworkMaxOverwatchNodesUpperBound;
+    type MaxBootnodesUpperBound = NetworkMaxBootnodesUpperBound;
+    type MaxSubnetBootnodeAccessUpperBound = NetworkMaxSubnetBootnodeAccessUpperBound;
+    type MaxChurnLimitUpperBound = NetworkMaxChurnLimitUpperBound;
+    type MaxRegisteredNodesUpperBound = NetworkMaxRegisteredNodesUpperBound;
+    type MaxUnbondingsUpperBound = NetworkMaxUnbondingsUpperBound;
+    type MaxSwapCallsPerBlockUpperBound = NetworkMaxSwapCallsPerBlockUpperBound;
+    type MaxEmergencySubnetNodesUpperBound = NetworkMaxEmergencySubnetNodesUpperBound;
     type DesignatedEpochSlots = DesignatedEpochSlots;
     type MaxVectorLength = NetworkMaxVectorLength;
     type MaxUrlLength = NetworkMaxUrlLength;

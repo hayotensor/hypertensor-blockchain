@@ -59,8 +59,6 @@ const DEFAULT_DELEGATE_STAKE_TO_BE_ADDED: u128 = 100e+18 as u128;
 const DEFAULT_DEPOSIT_AMOUNT: u128 = 1000e+18 as u128;
 const DEFAULT_VALIDATOR_REWARD_RATE: u128 = 50_000_000_000_000_000; // 5%
 const ALICE_EXPECTED_BALANCE: u128 = 1000000000000000000000000; // 1,000,000
-const STARTING_SUBNET_ID: u32 = 128000;
-
 pub type BalanceOf<T> = <T as Config>::Currency;
 type TreasuryPallet<T> = pallet_treasury::Pallet<T, ()>;
 
@@ -92,8 +90,8 @@ fn next_subnet_id<T: Config>() -> u32 {
         .expect("benchmark subnet identifier space must not be exhausted")
 }
 
-fn subnet_id_key_offset(subnet_id: u32) -> u32 {
-    subnet_id.saturating_sub(STARTING_SUBNET_ID)
+fn subnet_id_key_offset<T: Config>(subnet_id: u32) -> u32 {
+    subnet_id.saturating_sub(T::InitialSubnetUid::get())
 }
 
 fn subnet_owner<T: Config>(subnet_id: u32) -> T::AccountId {
@@ -370,7 +368,7 @@ fn build_activated_subnet<T: Config>(
     let epoch = block_number.saturating_div(epoch_length);
 
     let min_nodes = MinSubnetNodes::<T>::get();
-    let subnets = subnet_id_key_offset(next_subnet_id::<T>());
+    let subnets = subnet_id_key_offset::<T>(next_subnet_id::<T>());
     let max_subnets = MaxSubnets::<T>::get();
     let max_subnet_nodes = MaxSubnetNodes::<T>::get();
 
@@ -535,7 +533,7 @@ fn build_registered_subnet<T: Config>(
     let epoch = block_number.saturating_div(epoch_length);
 
     let min_nodes = MinSubnetNodes::<T>::get();
-    let subnets = subnet_id_key_offset(next_subnet_id::<T>());
+    let subnets = subnet_id_key_offset::<T>(next_subnet_id::<T>());
     let max_subnets = MaxSubnets::<T>::get();
     let max_subnet_nodes = MaxSubnetNodes::<T>::get();
 
@@ -1571,7 +1569,7 @@ mod benchmarks {
 
         let min_nodes = MinSubnetNodes::<T>::get();
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
-        let subnets = subnet_id_key_offset(next_subnet_id::<T>());
+        let subnets = subnet_id_key_offset::<T>(next_subnet_id::<T>());
         let register_subnet_data = default_registration_subnet_data::<T>(
             subnets,
             max_subnet_nodes,
@@ -1605,7 +1603,7 @@ mod benchmarks {
         let end = 12;
         let alice = get_alice::<T>();
         let min_nodes = MinSubnetNodes::<T>::get();
-        let subnets = subnet_id_key_offset(next_subnet_id::<T>());
+        let subnets = subnet_id_key_offset::<T>(next_subnet_id::<T>());
         let max_subnets = MaxSubnets::<T>::get();
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
 
@@ -2165,7 +2163,7 @@ mod benchmarks {
         let min_nodes = MinSubnetNodes::<T>::get();
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let max_subnets = MaxSubnets::<T>::get();
-        let subnets = subnet_id_key_offset(next_subnet_id::<T>());
+        let subnets = subnet_id_key_offset::<T>(next_subnet_id::<T>());
         let mut register_subnet_data = default_registration_subnet_data::<T>(
             subnets,
             max_subnet_nodes,
@@ -2229,7 +2227,7 @@ mod benchmarks {
         let min_nodes = MinSubnetNodes::<T>::get();
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let max_subnets = MaxSubnets::<T>::get();
-        let subnets = subnet_id_key_offset(next_subnet_id::<T>());
+        let subnets = subnet_id_key_offset::<T>(next_subnet_id::<T>());
         let mut register_subnet_data = default_registration_subnet_data::<T>(
             subnets,
             max_subnet_nodes,
@@ -5055,34 +5053,6 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_min_attestation_percentage() {
-        let value = MinAttestationPercentage::<T>::get();
-        let new_value = value - 1;
-
-        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
-            .expect("try_successful_origin failed");
-
-        #[extrinsic_call]
-        set_min_attestation_percentage(origin as T::RuntimeOrigin, new_value);
-
-        assert_eq!(MinAttestationPercentage::<T>::get(), new_value);
-    }
-
-    #[benchmark]
-    fn set_super_majority_attestation_ratio() {
-        let value = SuperMajorityAttestationRatio::<T>::get();
-        let new_value = value - 1;
-
-        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
-            .expect("try_successful_origin failed");
-
-        #[extrinsic_call]
-        set_super_majority_attestation_ratio(origin as T::RuntimeOrigin, new_value);
-
-        assert_eq!(SuperMajorityAttestationRatio::<T>::get(), new_value);
-    }
-
-    #[benchmark]
     fn set_base_validator_reward() {
         let value = BaseValidatorReward::<T>::get();
         let new_value = value - 1;
@@ -5745,21 +5715,6 @@ mod benchmarks {
         set_max_unbondings(origin as T::RuntimeOrigin, new_value);
 
         assert_eq!(MaxUnbondings::<T>::get(), new_value);
-    }
-
-    #[benchmark]
-    fn set_maximum_hooks_weight() {
-        let new_value = 10;
-        let expected_value =
-            sp_runtime::Perbill::from_percent(new_value) * T::BlockWeights::get().max_block;
-
-        let origin = T::MajorityCollectiveOrigin::try_successful_origin()
-            .expect("try_successful_origin failed");
-
-        #[extrinsic_call]
-        set_maximum_hooks_weight(origin as T::RuntimeOrigin, new_value);
-
-        assert_eq!(MaximumHooksWeightV2::<T>::get(), expected_value);
     }
 
     #[benchmark]
@@ -6575,7 +6530,7 @@ mod benchmarks {
     //             subnet_id,
     //             subnet_node_id,
     //             1, // attestation percentage
-    //             MinAttestationPercentage::<T>::get(),
+    //             T::MinAttestationPercentage::get(),
     //             ValidatorReputationDecreaseFactor::<T>::get(),
     //             0,
     //             Network::<T>::get_current_epoch_as_u32(),

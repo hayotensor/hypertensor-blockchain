@@ -2,9 +2,9 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     ActiveOverwatchEpochLengthMultiplier, CurrentOverwatchEpoch, FinalSubnetEmissionWeights,
-    LastFinalizedOverwatchEpoch, MaxOverwatchNodes, MaxSubnets, MinAttestationPercentage,
-    MinSubnetNodes, MinSubnetReputation, NewRegistrationCostMultiplier, NodeSubnetStake,
-    OverwatchCommit, OverwatchCommits, OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock,
+    LastFinalizedOverwatchEpoch, MaxOverwatchNodes, MaxSubnets, MinSubnetNodes,
+    MinSubnetReputation, NewRegistrationCostMultiplier, NodeSubnetStake, OverwatchCommit,
+    OverwatchCommits, OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock,
     OverwatchNodeStakeBalance, OverwatchReveal, OverwatchReveals, OverwatchSubnetWeights,
     OverwatchValidatorWhitelist, SlotAssignment, SubnetConsensusSubmission, SubnetElectedValidator,
     SubnetName, SubnetOwner, SubnetPauseData, SubnetReputation, SubnetState, SubnetsData,
@@ -232,7 +232,7 @@ fn test_on_initialize() {
                     return None;
                 };
                 if consensus_submission_data.attestation_ratio
-                    < MinAttestationPercentage::<Test>::get()
+                    < <Test as crate::Config>::MinAttestationPercentage::get()
                 {
                     return None;
                 }

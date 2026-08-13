@@ -141,8 +141,6 @@ pub trait WeightInfo {
 	fn set_min_max_registered_nodes() -> Weight;
 	fn set_max_subnet_delegate_stake_rewards_percentage_change() -> Weight;
 	fn set_subnet_delegate_stake_rewards_update_period() -> Weight;
-	fn set_min_attestation_percentage() -> Weight;
-	fn set_super_majority_attestation_ratio() -> Weight;
 	fn set_base_validator_reward() -> Weight;
 	fn set_base_slash_percentage() -> Weight;
 	fn set_max_slash_amount() -> Weight;
@@ -183,7 +181,6 @@ pub trait WeightInfo {
 	fn set_node_delegate_stake_cooldown_epochs() -> Weight;
 	fn set_min_stake_cooldown_epochs() -> Weight;
 	fn set_max_unbondings() -> Weight;
-	fn set_maximum_hooks_weight() -> Weight;
 	fn set_base_node_burn_amount() -> Weight;
 	fn set_node_burn_rates() -> Weight;
 	fn set_max_subnet_node_min_weight_decrease_reputation_threshold() -> Weight;
@@ -3616,48 +3613,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
-	/// Storage: `Network::ValidatorDelegateStakeSlashThreshold` (r:1 w:0)
-	/// Proof: `Network::ValidatorDelegateStakeSlashThreshold` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::MinAttestationPercentage` (r:0 w:1)
-	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn set_min_attestation_percentage() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `100`
-		//  Estimated: `1585`
-		// Minimum execution time: 14_574_000 picoseconds.
-		Weight::from_parts(14_863_000, 1585)
-			.saturating_add(T::DbWeight::get().reads(5_u64))
-			.saturating_add(T::DbWeight::get().writes(3_u64))
-	}
-	/// Storage: `Network::MinAttestationPercentage` (r:1 w:0)
-	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SuperMajorityAttestationRatio` (r:0 w:1)
-	/// Proof: `Network::SuperMajorityAttestationRatio` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn set_super_majority_attestation_ratio() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `100`
-		//  Estimated: `1585`
-		// Minimum execution time: 14_700_000 picoseconds.
-		Weight::from_parts(15_450_000, 1585)
-			.saturating_add(T::DbWeight::get().reads(5_u64))
-			.saturating_add(T::DbWeight::get().writes(3_u64))
-	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -3715,8 +3670,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
 	}
-	/// Storage: `Network::MinAttestationPercentage` (r:1 w:0)
-	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -3737,7 +3690,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `1585`
 		// Minimum execution time: 29_170_000 picoseconds.
 		Weight::from_parts(30_286_000, 1585)
-			.saturating_add(T::DbWeight::get().reads(5_u64))
+			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(T::DbWeight::get().writes(5_u64))
 	}
 	/// Storage: `System::Number` (r:1 w:0)
@@ -4482,25 +4435,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::MaximumHooksWeightV2` (r:0 w:1)
-	/// Proof: `Network::MaximumHooksWeightV2` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn set_maximum_hooks_weight() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `24`
-		//  Estimated: `1509`
-		// Minimum execution time: 15_286_000 picoseconds.
-		Weight::from_parts(15_769_000, 1509)
-			.saturating_add(T::DbWeight::get().reads(4_u64))
-			.saturating_add(T::DbWeight::get().writes(3_u64))
-	}
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BaseNodeBurnAmount` (r:0 w:1)
 	/// Proof: `Network::BaseNodeBurnAmount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_base_node_burn_amount() -> Weight {
@@ -4995,10 +4929,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `InsecureRandomnessCollectiveFlip::RandomMaterial` (r:1 w:0)
 	/// Proof: `InsecureRandomnessCollectiveFlip::RandomMaterial` (`max_values`: Some(1), `max_size`: Some(2594), added: 3089, mode: `MaxEncodedLen`)
-	/// Storage: `Network::MinAttestationPercentage` (r:1 w:0)
-	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SuperMajorityAttestationRatio` (r:1 w:0)
-	/// Proof: `Network::SuperMajorityAttestationRatio` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BaseValidatorReward` (r:1 w:0)
 	/// Proof: `Network::BaseValidatorReward` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetOwnerPercentage` (r:1 w:0)
@@ -5084,7 +5014,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(299_044_601, 6106)
 			// Standard Error: 173_979
 			.saturating_add(Weight::from_parts(2_735_529, 0).saturating_mul(x.into()))
-			.saturating_add(T::DbWeight::get().reads(46_u64))
+			.saturating_add(T::DbWeight::get().reads(44_u64))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(x.into())))
 			.saturating_add(T::DbWeight::get().writes(3_u64))
 			.saturating_add(Weight::from_parts(0, 2492).saturating_mul(x.into()))
@@ -5972,10 +5902,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::ParentHash` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
 	/// Storage: `InsecureRandomnessCollectiveFlip::RandomMaterial` (r:1 w:0)
 	/// Proof: `InsecureRandomnessCollectiveFlip::RandomMaterial` (`max_values`: Some(1), `max_size`: Some(2594), added: 3089, mode: `MaxEncodedLen`)
-	/// Storage: `Network::MinAttestationPercentage` (r:1 w:0)
-	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SuperMajorityAttestationRatio` (r:1 w:0)
-	/// Proof: `Network::SuperMajorityAttestationRatio` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BaseValidatorReward` (r:1 w:0)
 	/// Proof: `Network::BaseValidatorReward` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetOwnerPercentage` (r:1 w:0)
@@ -6083,7 +6009,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(295_325_000, 10826)
 			// Standard Error: 545_306
 			.saturating_add(Weight::from_parts(24_622_945, 0).saturating_mul(n.into()))
-			.saturating_add(T::DbWeight::get().reads(78_u64))
+			.saturating_add(T::DbWeight::get().reads(76_u64))
 			.saturating_add(T::DbWeight::get().reads((5_u64).saturating_mul(n.into())))
 			.saturating_add(T::DbWeight::get().writes(13_u64))
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(n.into())))
@@ -9533,48 +9459,6 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
 	}
-	/// Storage: `Network::ValidatorDelegateStakeSlashThreshold` (r:1 w:0)
-	/// Proof: `Network::ValidatorDelegateStakeSlashThreshold` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::MinAttestationPercentage` (r:0 w:1)
-	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn set_min_attestation_percentage() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `100`
-		//  Estimated: `1585`
-		// Minimum execution time: 14_574_000 picoseconds.
-		Weight::from_parts(14_863_000, 1585)
-			.saturating_add(RocksDbWeight::get().reads(5_u64))
-			.saturating_add(RocksDbWeight::get().writes(3_u64))
-	}
-	/// Storage: `Network::MinAttestationPercentage` (r:1 w:0)
-	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SuperMajorityAttestationRatio` (r:0 w:1)
-	/// Proof: `Network::SuperMajorityAttestationRatio` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn set_super_majority_attestation_ratio() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `100`
-		//  Estimated: `1585`
-		// Minimum execution time: 14_700_000 picoseconds.
-		Weight::from_parts(15_450_000, 1585)
-			.saturating_add(RocksDbWeight::get().reads(5_u64))
-			.saturating_add(RocksDbWeight::get().writes(3_u64))
-	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -9632,8 +9516,6 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
 	}
-	/// Storage: `Network::MinAttestationPercentage` (r:1 w:0)
-	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -9654,7 +9536,7 @@ impl WeightInfo for () {
 		//  Estimated: `1585`
 		// Minimum execution time: 29_170_000 picoseconds.
 		Weight::from_parts(30_286_000, 1585)
-			.saturating_add(RocksDbWeight::get().reads(5_u64))
+			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(RocksDbWeight::get().writes(5_u64))
 	}
 	/// Storage: `System::Number` (r:1 w:0)
@@ -10399,25 +10281,6 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::MaximumHooksWeightV2` (r:0 w:1)
-	/// Proof: `Network::MaximumHooksWeightV2` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn set_maximum_hooks_weight() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `24`
-		//  Estimated: `1509`
-		// Minimum execution time: 15_286_000 picoseconds.
-		Weight::from_parts(15_769_000, 1509)
-			.saturating_add(RocksDbWeight::get().reads(4_u64))
-			.saturating_add(RocksDbWeight::get().writes(3_u64))
-	}
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BaseNodeBurnAmount` (r:0 w:1)
 	/// Proof: `Network::BaseNodeBurnAmount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_base_node_burn_amount() -> Weight {
@@ -10912,10 +10775,6 @@ impl WeightInfo for () {
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `InsecureRandomnessCollectiveFlip::RandomMaterial` (r:1 w:0)
 	/// Proof: `InsecureRandomnessCollectiveFlip::RandomMaterial` (`max_values`: Some(1), `max_size`: Some(2594), added: 3089, mode: `MaxEncodedLen`)
-	/// Storage: `Network::MinAttestationPercentage` (r:1 w:0)
-	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SuperMajorityAttestationRatio` (r:1 w:0)
-	/// Proof: `Network::SuperMajorityAttestationRatio` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BaseValidatorReward` (r:1 w:0)
 	/// Proof: `Network::BaseValidatorReward` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetOwnerPercentage` (r:1 w:0)
@@ -11001,7 +10860,7 @@ impl WeightInfo for () {
 		Weight::from_parts(299_044_601, 6106)
 			// Standard Error: 173_979
 			.saturating_add(Weight::from_parts(2_735_529, 0).saturating_mul(x.into()))
-			.saturating_add(RocksDbWeight::get().reads(46_u64))
+			.saturating_add(RocksDbWeight::get().reads(44_u64))
 			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(x.into())))
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
 			.saturating_add(Weight::from_parts(0, 2492).saturating_mul(x.into()))
@@ -11889,10 +11748,6 @@ impl WeightInfo for () {
 	/// Proof: `System::ParentHash` (`max_values`: Some(1), `max_size`: Some(32), added: 527, mode: `MaxEncodedLen`)
 	/// Storage: `InsecureRandomnessCollectiveFlip::RandomMaterial` (r:1 w:0)
 	/// Proof: `InsecureRandomnessCollectiveFlip::RandomMaterial` (`max_values`: Some(1), `max_size`: Some(2594), added: 3089, mode: `MaxEncodedLen`)
-	/// Storage: `Network::MinAttestationPercentage` (r:1 w:0)
-	/// Proof: `Network::MinAttestationPercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SuperMajorityAttestationRatio` (r:1 w:0)
-	/// Proof: `Network::SuperMajorityAttestationRatio` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BaseValidatorReward` (r:1 w:0)
 	/// Proof: `Network::BaseValidatorReward` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetOwnerPercentage` (r:1 w:0)
@@ -12000,7 +11855,7 @@ impl WeightInfo for () {
 		Weight::from_parts(295_325_000, 10826)
 			// Standard Error: 545_306
 			.saturating_add(Weight::from_parts(24_622_945, 0).saturating_mul(n.into()))
-			.saturating_add(RocksDbWeight::get().reads(78_u64))
+			.saturating_add(RocksDbWeight::get().reads(76_u64))
 			.saturating_add(RocksDbWeight::get().reads((5_u64).saturating_mul(n.into())))
 			.saturating_add(RocksDbWeight::get().writes(13_u64))
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(n.into())))

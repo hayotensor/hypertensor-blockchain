@@ -594,7 +594,7 @@ impl<T: Config> Pallet<T> {
         Self::get_validator_reward_with_policy(
             attestation_percentage,
             reward_factor,
-            MinAttestationPercentage::<T>::get(),
+            T::MinAttestationPercentage::get(),
             BaseValidatorReward::<T>::get(),
         )
     }

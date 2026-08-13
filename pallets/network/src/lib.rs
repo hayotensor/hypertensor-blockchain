@@ -171,6 +171,46 @@ pub mod pallet {
         #[pallet::constant]
         type MaximumHooksWeight: Get<Weight>;
 
+        /// Protocol-level minimum attestation ratio required to form consensus.
+        #[pallet::constant]
+        type MinAttestationPercentage: Get<u128>;
+
+        /// Protocol-level attestation ratio required for super-majority decisions.
+        #[pallet::constant]
+        type SuperMajorityAttestationRatio: Get<u128>;
+
+        /// Initial subnet UID counter; the first allocated subnet receives the next value.
+        #[pallet::constant]
+        type InitialSubnetUid: Get<u32>;
+
+        /// Runtime ceiling for the governance-configurable bootnode count.
+        #[pallet::constant]
+        type MaxBootnodesUpperBound: Get<u32>;
+
+        /// Runtime ceiling for the governance-configurable bootnode access count.
+        #[pallet::constant]
+        type MaxSubnetBootnodeAccessUpperBound: Get<u32>;
+
+        /// Runtime ceiling for the governance-configurable subnet churn limit.
+        #[pallet::constant]
+        type MaxChurnLimitUpperBound: Get<u32>;
+
+        /// Runtime ceiling for the governance-configurable registered-node limit.
+        #[pallet::constant]
+        type MaxRegisteredNodesUpperBound: Get<u32>;
+
+        /// Runtime ceiling for the governance-configurable unbonding-entry limit.
+        #[pallet::constant]
+        type MaxUnbondingsUpperBound: Get<u32>;
+
+        /// Runtime ceiling for governance-configurable swap executions per block.
+        #[pallet::constant]
+        type MaxSwapCallsPerBlockUpperBound: Get<u32>;
+
+        /// Runtime ceiling for the governance-configurable emergency subnet node count.
+        #[pallet::constant]
+        type MaxEmergencySubnetNodesUpperBound: Get<u32>;
+
         /// Runtime ceiling for the governance-configurable maximum active nodes in each subnet.
         #[pallet::constant]
         type MaxSubnetNodesUpperBound: Get<u32>;
@@ -411,8 +451,6 @@ pub mod pallet {
         SetMinMaxRegisteredNodes(u32, u32),
         SetMaxSubnetDelegateStakeRewardsPercentageChange(u128),
         SetSubnetDelegateStakeRewardsUpdatePeriod(u32),
-        SetMinAttestationPercentage(u128),
-        SetSuperMajorityAttestationRatio(u128),
         SetBaseValidatorReward(u128),
         SetBaseSlashPercentage(u128),
         SetMaxSlashAmount(u128),
@@ -436,7 +474,6 @@ pub mod pallet {
         SetConsensusValidatorStakeWeightPowerUpdateInterval(u32),
         SetConsensusValidatorIdentityAttestationPercentage(u128),
         SetValidatorNodeDelegateStakeWeightUpdateInterval(u32),
-        SetMaximumHooksWeight(u32),
         SetBaseNodeBurnAmount(u128),
         SetNodeBurnRates(u128, u128),
         SetDelegateStakeSubnetRemovalInterval(u32),
@@ -934,7 +971,6 @@ pub mod pallet {
         InvalidNonAttestorDecreaseReputationFactor,
         InvalidValidatorRewardK,
         InvalidAttestorRewardExponent,
-        InvalidSuperMajorityAttestationRatio,
         InvalidValidatorDelegateStakeSlashConfig,
         /// Invalid values
         InvalidValues,
@@ -942,8 +978,6 @@ pub mod pallet {
         EmergencyValidatorCooldownActive,
         EmergencyQueueMutationNotAllowed,
         InvalidEmergencyValidatorDuration,
-        /// Invalid percent number, must be in 1e2 format. Used for elements that only require correct format
-        InvalidPerbillPercent,
         InvalidMinNodeBurnRate,
         InvalidMaxNodeBurnRate,
         InvalidDelegateStakeSubnetRemovalInterval,
@@ -2677,25 +2711,11 @@ pub mod pallet {
         0
     }
     /// This type value is referenced in:
-    /// - MinAttestationPercentage
-    #[pallet::type_value]
-    pub fn DefaultMinAttestationPercentage() -> u128 {
-        // Fixed-point representation of 2/3, rounded down.
-        666666666666666666
-    }
-    /// This type value is referenced in:
     /// - ConsensusValidatorIdentityAttestationPercentage
     #[pallet::type_value]
     pub fn DefaultConsensusValidatorIdentityAttestationPercentage() -> u128 {
         // 10%
         100000000000000000
-    }
-    /// This type value is referenced in:
-    /// - SuperMajorityAttestationRatio
-    #[pallet::type_value]
-    pub fn DefaultSuperMajorityAttestationRatio() -> u128 {
-        // 7/8
-        875000000000000000
     }
     #[pallet::type_value]
     pub fn DefaultSubnetOwnerFactorCooldownEpochs() -> u32 {
@@ -3287,12 +3307,6 @@ pub mod pallet {
         16
     }
     /// This type value is referenced in:
-    /// - MaximumHooksWeightV2
-    #[pallet::type_value]
-    pub fn DefaultMaximumHooksWeightV2<T: Config>() -> Weight {
-        T::MaximumHooksWeight::get()
-    }
-    /// This type value is referenced in:
     /// - MaxSubnetNodeMinWeightDecreaseReputationThreshold
     #[pallet::type_value]
     pub fn DefaultMaxSubnetNodeMinWeightDecreaseReputationThreshold() -> u128 {
@@ -3323,11 +3337,6 @@ pub mod pallet {
     pub fn DefaultSubnetNetFlowSmoothingAlpha() -> u128 {
         250000000000000000
     }
-    /// Starting subnet ID
-    #[pallet::type_value]
-    pub fn DefaultTotalSubnetUids() -> u32 {
-        128000
-    }
     #[pallet::type_value]
     pub fn DefaultOverwatchSubnetWeightValue() -> u128 {
         500000000000000000
@@ -3339,7 +3348,8 @@ pub mod pallet {
 
     /// Count of subnets
     #[pallet::storage]
-    pub type TotalSubnetUids<T> = StorageValue<_, u32, ValueQuery, DefaultTotalSubnetUids>;
+    pub type TotalSubnetUids<T: Config> =
+        StorageValue<_, u32, ValueQuery, <T as Config>::InitialSubnetUid>;
 
     #[pallet::storage]
     pub type SubnetNetFlow<T: Config> = StorageMap<_, Identity, u32, i128, ValueQuery>;
@@ -4468,16 +4478,6 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// Minimum attestation ratio to form consensus
-    #[pallet::storage]
-    pub type MinAttestationPercentage<T> =
-        StorageValue<_, u128, ValueQuery, DefaultMinAttestationPercentage>;
-
-    /// Minimum attestation ratio for mechanisms that require super majority
-    #[pallet::storage]
-    pub type SuperMajorityAttestationRatio<T> =
-        StorageValue<_, u128, ValueQuery, DefaultSuperMajorityAttestationRatio>;
-
     /// Epoch -> {total_issuance, (subnet_id, weight)}
     /// Set each epoch
     #[pallet::storage]
@@ -5050,10 +5050,6 @@ pub mod pallet {
     #[pallet::storage]
     pub type MaxSwapQueueCallsPerBlock<T> =
         StorageValue<_, u32, ValueQuery, DefaultMaxSwapQueueCallsPerBlock>;
-
-    #[pallet::storage]
-    pub type MaximumHooksWeightV2<T> =
-        StorageValue<_, Weight, ValueQuery, DefaultMaximumHooksWeightV2<T>>;
 
     impl<T: Config> Pallet<T> {
         pub fn ensure_canonical_validator_coldkey(
@@ -7151,23 +7147,6 @@ pub mod pallet {
             Self::do_set_subnet_delegate_stake_rewards_update_period(value)
         }
 
-        #[pallet::call_index(110)]
-        #[pallet::weight(T::WeightInfo::set_min_attestation_percentage())]
-        pub fn set_min_attestation_percentage(origin: OriginFor<T>, value: u128) -> DispatchResult {
-            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_min_attestation_percentage(value)
-        }
-
-        #[pallet::call_index(111)]
-        #[pallet::weight(T::WeightInfo::set_super_majority_attestation_ratio())]
-        pub fn set_super_majority_attestation_ratio(
-            origin: OriginFor<T>,
-            value: u128,
-        ) -> DispatchResult {
-            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_super_majority_attestation_ratio(value)
-        }
-
         #[pallet::call_index(112)]
         #[pallet::weight(T::WeightInfo::set_base_validator_reward())]
         pub fn set_base_validator_reward(origin: OriginFor<T>, value: u128) -> DispatchResult {
@@ -7410,13 +7389,6 @@ pub mod pallet {
         pub fn set_max_unbondings(origin: OriginFor<T>, value: u32) -> DispatchResult {
             T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
             Self::do_set_max_unbondings(value)
-        }
-
-        #[pallet::call_index(143)]
-        #[pallet::weight(T::WeightInfo::set_maximum_hooks_weight())]
-        pub fn set_maximum_hooks_weight(origin: OriginFor<T>, value: u32) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_maximum_hooks_weight(value)
         }
 
         #[pallet::call_index(144)]
@@ -9426,6 +9398,8 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn integrity_test() {
+            let percentage_factor = DefaultPercentageFactorU128::get();
+
             assert_eq!(
                 T::DesignatedEpochSlots::get(),
                 3,
@@ -9436,8 +9410,70 @@ pub mod pallet {
                 "network epoch must contain at least one subnet slot after slots 0, 1, and 2"
             );
             assert!(
+                T::InitialSubnetUid::get() < u32::MAX,
+                "initial subnet UID counter must leave room for the first allocated subnet"
+            );
+            assert!(
                 DefaultMaxSubnetNodes::get() <= T::MaxSubnetNodesUpperBound::get(),
                 "default max subnet nodes must not exceed the runtime upper bound"
+            );
+            assert!(
+                T::MaximumHooksWeight::get() != Weight::zero()
+                    && T::MaximumHooksWeight::get()
+                        .all_lte(T::BlockWeights::get().max_block),
+                "maximum hooks weight must be non-zero and no greater than the maximum block weight"
+            );
+            assert!(
+                T::MinAttestationPercentage::get() > percentage_factor / 2
+                    && T::MinAttestationPercentage::get() <= percentage_factor,
+                "minimum attestation percentage must be greater than 50% and at most 100%"
+            );
+            assert!(
+                T::SuperMajorityAttestationRatio::get()
+                    >= T::MinAttestationPercentage::get()
+                    && T::SuperMajorityAttestationRatio::get() <= percentage_factor,
+                "super-majority ratio must be at least the minimum attestation percentage and at most 100%"
+            );
+            assert!(
+                DefaultMaxBootnodes::get() <= T::MaxBootnodesUpperBound::get(),
+                "default max bootnodes must not exceed the runtime upper bound"
+            );
+            assert!(
+                DefaultMaxSubnetBootnodeAccess::get()
+                    <= T::MaxSubnetBootnodeAccessUpperBound::get(),
+                "default max subnet bootnode access must not exceed the runtime upper bound"
+            );
+            assert!(
+                DefaultMaxChurnLimit::get() <= T::MaxChurnLimitUpperBound::get(),
+                "default max churn limit must not exceed the runtime upper bound"
+            );
+            assert!(
+                DefaultMaxMaxRegisteredNodes::get() <= T::MaxRegisteredNodesUpperBound::get(),
+                "default max registered nodes must not exceed the runtime upper bound"
+            );
+            assert!(
+                DefaultMaxUnbondings::get() <= T::MaxUnbondingsUpperBound::get(),
+                "default max unbondings must not exceed the runtime upper bound"
+            );
+            assert!(
+                DefaultMaxSwapQueueCallsPerBlock::get() <= T::MaxSwapCallsPerBlockUpperBound::get(),
+                "default max swap calls per block must not exceed the runtime upper bound"
+            );
+            assert!(
+                T::MaxSwapCallsPerBlockUpperBound::get() <= T::MaxSwapQueueLength::get(),
+                "max swap calls per block upper bound must not exceed the swap queue capacity"
+            );
+            assert!(
+                DefaultMaxEmergencySubnetNodes::get()
+                    <= T::MaxEmergencySubnetNodesUpperBound::get(),
+                "default max emergency subnet nodes must not exceed the runtime upper bound"
+            );
+            assert!(
+                T::MaxChurnLimitUpperBound::get() <= T::MaxSubnetNodesUpperBound::get()
+                    && T::MaxRegisteredNodesUpperBound::get() <= T::MaxSubnetNodesUpperBound::get()
+                    && T::MaxEmergencySubnetNodesUpperBound::get()
+                        <= T::MaxSubnetNodesUpperBound::get(),
+                "node-count upper bounds must not exceed the subnet-node upper bound"
             );
         }
 
@@ -9464,10 +9500,10 @@ pub mod pallet {
         fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
             let db_weight = T::DbWeight::get();
 
-            let mut weight_meter = WeightMeter::with_limit(MaximumHooksWeightV2::<T>::get());
+            let mut weight_meter = WeightMeter::with_limit(T::MaximumHooksWeight::get());
 
-            // MaximumHooksWeightV2 and TxPause.
-            weight_meter.consume(db_weight.reads(2));
+            // TxPause.
+            weight_meter.consume(db_weight.reads(1));
 
             if Self::is_paused().is_err() {
                 return weight_meter.consumed();

@@ -18,30 +18,27 @@ use crate::{
     MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
     MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnetPauseEpochs,
     MaxSubnetRemovalInterval, MaxSubnets, MaxSwapQueueCallsPerBlock, MaxUnbondings,
-    MaxValidatorDelegateStakeSlashAmount, MaximumHooksWeightV2, MinActiveNodeStakeEpochs,
-    MinAttestationPercentage, MinChurnLimit, MinChurnLimitMultiplier,
-    MinConsensusValidatorStakeWeightPower, MinDelegateStakeDeposit, MinDelegateStakePercentage,
-    MinIdleClassificationEpochs, MinIncludedClassificationEpochs, MinMaxRegisteredNodes,
-    MinMinSubnetNodeReputation, MinNodeBurnRate, MinNodeReputationFactor, MinQueueEpochs,
-    MinRegistrationCost, MinSubnetDelegateStakeFactor, MinSubnetMinStake, MinSubnetNodes,
-    MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
+    MaxValidatorDelegateStakeSlashAmount, MinActiveNodeStakeEpochs, MinChurnLimit,
+    MinChurnLimitMultiplier, MinConsensusValidatorStakeWeightPower, MinDelegateStakeDeposit,
+    MinDelegateStakePercentage, MinIdleClassificationEpochs, MinIncludedClassificationEpochs,
+    MinMaxRegisteredNodes, MinMinSubnetNodeReputation, MinNodeBurnRate, MinNodeReputationFactor,
+    MinQueueEpochs, MinRegistrationCost, MinSubnetDelegateStakeFactor, MinSubnetMinStake,
+    MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetRemovalInterval, MinSubnetReputation,
     NetworkMaxStakeBalance, NewRegistrationCostMultiplier, NodeDelegateStakeCooldownEpochs,
     NodeRewardRateUpdatePeriod, NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
     OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock, OverwatchMinAge,
     OverwatchMinAvgAttestationRatio, OverwatchMinDiversificationRatio, OverwatchMinRepScore,
     OverwatchMinStakeBalance, OverwatchNodeBlacklist, OverwatchStakeWeightFactor,
     OverwatchTxPauseStartBlock, OverwatchValidatorWhitelist, OverwatchWeightFactor,
-    QueueImmunityEpochs, RegistrationCostAlpha, RegistrationCostDecayBlocks,
-    RequireSubnetRegistrationWhitelist, StakeCooldownEpochs,
-    SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower, SubnetEnactmentEpochs,
-    SubnetName, SubnetNetFlowSmoothingAlpha, SubnetOwnerPercentage, SubnetPauseCooldownEpochs,
-    SubnetRegistrationEpochs, SubnetRegistrationWhitelist, SubnetWeightFactors,
-    SubnetWeightFactorsData, SuperMajorityAttestationRatio, TxRateLimit,
+    RegistrationCostAlpha, RegistrationCostDecayBlocks, RequireSubnetRegistrationWhitelist,
+    StakeCooldownEpochs, SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower,
+    SubnetEnactmentEpochs, SubnetName, SubnetNetFlowSmoothingAlpha, SubnetOwnerPercentage,
+    SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetRegistrationWhitelist,
+    SubnetWeightFactors, SubnetWeightFactorsData, TxRateLimit,
     ValidatorAbsentSubnetReputationFactor, ValidatorDelegateStakeSlashThreshold,
     ValidatorNodeDelegateStakeWeightUpdateInterval, ValidatorReputationDecreaseFactor,
     ValidatorReputationIncreaseFactor, ValidatorRewardK, ValidatorRewardMidpoint,
 };
-use frame_support::traits::Get;
 use frame_support::{assert_err, assert_ok};
 
 //
@@ -57,8 +54,99 @@ fn test_network_bound_config_values() {
         assert_eq!(<Test as crate::Config>::ValidatorArgsLimit::get(), 4096);
         assert_eq!(<Test as crate::Config>::MaxSwapQueueLength::get(), 1000);
         assert_eq!(
+            <Test as crate::Config>::MinAttestationPercentage::get(),
+            test_percent(2, 3)
+        );
+        assert_eq!(
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get(),
+            test_percent(7, 8)
+        );
+        assert_eq!(<Test as crate::Config>::InitialSubnetUid::get(), 128_000);
+        assert_eq!(
+            crate::TotalSubnetUids::<Test>::get(),
+            <Test as crate::Config>::InitialSubnetUid::get()
+        );
+        assert_eq!(
             <Test as crate::Config>::MaxSubnetNodesUpperBound::get(),
             512
+        );
+        assert_eq!(<Test as crate::Config>::MaxBootnodesUpperBound::get(), 256);
+        assert_eq!(
+            <Test as crate::Config>::MaxSubnetBootnodeAccessUpperBound::get(),
+            256
+        );
+        assert_eq!(<Test as crate::Config>::MaxChurnLimitUpperBound::get(), 64);
+        assert_eq!(
+            <Test as crate::Config>::MaxRegisteredNodesUpperBound::get(),
+            64
+        );
+        assert_eq!(<Test as crate::Config>::MaxUnbondingsUpperBound::get(), 256);
+        assert_eq!(
+            <Test as crate::Config>::MaxSwapCallsPerBlockUpperBound::get(),
+            1_000
+        );
+        assert_eq!(
+            <Test as crate::Config>::MaxEmergencySubnetNodesUpperBound::get(),
+            64
+        );
+    });
+}
+
+#[test]
+fn collective_capacity_limits_cannot_exceed_runtime_ceilings() {
+    new_test_ext().execute_with(|| {
+        let origin = || RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5));
+
+        assert_err!(
+            Network::set_max_bootnodes(
+                origin(),
+                <Test as crate::Config>::MaxBootnodesUpperBound::get() + 1,
+            ),
+            Error::<Test>::InvalidMaxBootnodes
+        );
+        assert_err!(
+            Network::set_max_subnet_bootnodes_access(
+                origin(),
+                <Test as crate::Config>::MaxSubnetBootnodeAccessUpperBound::get() + 1,
+            ),
+            Error::<Test>::InvalidMaxSubnetBootnodeAccess
+        );
+        assert_err!(
+            Network::set_churn_limits(
+                origin(),
+                1,
+                <Test as crate::Config>::MaxChurnLimitUpperBound::get() + 1,
+            ),
+            Error::<Test>::InvalidValues
+        );
+        assert_err!(
+            Network::set_min_max_registered_nodes(
+                origin(),
+                1,
+                <Test as crate::Config>::MaxRegisteredNodesUpperBound::get() + 1,
+            ),
+            Error::<Test>::InvalidMaxRegisteredNodes
+        );
+        assert_err!(
+            Network::set_max_unbondings(
+                origin(),
+                <Test as crate::Config>::MaxUnbondingsUpperBound::get() + 1,
+            ),
+            Error::<Test>::InvalidMaxUnbondings
+        );
+        assert_err!(
+            Network::set_max_swap_queue_calls_per_block(
+                origin(),
+                <Test as crate::Config>::MaxSwapCallsPerBlockUpperBound::get() + 1,
+            ),
+            Error::<Test>::InvalidValues
+        );
+        assert_err!(
+            Network::set_max_emergency_subnet_nodes(
+                origin(),
+                <Test as crate::Config>::MaxEmergencySubnetNodesUpperBound::get() + 1,
+            ),
+            Error::<Test>::InvalidMaxEmergencySubnetNodes
         );
     });
 }
@@ -388,26 +476,6 @@ fn test_set_base_validator_reward() {
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SetBaseValidatorReward(new_value)
-        );
-    });
-}
-
-#[test]
-fn test_set_super_majority_attestation_ratio() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let new_value: u128 = test_percent(4, 5); // 80%
-
-        assert_ok!(Network::set_super_majority_attestation_ratio(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-            new_value
-        ));
-
-        assert_eq!(SuperMajorityAttestationRatio::<Test>::get(), new_value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetSuperMajorityAttestationRatio(new_value)
         );
     });
 }
@@ -786,7 +854,7 @@ fn test_set_min_max_registered_nodes() {
         System::set_block_number(System::block_number() + 1);
 
         let min: u32 = 5;
-        let max: u32 = 200;
+        let max: u32 = 50;
 
         assert_ok!(Network::set_min_max_registered_nodes(
             RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
@@ -847,26 +915,6 @@ fn test_set_subnet_delegate_stake_rewards_update_period() {
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SetSubnetDelegateStakeRewardsUpdatePeriod(new_value)
-        );
-    });
-}
-
-#[test]
-fn test_set_min_attestation_percentage() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let new_value: u128 = test_percent(3, 5);
-
-        assert_ok!(Network::set_min_attestation_percentage(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-            new_value
-        ));
-
-        assert_eq!(MinAttestationPercentage::<Test>::get(), new_value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetMinAttestationPercentage(new_value)
         );
     });
 }
@@ -1021,12 +1069,12 @@ fn test_set_validator_delegate_stake_slash_config() {
         let invalid_configs = [
             (0, base_percentage, max_amount),
             (
-                MinAttestationPercentage::<Test>::get(),
+                <Test as crate::Config>::MinAttestationPercentage::get(),
                 base_percentage,
                 max_amount,
             ),
             (
-                MinAttestationPercentage::<Test>::get() + 1,
+                <Test as crate::Config>::MinAttestationPercentage::get() + 1,
                 base_percentage,
                 max_amount,
             ),
@@ -1086,30 +1134,6 @@ fn test_set_validator_delegate_stake_slash_config() {
         );
         assert_eq!(BaseValidatorDelegateStakeSlashPercentage::<Test>::get(), 0);
         assert_eq!(MaxValidatorDelegateStakeSlashAmount::<Test>::get(), 0);
-    });
-}
-
-#[test]
-fn test_min_attestation_must_remain_above_delegate_pool_slash_threshold() {
-    new_test_ext().execute_with(|| {
-        let threshold = test_percent(3, 5);
-        assert_ok!(Network::set_validator_delegate_stake_slash_config(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-            threshold,
-            0,
-            0
-        ));
-
-        for value in [threshold, test_percent(11, 20)] {
-            assert_err!(
-                Network::set_min_attestation_percentage(
-                    RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-                    value
-                ),
-                Error::<Test>::InvalidValidatorDelegateStakeSlashConfig
-            );
-        }
-        assert_eq!(MinAttestationPercentage::<Test>::get(), test_percent(2, 3));
     });
 }
 
@@ -1814,7 +1838,8 @@ fn test_set_max_swap_queue_calls_per_block() {
             Event::SetMaxSwapQueueCallsPerBlock(new_value)
         );
 
-        let too_large = <Test as crate::Config>::MaxSwapQueueLength::get().saturating_add(1);
+        let too_large =
+            <Test as crate::Config>::MaxSwapCallsPerBlockUpperBound::get().saturating_add(1);
         assert_err!(
             Network::set_max_swap_queue_calls_per_block(
                 RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
@@ -1993,31 +2018,6 @@ fn test_set_min_active_node_stake_epochs() {
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SetMinActiveNodeStakeEpochs(new_value)
-        );
-    });
-}
-
-#[test]
-fn test_set_maximum_hooks_weight() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        assert_eq!(
-            MaximumHooksWeightV2::<Test>::get(),
-            MaximumHooksWeight::get()
-        );
-
-        let new_value: u32 = 100;
-
-        assert_ok!(Network::set_maximum_hooks_weight(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-            new_value
-        ));
-
-        // assert_eq!(MaximumHooksWeightV2::<Test>::get(), new_value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetMaximumHooksWeight(new_value)
         );
     });
 }

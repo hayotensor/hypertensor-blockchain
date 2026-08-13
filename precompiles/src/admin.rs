@@ -387,30 +387,6 @@ where
         )
     }
 
-    #[precompile::public("setMinAttestationPercentage(uint256)")]
-    fn set_min_attestation_percentage(
-        handle: &mut impl PrecompileHandle,
-        value: U256,
-    ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_min_attestation_percentage { value },
-        )
-    }
-
-    #[precompile::public("setSuperMajorityAttestationRatio(uint256)")]
-    fn set_super_majority_attestation_ratio(
-        handle: &mut impl PrecompileHandle,
-        value: U256,
-    ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_super_majority_attestation_ratio { value },
-        )
-    }
-
     #[precompile::public("setBaseValidatorReward(uint256)")]
     fn set_base_validator_reward(handle: &mut impl PrecompileHandle, value: U256) -> EvmResult<()> {
         let value = try_u256_to_u128(value)?;
@@ -761,15 +737,6 @@ where
         dispatch_call::<R>(
             handle,
             pallet_network::Call::<R>::set_max_unbondings { value },
-        )
-    }
-
-    #[precompile::public("setMaximumHooksWeight(uint256)")]
-    fn set_maximum_hooks_weight(handle: &mut impl PrecompileHandle, value: U256) -> EvmResult<()> {
-        let value = try_u256_to_u32(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_maximum_hooks_weight { value },
         )
     }
 

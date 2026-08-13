@@ -20,8 +20,8 @@ use frame_system::pallet_prelude::BlockNumberFor;
 impl<T: Config> Pallet<T> {
     pub fn consensus_policy_snapshot(subnet_id: u32, subnet_epoch: u32) -> ConsensusPolicySnapshot {
         ConsensusPolicySnapshot {
-            min_attestation_percentage: MinAttestationPercentage::<T>::get(),
-            super_majority_attestation_ratio: SuperMajorityAttestationRatio::<T>::get(),
+            min_attestation_percentage: T::MinAttestationPercentage::get(),
+            super_majority_attestation_ratio: T::SuperMajorityAttestationRatio::get(),
             base_validator_reward: BaseValidatorReward::<T>::get(),
             subnet_owner_percentage: SubnetOwnerPercentage::<T>::get(),
             validator_reward_k: ValidatorRewardK::<T>::get(),

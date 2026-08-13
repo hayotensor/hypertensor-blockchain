@@ -6,9 +6,8 @@ use crate::{
     ConsensusValidatorNodeCountDecay, ConsensusValidatorStakeWeightPower, DelegateAccountStake,
     DelegateStakeSubnetRemovalInterval, EmergencySubnetNodeElectionData,
     EmergencySubnetValidatorData, Error, FinalSubnetEmissionWeights, IdleClassificationEpochs,
-    IncludedClassificationEpochs, MaxSubnetNodes, MaxSubnets, MinAttestationPercentage,
-    MinSubnetMinStake, MinSubnetNodeReputation, MinSubnetNodes, MinSubnetReputation,
-    NodeSubnetStake, PeerInfo,
+    IncludedClassificationEpochs, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
+    MinSubnetNodeReputation, MinSubnetNodes, MinSubnetReputation, NodeSubnetStake, PeerInfo,
     PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
     PendingOwnerU128Update, QueueImmunityEpochs, RegisteredSubnetNodesData, RewardsData,
     SubnetConsensusAttestorWeights, SubnetConsensusSubmission, SubnetData, SubnetElectedValidator,
@@ -18,12 +17,12 @@ use crate::{
     SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId,
     SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs, SubnetPauseData, SubnetRemovalReason,
     SubnetReputation, SubnetReputationFactorSchedules, SubnetState, SubnetsData,
-    SuperMajorityAttestationRatio, TotalActiveSubnets, TotalSubnetDelegateStakeBalance,
-    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetUids, TotalValidatorDelegateStakeBalance,
-    ValidatorAbsentSubnetReputationFactor, ValidatorColdkey, ValidatorDelegateStakeBalance,
-    ValidatorDelegateStakeShares, ValidatorNodeDelegateStakeWeightUpdateInterval,
-    ValidatorNodeDelegateStakeWeights, ValidatorReputation, ValidatorReputationDecreaseFactor,
-    ValidatorReputationIncreaseFactor, ValidatorSubnetNodes, ValidatorsData,
+    TotalActiveSubnets, TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids, TotalSubnetNodes,
+    TotalSubnetUids, TotalValidatorDelegateStakeBalance, ValidatorAbsentSubnetReputationFactor,
+    ValidatorColdkey, ValidatorDelegateStakeBalance, ValidatorDelegateStakeShares,
+    ValidatorNodeDelegateStakeWeightUpdateInterval, ValidatorNodeDelegateStakeWeights,
+    ValidatorReputation, ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor,
+    ValidatorSubnetNodes, ValidatorsData,
 };
 use crate::{AttestEntry, ConsensusPolicySnapshot, Event, SubnetReputationFactors};
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays};
@@ -1621,7 +1620,9 @@ fn test_proposer_weight_counts_from_automatic_attestation() {
             result.identity_attestation_ratio,
             Network::percent_div(1, node_count as u128)
         );
-        assert!(result.attestation_ratio >= MinAttestationPercentage::<Test>::get());
+        assert!(
+            result.attestation_ratio >= <Test as crate::Config>::MinAttestationPercentage::get()
+        );
     });
 }
 
@@ -1679,7 +1680,7 @@ fn test_min_consensus_identity_attestation_count_scales_without_weak_small_sets(
             Network::percent_div(2, 3)
         );
         assert_eq!(
-            MinAttestationPercentage::<Test>::get(),
+            <Test as crate::Config>::MinAttestationPercentage::get(),
             Network::percent_div(2, 3)
         );
         assert!(!Network::has_minimum_consensus_validator_identity_set(0));
@@ -1999,7 +2000,7 @@ fn test_distribute_rewards_fails_when_stake_passes_but_node_count_fails() {
         );
 
         assert!(
-            consensus_submission_data.attestation_ratio >= MinAttestationPercentage::<Test>::get()
+            consensus_submission_data.attestation_ratio >= <Test as crate::Config>::MinAttestationPercentage::get()
         );
         assert_eq!(consensus_submission_data.identity_attestation_count, 2);
         assert_eq!(
@@ -2026,10 +2027,10 @@ fn test_distribute_rewards_fails_when_stake_passes_but_node_count_fails() {
             subnet_epoch.saturating_add(1),
             consensus_submission_data,
             RewardsData::default(),
-            MinAttestationPercentage::<Test>::get(),
+            <Test as crate::Config>::MinAttestationPercentage::get(),
             ValidatorReputationIncreaseFactor::<Test>::get(),
             ValidatorReputationDecreaseFactor::<Test>::get(),
-            SuperMajorityAttestationRatio::<Test>::get(),
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get(),
         );
 
         let new_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
@@ -2079,7 +2080,8 @@ fn test_distribute_rewards_passes_when_stake_and_node_count_quorums_pass() {
         let consensus_submission_data = result.unwrap();
 
         assert!(
-            consensus_submission_data.attestation_ratio >= MinAttestationPercentage::<Test>::get()
+            consensus_submission_data.attestation_ratio
+                >= <Test as crate::Config>::MinAttestationPercentage::get()
         );
         assert!(
             consensus_submission_data.identity_attestation_count
@@ -2100,10 +2102,10 @@ fn test_distribute_rewards_passes_when_stake_and_node_count_quorums_pass() {
             subnet_epoch.saturating_add(1),
             consensus_submission_data,
             RewardsData::default(),
-            MinAttestationPercentage::<Test>::get(),
+            <Test as crate::Config>::MinAttestationPercentage::get(),
             ValidatorReputationIncreaseFactor::<Test>::get(),
             ValidatorReputationDecreaseFactor::<Test>::get(),
-            SuperMajorityAttestationRatio::<Test>::get(),
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get(),
         );
 
         let new_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
@@ -2156,7 +2158,8 @@ fn test_distribute_rewards_skips_settlement_below_minimum_validator_set_size() {
         );
         assert_eq!(consensus_submission_data.identity_attestation_count, 2);
         assert!(
-            consensus_submission_data.attestation_ratio >= MinAttestationPercentage::<Test>::get()
+            consensus_submission_data.attestation_ratio
+                >= <Test as crate::Config>::MinAttestationPercentage::get()
         );
         assert!(!Network::has_minimum_consensus_validator_identity_set(
             consensus_submission_data.eligible_validator_identity_count
@@ -2173,10 +2176,10 @@ fn test_distribute_rewards_skips_settlement_below_minimum_validator_set_size() {
             subnet_epoch.saturating_add(1),
             consensus_submission_data,
             RewardsData::default(),
-            MinAttestationPercentage::<Test>::get(),
+            <Test as crate::Config>::MinAttestationPercentage::get(),
             ValidatorReputationIncreaseFactor::<Test>::get(),
             ValidatorReputationDecreaseFactor::<Test>::get(),
-            SuperMajorityAttestationRatio::<Test>::get(),
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get(),
         );
 
         assert_eq!(
@@ -2223,7 +2226,8 @@ fn test_distribute_rewards_fails_when_node_count_passes_but_stake_fails() {
         let consensus_submission_data = result.unwrap();
 
         assert!(
-            consensus_submission_data.attestation_ratio < MinAttestationPercentage::<Test>::get()
+            consensus_submission_data.attestation_ratio
+                < <Test as crate::Config>::MinAttestationPercentage::get()
         );
         assert!(
             consensus_submission_data.identity_attestation_count
@@ -2262,10 +2266,10 @@ fn test_distribute_rewards_fails_when_node_count_passes_but_stake_fails() {
             subnet_epoch.saturating_add(1),
             consensus_submission_data,
             RewardsData::default(),
-            MinAttestationPercentage::<Test>::get(),
+            <Test as crate::Config>::MinAttestationPercentage::get(),
             ValidatorReputationIncreaseFactor::<Test>::get(),
             ValidatorReputationDecreaseFactor::<Test>::get(),
-            SuperMajorityAttestationRatio::<Test>::get(),
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get(),
         );
 
         let new_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
@@ -2337,7 +2341,9 @@ fn test_precheck_fails_threshold_for_high_count_low_delegate_weight() {
         let result = result.unwrap();
 
         assert_eq!(result.attests.len(), 3);
-        assert!(result.attestation_ratio < MinAttestationPercentage::<Test>::get());
+        assert!(
+            result.attestation_ratio < <Test as crate::Config>::MinAttestationPercentage::get()
+        );
     });
 }
 
@@ -3833,10 +3839,11 @@ fn test_distribute_rewards() {
             stake_snapshot.insert(n + 1, stake);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -4058,10 +4065,11 @@ fn test_distribute_rewards_node_gets_reward_after_removal() {
             stake_snapshot.insert(n + 1, stake);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -4334,10 +4342,11 @@ fn test_distribute_rewards_delegate_account_50_percent() {
             stake_snapshot.insert(n + 1, stake);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -4565,10 +4574,11 @@ fn test_distribute_rewards_fork() {
             stake_snapshot.insert(n + 1, stake);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -5141,10 +5151,10 @@ fn test_distribute_rewards_non_consensus_reputation() {
             reputation_snapshot.insert(n + 1, rep);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold = <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
         assert_ne!(validator_stake, 0);
@@ -5682,10 +5692,11 @@ fn test_distribute_rewards_absent_consensus_reputation() {
         let prev_reputation =
             SubnetNodeReputation::<Test>::get(subnet_id, max_subnet_nodes).unwrap();
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
         assert_ne!(validator_stake, 0);
@@ -5813,10 +5824,11 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         let prev_reputation =
             SubnetNodeReputation::<Test>::get(subnet_id, max_subnet_nodes).unwrap();
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
         assert_ne!(validator_stake, 0);
@@ -5921,10 +5933,11 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         let prev_reputation =
             SubnetNodeReputation::<Test>::get(subnet_id, max_subnet_nodes).unwrap();
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
         assert_ne!(validator_stake, 0);
@@ -6066,10 +6079,11 @@ fn test_distribute_rewards_below_min_weight_reputation() {
         let prev_reputation =
             SubnetNodeReputation::<Test>::get(subnet_id, max_subnet_nodes).unwrap();
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
         assert_ne!(validator_stake, 0);
@@ -7196,8 +7210,9 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation() {
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let max_subnets = MaxSubnets::<Test>::get();
-        let majority = (Network::get_percent_as_f64(SuperMajorityAttestationRatio::<Test>::get())
-            * max_subnet_nodes as f64) as u32
+        let majority = (Network::get_percent_as_f64(
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get(),
+        ) * max_subnet_nodes as f64) as u32
             + 1;
         build_activated_subnet(
             subnet_name.clone(),
@@ -7298,10 +7313,11 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation() {
             reputation_snapshot.insert(n + 1, rep);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
         assert_ne!(validator_stake, 0);
@@ -7366,8 +7382,9 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation_remove_node() {
         let subnets = TotalActiveSubnets::<Test>::get() + 1;
         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
         let max_subnets = MaxSubnets::<Test>::get();
-        let majority = (Network::get_percent_as_f64(SuperMajorityAttestationRatio::<Test>::get())
-            * max_subnet_nodes as f64) as u32
+        let majority = (Network::get_percent_as_f64(
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get(),
+        ) * max_subnet_nodes as f64) as u32
             + 1;
         build_activated_subnet(
             subnet_name.clone(),
@@ -7473,10 +7490,11 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation_remove_node() {
             reputation_snapshot.insert(n + 1, rep);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
         assert_ne!(validator_stake, 0);
@@ -7985,10 +8003,11 @@ fn test_distribute_rewards_under_min_attest_slash_validator() {
             stake_snapshot.insert(n + 1, stake);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
         assert_ne!(validator_stake, 0);
@@ -8170,10 +8189,11 @@ fn test_distribute_rewards_fork_under_min_attest_slash_validator() {
             stake_snapshot.insert(n + 1, stake);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
         assert_ne!(validator_stake, 0);
@@ -8363,10 +8383,11 @@ fn test_distribute_rewards_fork_remove_node_at_min_reputation() {
             *subnet_weight.unwrap(),
         );
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -8494,10 +8515,11 @@ fn test_distribute_rewards_fork_no_score_submitted_decrease_reputation() {
             stake_snapshot.insert(n + 1, stake);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let starting_rep = SubnetNodeReputation::<Test>::get(subnet_id, end).unwrap();
         assert_eq!(starting_rep, Network::percentage_factor_as_u128());
@@ -8649,10 +8671,11 @@ fn test_distribute_rewards_late_validator_and_attestors() {
             stake_snapshot.insert(n + 1, stake);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -8847,10 +8870,11 @@ fn test_distribute_rewards_fork_late_validator_and_attestors() {
             stake_snapshot.insert(n + 1, stake);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -9102,10 +9126,11 @@ fn test_distribute_rewards_fork_graduate_idle_to_included() {
             stake_snapshot.insert(n + 1, stake);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -9766,10 +9791,11 @@ fn test_distribute_rewards_reset_included_consecutive_epochs() {
             stake_snapshot.insert(n + 1, stake);
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -9948,10 +9974,11 @@ fn test_attest_increase_reputation_when_included() {
             stake_snapshot.insert((n + 1), (stake, rep));
         }
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -10118,10 +10145,11 @@ fn test_distribute_rewards_node_delegate_stake() {
 
         let delegate_stake_balance = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
@@ -10287,10 +10315,11 @@ fn test_distribute_rewards_fork_node_delegate_stake() {
 
         let delegate_stake_balance = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
 
-        let min_attestation_percentage = MinAttestationPercentage::<Test>::get();
+        let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
         let coldkey_reputation_increase_factor = ValidatorReputationIncreaseFactor::<Test>::get();
         let coldkey_reputation_decrease_factor = ValidatorReputationDecreaseFactor::<Test>::get();
-        let super_majority_threshold = SuperMajorityAttestationRatio::<Test>::get();
+        let super_majority_threshold =
+            <Test as crate::Config>::SuperMajorityAttestationRatio::get();
 
         let epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(epoch, subnet_id);

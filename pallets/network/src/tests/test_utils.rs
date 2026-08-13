@@ -73,8 +73,6 @@ pub fn insert_elected_subnet_node(subnet_id: u32, subnet_epoch: u32, subnet_node
 }
 pub const DEFAULT_DELEGATE_REWARD_RATE: u128 = PERCENTAGE_FACTOR / 10; // 10%
 pub const ALICE_EXPECTED_BALANCE: u128 = 1000000000000000000000000; // 1,000,000
-pub const STARTING_SUBNET_ID: u32 = 128000;
-
 pub fn test_percent(numerator: u128, denominator: u128) -> u128 {
     assert_ne!(denominator, 0);
     Network::percent_div(numerator, denominator)
@@ -213,7 +211,7 @@ pub fn make_commit(weight: u128, salt: Vec<u8>) -> sp_core::H256 {
 }
 
 pub fn get_subnet_id_key_offset(active_subnets: u32) -> u32 {
-    active_subnets - STARTING_SUBNET_ID
+    active_subnets - <Test as crate::Config>::InitialSubnetUid::get()
 }
 
 pub fn get_multiaddr(

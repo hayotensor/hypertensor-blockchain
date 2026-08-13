@@ -73,7 +73,10 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_max_bootnodes(value: u32) -> DispatchResult {
-        ensure!(value <= 256, Error::<T>::InvalidMaxBootnodes);
+        ensure!(
+            value <= T::MaxBootnodesUpperBound::get(),
+            Error::<T>::InvalidMaxBootnodes
+        );
 
         MaxBootnodes::<T>::set(value);
 
@@ -82,7 +85,10 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_max_subnet_bootnodes_access(value: u32) -> DispatchResult {
-        ensure!(value <= 256, Error::<T>::InvalidMaxSubnetBootnodeAccess);
+        ensure!(
+            value <= T::MaxSubnetBootnodeAccessUpperBound::get(),
+            Error::<T>::InvalidMaxSubnetBootnodeAccess
+        );
 
         MaxSubnetBootnodeAccess::<T>::set(value);
 
@@ -144,7 +150,10 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn do_set_churn_limits(min: u32, max: u32) -> DispatchResult {
-        ensure!(min < max, Error::<T>::InvalidValues);
+        ensure!(
+            min < max && max <= T::MaxChurnLimitUpperBound::get(),
+            Error::<T>::InvalidValues
+        );
 
         MinChurnLimit::<T>::set(min);
         MaxChurnLimit::<T>::set(max);
@@ -233,6 +242,10 @@ impl<T: Config> Pallet<T> {
     }
     pub fn do_set_min_max_registered_nodes(min: u32, max: u32) -> DispatchResult {
         ensure!(min < max, Error::<T>::InvalidValues);
+        ensure!(
+            max <= T::MaxRegisteredNodesUpperBound::get(),
+            Error::<T>::InvalidMaxRegisteredNodes
+        );
 
         MinMaxRegisteredNodes::<T>::set(min);
         MaxMaxRegisteredNodes::<T>::set(max);
@@ -256,40 +269,6 @@ impl<T: Config> Pallet<T> {
         SubnetDelegateStakeRewardsUpdatePeriod::<T>::set(value);
 
         Self::deposit_event(Event::SetSubnetDelegateStakeRewardsUpdatePeriod(value));
-
-        Ok(())
-    }
-    pub fn do_set_min_attestation_percentage(value: u128) -> DispatchResult {
-        ensure!(
-            value <= Self::percentage_factor_as_u128()
-                && value > Self::percentage_factor_as_u128() / 2,
-            Error::<T>::InvalidPercent
-        );
-        ensure!(
-            value > ValidatorDelegateStakeSlashThreshold::<T>::get(),
-            Error::<T>::InvalidValidatorDelegateStakeSlashConfig
-        );
-
-        MinAttestationPercentage::<T>::set(value);
-
-        Self::deposit_event(Event::SetMinAttestationPercentage(value));
-
-        Ok(())
-    }
-    pub fn do_set_super_majority_attestation_ratio(value: u128) -> DispatchResult {
-        ensure!(
-            value <= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
-        );
-
-        ensure!(
-            value >= MinAttestationPercentage::<T>::get(),
-            Error::<T>::InvalidSuperMajorityAttestationRatio
-        );
-
-        SuperMajorityAttestationRatio::<T>::set(value);
-
-        Self::deposit_event(Event::SetSuperMajorityAttestationRatio(value));
 
         Ok(())
     }
@@ -330,7 +309,7 @@ impl<T: Config> Pallet<T> {
 
         ensure!(
             threshold > 0
-                && threshold < MinAttestationPercentage::<T>::get()
+                && threshold < T::MinAttestationPercentage::get()
                 && base_percentage <= percentage_factor
                 && (config_disabled || config_enabled),
             Error::<T>::InvalidValidatorDelegateStakeSlashConfig
@@ -687,22 +666,14 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_max_unbondings(value: u32) -> DispatchResult {
-        ensure!(value <= 256, Error::<T>::InvalidMaxUnbondings);
+        ensure!(
+            value <= T::MaxUnbondingsUpperBound::get(),
+            Error::<T>::InvalidMaxUnbondings
+        );
 
         MaxUnbondings::<T>::set(value);
 
         Self::deposit_event(Event::SetMaxUnbondings(value));
-
-        Ok(())
-    }
-    pub fn do_set_maximum_hooks_weight(value: u32) -> DispatchResult {
-        ensure!(value > 0 && value <= 100, Error::<T>::InvalidPerbillPercent);
-
-        let new_value = sp_runtime::Perbill::from_percent(value) * T::BlockWeights::get().max_block;
-
-        MaximumHooksWeightV2::<T>::put(new_value);
-
-        Self::deposit_event(Event::SetMaximumHooksWeight(value));
 
         Ok(())
     }
@@ -760,7 +731,7 @@ impl<T: Config> Pallet<T> {
     }
     pub fn do_set_max_swap_queue_calls_per_block(value: u32) -> DispatchResult {
         ensure!(
-            value <= T::MaxSwapQueueLength::get(),
+            value <= T::MaxSwapCallsPerBlockUpperBound::get(),
             Error::<T>::InvalidValues
         );
 
@@ -972,7 +943,8 @@ impl<T: Config> Pallet<T> {
 
     pub fn do_set_max_emergency_subnet_nodes(value: u32) -> DispatchResult {
         ensure!(
-            value >= MinSubnetNodes::<T>::get(),
+            value >= MinSubnetNodes::<T>::get()
+                && value <= T::MaxEmergencySubnetNodesUpperBound::get(),
             Error::<T>::InvalidMaxEmergencySubnetNodes
         );
 
