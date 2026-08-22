@@ -1,14 +1,14 @@
 # Subnet Owners
 
-A subnet owner is the account that creates and controls a subnet. The owner is responsible for the subnet's lifecycle, public metadata, operational settings, and recovery actions. The owner also receives the protocol-defined subnet owner share of subnet rewards while the subnet exists.
+A subnet owner is the account that creates and controls a subnet. The owner is responsible for the subnet's lifecycle, public metadata, operational settings, and recovery actions. When an allocated consensus round is accepted with a nonzero score sum, the current owner receives the protocol-defined subnet owner share of that round's subnet rewards.
 
-Subnet ownership is an on-chain role. Only the current owner account can use owner-only subnet controls, unless the owner has delegated a narrower permission such as bootnode management access.
+Subnet ownership is an on-chain role. Every owner-only extrinsic requires the current owner account. Bootnode updates are a separate operation that also accepts accounts on the owner's bounded bootnode-access list; those accounts do not gain any other owner control.
 
 ## Becoming a Subnet Owner
 
 A user becomes a subnet owner by registering a subnet. During registration, the registering account becomes the owner of the new subnet and defines the subnet's initial configuration, including its name, repository, description, bootnodes, stake limits, delegate reward split, and initial validator registration rules.
 
-After registration, the subnet enters its registration and enactment flow. The owner is responsible for bringing the subnet to a state where it can activate, including ensuring that enough nodes and delegate stake are available. Once the activation requirements are met, the owner can activate the subnet so it can participate in normal network operation.
+After registration, the subnet enters its registration and enactment flow. The owner is responsible for bringing the subnet to a state where it can activate, including ensuring that enough nodes and delegate stake are available. An activation attempt is not allowed until `MinSubnetRegistrationEpochs` has elapsed. After that point, an unmet activation condition during the registration period returns an error and leaves the subnet registered; an unmet condition during the enactment period removes it, as does an activation attempt after the enactment deadline. A successful activation makes the subnet `Active` immediately and schedules its first validator-election attempt for its assigned slot in the following general epoch.
 
 An account can also become a subnet owner when the current owner transfers ownership to it and the receiving account accepts the transfer.
 
@@ -24,7 +24,7 @@ Owner settings are still bounded by network rules. Many parameters have minimums
 
 Owners can activate, pause, unpause, and deactivate their subnets.
 
-Activation moves a registered subnet into normal operation once the subnet meets the network's requirements. Pausing stops new validator elections and operational maintenance while the subnet is paused, so the owner can handle maintenance or recovery. Unpausing starts a controlled preparation period before the subnet returns to consensus and adjusts queued-node timing so skipped subnet slots do not unfairly affect registration queues.
+Activation moves a registered subnet into active preparation once the subnet meets the network's requirements; it becomes consensus-live at its assigned slot in the following general epoch. Pausing stops new validator elections and operational maintenance while the subnet is paused, so the owner can handle maintenance or recovery. Unpausing starts a controlled preparation period before the subnet returns to consensus and adjusts queued-node timing so skipped subnet slots do not unfairly affect registration queues.
 
 Deactivation removes the subnet. This is the owner's final lifecycle control and should be treated as a permanent removal action.
 
@@ -50,13 +50,13 @@ Each subnet's epoch advances at its own assigned slot. If an owner unpauses whil
 | --- | --- |
 | `E` | The owner unpauses. Any time remaining before the subnet's next assigned slot is additional preparation time. |
 | `E + 1` | Full local preparation epoch. Queue and burn-rate maintenance run, but there is no validator election or new consensus round. |
-| `E + 2` | At the subnet's assigned slot it becomes consensus-live, elects a validator, and begins its first post-unpause round. It has no exact prior election, so this first round has not yet received an emission allocation. |
-| Following general epoch | The exact `E + 2` election can receive an emission allocation. Its round is settled at the next assigned subnet slot, where normal consensus rewards or penalties apply. |
+| `E + 2` | At the subnet's assigned slot it becomes consensus-live and attempts its first post-unpause election. If the effective candidate set is valid and nonempty, the resulting round has not yet received an emission allocation. |
+| Following general epoch | An exact `E + 2` election can receive an emission allocation. Its round is settled at the next assigned subnet slot, where normal consensus rewards or penalties apply. |
 
 Emission allocation requires an elected validator for the exact previous subnet epoch being
 settled. Creating that election requires the subnet to be active and consensus-live at its assigned
-slot. Once created, the historical election remains allocation-eligible even if the subnet is later
-paused or is preparing after an unpause.
+slot with a valid, nonempty effective candidate set. Once created, the historical election remains
+allocation-eligible even if the subnet is later paused or is preparing after an unpause.
 
 This prevents a newly unpaused subnet from receiving an unused allocation, diluting other subnets' rewards, or being penalized before it has had a complete local epoch in which to prepare.
 
@@ -80,7 +80,7 @@ This protects both parties from accidental transfers. Until the pending owner ac
 
 ### Node Registration and Queue Settings
 
-Owners can configure how nodes enter and progress through the subnet. These controls include the registration queue duration, queue immunity period, target node registrations per epoch, maximum registered nodes, churn limits, and churn multipliers.
+Owners can configure how nodes enter and progress through the subnet. These controls include the registration queue duration, queue immunity period, target node registrations per epoch, maximum queued registrations (`MaxRegisteredNodes`), churn limits, and churn multipliers. `MaxRegisteredNodes` caps the active subnet's registration-queue length; the separate network `MaxSubnetNodes` value caps active subnet nodes.
 
 Together, these settings shape how quickly the subnet admits new nodes, how much protection queued nodes receive before evaluation, and how much turnover the subnet allows. They help owners balance growth, stability, and competition among node operators.
 
@@ -90,15 +90,18 @@ A queued node remains in its waiting and immunity periods while the current subn
 
 ### Initial Validators
 
-During the registration phase, owners can manage the initial validators or allowed node operators that are permitted to register early nodes. These initial validator settings help a new subnet bootstrap with a known set of participants before it becomes active.
+At subnet registration, the owner supplies a map from validator ID to the maximum number of nodes that validator may register during the registration period. While the subnet remains in the `Registered` state, the owner can add, replace, or remove entries. Removing the final entry deletes the whitelist, and the node-registration path treats an absent whitelist as unrestricted registration. Node registration is nevertheless disabled once the subnet reaches the enactment period.
 
-Once the subnet moves beyond registration, initial validator controls no longer serve as the primary way to manage participation. Normal subnet rules and node classifications take over.
+Successful activation deletes both the whitelist and its registration counters, and further initial-validator updates fail because the subnet is no longer `Registered`. Normal queue and classification rules then govern new nodes.
 
 ### Stake and Delegation Settings
 
-Owners can set the minimum and maximum stake allowed for subnet nodes. These limits affect how much stake each node must provide and how much stake concentration the subnet permits.
+Owners can set the minimum and maximum stake checked when subnet nodes register or add stake. A
+withdrawal from an existing node must leave at least the subnet minimum, while the maximum does not
+need to be rechecked when stake is reduced. Updating either limit changes future checks immediately
+but does not rebalance or remove existing node stake.
 
-Owners can also adjust the delegate stake reward percentage. This setting controls how subnet rewards are split between delegate stakers and other subnet reward recipients. Changes to delegation rewards are constrained by network limits and update timing rules so reward policy cannot shift too abruptly.
+Owners can also adjust the delegate stake reward percentage. This setting controls how subnet rewards are split between delegate stakers and other subnet reward recipients. A change is limited by the configured absolute-change bound and block-based update period, and is scheduled for the next subnet epoch rather than changing the current round's snapshotted policy.
 
 ### Bootnode Management
 
@@ -116,26 +119,31 @@ Emergency validators are selected from valid subnet validator nodes and operate 
 
 Owners can tune several reputation and classification parameters that affect how subnet nodes progress and are evaluated. These include idle and included classification timing, the minimum reputation required for subnet nodes, and reputation thresholds related to node weight decreases.
 
-These controls allow subnet owners to define how strict or permissive their subnet is toward node performance. Some changes are scheduled for a future subnet epoch so they do not disrupt the current consensus period.
+These controls allow subnet owners to define how strict or permissive their subnet is toward node performance. Idle timing, Included timing, minimum node reputation, and the minimum-weight decrease threshold are all scheduled for the next subnet epoch. Minimum reputation and the minimum-weight threshold cannot be changed while an emergency validator set is active.
 
 ### Reputation Factors
 
 Owners can update subnet reputation factors. These factors determine how node reputation changes in response to behavior such as being absent, being included, falling below weight expectations, failing to attest, or participating outside consensus.
 
-Reputation factors are a core part of subnet quality control. They define the incentives and penalties that shape long-term node behavior, and updates are bounded and scheduled so changes remain predictable.
+Reputation factors are a core part of subnet quality control. They define the incentives and penalties that shape long-term node behavior. Updates are bounded and scheduled after at least one subnet epoch through `SubnetOwnerFactorCooldownEpochs`. While an emergency validator set is active, a call may schedule only `included_increase`; calls that include any other factor are rejected. Emergency rounds continue to use the complete factor policy captured when the set was configured, so an `included_increase` update does not rewrite the active emergency snapshot.
 
 The proposal-derived factors `included_increase`, `absent_decrease`,
 `below_min_weight_decrease`, and `non_attestor_decrease` take effect only for an accepted proposal
-whose distinct-validator-identity support reaches the round's snapshotted network supermajority
-threshold, 87.5% by default. Equality qualifies. This identity-verification gate also controls
+with a nonzero score sum whose distinct-validator-identity support reaches the round's snapshotted
+network supermajority threshold, 87.5% in the current runtime. Equality qualifies. This
+identity-verification gate also controls
 whether an Included node's consecutive-inclusion state can advance or reset because of the score
 vector. It prevents one large delegated-stake position from making subjective score data
 reputation-authoritative.
 
 Once the gate is met, these node factors retain their configured meanings and are applied at the
-node level. `included_increase` applies to a node present in the score vector;
-`absent_decrease` applies to a node omitted from it; and `below_min_weight_decrease` applies when a
-scored Validator-class node's score share is below the owner's configured threshold. Identity
+node level. In a normal round, `included_increase` applies to an Included- or Validator-class node
+present in the score vector; `absent_decrease` applies to an Included- or Validator-class node
+omitted from it; and `below_min_weight_decrease` applies when a scored Validator-class node's score
+share is below the owner's configured threshold. During an emergency round, normal Idle and
+Included progression is suspended and the snapshotted emergency factor policy is evaluated over
+the round's captured active-node set; score entries are still limited to nodes that had reached at
+least Included at submission. Identity
 deduplication does not merge sibling-node duties or outcomes. Rewards, Idle-to-Included time
 progression, minimum-reputation removal, and objective lifecycle penalties are not controlled by
 this gate.
@@ -172,7 +180,7 @@ does not slash node stake or validator delegate pools. Rejected, missing, and ze
 do not apply it. Queue mutations remain separately gated by stake-weighted supermajority.
 
 `validator_absent_decrease` remains an objective missing-proposal penalty for the elected proposer
-node. A missing proposal also uses the separate network
+node when an allocated round reaches settlement. That missing proposal also uses the separate network
 `ValidatorAbsentSubnetReputationFactor`, records zero proposal identity support for the elected
 validator identity, and does not run the submitted-proposal reputation curves. Pause, minimum-node,
 and other subnet lifecycle reputation losses likewise remain independent of validator-identity
@@ -181,9 +189,10 @@ support because they are not claims derived from proposal contents.
 The subnet's proposal-derived reputation is identity-based as well. An accepted proposal can apply
 `InConsensusSubnetReputationFactor` only after identity verification, with the distinct-identity
 support ratio as its multiplier. A rejected submitted proposal applies
-`NotInConsensusSubnetReputationFactor` only below the network's one-third strong-rejection
-threshold, scaled from zero loss at the threshold to the full configured factor at 0% identity
-support. These are network factors rather than owner-controlled node factors.
+`NotInConsensusSubnetReputationFactor` only below the round's snapshotted, network-controlled
+strong-rejection threshold, scaled from zero loss at the threshold to the full configured factor at
+0% identity support. The threshold is one-third by default but can be changed by the admin
+collective. These are network factors rather than owner-controlled node factors.
 
 Every settled elected round also updates the proposer's validator-identity support history.
 Submitted proposals record their actual distinct-identity ratio and missing proposals record zero
@@ -193,12 +202,18 @@ node's reputation. The bounded count and average freeze together at `u32::MAX`.
 
 ### Consensus and Attestation Settings
 
-Owners can adjust subnet-specific consensus policy such as the validator node count decay used in
-stake-weight calculations. The admin collective, rather than subnet owners, controls the
-network-wide distinct-validator-identity attestation percentage.
+Owners can adjust two subnet-specific inputs to stake-weighted attestation: validator node-count
+decay and the validator stake-weight power. Node-count decay can diminish each node's allocated
+validator delegate-stake weight when the validator owns multiple nodes in the subnet. Stake-weight
+power is then applied as an exponent to normalized node weights. Both default to `1e18`: no
+node-count decay and a power-one (linear) exponent, respectively.
 
-These settings influence how validator/node-count history affects consensus behavior over time.
-They are constrained by network-level limits and, where applicable, update intervals.
+Both owner updates take effect in the next subnet epoch and are subject to network-controlled
+bounds and global-epoch update intervals. The admin collective separately controls the base minimum
+distinct-validator-identity attestation percentage. That minimum is converted to a required
+identity count and is distinct from the 87.5% supermajority gate used to authorize subjective score
+data for reputation. A round also needs at least three eligible validator identities to pass the
+minimum identity quorum.
 
 ### Node Burn Rate Settings
 

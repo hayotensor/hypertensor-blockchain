@@ -6,7 +6,10 @@ The validator identity itself does not participate directly in subnet consensus.
 
 The validator is separate from any single subnet node. One validator can own multiple subnet nodes, including nodes across different subnets. Each subnet node remains tied back to the validator that registered it, so the validator identity acts as the operator and economic owner for those nodes.
 
-Validators can also receive delegated stake from users. Delegators stake to the validator identity, while the validator controls how that delegated stake is associated with its owned subnet nodes for consensus weighting and reward distribution at the node level.
+Validators can also receive delegated stake from users. Delegators stake to the validator identity,
+while the validator controls how that delegated stake is allocated across its owned subnet nodes
+for consensus weighting. Eligible node rewards separately route a configured share to the
+validator-wide delegate pool.
 
 ## Becoming a Validator
 
@@ -14,7 +17,9 @@ A user becomes a validator by registering a validator identity. Registration cre
 
 The coldkey is the controlling account for the validator. It manages validator configuration, key updates, subnet node registration, node settings, and other owner-level actions for the validator's nodes.
 
-The hotkey is the default operational key for subnet nodes owned by the validator when a node-specific hotkey is not set. This separation lets validators keep the controlling account separate from the key used by nodes for routine network operations.
+The hotkey is the default consensus-signing key for subnet nodes owned by the validator when a
+node-specific hotkey is not set. This separation lets validators keep the controlling account
+separate from the key used to propose and attest.
 
 During validator registration, the validator can also define initial delegation-related settings and optional identity metadata.
 
@@ -34,7 +39,9 @@ The identity lets the network group a validator's owned nodes and related settin
 
 ### Subnet Node Ownership
 
-Validators register and own subnet nodes. When a validator registers a subnet node, that node is linked to the validator ID and can then move through the subnet's registration, queue, active, included, and validator classifications according to subnet rules.
+Validators register and own subnet nodes. When a validator registers a subnet node, that node is
+linked to the validator ID and can then progress through the `Registered`, `Idle`, `Included`, and
+`Validator` classifications according to subnet rules.
 
 The validator coldkey controls the node's administrative settings. This includes node networking information, node-specific identifiers, node stake, node hotkeys, and removal of the node when removal is allowed.
 
@@ -57,7 +64,7 @@ unique eligible validator identities with an attestation
 
 Multiple attesting nodes owned by one validator count as one identity, and the proposer's automatic
 attestation contributes its identity once. An accepted proposal is **identity-verified** when this
-ratio reaches the round's snapshotted supermajority threshold, 87.5% by default; equality qualifies.
+ratio reaches the round's snapshotted supermajority threshold, currently 87.5%; equality qualifies.
 
 Only an identity-verified accepted proposal can apply proposal-derived reputation-score and
 classification changes. This includes node `included_increase`, `absent_decrease`,
@@ -70,14 +77,14 @@ if another node owned by the same validator attested. The subnet-reputation incr
 identity support; the node and validator-identity factors are not increased for support above the
 gate.
 
-An accepted proposal below the identity-verification gate can still distribute rewards. Its score
-vector is simply neutral for reputation scores and Included-to-Validator classification. Queue
-decisions use their separate stake-weighted supermajority check. Idle-to-Included time progression,
-minimum-reputation removal, and other objective lifecycle processing are unchanged. Accepted
-zero-score proposals retain their early-return behavior, including skipping the per-node
-distribution loop. In an emergency round, only the snapshotted emergency identities establish the
-identity gate, non-attestor accountability is limited to emergency validators, and ordinary
-classification progression remains disabled.
+An allocated accepted proposal below the identity-verification gate can still distribute rewards.
+Its score vector is simply neutral for reputation scores and Included-to-Validator classification.
+Queue decisions use their separate stake-weighted supermajority check during settlement.
+Idle-to-Included time progression, minimum-reputation removal, and other objective lifecycle
+processing are unchanged. Accepted zero-score proposals retain their early-return behavior,
+including skipping the per-node distribution loop. In an emergency round, only the snapshotted
+emergency identities establish the identity gate, non-attestor accountability is limited to
+emergency validators, and ordinary classification progression remains disabled.
 
 Queue decisions use a separate stake-weighted supermajority check. Reaching the identity
 supermajority for reputation scores does not by itself authorize queue prioritization or removal.
@@ -87,10 +94,10 @@ validator-identity support is strictly below the round's snapshotted configurabl
 strong-rejection threshold, which defaults to one-third. The decrease scales linearly with the
 identity-support shortfall: it is zero at the threshold and reaches the configured maximum at 0%
 identity support. A failed proposal at or above the threshold does not apply this proposer-node
-decrease. The proposer validator identity and subnet use the same one-third identity gate and
-shortfall for their submitted-proposal reputation decreases. A stake-only rejection with at least
-one-third identity support can still slash the proposer economically, but causes no
-submitted-proposal reputation loss.
+decrease. The proposer validator identity and subnet use the same snapshotted identity gate and
+shortfall for their submitted-proposal reputation decreases. A stake-only rejection with identity
+support at or above the round's snapshotted strong-rejection threshold can still slash the
+proposer economically, but causes no submitted-proposal reputation loss.
 
 Under the same strong-rejection condition, every attesting node receives the separately configured
 supporter decrease. Each identity counts once even if several of its nodes attest, but all of those
@@ -99,22 +106,23 @@ then, because submitting creates its automatic attestation, receives the support
 against its remaining reputation. Minimum-reputation removal is evaluated after both. The
 supporter penalty affects node reputation only; attestors are not economically slashed for
 attesting, while proposer direct-node-stake and delegate-pool slashing remain specific to the
-elected proposer. A missing proposal has no attestors to penalize and follows the separate absence
-and proposer-economic-penalty path. Specifically, it records a zero identity-support sample and
-applies the objective proposer-node and subnet absence factors exactly once; it does not apply the
-general validator-identity or submitted-proposal strong-rejection reputation decreases.
+elected proposer. When an allocated missing-proposal round reaches settlement, it has no attestors
+to penalize and follows the separate absence and proposer-economic-penalty path. Specifically, it
+records a zero identity-support sample and applies the objective proposer-node and subnet absence
+factors exactly once; it does not apply the general validator-identity or submitted-proposal
+strong-rejection reputation decreases.
 
-The validator identity records its first and most recent election epochs when one of its subnet
-nodes is elected. These election timestamps are written immediately, including when the elected
-node never submits a proposal. At settlement,
-`average_proposal_identity_support` records the average distinct-identity support across elected
-rounds, and `identity_support_samples` records the number of rounds represented. Submitted
+The validator identity records the first and most recent general-chain election epochs when one of
+its subnet nodes is elected. These election timestamps are written immediately, including when the
+elected node never submits a proposal. For allocated elections that reach settlement,
+`average_proposal_identity_support` records the average distinct-identity support, and
+`identity_support_samples` records the number of settled allocated rounds represented. Submitted
 proposals contribute their actual identity ratio; missing proposals contribute zero. If the
 bounded counter ever reaches `u32::MAX`, both the count and average freeze together.
 `total_increases` counts identity-verified accepted proposals with a nonzero configured increase
-factor, while `total_decreases` counts proposals below the one-third identity threshold with a
-nonzero effective decrease factor. Reputation-score-neutral submitted rounds still update the
-support average without changing either score counter. The runtime's Overwatch
+factor, while `total_decreases` counts proposals below the round's snapshotted strong-rejection
+threshold with a nonzero effective decrease factor. Reputation-score-neutral submitted rounds
+still update the support average without changing either score counter. The runtime's Overwatch
 minimum-average-attestation eligibility check reads this identity-support average. Settlement does
 not relabel the election as belonging to the later epoch.
 
@@ -124,11 +132,16 @@ Validators use a coldkey and hotkey model.
 
 The coldkey controls sensitive and economic actions. It can update validator settings, rotate validator keys, register subnet nodes, manage node metadata, add or remove node stake, and remove owned nodes.
 
-The validator hotkey is the default operational key used by owned subnet nodes when no node-specific hotkey is set. It lets nodes perform routine operational actions while keeping the coldkey separate from routine signing.
+The validator hotkey is the default key used by owned subnet nodes for proposal and attestation
+calls when no node-specific hotkey is set. It keeps consensus signing separate from coldkey actions.
 
-Validators can also assign a hotkey to an individual subnet node. A node-specific hotkey overrides the validator hotkey for that node's operational and consensus actions. This lets a validator isolate operational keys per node or per subnet without creating a separate validator identity.
+Validators can also assign a hotkey to an individual subnet node. A node-specific hotkey overrides
+the validator hotkey for that node's proposal and attestation calls. This lets a validator isolate
+consensus-signing keys per node or per subnet without creating a separate validator identity.
 
-Coldkeys, validator hotkeys, and node-specific hotkeys are expected to be distinct where required by the protocol. This avoids ambiguous ownership and reduces the blast radius of an operational key compromise.
+Validator registration requires an identity's coldkey and validator hotkey to differ. Validator
+key rotations enforce additional cross-index collision checks. Setting a node-specific hotkey does
+not apply those same global distinctness checks to the node override.
 
 ### Validator Metadata
 
@@ -170,17 +183,26 @@ from exiting before the corresponding consensus result is settled.
 
 ### Delegate Reward Rate
 
-Validators control a delegate reward rate. This rate determines what portion of eligible node rewards is directed into the validator's delegate stake pool for users who delegated to that validator.
+Validators control a delegate reward rate. When the pool has existing shares, this rate determines
+what portion of an eligible node reward is directed into the validator's delegate stake pool for
+users who delegated to that validator. If the pool has no shares, no pool reward is taken from the
+node reward.
 
-The rate lets validators define how they share node rewards with delegators. It is bounded by network limits, and decreases are constrained so validators cannot sharply reduce delegator rewards without respecting protocol rules.
+The rate lets validators define how they share node rewards with delegators. Post-registration
+updates are bounded by 100% and `MaxDelegateStakePercentage`, rate-limited, and constrained on
+decreases. Validator registration stores the supplied initial rate directly rather than applying
+the update path's bounds and cooldown checks.
 
 ### Delegate Account
 
-Validators may configure a delegate account. This is a separate account that can receive a validator-defined share of node rewards.
+Validators may configure a delegate account. This is a separate account that can receive a
+validator-defined percentage of the node reward remaining after any validator delegate-pool share.
 
 The delegate account is different from public validator delegate staking. Public delegation is a user stake pool attached to the validator, while the delegate account is an optional reward destination controlled by the validator's configuration.
 
-The delegate account cannot be the validator coldkey or hotkey. Keeping it separate makes reward routing explicit and avoids mixing operational control with delegated reward collection.
+When a delegate account is registered or updated, it cannot equal the validator's current coldkey
+or hotkey. Keeping it separate at configuration time makes reward routing explicit and avoids
+mixing operational control with delegated reward collection.
 
 ### Delegate Stake Weight Allocation
 

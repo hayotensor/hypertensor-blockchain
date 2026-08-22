@@ -2,7 +2,10 @@
 
 Consensus is the per-subnet process that turns an elected validator node's view of subnet performance into on-chain rewards, reputation changes, queue decisions, and penalties.
 
-Consensus is not global block production. It is a subnet-level incentives and attestation system. Each active subnet runs its own epoch schedule, elects one subnet node to propose consensus data for that subnet epoch, and asks the eligible validator-class subnet nodes to attest to that proposal.
+Consensus is not global block production. It is a subnet-level incentives and attestation system.
+Each consensus-live active subnet attempts an election on its own epoch schedule. When its
+effective candidate set is nonempty and internally consistent, one subnet node is elected to
+propose consensus data and the eligible validator-class subnet nodes can attest to that proposal.
 
 Each subnet stores a `ConsensusMechanism` selector for future mechanism-specific routing. The only
 supported variant is currently `Attestation`, it is assigned automatically during registration,
@@ -46,38 +49,47 @@ Delegators can stake to validators. Validator delegate stake is the stake source
 
 Each subnet has an assigned slot inside the chain epoch. When the chain reaches that subnet's slot, the pallet processes that subnet's consensus step.
 
-The normal flow for a subnet epoch is:
+The normal flow at a subnet's slot is:
 
-1. The previous subnet epoch's proposal is prechecked.
-2. Attestation ratios are calculated from the stored proposal and attestation snapshot.
-3. Rewards or penalties are applied for the previous epoch.
-4. A validator-class subnet node is elected for the new subnet epoch.
-5. The subnet registration queue is processed.
-6. The subnet burn-rate state is updated.
+1. If the exact previous round has an emission allocation, its proposal is prechecked; a missing
+   proposal follows the allocated-round absence penalty path.
+2. For a present proposal, attestation ratios are calculated from its stored snapshots.
+3. Rewards or penalties are applied to that allocated round when its precheck yields settlement
+   data.
+4. If the subnet is active and consensus-live, it attempts to elect a validator-class node for the
+   new subnet epoch. An election is stored only when the effective candidate set is nonempty and
+   every candidate resolves to a validator identity.
+5. If the subnet is active, its registration queue is processed.
+6. If the subnet is active and block weight permits, its burn-rate state is updated.
 
-The elected node for the new subnet epoch is then responsible for submitting the consensus proposal for that epoch.
+An elected node for the new subnet epoch is then responsible for submitting that epoch's consensus
+proposal.
 
-Validator identity election metadata is updated during step 4. Reputation score and
-proposal-identity-support statistics for that election are updated during step 3 of the following
-subnet epoch, once the outcome is known. Consequently, settlement in epoch `E` evaluates epoch
-`E - 1`, while the stored first and last validator-election epochs continue to identify the actual
-election epochs.
+Validator identity election metadata is updated when step 4 successfully stores an election.
+Outcome-dependent reputation and proposal-identity-support statistics are updated only if that
+round receives an allocation and reaches settlement at the following subnet slot; a missing
+proposal follows step 1, while a submitted proposal follows steps 2 and 3. Consequently, an
+allocated settlement in epoch `E` evaluates epoch `E - 1`, while the stored first and last
+validator-election epochs continue to identify the general-chain epochs in which those elections
+occurred.
 
-Consensus eligibility and reward eligibility are separate. An active, live subnet receives
-an election at its slot even when it has no emission allocation. Emission weights for general
-epoch `G` only include subnets with an elected validator for subnet epoch `G - 1`, the exact
-epoch being settled. This lets a new or resumed subnet complete its first consensus round before
-it can affect reward normalization. Once that exact election exists it remains eligible for its
-following allocation and settlement if the owner pauses; pausing only prevents new elections and
-operational maintenance.
+Consensus eligibility and reward eligibility are separate. An active, live subnet attempts an
+election at its slot even when it has no emission allocation; a valid effective candidate set can
+therefore produce an election independently of allocation. Emission weights for general epoch `G`
+only include subnets with an elected validator for subnet epoch `G - 1`, the exact epoch being
+settled. This lets a new or resumed subnet complete its first consensus round before it can affect
+reward normalization. Once that exact election exists it remains eligible for its following
+allocation and settlement if the owner pauses; pausing only prevents new elections and operational
+maintenance.
 
 Each subnet's epoch changes at its own assigned slot. If an owner unpauses while that subnet's
 phase-aware epoch is `E`, `consensus_eligible_from_subnet_epoch` is set to `E + 2`. The remainder of `E`
 is extra preparation time and all of `E + 1` is a complete local preparation epoch. Queue processing
 and burn-rate maintenance continue during preparation, but no validator is elected and no new
 consensus round begins. At the assigned slot starting `E + 2`, the subnet becomes consensus-live
-and elects its first post-unpause validator. That election can first receive an emission allocation
-at the following general epoch and is settled at the next assigned subnet slot.
+and attempts its first post-unpause election. If a valid effective candidate set produces an
+election, it can first receive an emission allocation at the following general epoch and is settled
+at the next assigned subnet slot.
 
 General-epoch preliminary processing runs at slot zero, before subnet slots. Ordinary reputation,
 minimum-node, and stake checks skip an active subnet whose phase-aware local epoch has not reached
@@ -96,12 +108,14 @@ round satisfying the cooldown is settled before the owner can pause again.
 
 Overwatch scoring runs on a slower, global schedule so Overwatch nodes do not have to perform and
 submit their off-chain work during every general blockchain epoch. An Overwatch epoch has its own
-monotonic ID and anchored start block. Its length is the active
-`OverwatchEpochLengthMultiplier` multiplied by the general epoch length.
+monotonic ID and anchored start block. Its length and commit cutoff are fixed for the active round
+by `ActiveOverwatchEpochLengthMultiplier` and `ActiveOverwatchCommitCutoffPercent`. The active
+length is the active multiplier times the general epoch length.
 
-Collective updates to the multiplier and commit cutoff take effect immediately. A mid-epoch update
-can therefore extend or shorten the active round and can move it between commit and reveal phases.
-The current Overwatch epoch ID and anchored start block are not reset by a configuration update.
+Collective updates write `OverwatchEpochLengthMultiplier` and
+`OverwatchCommitCutoffPercent` as configuration for the next Overwatch epoch. They do not extend,
+shorten, or change the phase of the active round. At normal rollover, the pallet snapshots the
+latest configured values into the active fields and advances the epoch ID and anchored start block.
 
 When an Overwatch epoch closes, the pallet queues the closed ID and its multiplier as an explicit
 settlement snapshot. Rollover is aligned with general epoch slot zero and settlement runs in the
@@ -130,7 +144,9 @@ When a node graduates to Validator, it is inserted into `SubnetNodeElectionSlots
 
 ## Validator Election
 
-At the subnet's slot, the pallet randomly selects one node from the current election set for the new subnet epoch.
+At the subnet's slot, the pallet randomly selects one node from the effective election set for the
+new subnet epoch. If that set is empty or any candidate lacks its node-to-validator attribution,
+the attempt stores no election.
 
 Election probability is per eligible subnet node, not stake-weighted. If a validator operates multiple validator-class nodes in the same subnet, each eligible node is separately present in the election list unless removed or replaced by an emergency validator set.
 
@@ -309,17 +325,20 @@ A proposal must satisfy both quorum checks:
 
 ## The Two-Thirds Threshold
 
-`MinAttestationPercentage` is the network-level stake-weighted consensus threshold. Its default
-value is `0.666666666666666666e18`, the runtime's fixed-point representation of two-thirds.
+`MinAttestationPercentage` is the runtime-level stake-weighted consensus threshold. Its current
+value is `0.666666666666666666e18`, the fixed-point representation of two-thirds.
 
-A proposal with attestation below this threshold is not in consensus, even if the proposer submitted validly. When the stake-weighted threshold fails, rewards are skipped and penalties are applied.
+A proposal with attestation below this threshold is not in consensus, even if the proposer
+submitted validly. When the stake-weighted threshold fails, rewards are skipped and the pallet
+computes the elected proposer's direct-stake penalty from the selected normalized quorum shortfall.
 
 The validator-identity participation requirement can also fail independently. If either
 participation threshold fails, the epoch is treated as not in consensus.
 
 ## Supermajority Threshold
 
-Some actions require a stronger signal than the normal two-thirds consensus threshold. `SuperMajorityAttestationRatio` defaults to `0.875e18`, or 87.5%.
+Some actions require a stronger signal than the normal two-thirds consensus threshold. The
+runtime-level `SuperMajorityAttestationRatio` is currently `0.875e18`, or 87.5%.
 
 The same snapshotted threshold supplies two separate supermajority gates:
 
@@ -390,7 +409,8 @@ issued, and there is no carry-forward.
 
 ## Rewards
 
-When both quorum checks pass, the subnet is in consensus for the evaluated epoch.
+For an allocated submitted round at settlement, the subnet is in consensus when both quorum checks
+pass.
 
 The elected proposer can receive the base validator reward, scaled by its proposal timing factor. Earlier proposals receive a better factor than late proposals.
 
@@ -399,8 +419,10 @@ Subnet rewards are then calculated from the subnet's emission weight. The reward
 - the subnet owner reward is paid;
 - the subnet delegate-stake reward pool receives its configured share;
 - the remaining subnet-node rewards are distributed by normalized consensus score;
-- validator delegate stake pools and delegate accounts receive their configured shares from node rewards;
-- final node rewards are added to node stake.
+- a validator delegate stake pool with existing shares first receives its configured percentage
+  of that validator's node reward;
+- a configured delegate account then receives its percentage of the remaining node reward;
+- the final remainder is added to node stake.
 
 For each scored validator-class node:
 
@@ -413,7 +435,7 @@ If the canonical score sum is zero but consensus is reached, the proposer reward
 
 ## Reputation Updates
 
-Consensus also drives subnet, validator-identity, and node reputation.
+Settlement of allocated rounds also drives subnet, validator-identity, and node reputation.
 
 When consensus succeeds, proposal contents affect reputation scores only if the proposal is
 identity-verified. At or above the snapshotted identity-supermajority threshold:
@@ -468,24 +490,26 @@ identity_shortfall =
 
 At the threshold the loss is zero; below it, each configured maximum factor is multiplied by the
 shortfall and reaches full severity at 0% identity support. A proposal rejected only because of
-stake support therefore causes no reputation loss when identity support is at least one-third,
-although its existing proposer economic penalties still apply. Several owner-controlled factors
-are resolved for the evaluated subnet epoch so later parameter changes do not rewrite the round.
+stake support therefore causes no reputation loss when identity support is at or above the
+round's snapshotted strong-rejection threshold, although its existing proposer economic penalties
+still apply. Several owner-controlled factors are resolved for the evaluated subnet epoch so later
+parameter changes do not rewrite the round.
 
-Every submitted proposal also records its distinct-validator-identity support in the elected
-validator identity's `average_proposal_identity_support`. `identity_support_samples` counts the
-settled elections represented by that average, including accepted, rejected, and
-reputation-score-neutral submitted proposals. The bounded sample count and arithmetic mean freeze
-together if the count ever reaches `u32::MAX`, so the stored denominator cannot diverge from the
-average. The score counters remain narrower: `total_increases` counts identity-verified accepted
-proposals with a nonzero configured increase factor, and `total_decreases` counts strongly
-identity-rejected proposals with a nonzero effective decrease factor.
+Every allocated submitted proposal that reaches settlement also records its
+distinct-validator-identity support in the elected validator identity's
+`average_proposal_identity_support`. `identity_support_samples` counts the settled allocated
+elections represented by that average, including accepted, rejected, and reputation-score-neutral
+submitted proposals. The bounded sample count and arithmetic mean freeze together if the count
+ever reaches `u32::MAX`, so the stored denominator cannot diverge from the average. The score
+counters remain narrower: `total_increases` counts identity-verified accepted proposals with a
+nonzero configured increase factor, and `total_decreases` counts strongly identity-rejected
+proposals with a nonzero effective decrease factor.
 
 ## Penalties and Slashing
 
-The elected proposer is economically penalized when the proposal fails either quorum. The
-ordinary penalty slashes the elected subnet node's direct stake using the worse normalized
-shortfall among the failed stake and validator-identity thresholds.
+For an allocated submitted round at settlement, if either quorum fails, rewards are skipped. The
+ordinary direct-stake penalty uses the worse normalized ratio shortfall among the failed stake and
+validator-identity participation thresholds.
 
 The shortfall is calculated against the failed threshold:
 
@@ -496,6 +520,10 @@ shortfall = 1 - actual_ratio / required_ratio
 The selected failure ratio and threshold drive the direct-stake penalty only. Submitted-proposal
 node, validator-identity, and subnet reputation losses instead use the distinct-identity
 strong-rejection curve.
+
+The minimum eligible identity-set size is a separate rejection condition, but it does not create
+an artificial ratio shortfall. If every identity in an undersized eligible set attests and the
+stake quorum passes, settlement is rejected while the direct node stake remains unchanged.
 
 The stake slash is:
 
@@ -590,8 +618,8 @@ included among attestors through automatic attestation. Attestors receive no att
 economic slash. If a node's reputation falls below the subnet's minimum, it can be removed from
 the active subnet and election set.
 
-If no proposal is submitted for an epoch where a validator was elected, the pallet treats the
-attestation rate as 0% for both economic formulas. It records a zero
+If no proposal is submitted for an allocated elected round when it reaches settlement, the pallet
+treats the attestation rate as 0% for both economic formulas. It records a zero
 `average_proposal_identity_support` sample, but does not apply the submitted-proposal
 validator-identity or strong-rejection reputation curves. The objective
 `validator_absent_decrease` and `ValidatorAbsentSubnetReputationFactor` penalties apply exactly
@@ -604,11 +632,11 @@ The proposer can include two optional queue decisions:
 - prioritize a queued node by moving it to the front of the queue;
 - remove a queued node that has passed the queue immunity period.
 
-These decisions are validated when submitted and only executed if the proposal's stake-weighted
-attestation ratio is at least the snapshotted supermajority threshold. This queue gate remains
-stake-weighted and is independent of the distinct-identity gate for proposal-derived reputation
-scores and classification. Emergency validator-set consensus cannot mutate the normal
-registration queue.
+These decisions are validated when submitted. During allocated settlement they are executed only
+if the proposal's stake-weighted attestation ratio is at least the snapshotted supermajority
+threshold. This queue gate remains stake-weighted and is independent of the distinct-identity gate
+for proposal-derived reputation scores and classification. Emergency validator-set consensus
+cannot mutate the normal registration queue.
 
 Queue duration and immunity changes become effective at the next subnet epoch. Both periods use the same strict elapsed-period boundary:
 
