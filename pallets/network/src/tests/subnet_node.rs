@@ -14,7 +14,7 @@ use crate::{
     SubnetRegistrationEpochs, SubnetState, TotalActiveNodes, TotalActiveSubnetNodes,
     TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake, TotalSubnetElectableNodes,
     TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorIds,
-    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorIdHotkey,
+    TotalValidatorNodes, UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorIdHotkey,
     ValidatorNodeDelegateStakeWeights, ValidatorReputation, ValidatorSubnetNodes,
 };
 use frame_support::traits::{Currency, ExistenceRequirement};
@@ -183,6 +183,7 @@ fn test_register_subnet_node_enforces_cumulative_validator_node_cap() {
         let mut validator_subnet_nodes = BTreeMap::new();
         validator_subnet_nodes.insert(subnet_id, capped_minus_one_node_ids);
         ValidatorSubnetNodes::<Test>::insert(validator_id, validator_subnet_nodes);
+        TotalValidatorNodes::<Test>::insert(validator_id, validator_node_cap - 1);
 
         assert_ok!(Network::register_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -209,6 +210,10 @@ fn test_register_subnet_node_enforces_cumulative_validator_node_cap() {
                 .map(BTreeSet::len)
                 .sum::<usize>(),
             validator_node_cap as usize
+        );
+        assert_eq!(
+            TotalValidatorNodes::<Test>::get(validator_id),
+            validator_node_cap
         );
         assert_eq!(
             PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id),

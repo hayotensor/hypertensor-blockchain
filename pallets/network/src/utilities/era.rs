@@ -170,9 +170,15 @@ impl<T: Config> Pallet<T> {
         let completed_epoch = CurrentOverwatchEpoch::<T>::get();
         weight = weight.saturating_add(db_weight.reads(1));
 
+        let reveal_stats = ActiveOverwatchRevealStats::<T>::take();
+        weight = weight.saturating_add(db_weight.reads_writes(1, 1));
+
         PendingOverwatchSettlement::<T>::put(PendingOverwatchSettlementData {
             epoch: completed_epoch,
             epoch_length_multiplier: multiplier,
+            reveal_records: reveal_stats.records,
+            revealing_nodes: reveal_stats.revealing_nodes.len() as u32,
+            revealed_subnets: reveal_stats.revealed_subnets.len() as u32,
         });
         CurrentOverwatchEpoch::<T>::put(completed_epoch.saturating_add(1));
 
@@ -409,8 +415,6 @@ impl<T: Config> Pallet<T> {
     /// - Subnet removal triggers are delegated to `try_do_remove_subnet`.
     ///
     pub fn do_epoch_preliminaries(weight_meter: &mut WeightMeter, block: u32, epoch: u32) {
-        let db_weight = T::DbWeight::get();
-
         // Min reputation a subnet can have
         let min_reputation = MinSubnetReputation::<T>::get();
         // Total epochs of the registration phase
@@ -438,28 +442,16 @@ impl<T: Config> Pallet<T> {
         let subnets: Vec<_> = SubnetsData::<T>::iter().collect();
         let total_subnets: u32 = subnets.len() as u32;
 
-        weight_meter.consume(db_weight.reads((10 + total_subnets).into()));
-
         let excess_subnets: bool = total_subnets > max_subnets;
         let mut subnet_delegate_stake: Vec<(u32, u128)> = Vec::new();
 
         if excess_subnets {
             subnet_delegate_stake.reserve(total_subnets as usize);
-            // --- Get expected weight for `subnet_delegate_stake`
-            weight_meter.consume(
-                db_weight.reads(total_subnets as u64)
-                    + Weight::from_parts(5_000 * total_subnets as u64, 0),
-            );
         }
-
-        // Main loop computational overhead
-        weight_meter.consume(Weight::from_parts(1_000 * total_subnets as u64, 0));
 
         for (subnet_id, data) in &subnets {
             // --- Registration logic
             if data.state == SubnetState::Registered {
-                // SubnetRegistrationEpoch
-                weight_meter.consume(db_weight.reads(1));
                 if let Ok(registered_epoch) = SubnetRegistrationEpoch::<T>::try_get(subnet_id) {
                     // --- Do the registration and enactment period math manually instead of using helper functions to avoid duplicate lookups
                     let max_registration_epoch =
@@ -478,8 +470,6 @@ impl<T: Config> Pallet<T> {
                         // - Check min nodes
                         // We don't check delegate stake here because users can continue to stake in this phase
                         let active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
-                        weight_meter.consume(db_weight.reads(1));
-
                         if active_nodes < min_subnet_nodes {
                             Self::try_do_remove_subnet(
                                 weight_meter,
@@ -513,7 +503,6 @@ impl<T: Config> Pallet<T> {
                             None,
                         );
                         SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
-                        weight_meter.consume(db_weight.reads_writes(2, 1));
 
                         if new_subnet_reputation < min_reputation {
                             // --- Remove
@@ -534,7 +523,6 @@ impl<T: Config> Pallet<T> {
                         *subnet_id,
                         TotalSubnetDelegateStakeBalance::<T>::get(subnet_id),
                     ));
-                    weight_meter.consume(db_weight.reads(1));
                 }
                 continue;
             }
@@ -543,7 +531,6 @@ impl<T: Config> Pallet<T> {
             // ordinary health checks until its first post-activation/unpause consensus slot has
             // occurred; checks resume at the following general boundary.
             let current_subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(*subnet_id, block);
-            weight_meter.consume(db_weight.reads(1));
             if !Self::_is_subnet_active_and_live(data, current_subnet_epoch) {
                 continue;
             }
@@ -551,11 +538,9 @@ impl<T: Config> Pallet<T> {
             // --- Activated subnet checks and conditionals
             let min_subnet_delegate_stake_balance =
                 Self::get_min_subnet_delegate_stake_balance(*subnet_id);
-            weight_meter.consume(T::WeightInfo::get_min_subnet_delegate_stake_balance());
 
             let subnet_delegate_stake_balance =
                 TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
-            weight_meter.consume(db_weight.reads(1));
 
             // Remove if below delegate stake requirement
             if subnet_delegate_stake_balance < min_subnet_delegate_stake_balance
@@ -582,12 +567,9 @@ impl<T: Config> Pallet<T> {
                     None,
                 );
                 SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
-                weight_meter.consume(db_weight.reads_writes(2, 1));
             }
 
             let subnet_reputation = SubnetReputation::<T>::get(subnet_id);
-            // TotalSubnetElectableNodes | SubnetReputation
-            weight_meter.consume(db_weight.reads(2));
 
             if subnet_reputation < min_reputation {
                 // --- Remove
@@ -611,14 +593,6 @@ impl<T: Config> Pallet<T> {
         if excess_subnets && !subnet_delegate_stake.is_empty() && is_removal_epoch && can_remove {
             subnet_delegate_stake.sort_by_key(|&(_, value)| value);
 
-            // Account for sorting cost (O(n log n))
-            let sort_items = subnet_delegate_stake.len() as u64;
-            let sort_weight = Weight::from_parts(
-                sort_items * sort_items.ilog2() as u64 * 100, // Approximate O(n log n)
-                0,
-            );
-            weight_meter.consume(sort_weight);
-
             let subnet_id = subnet_delegate_stake[0].0.clone();
             Self::try_do_remove_subnet(weight_meter, subnet_id, SubnetRemovalReason::MaxSubnets);
         }
@@ -631,13 +605,13 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        let (slot_list, emergency) =
-            Self::effective_consensus_validator_ids(subnet_id, subnet_epoch);
+        let (slot_list, emergency, expired_emergency) =
+            Self::resolve_consensus_validator_ids(subnet_id, subnet_epoch);
 
         // Runtime queries use the same resolver without mutating state. Election is a state-changing
         // lifecycle point, so it also performs the cleanup once an emergency set has expired.
-        if !emergency {
-            Self::maybe_finish_expired_emergency_validator_set(subnet_id, subnet_epoch);
+        if expired_emergency {
+            Self::finish_emergency_validator_set(subnet_id);
         }
 
         if slot_list.is_empty() {

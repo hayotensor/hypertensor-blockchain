@@ -64,7 +64,8 @@ impl<T: Config> Pallet<T> {
         let available_slots = T::EpochLength::get()
             .checked_sub(T::DesignatedEpochSlots::get())
             .unwrap_or(0);
-        ensure!(value < available_slots, Error::<T>::InvalidMaxSubnets);
+        let bounded_slots = available_slots.min(T::MaxPhysicalSubnetsUpperBound::get());
+        ensure!(value < bounded_slots, Error::<T>::InvalidMaxSubnets);
 
         MaxSubnets::<T>::set(value);
 
@@ -578,8 +579,10 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_collective_remove_subnet(subnet_id: u32) -> DispatchResultWithPostInfo {
-        let weight = Self::do_remove_subnet(subnet_id, SubnetRemovalReason::Council);
-        Ok(Some(weight).into())
+        let _ = Self::do_remove_subnet(subnet_id, SubnetRemovalReason::Council);
+        // Keep the declared benchmark weight. The manual cleanup accumulator does not include
+        // proof-size or the complete variable-prefix model and is not safe as a refund value.
+        Ok(None.into())
     }
     pub fn do_collective_remove_subnet_node(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
         Self::deposit_event(Event::CollectiveRemoveSubnetNode(subnet_id, subnet_node_id));

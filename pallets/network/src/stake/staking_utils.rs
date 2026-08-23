@@ -244,6 +244,7 @@ impl<T: Config> Pallet<T> {
             queue.try_push(id).map_err(|_| Error::<T>::SwapQueueFull)?;
             Ok(())
         })?;
+        SwapQueueCount::<T>::mutate(|count| *count = count.saturating_add(1));
 
         SwapCallQueue::<T>::insert(&id, &queued_item);
 

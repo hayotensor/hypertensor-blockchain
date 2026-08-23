@@ -19,11 +19,11 @@ use core::str::FromStr;
 use fp_account::EthereumSignature;
 use frame_support::weights::constants::WEIGHT_REF_TIME_PER_MILLIS;
 use frame_support::ConsensusEngineId;
-use frame_support::{derive_impl, parameter_types, traits::Everything, weights::Weight, PalletId};
+use frame_support::{derive_impl, parameter_types, traits::Everything, weights::Weight};
 use frame_system as system;
 use pallet_evm::IdentityAddressMapping;
 use sp_core::H160;
-use sp_core::{ConstU128, ConstU32, H256};
+use sp_core::{ConstU128, H256};
 use sp_runtime::traits::{AccountIdLookup, BlakeTwo256, IdentifyAccount, Verify};
 use sp_runtime::BuildStorage;
 use sp_runtime::Perbill;
@@ -144,13 +144,26 @@ parameter_types! {
     pub const AuthorBlockEmissions: u128 = AUTHOR_BLOCK_EMISSIONS;
 }
 
+pub const AUTHOR_SUBSIDY_WEIGHT: Weight = Weight::from_parts(123_456, 789);
+
+pub struct TestWeightInfo;
+impl WeightInfo for TestWeightInfo {
+    fn on_initialize() -> Weight {
+        AUTHOR_SUBSIDY_WEIGHT
+    }
+}
+
+pub fn mock_author() -> H160 {
+    H160::from_str("1234500000000000000000000000000000000000").unwrap()
+}
+
 pub struct FindAuthorTruncated;
 impl FindAuthor<H160> for FindAuthorTruncated {
     fn find_author<'a, I>(_digests: I) -> Option<H160>
     where
         I: 'a + IntoIterator<Item = (ConsensusEngineId, &'a [u8])>,
     {
-        Some(H160::from_str("1234500000000000000000000000000000000000").unwrap())
+        Some(mock_author())
     }
 }
 
@@ -159,7 +172,7 @@ impl Config for Test {
     type Currency = Balances;
     type FindAuthor = FindAuthorTruncated;
     type AddressMapping = IdentityAddressMapping;
-    type WeightInfo = ();
+    type WeightInfo = TestWeightInfo;
     type AuthorBlockEmissions = AuthorBlockEmissions;
 }
 

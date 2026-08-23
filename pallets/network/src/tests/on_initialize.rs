@@ -353,7 +353,7 @@ fn test_on_initialize() {
                             OverwatchReveal {
                                 subnet_id: *subnet_id,
                                 weight,
-                                salt,
+                                salt: salt.try_into().unwrap(),
                             }
                         })
                         .collect();

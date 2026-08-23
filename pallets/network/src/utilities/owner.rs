@@ -527,21 +527,65 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         subnet_epoch: u32,
     ) -> (Vec<u32>, bool) {
-        let emergency_ids = EmergencySubnetNodeElectionData::<T>::get(subnet_id)
-            .filter(|data| {
-                data.activated
-                    && !Self::is_emergency_validator_set_expired(data, subnet_id, subnet_epoch)
-            })
-            .map(|data| Self::active_emergency_validator_ids(&data, subnet_id, subnet_epoch));
+        let (validator_ids, emergency, _) =
+            Self::resolve_consensus_validator_ids(subnet_id, subnet_epoch);
+        (validator_ids, emergency)
+    }
 
-        let (validator_ids, emergency) = match emergency_ids {
-            Some(validator_ids) => (validator_ids, true),
-            None => (SubnetNodeElectionSlots::<T>::get(subnet_id), false),
-        };
+    /// Return the candidate cardinality used to reserve election weight before election mutates
+    /// storage.
+    ///
+    /// Do not decode `EmergencySubnetNodeElectionData` merely to select a weight: its vector is
+    /// itself variable-sized work that would happen before generated weight is reserved. Callers
+    /// compose this regular cardinality with the separately measured active-emergency and expired
+    /// cleanup branches.
+    pub fn elect_validator_weight_component(subnet_id: u32) -> u32 {
+        let regular_nodes = TotalSubnetElectableNodes::<T>::get(subnet_id);
+        regular_nodes.min(T::MaxSubnetNodesUpperBound::get()).max(3)
+    }
+
+    /// Resolve the effective validator IDs and report whether an activated emergency set expired.
+    ///
+    /// The active emergency IDs are computed at most once. Election uses the third return value to
+    /// perform lifecycle cleanup without re-reading and re-scanning every emergency subnet node.
+    pub fn resolve_consensus_validator_ids(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> (Vec<u32>, bool, bool) {
+        if let Some(data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id) {
+            if data.activated {
+                let expired_by_duration = data.total_epochs
+                    >= data.target_emergency_validators_epochs
+                    || subnet_epoch > data.max_emergency_validators_epoch;
+
+                if !expired_by_duration {
+                    let validator_ids =
+                        Self::active_emergency_validator_ids(&data, subnet_id, subnet_epoch);
+                    if (validator_ids.len() as u32) >= MinSubnetNodes::<T>::get() {
+                        return (
+                            Self::canonicalize_consensus_validator_ids(validator_ids),
+                            true,
+                            false,
+                        );
+                    }
+                }
+
+                return (
+                    Self::canonicalize_consensus_validator_ids(SubnetNodeElectionSlots::<T>::get(
+                        subnet_id,
+                    )),
+                    false,
+                    true,
+                );
+            }
+        }
 
         (
-            Self::canonicalize_consensus_validator_ids(validator_ids),
-            emergency,
+            Self::canonicalize_consensus_validator_ids(SubnetNodeElectionSlots::<T>::get(
+                subnet_id,
+            )),
+            false,
+            false,
         )
     }
 
@@ -1027,18 +1071,52 @@ impl<T: Config> Pallet<T> {
         );
 
         ensure!(
+            validators.len() <= T::MaxRegisteredNodesUpperBound::get() as usize,
+            Error::<T>::InvalidSubnetRegistrationInitialColdkeys
+        );
+
+        ensure!(
             validators.values().all(|&value| value >= 1),
             Error::<T>::InvalidSubnetRegistrationInitialColdkeys
         );
 
-        NodeRegistrationInitialValidatorIds::<T>::mutate(subnet_id, |maybe_validators| {
-            let validators_set = maybe_validators.get_or_insert_with(BTreeMap::new);
-            validators_set.extend(
-                validators
-                    .iter()
-                    .map(|(&validator_id, &max_registrations)| (validator_id, max_registrations)),
-            );
-        });
+        NodeRegistrationInitialValidatorIds::<T>::try_mutate(
+            subnet_id,
+            |maybe_validators| -> DispatchResult {
+                let validators_set = maybe_validators.get_or_insert_with(BTreeMap::new);
+                validators_set.extend(
+                    validators
+                        .iter()
+                        .map(|(&validator_id, &max_registrations)| {
+                            (validator_id, max_registrations)
+                        }),
+                );
+                ensure!(
+                    validators_set.len() <= T::MaxRegisteredNodesUpperBound::get() as usize,
+                    Error::<T>::InvalidSubnetRegistrationInitialColdkeys
+                );
+
+                // Registration counters deliberately survive whitelist removals. Bound the
+                // cumulative identity union so repeatedly rotating whitelist entries cannot grow
+                // `InitialValidatorData` beyond the proof-size domain used by cleanup weights.
+                let tracked_validators = InitialValidatorData::<T>::get(subnet_id);
+                let cumulative_identity_count = validators_set
+                    .keys()
+                    .chain(
+                        tracked_validators
+                            .iter()
+                            .flat_map(|registrations| registrations.keys()),
+                    )
+                    .copied()
+                    .collect::<BTreeSet<_>>()
+                    .len();
+                ensure!(
+                    cumulative_identity_count <= T::MaxRegisteredNodesUpperBound::get() as usize,
+                    Error::<T>::InvalidSubnetRegistrationInitialColdkeys
+                );
+                Ok(())
+            },
+        )?;
 
         Self::deposit_event(Event::AddSubnetRegistrationInitialValidators {
             subnet_id: subnet_id,
@@ -1064,6 +1142,13 @@ impl<T: Config> Pallet<T> {
         ensure!(
             Self::is_subnet_registered(subnet_id).unwrap_or(false),
             Error::<T>::SubnetMustBeRegistering
+        );
+
+        // A fixed-weight call must reject an oversized caller-supplied set before its removal
+        // loop, including when every supplied validator ID is absent from the stored whitelist.
+        ensure!(
+            validators.len() <= T::MaxRegisteredNodesUpperBound::get() as usize,
+            Error::<T>::InvalidSubnetRegistrationInitialColdkeys
         );
 
         NodeRegistrationInitialValidatorIds::<T>::mutate(subnet_id, |maybe_validators| {

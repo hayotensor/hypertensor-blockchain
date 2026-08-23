@@ -5,6 +5,8 @@
 // contains a mock runtime specific for testing this pallet's functionality.
 #[cfg(test)]
 mod mock;
+#[cfg(test)]
+mod tests;
 
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
@@ -27,7 +29,6 @@ pub mod pallet {
     // Import various useful types required by all FRAME pallets.
     use super::*;
     use frame_support::pallet_prelude::*;
-    use frame_system::pallet_prelude::*;
 
     pub type BalanceOf<T> =
         <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
@@ -86,15 +87,14 @@ pub mod pallet {
             let block_reward_as_u128 = T::AuthorBlockEmissions::get();
             let block_reward = block_reward_as_u128.saturated_into::<BalanceOf<T>>();
 
-            T::Currency::deposit_creating(&account_id, block_reward);
+            drop(T::Currency::deposit_creating(&account_id, block_reward));
 
             Self::deposit_event(Event::AuthorSubsidy {
                 who: account_id,
                 subsidy: block_reward_as_u128,
             });
 
-            Weight::from_parts(0, 0)
-            // T::WeightInfo::on_initialize()
+            T::WeightInfo::on_initialize()
         }
     }
 }

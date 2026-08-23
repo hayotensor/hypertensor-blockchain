@@ -7,20 +7,21 @@ use crate::{
     ConsensusValidatorStakeWeightPowerUpdateInterval, EmergencySubnetNodeElectionData,
     EmergencySubnetValidatorData, EmergencyValidatorCooldownEpochs, Error,
     FinalSubnetEmissionWeights, IdleClassificationEpochs, IncludedClassificationEpochs,
-    LastConsensusValidatorNodeCountDecayUpdate, LastConsensusValidatorStakeWeightPowerUpdate,
-    LastEmergencyValidatorEndEpoch, LastSubnetDelegateStakeRewardsUpdate, MaxChurnLimit,
-    MaxChurnLimitMultiplier, MaxConsensusValidatorStakeWeightPower, MaxDelegateStakePercentage,
-    MaxEmergencySubnetNodes, MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs,
-    MaxMaxRegisteredNodes, MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetBootnodeAccess,
-    MaxSubnetMinStake, MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes,
-    MaxSubnets, MinChurnLimit, MinChurnLimitMultiplier, MinConsensusValidatorStakeWeightPower,
-    MinDelegateStakePercentage, MinIdleClassificationEpochs, MinIncludedClassificationEpochs,
-    MinMaxRegisteredNodes, MinNodeReputationFactor, MinQueueEpochs, MinSubnetMinStake,
-    MinSubnetNodeReputation, MinSubnetNodes, NetworkMaxStakeBalance, NodeBurnRateAlpha,
-    NodeRegistrationInitialValidatorIds, PeerInfo, PendingConsensusValidatorNodeCountDecay,
-    PendingConsensusValidatorStakeWeightPower, PendingIdleClassificationEpochs,
-    PendingIncludedClassificationEpochs, PendingMinSubnetNodeReputation,
-    PendingQueueImmunityEpochs, PendingSubnetDelegateStakeRewardsPercentage,
+    InitialValidatorData, LastConsensusValidatorNodeCountDecayUpdate,
+    LastConsensusValidatorStakeWeightPowerUpdate, LastEmergencyValidatorEndEpoch,
+    LastSubnetDelegateStakeRewardsUpdate, MaxChurnLimit, MaxChurnLimitMultiplier,
+    MaxConsensusValidatorStakeWeightPower, MaxDelegateStakePercentage, MaxEmergencySubnetNodes,
+    MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes,
+    MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetBootnodeAccess, MaxSubnetMinStake,
+    MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnets, MinChurnLimit,
+    MinChurnLimitMultiplier, MinConsensusValidatorStakeWeightPower, MinDelegateStakePercentage,
+    MinIdleClassificationEpochs, MinIncludedClassificationEpochs, MinMaxRegisteredNodes,
+    MinNodeReputationFactor, MinQueueEpochs, MinSubnetMinStake, MinSubnetNodeReputation,
+    MinSubnetNodes, NetworkMaxStakeBalance, NodeBurnRateAlpha, NodeRegistrationInitialValidatorIds,
+    PeerInfo, PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
+    PendingIdleClassificationEpochs, PendingIncludedClassificationEpochs,
+    PendingMinSubnetNodeReputation, PendingQueueImmunityEpochs,
+    PendingSubnetDelegateStakeRewardsPercentage,
     PendingSubnetNodeMinWeightDecreaseReputationThreshold, PendingSubnetNodeQueueEpochs,
     PendingSubnetOwner, QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetBootnodeAccess,
     SubnetData, SubnetDelegateStakeRewardsPercentage, SubnetDelegateStakeRewardsUpdatePeriod,
@@ -33,7 +34,10 @@ use crate::{
     TotalElectableNodes, TotalSubnetElectableNodes,
 };
 use codec::Decode;
-use frame_support::{assert_err, assert_ok, traits::Hooks};
+use frame_support::{
+    assert_err, assert_ok,
+    traits::{Get, Hooks},
+};
 use sp_core::OpaquePeerId as PeerId;
 use sp_runtime::traits::TrailingZeroInput;
 use sp_runtime::BoundedVec;
@@ -3306,6 +3310,140 @@ fn test_owner_add_initial_validators_invalid_registration_slots() {
         );
 
         assert!(NodeRegistrationInitialValidatorIds::<Test>::get(subnet_id).is_none());
+    });
+}
+
+#[test]
+fn test_owner_add_initial_validators_rejects_oversized_input_before_mutation() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        let owner = account(1);
+        SubnetsData::<Test>::insert(
+            subnet_id,
+            SubnetData {
+                id: subnet_id,
+                friendly_id: subnet_id,
+                name: b"bounded-initial-validators".to_vec(),
+                repo: b"bounded-initial-validators".to_vec(),
+                description: Vec::new(),
+                misc: Vec::new(),
+                consensus_mechanism: Default::default(),
+                state: SubnetState::Registered,
+                consensus_eligible_from_subnet_epoch: None,
+                pause: None,
+            },
+        );
+        SubnetOwner::<Test>::insert(subnet_id, owner);
+        let original = BTreeMap::from([(1, 1)]);
+        NodeRegistrationInitialValidatorIds::<Test>::insert(subnet_id, &original);
+        let oversized: BTreeMap<u32, u32> = (1..=NetworkMaxRegisteredNodesUpperBound::get()
+            .saturating_add(1))
+            .map(|validator_id| (validator_id, 1))
+            .collect();
+
+        assert_err!(
+            Network::owner_add_or_update_initial_validators(
+                RuntimeOrigin::signed(owner),
+                subnet_id,
+                oversized,
+            ),
+            Error::<Test>::InvalidSubnetRegistrationInitialColdkeys
+        );
+        assert_eq!(
+            NodeRegistrationInitialValidatorIds::<Test>::get(subnet_id),
+            Some(original)
+        );
+    });
+}
+
+#[test]
+fn test_owner_initial_validator_rotation_cannot_grow_tracking_union() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        let owner = account(1);
+        SubnetsData::<Test>::insert(
+            subnet_id,
+            SubnetData {
+                id: subnet_id,
+                friendly_id: subnet_id,
+                name: b"bounded-validator-rotation".to_vec(),
+                repo: b"bounded-validator-rotation".to_vec(),
+                description: Vec::new(),
+                misc: Vec::new(),
+                consensus_mechanism: Default::default(),
+                state: SubnetState::Registered,
+                consensus_eligible_from_subnet_epoch: None,
+                pause: None,
+            },
+        );
+        SubnetOwner::<Test>::insert(subnet_id, owner);
+
+        let tracked: BTreeMap<u32, u32> = (1..=NetworkMaxRegisteredNodesUpperBound::get())
+            .map(|validator_id| (validator_id, 1))
+            .collect();
+        InitialValidatorData::<Test>::insert(subnet_id, &tracked);
+        let current: BTreeMap<u32, u32> = (2..=NetworkMaxRegisteredNodesUpperBound::get())
+            .map(|validator_id| (validator_id, 1))
+            .collect();
+        NodeRegistrationInitialValidatorIds::<Test>::insert(subnet_id, &current);
+        let replacement_id = NetworkMaxRegisteredNodesUpperBound::get().saturating_add(1);
+
+        assert_err!(
+            Network::owner_add_or_update_initial_validators(
+                RuntimeOrigin::signed(owner),
+                subnet_id,
+                BTreeMap::from([(replacement_id, 1)]),
+            ),
+            Error::<Test>::InvalidSubnetRegistrationInitialColdkeys
+        );
+        assert_eq!(
+            NodeRegistrationInitialValidatorIds::<Test>::get(subnet_id),
+            Some(current)
+        );
+        assert_eq!(InitialValidatorData::<Test>::get(subnet_id), Some(tracked));
+    });
+}
+
+#[test]
+fn test_owner_remove_initial_validators_rejects_oversized_input() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        let owner = account(1);
+        SubnetsData::<Test>::insert(
+            subnet_id,
+            SubnetData {
+                id: subnet_id,
+                friendly_id: subnet_id,
+                name: b"bounded-validator-removal".to_vec(),
+                repo: b"bounded-validator-removal".to_vec(),
+                description: Vec::new(),
+                misc: Vec::new(),
+                consensus_mechanism: Default::default(),
+                state: SubnetState::Registered,
+                consensus_eligible_from_subnet_epoch: None,
+                pause: None,
+            },
+        );
+        SubnetOwner::<Test>::insert(subnet_id, owner);
+        let original: BTreeMap<u32, u32> = (1..=NetworkMaxRegisteredNodesUpperBound::get())
+            .map(|validator_id| (validator_id, 1))
+            .collect();
+        NodeRegistrationInitialValidatorIds::<Test>::insert(subnet_id, &original);
+        let oversized =
+            (1..=NetworkMaxRegisteredNodesUpperBound::get().saturating_add(1)).collect();
+
+        assert_err!(
+            Network::owner_remove_initial_validators(
+                RuntimeOrigin::signed(owner),
+                subnet_id,
+                oversized,
+            ),
+            Error::<Test>::InvalidSubnetRegistrationInitialColdkeys
+        );
+        assert_eq!(
+            NodeRegistrationInitialValidatorIds::<Test>::get(subnet_id),
+            Some(original)
+        );
     });
 }
 

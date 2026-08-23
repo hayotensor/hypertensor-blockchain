@@ -29,3 +29,12 @@ mod test_utils;
 mod unbonding;
 mod validator;
 mod validator_delegate_staking;
+
+#[test]
+fn physical_subnet_upper_bound_respects_epoch_capacity_and_benchmark_domain() {
+    assert_eq!(crate::physical_subnet_upper_bound(3), 0);
+    assert_eq!(crate::physical_subnet_upper_bound(4), 1);
+    assert_eq!(crate::physical_subnet_upper_bound(10), 7);
+    assert_eq!(crate::physical_subnet_upper_bound(20), 17);
+    assert_eq!(crate::physical_subnet_upper_bound(100), 17);
+}

@@ -300,7 +300,7 @@ fn test_set_max_subnets() {
     new_test_ext().execute_with(|| {
         System::set_block_number(System::block_number() + 1);
 
-        let new_value: u32 = 20;
+        let new_value = NetworkMaxPhysicalSubnetsUpperBound::get().saturating_sub(1);
 
         assert_ok!(Network::set_max_subnets(
             RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
@@ -319,7 +319,9 @@ fn test_set_max_subnets() {
 fn test_set_max_subnets_reserves_slot_for_rotation_subnet() {
     new_test_ext().execute_with(|| {
         let physical_subnet_slots = EpochLength::get().saturating_sub(DesignatedEpochSlots::get());
-        let largest_valid_max = physical_subnet_slots.saturating_sub(1);
+        let bounded_subnet_slots =
+            physical_subnet_slots.min(NetworkMaxPhysicalSubnetsUpperBound::get());
+        let largest_valid_max = bounded_subnet_slots.saturating_sub(1);
         let collective_origin = || RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5));
 
         assert_ok!(Network::set_max_subnets(
@@ -328,9 +330,9 @@ fn test_set_max_subnets_reserves_slot_for_rotation_subnet() {
         ));
         assert_eq!(MaxSubnets::<Test>::get(), largest_valid_max);
 
-        // The physical slot count itself would leave no slot for the documented n+1 rotation.
+        // The configured physical bound itself leaves no slot for the documented n+1 rotation.
         assert_err!(
-            Network::set_max_subnets(collective_origin(), physical_subnet_slots),
+            Network::set_max_subnets(collective_origin(), bounded_subnet_slots),
             Error::<Test>::InvalidMaxSubnets
         );
         assert_eq!(MaxSubnets::<Test>::get(), largest_valid_max);
@@ -569,9 +571,10 @@ fn test_set_parameter_with_invalid_origin_fails() {
 fn test_multiple_parameter_updates() {
     new_test_ext().execute_with(|| {
         // Update multiple parameters in sequence
+        let new_max_subnets = NetworkMaxPhysicalSubnetsUpperBound::get().saturating_sub(2);
         assert_ok!(Network::set_max_subnets(
             RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-            25
+            new_max_subnets
         ));
 
         assert_ok!(Network::set_max_pause_epochs(
@@ -585,7 +588,7 @@ fn test_multiple_parameter_updates() {
         ));
 
         // Verify all updated
-        assert_eq!(MaxSubnets::<Test>::get(), 25);
+        assert_eq!(MaxSubnets::<Test>::get(), new_max_subnets);
         assert_eq!(MaxSubnetPauseEpochs::<Test>::get(), 120);
         assert_eq!(BaseValidatorReward::<Test>::get(), 60000000000000000);
     });

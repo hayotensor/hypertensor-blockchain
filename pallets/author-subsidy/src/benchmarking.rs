@@ -12,27 +12,17 @@
 
 #![cfg(feature = "runtime-benchmarks")]
 use super::*;
-
-#[allow(unused)]
-use crate::Pallet as Network;
-use crate::*;
+#[allow(unused_imports)]
+use crate::Pallet as AuthorSubsidy;
 use frame_benchmarking::v2::*;
+use frame_support::{
+    sp_runtime::traits::{SaturatedConversion, Saturating},
+    traits::{Currency, FindAuthor, Get, Hooks},
+};
+use pallet_evm::AddressMapping;
 
-const SEED: u32 = 0;
-
-pub type BalanceOf<T> = <T as Config>::Currency;
-
-fn get_account<T: Config>(name: &'static str, index: u32) -> T::AccountId {
-    let caller: T::AccountId = account(name, index, SEED);
-    caller
-}
-
-pub fn u128_to_balance<T: frame_system::Config + pallet::Config>(
-    input: u128,
-) -> Option<
-    <<T as pallet::Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance,
-> {
-    input.try_into().ok()
+fn assert_last_event<T: Config>(event: <T as Config>::RuntimeEvent) {
+    frame_system::Pallet::<T>::assert_last_event(event.into());
 }
 
 #[benchmarks]
@@ -41,23 +31,39 @@ mod benchmarks {
 
     #[benchmark]
     fn on_initialize() {
+        let block_number = 1u32.into();
+        frame_system::Pallet::<T>::set_block_number(block_number);
+
+        let digest = frame_system::Pallet::<T>::digest();
+        let author =
+            T::FindAuthor::find_author(digest.logs.iter().filter_map(|item| item.as_pre_runtime()))
+                .unwrap_or_default();
+        let who = T::AddressMapping::into_account_id(author);
+        let balance_before = T::Currency::free_balance(&who);
+        let subsidy_u128 = T::AuthorBlockEmissions::get();
+        let subsidy: BalanceOf<T> = subsidy_u128.saturated_into();
+
         #[block]
         {
-            let digest = frame_system::Pallet::<T>::digest();
-            let pre_runtime_digests = digest.logs.iter().filter_map(|d| d.as_pre_runtime());
-            let author = T::FindAuthor::find_author(pre_runtime_digests).unwrap_or_default();
-            let account_id = T::AddressMapping::into_account_id(author);
-
-            let block_reward_as_u128 = T::AuthorBlockEmissions::get();
-            let block_reward = u128_to_balance::<T>(block_reward_as_u128);
-
-            T::Currency::deposit_creating(&account_id, block_reward.unwrap());
+            let _ = Pallet::<T>::on_initialize(block_number);
         }
+
+        assert_eq!(
+            T::Currency::free_balance(&who),
+            balance_before.saturating_add(subsidy)
+        );
+        assert_last_event::<T>(
+            Event::<T>::AuthorSubsidy {
+                who,
+                subsidy: subsidy_u128,
+            }
+            .into(),
+        );
     }
 
     impl_benchmark_test_suite!(
         AuthorSubsidy,
-        tests::mock::new_test_ext(),
-        tests::mock::Test
+        crate::mock::new_test_ext(),
+        crate::mock::Test
     );
 }

@@ -151,9 +151,6 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        let should_clean_validator_subnet_nodes =
-            !is_subnet_node && stake_to_be_removed >= node_stake_balance;
-
         // --- Ensure that we can convert this u128 to a balance.
         match Self::u128_to_balance(stake_to_be_removed) {
             Some(b) => b,
@@ -173,11 +170,6 @@ impl<T: Config> Pallet<T> {
             cooldown_blocks,
             block,
         )?;
-
-        // Clean up validator subnet nodes from `ValidatorSubnetNodes`
-        if should_clean_validator_subnet_nodes {
-            Self::clean_validator_subnet_nodes(validator_id);
-        }
 
         // --- 7. We remove the balance from the subnet_node_id.
         Self::decrease_node_stake(subnet_node_id, subnet_id, stake_to_be_removed);

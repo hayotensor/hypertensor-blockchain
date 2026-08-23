@@ -971,11 +971,11 @@ impl<T: Config> Pallet<T> {
         .unwrap_or(false)
     }
 
-    pub fn remove_active_subnet_node(subnet_id: u32, subnet_node_id: u32) {
+    pub fn remove_active_subnet_node(subnet_id: u32, subnet_node_id: u32) -> bool {
         let subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::take(subnet_id, subnet_node_id)
         } else {
-            return;
+            return false;
         };
 
         Self::common_remove_subnet_node(subnet_id, subnet_node_id, subnet_node.clone());
@@ -998,6 +998,7 @@ impl<T: Config> Pallet<T> {
                 data.subnet_node_ids.retain(|&id| id != subnet_node_id);
             }
         });
+        true
     }
 
     pub fn remove_registered_subnet_node(subnet_id: u32, subnet_node_id: u32) {
@@ -1061,6 +1062,9 @@ impl<T: Config> Pallet<T> {
                 }
             }
         });
+        TotalValidatorNodes::<T>::mutate(subnet_node.validator_id, |count| {
+            *count = count.saturating_sub(1)
+        });
         Self::remove_validator_node_delegate_stake_weight(
             subnet_node.validator_id,
             subnet_id,
@@ -1105,47 +1109,73 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Return a conservative dispatch weight for either node-removal branch.
+    /// Select a reachable worst-case active-removal model. A live emergency set contains only
+    /// existing electable Validator nodes, so its cardinality is at most e: small elections use
+    /// m=e, while larger elections use the protocol emergency cap of 64.
+    pub fn active_subnet_node_removal_weight(validator_nodes: u32, election_nodes: u32) -> Weight {
+        let n = validator_nodes.clamp(1, 512);
+        let e = election_nodes.clamp(3, 512);
+        if e < 64 {
+            T::WeightInfo::remove_active_subnet_node_small(n, e)
+        } else if e == 64 {
+            T::WeightInfo::remove_active_subnet_node_small(n, e)
+                .max(T::WeightInfo::remove_active_subnet_node_large(n, e))
+        } else {
+            T::WeightInfo::remove_active_subnet_node_large(n, e)
+        }
+    }
+
+    /// Dispatch-time counterpart of `active_subnet_node_removal_weight`. These generated models
+    /// include the storage reads used by the call-weight selector and the extra presence checks in
+    /// `perform_remove_subnet_node`; internal consensus cleanup uses the operation-only model.
+    fn active_subnet_node_dispatch_weight(validator_nodes: u32, election_nodes: u32) -> Weight {
+        let n = validator_nodes.clamp(1, 512);
+        let e = election_nodes.clamp(3, 512);
+        if e < 64 {
+            T::WeightInfo::remove_active_subnet_node_dispatch_small(n, e)
+        } else if e == 64 {
+            T::WeightInfo::remove_active_subnet_node_dispatch_small(n, e).max(
+                T::WeightInfo::remove_active_subnet_node_dispatch_large(n, e),
+            )
+        } else {
+            T::WeightInfo::remove_active_subnet_node_dispatch_large(n, e)
+        }
+    }
+
+    /// Return a conservative weight for either node-removal branch, including the reads needed
+    /// to select it. Dispatchables add this to their separately benchmarked origin/auth wrapper;
+    /// internal callers which already know the branch continue to charge the branch model only.
     ///
     /// The active and registered paths scale along different bounded storage dimensions. Reading
     /// those dimensions before dispatch lets the call use the generated `Linear` models rather
     /// than the fixed four-node fixture used by the baseline extrinsic benchmark.
-    pub fn remove_subnet_node_dispatch_weight(subnet_id: u32, subnet_node_id: u32) -> Weight {
-        let db_reads = T::DbWeight::get().reads(4);
-        let baseline = T::WeightInfo::remove_subnet_node();
-        let maximum_branch = T::WeightInfo::remove_active_subnet_node(17, 512, 512)
-            .max(T::WeightInfo::remove_registered_subnet_node(17, 64, 512));
+    pub fn remove_subnet_node_branch_weight(subnet_id: u32, subnet_node_id: u32) -> Weight {
+        let maximum_active = T::WeightInfo::remove_active_subnet_node_dispatch_small(512, 64).max(
+            T::WeightInfo::remove_active_subnet_node_dispatch_large(512, 512),
+        );
+        let maximum_branch = maximum_active.max(
+            T::WeightInfo::remove_registered_subnet_node_dispatch(512, 64),
+        );
 
         let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) else {
-            return baseline.max(maximum_branch).saturating_add(db_reads);
+            return maximum_branch;
         };
 
-        let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
-        let subnet_count = (validator_subnet_nodes.len() as u32).clamp(1, 17);
-        let validator_nodes_in_subnet = validator_subnet_nodes
-            .get(&subnet_id)
-            .map(|nodes| nodes.len() as u32)
-            .unwrap_or(1)
-            .clamp(1, 512);
+        let validator_nodes = TotalValidatorNodes::<T>::get(validator_id).clamp(1, 512);
 
         let branch_weight = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
-            let election_slots =
-                (SubnetNodeElectionSlots::<T>::get(subnet_id).len() as u32).clamp(3, 512);
-            T::WeightInfo::remove_active_subnet_node(
-                subnet_count,
-                election_slots,
-                validator_nodes_in_subnet,
-            )
+            // Avoid decoding variable-sized election/emergency vectors in the weight selector.
+            let election_nodes = TotalSubnetElectableNodes::<T>::get(subnet_id);
+            Self::active_subnet_node_dispatch_weight(validator_nodes, election_nodes)
         } else {
-            let queue_len = (SubnetNodeQueue::<T>::get(subnet_id).len() as u32).clamp(1, 64);
-            T::WeightInfo::remove_registered_subnet_node(
-                subnet_count,
-                queue_len,
-                validator_nodes_in_subnet,
-            )
+            let active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
+            let registered_nodes = TotalSubnetNodes::<T>::get(subnet_id)
+                .saturating_sub(active_nodes)
+                .clamp(1, 64);
+            T::WeightInfo::remove_registered_subnet_node_dispatch(validator_nodes, registered_nodes)
         };
 
-        baseline.max(branch_weight).saturating_add(db_reads)
+        branch_weight
     }
 
     // pub fn get_subnet_node(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNode<T>> {
@@ -1403,6 +1433,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn clean_validator_subnet_nodes(validator_id: u32) {
         let mut subnets_to_remove: Vec<u32> = Vec::new();
+        let mut removed_nodes = 0u32;
 
         ValidatorSubnetNodes::<T>::mutate(validator_id, |map| {
             // Collect subnet_ids to remove (invalid subnets)
@@ -1414,14 +1445,20 @@ impl<T: Config> Pallet<T> {
 
             // Remove invalid subnets
             for subnet_id in &subnets_to_remove {
-                map.remove(subnet_id);
+                if let Some(nodes) = map.remove(subnet_id) {
+                    removed_nodes = removed_nodes.saturating_add(nodes.len() as u32);
+                }
             }
-            // Note: We don't check for node IDs because this is handled in `perform_remove_subnet_node`
-            // Why: ValidatorSubnetNodes is not cleaned when a subnet is removed
-            // If a subnet itself is removed/deactivated, then this function will handle non-existing subnet IDs as keys
+            // Individual node IDs are maintained by `perform_remove_subnet_node`; whole-subnet
+            // removal eagerly removes this subnet key in `clean_subnet_nodes`. Keep this repair for
+            // callers that can observe an incomplete lifecycle transition, but do not put it on
+            // weight paths parameterized only by the caller's post-clean node count.
         });
 
         if !subnets_to_remove.is_empty() {
+            TotalValidatorNodes::<T>::mutate(validator_id, |count| {
+                *count = count.saturating_sub(removed_nodes)
+            });
             Self::normalize_validator_node_delegate_stake_weights(validator_id);
         }
     }

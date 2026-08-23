@@ -307,6 +307,14 @@ impl<T: Config> Pallet<T> {
         Self::ensure_subnet_repo_bounded(&subnet_registration_data.repo)?;
         Self::ensure_subnet_description_bounded(&subnet_registration_data.description)?;
         Self::ensure_subnet_misc_bounded(&subnet_registration_data.misc)?;
+        // Check the caller-controlled map cardinality before any later path iterates its values.
+        // The stored whitelist and `InitialValidatorData` are removed as whole values, so their
+        // proof size must remain within the same compile-time domain used by removal benchmarks.
+        ensure!(
+            subnet_registration_data.initial_validators.len()
+                <= T::MaxRegisteredNodesUpperBound::get() as usize,
+            Error::<T>::InvalidSubnetRegistrationInitialColdkeys
+        );
         Self::ensure_bootnodes_bounded(&subnet_registration_data.bootnodes)
     }
 

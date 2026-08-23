@@ -228,6 +228,36 @@ fn test_register_subnet_rejects_oversized_native_metadata() {
 }
 
 #[test]
+fn test_register_subnet_rejects_too_many_initial_validator_identities() {
+    new_test_ext().execute_with(|| {
+        increase_epochs(1);
+
+        let mut add_subnet_data = default_registration_subnet_data(
+            TotalActiveSubnets::<Test>::get() + 1,
+            MaxSubnetNodes::<Test>::get(),
+            b"subnet-name".to_vec(),
+            0,
+            MinSubnetNodes::<Test>::get() + 1,
+        );
+        add_subnet_data.initial_validators = (1..=NetworkMaxRegisteredNodesUpperBound::get()
+            .saturating_add(1))
+            .map(|validator_id| (validator_id, 1))
+            .collect();
+        let total_subnet_uids_before = TotalSubnetUids::<Test>::get();
+
+        assert_err!(
+            Network::register_subnet(
+                RuntimeOrigin::signed(account(0)),
+                u128::MAX,
+                add_subnet_data,
+            ),
+            Error::<Test>::InvalidSubnetRegistrationInitialColdkeys
+        );
+        assert_eq!(TotalSubnetUids::<Test>::get(), total_subnet_uids_before);
+    })
+}
+
+#[test]
 fn test_register_subnet_respects_global_registration_whitelist() {
     new_test_ext().execute_with(|| {
         increase_epochs(1);

@@ -22,14 +22,15 @@ use crate::{
     TotalActiveSubnets, TotalNodes, TotalOverwatchNodeStakeBalance, TotalOverwatchNodeUids,
     TotalOverwatchNodes, TotalStake, TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids,
     TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorDelegateStakeBalance,
-    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey, ValidatorData,
-    ValidatorDelegateStakeBalance, ValidatorIdHotkey, ValidatorReputation, ValidatorSubnetNodes,
-    ValidatorsData,
+    TotalValidatorNodes, UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey,
+    ValidatorData, ValidatorDelegateStakeBalance, ValidatorIdHotkey, ValidatorReputation,
+    ValidatorSubnetNodes, ValidatorsData,
 };
 use fp_account::AccountId20;
 use frame_support::assert_ok;
 use frame_support::storage::bounded_vec::BoundedVec;
 use frame_support::traits::{Currency, ExistenceRequirement, Hooks};
+use frame_support::weights::WeightMeter;
 use sp_core::keccak_256;
 use sp_core::OpaquePeerId as PeerId;
 use sp_core::H160;
@@ -288,13 +289,17 @@ pub fn build_activated_subnet(
     if end == 0 {
         end = min_nodes;
     }
+    let initial_end = start.saturating_add(
+        end.saturating_sub(start)
+            .min(<Test as crate::Config>::MaxRegisteredNodesUpperBound::get()),
+    );
 
     let add_subnet_data: RegistrationSubnetData<Test> = default_registration_subnet_data(
         subnet_id_key_offset,
         max_subnet_nodes,
         subnet_name.clone().into(),
         start,
-        end,
+        initial_end,
     );
 
     // --- Register subnet for activation
@@ -324,7 +329,7 @@ pub fn build_activated_subnet(
     let block_number = System::block_number();
     let mut amount_staked = 0;
     let burn_amount = Network::calculate_burn_amount(subnet_id);
-    for n in start..end {
+    for n in start..initial_end {
         let _n = n + 1;
 
         // Register or get validator first
@@ -487,7 +492,7 @@ pub fn build_activated_subnet(
     }
 
     let total_nodes = TotalActiveSubnetNodes::<Test>::get(subnet_id);
-    assert_eq!(total_nodes, end);
+    assert_eq!(total_nodes, initial_end.saturating_sub(start));
 
     let slot_list = SubnetNodeElectionSlots::<Test>::get(subnet_id);
     assert_eq!(slot_list.len(), total_nodes as usize);
@@ -543,6 +548,129 @@ pub fn build_activated_subnet(
 
     let subnet = SubnetsData::<Test>::get(subnet_id).unwrap();
     assert_eq!(subnet.state, SubnetState::Active);
+
+    // Registration may whitelist at most 64 identities, but an Active subnet can later grow to
+    // its full node bound with distinct validators. Build that reachable suffix after activation
+    // instead of folding every node onto the initial identities: reward and consensus tests rely
+    // on the live validator-identity cardinality, not merely the node count.
+    for n in initial_end..end {
+        let node_index = n.saturating_add(1);
+        let expected_validator_id = node_index;
+        let coldkey = if let Some(coldkey) = ValidatorColdkey::<Test>::get(expected_validator_id) {
+            coldkey
+        } else {
+            let coldkey = get_coldkey(
+                subnet_id_key_offset,
+                max_subnet_nodes,
+                expected_validator_id,
+            );
+            let hotkey = get_hotkey(
+                subnet_id_key_offset,
+                max_subnet_nodes,
+                max_subnets,
+                expected_validator_id,
+            );
+            assert_ok!(Network::register_validator(
+                RuntimeOrigin::signed(coldkey.clone()),
+                hotkey,
+                test_percent(1, 20),
+                None,
+                None,
+            ));
+            coldkey
+        };
+        let validator_id = ColdkeyValidatorId::<Test>::get(&coldkey).unwrap();
+        assert_eq!(validator_id, expected_validator_id);
+
+        let peer_id = get_peer_id(
+            subnet_id_key_offset,
+            max_subnet_nodes,
+            max_subnets,
+            node_index,
+        );
+        let bootnode_peer_id = get_bootnode_peer_id(
+            subnet_id_key_offset,
+            max_subnet_nodes,
+            max_subnets,
+            node_index,
+        );
+        let client_peer_id = get_client_peer_id(
+            subnet_id_key_offset,
+            max_subnet_nodes,
+            max_subnets,
+            node_index,
+        );
+        if Balances::free_balance(&alice) <= amount {
+            let _ = Balances::deposit_creating(&alice, amount + 500);
+        }
+        assert_ok!(Balances::transfer(
+            &alice,
+            &coldkey,
+            amount + burn_amount + 500,
+            ExistenceRequirement::KeepAlive,
+        ));
+        assert_ok!(Network::register_subnet_node(
+            RuntimeOrigin::signed(coldkey),
+            validator_id,
+            subnet_id,
+            None,
+            Some(PeerInfo::<Test> {
+                peer_id,
+                multiaddr: get_multiaddr(Some(subnet_id), Some(node_index), None),
+            }),
+            Some(PeerInfo::<Test> {
+                peer_id: bootnode_peer_id,
+                multiaddr: get_multiaddr(Some(subnet_id), Some(node_index), Some(1)),
+            }),
+            Some(PeerInfo::<Test> {
+                peer_id: client_peer_id,
+                multiaddr: get_multiaddr(Some(subnet_id), Some(node_index), Some(2)),
+            }),
+            amount,
+            None,
+            None,
+            u128::MAX,
+        ));
+        amount_staked = amount_staked.saturating_add(amount);
+
+        let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
+        assert_eq!(subnet_node_id, node_index);
+        let queued_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
+        let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        assert!(Network::do_activate_subnet_node(
+            &mut WeightMeter::new(),
+            validator_id,
+            subnet_id,
+            SubnetState::Active,
+            queued_node,
+            current_subnet_epoch,
+            true,
+        ));
+        SubnetNodeQueue::<Test>::mutate(subnet_id, |queue| {
+            queue.retain(|node| node.id != subnet_node_id)
+        });
+        assert!(Network::graduate_class(
+            subnet_id,
+            subnet_node_id,
+            current_subnet_epoch,
+        ));
+        assert!(Network::graduate_to_validator_class(
+            subnet_id,
+            subnet_node_id,
+            current_subnet_epoch,
+        ));
+    }
+
+    assert_eq!(
+        TotalActiveSubnetNodes::<Test>::get(subnet_id),
+        end.saturating_sub(start)
+    );
+    assert_eq!(
+        TotalSubnetNodes::<Test>::get(subnet_id),
+        end.saturating_sub(start)
+    );
+    assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id).len(), 0);
+    assert_eq!(TotalSubnetStake::<Test>::get(subnet_id), amount_staked);
 }
 
 pub fn build_activated_subnet_new_excess_subnets(
@@ -622,7 +750,7 @@ pub fn build_activated_subnet_new_excess_subnets(
     let burn_amount = Network::calculate_burn_amount(subnet_id);
     for n in start..end {
         let _n = n + 1;
-        let expected_validator_id = _n;
+        let expected_validator_id = bounded_initial_validator_id(start, end, n);
         let coldkey = if let Some(v_coldkey) = ValidatorColdkey::<Test>::get(expected_validator_id)
         {
             v_coldkey
@@ -880,7 +1008,7 @@ pub fn build_registered_subnet(
         let _n = n + 1;
 
         // Register or get validator first
-        let expected_validator_id = _n;
+        let expected_validator_id = bounded_initial_validator_id(start, end, n);
         let coldkey = if let Some(v_coldkey) = ValidatorColdkey::<Test>::get(expected_validator_id)
         {
             v_coldkey
@@ -1072,6 +1200,7 @@ pub fn insert_subnet_node(
             .or_insert_with(BTreeSet::new)
             .insert(subnet_node_id);
     });
+    TotalValidatorNodes::<Test>::mutate(validator_id, |count| *count = count.saturating_add(1));
 
     PeerIdSubnetNodeId::<Test>::insert(subnet_id, &peer_id, subnet_node_id);
     BootnodePeerIdSubnetNodeId::<Test>::insert(subnet_id, &bootnode_peer_id, subnet_node_id);
@@ -1464,7 +1593,7 @@ pub fn build_activated_subnet_with_delegator_rewards(
     let burn_amount = Network::calculate_burn_amount(subnet_id);
     for n in start..end {
         let _n = n + 1;
-        let expected_validator_id = _n;
+        let expected_validator_id = bounded_initial_validator_id(start, end, n);
         let coldkey = if let Some(v_coldkey) = ValidatorColdkey::<Test>::get(expected_validator_id)
         {
             v_coldkey
@@ -1612,12 +1741,31 @@ pub fn get_initial_validator_ids(
     start: u32,
     end: u32,
 ) -> BTreeMap<u32, u32> {
+    let node_count = end.saturating_sub(start);
+    let identity_count =
+        node_count.min(<Test as crate::Config>::MaxRegisteredNodesUpperBound::get());
     let mut whitelist = BTreeMap::new();
-    for n in start..end {
-        let _n = n + 1;
-        whitelist.insert(_n, 1);
+    for identity_offset in 0..identity_count {
+        let registrations = node_count
+            .saturating_sub(identity_offset)
+            .saturating_add(identity_count.saturating_sub(1))
+            / identity_count.max(1);
+        whitelist.insert(
+            start.saturating_add(identity_offset).saturating_add(1),
+            registrations.max(1),
+        );
     }
     whitelist
+}
+
+fn bounded_initial_validator_id(start: u32, end: u32, node: u32) -> u32 {
+    let identity_count = end
+        .saturating_sub(start)
+        .min(<Test as crate::Config>::MaxRegisteredNodesUpperBound::get());
+    assert!(identity_count > 0);
+    start
+        .saturating_add(node.saturating_sub(start) % identity_count)
+        .saturating_add(1)
 }
 
 // pub fn get_initial_coldkeys_with_onodes(
@@ -1780,6 +1928,9 @@ pub fn queue_overwatch_settlement(epoch: u32) {
     PendingOverwatchSettlement::<Test>::put(PendingOverwatchSettlementData {
         epoch,
         epoch_length_multiplier: OverwatchEpochLengthMultiplier::<Test>::get(),
+        reveal_records: 0,
+        revealing_nodes: 0,
+        revealed_subnets: 0,
     });
 }
 
@@ -1890,8 +2041,11 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
         });
     }
 
-    let included_subnet_nodes: Vec<SubnetNode<Test>> =
-        Network::get_active_classified_subnet_nodes(subnet_id, &SubnetNodeClass::Included, epoch);
+    let included_subnet_nodes: Vec<crate::ConsensusSubnetNode> =
+        Network::get_active_classified_subnet_nodes(subnet_id, &SubnetNodeClass::Included, epoch)
+            .iter()
+            .map(crate::ConsensusSubnetNode::from)
+            .collect();
 
     let (validator_ids, emergency_active) =
         Network::effective_consensus_validator_ids(subnet_id, epoch);
@@ -1994,7 +2148,27 @@ pub fn set_overwatch_node_stake(overwatch_node_id: u32, amount: u128) {
 }
 
 pub fn submit_weight(epoch: u32, subnet_id: u32, node_id: u32, weight: u128) {
+    let is_new = !OverwatchReveals::<Test>::contains_key((epoch, subnet_id, node_id));
     OverwatchReveals::<Test>::insert((epoch, subnet_id, node_id), weight);
+    if is_new && epoch == CurrentOverwatchEpoch::<Test>::get() {
+        crate::ActiveOverwatchRevealStats::<Test>::mutate(|stats| {
+            let max_records = <Test as crate::Config>::MaxOverwatchNodesUpperBound::get()
+                .saturating_mul(<Test as crate::Config>::MaxPhysicalSubnetsUpperBound::get());
+            stats.records = stats
+                .records
+                .checked_add(1)
+                .filter(|records| *records <= max_records)
+                .expect("test reveal count fits the active-epoch bound");
+            stats
+                .revealing_nodes
+                .try_insert(node_id)
+                .expect("test revealing-node set fits its type bound");
+            stats
+                .revealed_subnets
+                .try_insert(subnet_id)
+                .expect("test revealed-subnet set fits its type bound");
+        });
+    }
 }
 
 pub fn new_subnet_data(id: u32, state: SubnetState, start_epoch: u32) -> SubnetData {

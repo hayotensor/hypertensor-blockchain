@@ -167,7 +167,6 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn is_validator_overwatch_qualified(validator_id: u32) -> bool {
-        Self::clean_validator_subnet_nodes(validator_id);
         Self::is_validator_overwatch_qualified_read_only(validator_id)
     }
 

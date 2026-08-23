@@ -182,13 +182,15 @@ where
 
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
 
-        let reveals: Vec<OverwatchReveal> = reveals
+        let reveals: Vec<OverwatchReveal<R>> = reveals
             .into_iter()
             .map(|(subnet_id, weight, salt)| {
-                Ok::<_, PrecompileFailure>(OverwatchReveal {
+                Ok::<_, PrecompileFailure>(OverwatchReveal::<R> {
                     subnet_id: try_u256_to_u32(subnet_id)?,
                     weight: try_u256_to_u128(weight)?,
-                    salt,
+                    salt: salt
+                        .try_into()
+                        .map_err(|_| revert("Overwatch reveal salt too long"))?,
                 })
             })
             .collect::<Result<_, _>>()?;

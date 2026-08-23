@@ -213,7 +213,10 @@ parameter_types! {
     pub const NetworkMinAttestationPercentage: u128 = 666_666_666_666_666_666;
     pub const NetworkSuperMajorityAttestationRatio: u128 = 875_000_000_000_000_000;
     pub const NetworkInitialSubnetUid: u32 = 128_000;
+    pub const NetworkMaxPhysicalSubnetsUpperBound: u32 =
+        crate::physical_subnet_upper_bound(EPOCH_LENGTH);
     pub const NetworkMaxSubnetNodesUpperBound: u32 = 512;
+    pub const NetworkMaxConsensusNodeRemovalsPerSettlement: u32 = 4;
     pub const NetworkMaxValidatorNodesUpperBound: u32 = 512;
     pub const NetworkMaxOverwatchNodesUpperBound: u32 = 64;
     pub const NetworkMaxBootnodesUpperBound: u32 = 256;
@@ -223,11 +226,12 @@ parameter_types! {
     pub const NetworkMaxUnbondingsUpperBound: u32 = 256;
     pub const NetworkMaxSwapCallsPerBlockUpperBound: u32 = 1_000;
     pub const NetworkMaxEmergencySubnetNodesUpperBound: u32 = 64;
-    pub const DesignatedEpochSlots: u32 = 3;
+    pub const DesignatedEpochSlots: u32 = crate::NETWORK_DESIGNATED_EPOCH_SLOTS;
     pub const NetworkMaxVectorLength: u32 = 1024;
     pub const NetworkMaxUrlLength: u32 = 1024;
     pub const NetworkMaxSocialIdLength: u32 = 255;
     pub const NetworkValidatorArgsLimit: u32 = 4096;
+    pub const NetworkMaxOverwatchRevealSaltLength: u32 = 64;
     pub const NetworkMaxSwapQueueLength: u32 = 1000;
 }
 
@@ -250,7 +254,9 @@ impl Config for Test {
     type MinAttestationPercentage = NetworkMinAttestationPercentage;
     type SuperMajorityAttestationRatio = NetworkSuperMajorityAttestationRatio;
     type InitialSubnetUid = NetworkInitialSubnetUid;
+    type MaxPhysicalSubnetsUpperBound = NetworkMaxPhysicalSubnetsUpperBound;
     type MaxSubnetNodesUpperBound = NetworkMaxSubnetNodesUpperBound;
+    type MaxConsensusNodeRemovalsPerSettlement = NetworkMaxConsensusNodeRemovalsPerSettlement;
     type MaxValidatorNodesUpperBound = NetworkMaxValidatorNodesUpperBound;
     type MaxOverwatchNodesUpperBound = NetworkMaxOverwatchNodesUpperBound;
     type MaxBootnodesUpperBound = NetworkMaxBootnodesUpperBound;
@@ -265,6 +271,7 @@ impl Config for Test {
     type MaxUrlLength = NetworkMaxUrlLength;
     type MaxSocialIdLength = NetworkMaxSocialIdLength;
     type ValidatorArgsLimit = NetworkValidatorArgsLimit;
+    type MaxOverwatchRevealSaltLength = NetworkMaxOverwatchRevealSaltLength;
     type MaxSwapQueueLength = NetworkMaxSwapQueueLength;
 }
 

@@ -560,6 +560,7 @@ impl<T: Config> Pallet<T> {
             })
             .collect::<Result<Vec<_>, _>>()?;
 
+        let proposal_args = SubnetConsensusProposalArgs::<T>::get(subnet_id, subnet_epoch);
         let proposal = SubnetConsensusSubmission::<T>::get(subnet_id, subnet_epoch)
             .map(|submission| {
                 let weight_snapshot =
@@ -579,7 +580,12 @@ impl<T: Config> Pallet<T> {
                                 block: attest.block,
                                 progress: attest.attestor_progress.into(),
                                 reward_factor: attest.reward_factor.into(),
-                                data: attest.data.clone().map(|data| rpc_bytes(data.into_inner())),
+                                data: SubnetConsensusAttestationData::<T>::get((
+                                    subnet_id,
+                                    subnet_epoch,
+                                    *subnet_node_id,
+                                ))
+                                .map(|data| rpc_bytes(data.into_inner())),
                             }
                         });
                         let weight = weight_snapshot
@@ -626,7 +632,9 @@ impl<T: Config> Pallet<T> {
                             score: score.score.into(),
                         })
                         .collect(),
-                    args: submission.args.map(|args| rpc_bytes(args.into_inner())),
+                    args: proposal_args
+                        .clone()
+                        .map(|args| rpc_bytes(args.into_inner())),
                     emergency,
                 })
             })

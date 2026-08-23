@@ -46,14 +46,14 @@ impl<T: Config> Pallet<T> {
         overwatch_node_id: u32,
         mut commit_weights: Vec<OverwatchCommit<T::Hash>>,
     ) -> DispatchResultWithPostInfo {
+        ensure!(!commit_weights.is_empty(), Error::<T>::CommitsEmpty);
+
         // Remove duplicate subnet IDs regardless of their position in the submitted vector.
         let mut seen_subnets = BTreeSet::new();
-        commit_weights.retain(|commit| seen_subnets.insert(commit.subnet_id));
-
-        let subnets: BTreeSet<_> = SubnetsData::<T>::iter().map(|(id, _)| id).collect();
-
-        // Qualify IDs - remove subnet IDs that do not exist
-        commit_weights.retain(|x| subnets.contains(&x.subnet_id));
+        commit_weights.retain(|commit| {
+            seen_subnets.insert(commit.subnet_id)
+                && SubnetsData::<T>::contains_key(commit.subnet_id)
+        });
 
         ensure!(!commit_weights.is_empty(), Error::<T>::CommitsEmpty);
 
@@ -92,7 +92,7 @@ impl<T: Config> Pallet<T> {
     pub fn do_reveal_overwatch_subnet_weights(
         origin: T::RuntimeOrigin,
         overwatch_node_id: u32,
-        reveals: Vec<OverwatchReveal>,
+        reveals: Vec<OverwatchReveal<T>>,
     ) -> DispatchResultWithPostInfo {
         ensure!(
             reveals.len() as u32 <= MaxSubnets::<T>::get().saturating_add(1),
@@ -128,11 +128,16 @@ impl<T: Config> Pallet<T> {
 
     pub fn perform_reveal_overwatch_subnet_weights(
         overwatch_node_id: u32,
-        reveals: Vec<OverwatchReveal>,
+        reveals: Vec<OverwatchReveal<T>>,
     ) -> DispatchResultWithPostInfo {
         let overwatch_epoch = Self::get_current_overwatch_epoch_as_u32();
         let percentage_factor = Self::percentage_factor_as_u128();
+        let mut staged_reveals = BTreeMap::<u32, u128>::new();
+        let mut new_reveal_subnets = BTreeSet::<u32>::new();
 
+        // Validate the complete batch before writing either the reveal map or its cardinality
+        // index. The dispatchable may contain several reveals, so returning from the middle of the
+        // loop would otherwise leave a valid prefix committed when a later reveal is invalid.
         for reveal in reveals {
             let subnet_id = reveal.subnet_id;
             let weight = reveal.weight;
@@ -149,6 +154,41 @@ impl<T: Config> Pallet<T> {
 
             ensure!(actual_hash == commit_hash, Error::<T>::RevealMismatch);
 
+            let reveal_key = (overwatch_epoch, subnet_id, overwatch_node_id);
+            if !OverwatchReveals::<T>::contains_key(reveal_key) {
+                // A duplicate subnet in this batch is still only one unique epoch/node/subnet
+                // record. `staged_reveals` preserves the prior last-write-wins behavior.
+                new_reveal_subnets.insert(subnet_id);
+            }
+            staged_reveals.insert(subnet_id, weight);
+        }
+
+        if !new_reveal_subnets.is_empty() {
+            let mut stats = ActiveOverwatchRevealStats::<T>::get();
+            stats
+                .revealing_nodes
+                .try_insert(overwatch_node_id)
+                .map_err(|_| Error::<T>::MaxOverwatchRevealNodes)?;
+
+            for subnet_id in &new_reveal_subnets {
+                stats
+                    .revealed_subnets
+                    .try_insert(*subnet_id)
+                    .map_err(|_| Error::<T>::MaxOverwatchRevealSubnets)?;
+            }
+
+            let max_records = T::MaxOverwatchNodesUpperBound::get()
+                .saturating_mul(T::MaxPhysicalSubnetsUpperBound::get());
+            let updated_records = stats
+                .records
+                .checked_add(new_reveal_subnets.len() as u32)
+                .filter(|records| *records <= max_records)
+                .ok_or(Error::<T>::MaxOverwatchRevealRecords)?;
+            stats.records = updated_records;
+            ActiveOverwatchRevealStats::<T>::put(stats);
+        }
+
+        for (subnet_id, weight) in staged_reveals {
             OverwatchReveals::<T>::insert((overwatch_epoch, subnet_id, overwatch_node_id), weight);
         }
 

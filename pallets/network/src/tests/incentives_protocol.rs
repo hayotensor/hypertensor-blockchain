@@ -18,11 +18,11 @@ use crate::{
     SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs, SubnetPauseData, SubnetRemovalReason,
     SubnetReputation, SubnetReputationFactorSchedules, SubnetState, SubnetsData,
     TotalActiveSubnets, TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids, TotalSubnetNodes,
-    TotalSubnetUids, TotalValidatorDelegateStakeBalance, ValidatorAbsentSubnetReputationFactor,
-    ValidatorColdkey, ValidatorDelegateStakeBalance, ValidatorDelegateStakeShares,
-    ValidatorNodeDelegateStakeWeightUpdateInterval, ValidatorNodeDelegateStakeWeights,
-    ValidatorReputation, ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor,
-    ValidatorSubnetNodes, ValidatorsData,
+    TotalSubnetUids, TotalValidatorDelegateStakeBalance, TotalValidatorNodes,
+    ValidatorAbsentSubnetReputationFactor, ValidatorColdkey, ValidatorDelegateStakeBalance,
+    ValidatorDelegateStakeShares, ValidatorNodeDelegateStakeWeightUpdateInterval,
+    ValidatorNodeDelegateStakeWeights, ValidatorReputation, ValidatorReputationDecreaseFactor,
+    ValidatorReputationIncreaseFactor, ValidatorSubnetNodes, ValidatorsData,
 };
 use crate::{AttestEntry, ConsensusPolicySnapshot, Event, SubnetReputationFactors};
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays};
@@ -285,7 +285,12 @@ fn setup_validator_owned_nodes(
             .insert(*subnet_node_id);
     }
 
+    let total_validator_nodes = validator_subnet_nodes
+        .values()
+        .map(BTreeSet::len)
+        .sum::<usize>() as u32;
     ValidatorSubnetNodes::<Test>::insert(validator_id, validator_subnet_nodes);
+    TotalValidatorNodes::<Test>::insert(validator_id, total_validator_nodes);
 
     coldkey
 }
@@ -1687,6 +1692,35 @@ fn test_min_consensus_identity_attestation_count_scales_without_weak_small_sets(
         assert!(!Network::has_minimum_consensus_validator_identity_set(1));
         assert!(!Network::has_minimum_consensus_validator_identity_set(2));
         assert!(Network::has_minimum_consensus_validator_identity_set(3));
+    });
+}
+
+#[test]
+fn test_min_identity_attestors_for_ratio_uses_ceiling() {
+    new_test_ext().execute_with(|| {
+        let super_majority = <Test as crate::Config>::SuperMajorityAttestationRatio::get();
+        let percentage_factor = Network::percentage_factor_as_u128();
+
+        assert_eq!(
+            Network::min_identity_attestors_for_ratio(0, super_majority),
+            0
+        );
+        assert_eq!(
+            Network::min_identity_attestors_for_ratio(3, super_majority),
+            3
+        );
+        assert_eq!(
+            Network::min_identity_attestors_for_ratio(8, super_majority),
+            7
+        );
+        assert_eq!(
+            Network::min_identity_attestors_for_ratio(512, super_majority),
+            448
+        );
+        assert_eq!(
+            Network::min_identity_attestors_for_ratio(3, percentage_factor.saturating_add(1)),
+            3
+        );
     });
 }
 
@@ -5316,6 +5350,7 @@ fn run_strong_rejection_attestor_reputation_case(
         // Make the selected consensus-failure economic penalty maximal. Both proposer-node and
         // supporting-attestor reputation curves must instead use only identity support and the
         // round's snapshotted strong-rejection threshold.
+        let mut remaining_node_removals = NetworkMaxConsensusNodeRemovalsPerSettlement::get();
         Network::handle_non_consensus(
             subnet_id,
             consensus_submission_data,
@@ -5329,6 +5364,7 @@ fn run_strong_rejection_attestor_reputation_case(
             test_percent(1, 10),
             percentage_factor,
             percentage_factor,
+            &mut remaining_node_removals,
             &mut WeightMeter::new(),
         );
 
@@ -7669,6 +7705,7 @@ fn run_submitted_validator_pool_slash_case(
         let mut weight_meter = WeightMeter::new();
         // Deliberately make the identity penalty more severe than the stake shortfall. The direct
         // node penalty follows these arguments, while the pool must use `attestation_ratio` above.
+        let mut remaining_node_removals = NetworkMaxConsensusNodeRemovalsPerSettlement::get();
         Network::handle_non_consensus(
             subnet_id,
             consensus_submission_data,
@@ -7682,6 +7719,7 @@ fn run_submitted_validator_pool_slash_case(
             round.policy.base_slash_percentage,
             round.policy.max_slash_amount,
             Network::percentage_factor_as_u128(),
+            &mut remaining_node_removals,
             &mut weight_meter,
         );
 
@@ -11184,7 +11222,7 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
                     data: None,
                 },
             )]),
-            subnet_nodes: vec![subnet_node],
+            subnet_nodes: vec![crate::ConsensusSubnetNode::from(&subnet_node)],
             prioritize_queue_node_id: None,
             remove_queue_node_id: None,
             emergency: None,

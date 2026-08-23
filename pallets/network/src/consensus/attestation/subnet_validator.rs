@@ -255,6 +255,13 @@ impl<T: Config> Pallet<T> {
         args: Option<ValidatorArgs<T>>,
         attest_data: Option<ValidatorArgs<T>>,
     ) -> DispatchResultWithPostInfo {
+        // `propose_attestation` has a fixed, worst-case benchmark. Bound the caller-controlled
+        // vector before any per-entry storage lookup so that benchmark remains an upper bound.
+        ensure!(
+            data.len() as u32 <= T::MaxSubnetNodesUpperBound::get(),
+            Error::<T>::MaxSubnetNodes
+        );
+
         // The validator is elected for the next blockchain epoch where rewards will be distributed.
         // Each subnet epoch overlaps with the blockchains epochs, and can submit consensus data for epoch
         // 2 on subnet epoch 1 (if after slot) or 2 (if before slot).
@@ -303,7 +310,7 @@ impl<T: Config> Pallet<T> {
                 block,
                 attestor_progress: 0,
                 reward_factor: Self::percentage_factor_as_u128(),
-                data: attest_data,
+                data: None,
             },
         )]);
 
@@ -314,11 +321,14 @@ impl<T: Config> Pallet<T> {
         // when the validator submit their data, this will enable the node to still get rewarded for contributing
         // to the subnet's consensus even if they leave -- versus calling this in the rewards distribution
         // where the node would have already been removed even if they contributed to the subnet's consensus.
-        let subnet_nodes: Vec<SubnetNode<T>> = Self::get_active_classified_subnet_nodes(
+        let subnet_nodes: Vec<ConsensusSubnetNode> = Self::get_active_classified_subnet_nodes(
             subnet_id,
             &SubnetNodeClass::Idle,
             subnet_epoch,
-        );
+        )
+        .iter()
+        .map(ConsensusSubnetNode::from)
+        .collect();
 
         // --- Get all validators
         // Note: This is triggered here when the validator submits their data, not at the start block of the epoch
@@ -399,6 +409,12 @@ impl<T: Config> Pallet<T> {
         }
 
         // Organize all of the data into a ConsensusData<T> struct to be used later for emissions business logic.
+        let max_submission_items = (validator_ids.len() as u32)
+            .max(attests.len() as u32)
+            .max(subnet_nodes.len() as u32)
+            .max(data.len() as u32)
+            .max(elected_round.eligible_subnet_node_ids.len() as u32)
+            .max(elected_round.eligible_validator_identity_ids.len() as u32);
         let consensus_data: ConsensusData<T> = ConsensusData::<T> {
             validator_id: validator_subnet_node_id,
             block,
@@ -414,12 +430,26 @@ impl<T: Config> Pallet<T> {
             prioritize_queue_node_id: prioritize_queue_node_id,
             remove_queue_node_id: remove_queue_node_id,
             data: data,
-            args: args,
+            args: None,
             emergency: emergency_snapshot,
         };
 
         // --- Store the data
         SubnetConsensusSubmission::<T>::insert(subnet_id, subnet_epoch, consensus_data);
+        SubnetConsensusSubmissionMaxItems::<T>::insert(
+            subnet_id,
+            subnet_epoch,
+            max_submission_items,
+        );
+        if let Some(args) = args {
+            SubnetConsensusProposalArgs::<T>::insert(subnet_id, subnet_epoch, args);
+        }
+        if let Some(attest_data) = attest_data {
+            SubnetConsensusAttestationData::<T>::insert(
+                (subnet_id, subnet_epoch, validator_subnet_node_id),
+                attest_data,
+            );
+        }
         SubnetConsensusAttestorWeights::<T>::insert(
             subnet_id,
             subnet_epoch,
@@ -503,26 +533,29 @@ impl<T: Config> Pallet<T> {
                     &policy,
                 );
 
-                let mut attests = &mut params.attests;
-
                 // Ensure they haven't attested already
                 ensure!(
-                    attests.insert(
+                    params.attests.insert(
                         subnet_node_id,
                         AttestEntry::<T> {
                             block,
                             attestor_progress: subnet_epoch_progression,
                             reward_factor,
-                            data
+                            data: None,
                         }
                     ) == None,
                     Error::<T>::AlreadyAttested
                 );
-
-                params.attests = attests.clone();
                 Ok(())
             },
         )?;
+
+        if let Some(data) = data {
+            SubnetConsensusAttestationData::<T>::insert(
+                (subnet_id, subnet_epoch, subnet_node_id),
+                data,
+            );
+        }
 
         Self::deposit_event(Event::Attestation {
             subnet_id: subnet_id,
@@ -779,21 +812,11 @@ impl<T: Config> Pallet<T> {
         if let (Some(validator_id), Some(reputation)) = (validator_id, reputation) {
             if reputation < min_validator_reputation {
                 weight = weight.saturating_add(db_weight.reads(1));
-                let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
-                // x = number of subnets (outer BTreeMap size)
-                let x = validator_subnet_nodes.len() as u32;
-                // c = number of nodes in the specific subnet (inner BTreeSet size)
-                let c = validator_subnet_nodes
-                    .get(&subnet_id)
-                    .map(|nodes| nodes.len() as u32)
-                    .unwrap_or(0);
+                let n = TotalValidatorNodes::<T>::get(validator_id).clamp(1, 512);
 
                 Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-                weight = weight.saturating_add(T::WeightInfo::remove_active_subnet_node(
-                    x,
-                    electable_nodes,
-                    c,
-                ));
+                weight = weight
+                    .saturating_add(Self::active_subnet_node_removal_weight(n, electable_nodes));
             }
         }
 

@@ -32,11 +32,15 @@ sp-runtime = { default-features = true, workspace = true }
 default = ["std"]
 std = [
 	"codec/std",
+	"fp-account/std",
 	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
+	"log/std",
+	"pallet-evm/std",
 	"scale-info/std",
 	"pallet-balances/std",
+	"sp-core/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",

@@ -422,6 +422,9 @@ fn test_overwatch_settlement_waits_for_reserved_slot_one() {
         PendingOverwatchSettlement::<Test>::put(PendingOverwatchSettlementData {
             epoch: 7,
             epoch_length_multiplier: 1,
+            reveal_records: 0,
+            revealing_nodes: 0,
+            revealed_subnets: 0,
         });
 
         // Slot two is reserved for global subnet-emission calculation. A settlement delayed by a

@@ -119,10 +119,11 @@ fn test_calculate_overwatch_rewards() {
         Network::on_initialize(boundary);
 
         assert_eq!(CurrentOverwatchEpoch::<Test>::get(), overwatch_epoch + 1);
-        assert_eq!(
-            PendingOverwatchSettlement::<Test>::get().map(|settlement| settlement.epoch),
-            Some(overwatch_epoch)
-        );
+        let settlement = PendingOverwatchSettlement::<Test>::get().unwrap();
+        assert_eq!(settlement.epoch, overwatch_epoch);
+        assert_eq!(settlement.reveal_records, max_subnets);
+        assert_eq!(settlement.revealing_nodes, 1);
+        assert_eq!(settlement.revealed_subnets, max_subnets);
 
         System::set_block_number(boundary + 1);
         Network::on_initialize(boundary + 1);
@@ -577,7 +578,7 @@ fn test_get_net_flow_weights_smoothes_relative_weights() {
         SubnetNetFlow::<Test>::insert(subnet_ids[2], 100);
 
         let (weights, _) = Network::get_net_flow_weights(
-            SubnetsData::<Test>::iter().collect(),
+            SubnetsData::<Test>::iter_keys().collect(),
             Network::get_current_epoch_as_u32(),
         );
 
@@ -619,14 +620,14 @@ fn test_get_net_flow_weights_decays_on_equal_flow_epoch() {
         SubnetNetFlow::<Test>::insert(subnet_ids[2], 100);
 
         let (first_weights, _) = Network::get_net_flow_weights(
-            SubnetsData::<Test>::iter().collect(),
+            SubnetsData::<Test>::iter_keys().collect(),
             Network::get_current_epoch_as_u32(),
         );
         let first_high_weight = first_weights.get(&subnet_ids[2]).copied().unwrap_or(0);
         assert!(first_high_weight > 0);
 
         let (second_weights, _) = Network::get_net_flow_weights(
-            SubnetsData::<Test>::iter().collect(),
+            SubnetsData::<Test>::iter_keys().collect(),
             Network::get_current_epoch_as_u32(),
         );
 
@@ -666,7 +667,7 @@ fn test_get_net_flow_weights_excludes_non_live_subnets_and_clears_storage() {
         );
 
         let (weights, _) = Network::get_net_flow_weights(
-            SubnetsData::<Test>::iter().collect(),
+            SubnetsData::<Test>::iter_keys().collect(),
             Network::get_current_epoch_as_u32(),
         );
 

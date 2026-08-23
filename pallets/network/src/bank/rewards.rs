@@ -17,15 +17,8 @@ use super::*;
 use frame_support::pallet_prelude::{DispatchError, Weight};
 
 impl<T: Config> Pallet<T> {
-    fn validator_subnet_nodes_weight_params(validator_id: u32, subnet_id: u32) -> (u32, u32) {
-        let validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
-        let x = validator_subnet_nodes.len() as u32;
-        let c = validator_subnet_nodes
-            .get(&subnet_id)
-            .map(|nodes| nodes.len() as u32)
-            .unwrap_or(0);
-
-        (x, c)
+    fn validator_owned_nodes_weight_param(validator_id: u32) -> u32 {
+        TotalValidatorNodes::<T>::get(validator_id).clamp(1, 512)
     }
 
     pub fn distribute_rewards(
@@ -42,6 +35,11 @@ impl<T: Config> Pallet<T> {
         _super_majority_threshold: u128,
     ) {
         let db_weight = T::DbWeight::get();
+        // Consensus settlement can make every historical node cross a removal threshold in one
+        // round. Bound the expensive cleanup mutations while still applying reputation changes to
+        // the complete historical set; later settlements can remove any remaining ineligible
+        // nodes.
+        let mut remaining_node_removals = T::MaxConsensusNodeRemovalsPerSettlement::get();
 
         let percentage_factor = Self::percentage_factor_as_u128();
         let policy = consensus_submission_data.policy;
@@ -58,7 +56,10 @@ impl<T: Config> Pallet<T> {
         let forked_subnet_node_ids: Option<BTreeSet<u32>> =
             Self::maybe_get_forked_subnet_node_ids(weight_meter, subnet_id, &emergency_snapshot);
 
-        let electable_nodes_count = SubnetNodeElectionSlots::<T>::get(subnet_id).len() as u32;
+        // Keep hook weight selection independent of the encoded election-slot vector. The
+        // counter is maintained alongside that vector and is the cardinality used by the
+        // generated election/removal weights.
+        let electable_nodes_count = TotalSubnetElectableNodes::<T>::get(subnet_id);
         weight_meter.consume(db_weight.reads(1));
 
         let min_identity_attestation_percentage = policy.validator_identity_attestation_percentage;
@@ -133,6 +134,7 @@ impl<T: Config> Pallet<T> {
                 policy.base_slash_percentage,
                 policy.max_slash_amount,
                 percentage_factor,
+                &mut remaining_node_removals,
                 weight_meter,
             );
             return;
@@ -231,6 +233,16 @@ impl<T: Config> Pallet<T> {
         // Node -> (account -> amount)
         let mut node_delegate_account_allocations: Vec<(u32, (T::AccountId, u128))> = Vec::new();
 
+        // Canonical score entries are unique by subnet-node ID. Index them once so reward
+        // settlement remains O(n log n) instead of rescanning the full score vector for every
+        // historical node (O(n^2)).
+        let consensus_data_by_node: BTreeMap<u32, &SubnetNodeConsensusData> =
+            consensus_submission_data
+                .data
+                .iter()
+                .map(|data| (data.subnet_node_id, data))
+                .collect();
+
         // Iterate each node, emit rewards, graduate, or penalize
         for subnet_node in &consensus_submission_data.subnet_nodes {
             // We need to check if the node exists, since we need to get `SubnetNodeReputation`, we will use
@@ -255,6 +267,7 @@ impl<T: Config> Pallet<T> {
                     subnet_id,
                     subnet_node.id,
                     electable_nodes_count,
+                    &mut remaining_node_removals,
                 );
 
                 continue;
@@ -281,10 +294,7 @@ impl<T: Config> Pallet<T> {
             // All nodes are at least SubnetNodeClass::Included from here
             //
 
-            let subnet_node_data_find = consensus_submission_data
-                .data
-                .iter()
-                .find(|data| data.subnet_node_id == subnet_node.id);
+            let subnet_node_data_find = consensus_data_by_node.get(&subnet_node.id).copied();
 
             // Handle case where node is found in consensus data
             let subnet_node_data = if let Some(data) = subnet_node_data_find {
@@ -449,6 +459,7 @@ impl<T: Config> Pallet<T> {
                     subnet_id,
                     subnet_node.id,
                     electable_nodes_count,
+                    &mut remaining_node_removals,
                 );
 
                 continue;
@@ -559,6 +570,7 @@ impl<T: Config> Pallet<T> {
         base_slash_percentage: u128,
         max_slash_amount: u128,
         percentage_factor: u128,
+        remaining_node_removals: &mut u32,
         weight_meter: &mut WeightMeter,
     ) {
         let db_weight = T::DbWeight::get();
@@ -666,6 +678,7 @@ impl<T: Config> Pallet<T> {
                                 subnet_id,
                                 subnet_node_id,
                                 electable_nodes_count,
+                                remaining_node_removals,
                             );
                         }
                     }
@@ -685,6 +698,7 @@ impl<T: Config> Pallet<T> {
                 subnet_id,
                 validator_subnet_node_id,
                 electable_nodes_count,
+                remaining_node_removals,
             );
         }
     }
@@ -816,16 +830,14 @@ impl<T: Config> Pallet<T> {
                     .position(|node| node.id == remove_queue_node_id)
                 {
                     let validator_id = queue[index].validator_id;
-                    let r = queue.len() as u32;
+                    let r = (queue.len() as u32).clamp(1, 64);
                     weight_meter.consume(db_weight.reads(1));
-                    let (x, c) =
-                        Self::validator_subnet_nodes_weight_params(validator_id, subnet_id);
+                    let n = Self::validator_owned_nodes_weight_param(validator_id);
 
-                    if weight_meter
-                        .can_consume(T::WeightInfo::remove_registered_subnet_node(x, r, c))
+                    if weight_meter.can_consume(T::WeightInfo::remove_registered_subnet_node(n, r))
                     {
                         Self::remove_registered_subnet_node(subnet_id, remove_queue_node_id);
-                        weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(x, r, c));
+                        weight_meter.consume(T::WeightInfo::remove_registered_subnet_node(n, r));
 
                         Self::deposit_event(Event::QueuedNodeRemoved {
                             subnet_id,
@@ -842,24 +854,33 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         subnet_node_id: u32,
         electable_nodes_count: u32,
+        remaining_node_removals: &mut u32,
     ) {
-        let db_weight = T::DbWeight::get();
-        weight_meter.consume(db_weight.reads(1));
-        if let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) {
-            weight_meter.consume(db_weight.reads(1));
-            let (x, c) = Self::validator_subnet_nodes_weight_params(validator_id, subnet_id);
+        if *remaining_node_removals == 0 {
+            return;
+        }
 
-            if weight_meter.can_consume(T::WeightInfo::remove_active_subnet_node(
-                x,
-                electable_nodes_count,
-                c,
-            )) {
-                Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-                weight_meter.consume(T::WeightInfo::remove_active_subnet_node(
-                    x,
-                    electable_nodes_count,
-                    c,
-                ));
+        let db_weight = T::DbWeight::get();
+        let validator_selector_weight = T::WeightInfo::subnet_node_validator_id_selector();
+        if !weight_meter.can_consume(validator_selector_weight) {
+            return;
+        }
+        weight_meter.consume(validator_selector_weight);
+        if let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) {
+            let ownership_selector_weight = db_weight.reads(1);
+            if !weight_meter.can_consume(ownership_selector_weight) {
+                return;
+            }
+            weight_meter.consume(ownership_selector_weight);
+            let n = Self::validator_owned_nodes_weight_param(validator_id);
+            let removal_weight = Self::active_subnet_node_removal_weight(n, electable_nodes_count);
+
+            if weight_meter.can_consume(removal_weight) {
+                let removed = Self::remove_active_subnet_node(subnet_id, subnet_node_id);
+                weight_meter.consume(removal_weight);
+                if removed {
+                    *remaining_node_removals = remaining_node_removals.saturating_sub(1);
+                }
             }
         }
     }
