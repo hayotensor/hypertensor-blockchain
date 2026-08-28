@@ -246,6 +246,7 @@ impl Config for Test {
     type EpochLength = EpochLength;
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = ConstU32<0>;
+    type InitialMinSubnetDelegateStakeBalance = ConstU128<100_000_000_000_000_000_000>;
     type Randomness = InsecureRandomnessCollectiveFlip;
     type PalletId = NetworkPalletId;
     type TreasuryAccount = TreasuryAccount;

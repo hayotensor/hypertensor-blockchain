@@ -136,15 +136,4 @@ interface Staking {
         uint256 subnetId
     ) external view returns (uint256);
 
-    function accountNodeDelegateStakeShares(
-        address account,
-        uint256 subnetId,
-        uint256 subnetNodeId
-    ) external view returns (uint256);
-
-    function accountNodeDelegateStakeBalance(
-        address account,
-        uint256 subnetId,
-        uint256 subnetNodeId
-    ) external view returns (uint256);
 }

@@ -24,15 +24,9 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
-        ensure!(
-            OverwatchNodes::<T>::contains_key(overwatch_node_id),
-            Error::<T>::InvalidOverwatchNodeId
-        );
-
-        // Resolve the validator that owns this subnet node, then ensure the caller is that
-        // validator's coldkey. Only the owner is allowed to add stake.
-        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
-            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
+        // Resolve the validator identity that owns this Overwatch node, then ensure the caller is
+        // that validator's coldkey. Subnet-node ownership is not involved.
+        let validator_id = Self::get_active_overwatch_validator_id(overwatch_node_id)?;
 
         let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
             .map_err(|_| Error::<T>::InvalidValidatorId)?;
@@ -73,6 +67,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    #[frame_support::transactional]
     pub fn do_remove_overwatch_node_stake(
         origin: T::RuntimeOrigin,
         overwatch_node_id: u32,
@@ -81,15 +76,22 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
-        // Resolve the validator that owns this subnet node, then ensure the caller is that
-        // validator's coldkey. Only the owner is allowed to add stake.
-        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
-            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
+        // The historical node-to-validator identity remains available after node removal so its
+        // owner can withdraw stake. Active ownership is additionally checked against the
+        // validator-to-node index below.
+        let validator_id = Self::get_historical_overwatch_validator_id(overwatch_node_id)?;
 
         let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
             .map_err(|_| Error::<T>::InvalidValidatorId)?;
 
         ensure!(coldkey == validator_coldkey, Error::<T>::NotKeyOwner);
+
+        if is_overwatch_node {
+            ensure!(
+                ValidatorOverwatchNodeId::<T>::get(validator_id) == Some(overwatch_node_id),
+                Error::<T>::InvalidOverwatchNodeId
+            );
+        }
 
         // --- Ensure that the stake amount to be removed is above zero.
         ensure!(stake_to_be_removed > 0, Error::<T>::AmountZero);
@@ -118,25 +120,22 @@ impl<T: Config> Pallet<T> {
         };
 
         let block: u32 = Self::get_current_block_as_u32();
-        let cooldown_blocks = StakeCooldownEpochs::<T>::get() * T::EpochLength::get();
-
-        Self::prepare_unbonding_ledger_entry(
-            &coldkey,
-            stake_to_be_removed,
-            cooldown_blocks,
-            block,
-        )?;
+        let cooldown_blocks = StakeCooldownEpochs::<T>::get()
+            .checked_mul(T::EpochLength::get())
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
 
         // --- 7. We remove the balance from the hotkey.
         Self::decrease_overwatch_node_stake(overwatch_node_id, stake_to_be_removed);
 
-        // --- 9. We add the balancer to the coldkey.  If the above fails we will not credit this coldkey.
-        Self::insert_balance_to_unbonding_ledger(
+        // Keep the source debit and ledger credit atomic. Overwatch principal remains excluded
+        // from the network TVL while it cools down.
+        Self::add_balance_to_unbonding_ledger(
             &coldkey,
             stake_to_be_removed,
             cooldown_blocks,
             block,
-        );
+            UnbondingSource::Overwatch,
+        )?;
 
         // Self::deposit_event(Event::StakeRemoved(subnet_id, coldkey, hotkey, stake_to_be_removed));
 

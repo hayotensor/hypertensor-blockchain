@@ -733,8 +733,8 @@ impl<T: Config> Pallet<T> {
     pub fn rpc_get_overwatch_node_info(
         overwatch_node_id: u32,
     ) -> Option<rpc::OverwatchNodeInfo<T::AccountId>> {
-        OverwatchNodes::<T>::get(overwatch_node_id)?;
-        let validator_id = OverwatchNodeValidatorId::<T>::get(overwatch_node_id)?;
+        let (validator_id, hotkey) =
+            Self::get_active_overwatch_validator_id_and_hotkey(overwatch_node_id).ok()?;
         let validator = ValidatorsData::<T>::try_get(validator_id).ok()?;
         let coldkey = ValidatorColdkey::<T>::get(validator_id)?;
         if ColdkeyValidatorId::<T>::get(&coldkey) != Some(validator_id)
@@ -742,7 +742,6 @@ impl<T: Config> Pallet<T> {
         {
             return None;
         }
-        let hotkey = Self::get_overwatch_node_associated_hotkey(overwatch_node_id).ok()?;
 
         Some(rpc::OverwatchNodeInfo {
             overwatch_node_id,

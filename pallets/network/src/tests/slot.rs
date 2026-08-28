@@ -10,6 +10,7 @@ use crate::{
     SubnetNetFlowSmoothingAlpha, SubnetNodeQueue, SubnetRemovalReason, SubnetWeightFactors,
     SubnetWeightFactorsData, SubnetsData, TotalActiveSubnets, TotalDelegateStake,
     TotalElectableNodes, TotalSubnetDelegateStakeBalance, TotalSubnetElectableNodes,
+    NETWORK_OVERWATCH_SETTLEMENT_SLOT, NETWORK_SUBNET_EMISSION_SLOT,
 };
 use frame_support::traits::OnInitialize;
 use frame_support::weights::WeightMeter;
@@ -63,7 +64,7 @@ fn set_to_first_reward_weight_epoch(subnet_ids: &[u32]) -> u32 {
         .max()
         .unwrap_or(0)
         .saturating_add(1);
-    set_epoch(first_reward_epoch, 2);
+    set_epoch(first_reward_epoch, NETWORK_SUBNET_EMISSION_SLOT);
     first_reward_epoch
 }
 
@@ -125,8 +126,9 @@ fn test_calculate_overwatch_rewards() {
         assert_eq!(settlement.revealing_nodes, 1);
         assert_eq!(settlement.revealed_subnets, max_subnets);
 
-        System::set_block_number(boundary + 1);
-        Network::on_initialize(boundary + 1);
+        let settlement_block = boundary.saturating_add(NETWORK_OVERWATCH_SETTLEMENT_SLOT);
+        System::set_block_number(settlement_block);
+        Network::on_initialize(settlement_block);
 
         let expected_reward = OVERWATCH_EPOCH_EMISSIONS.saturating_mul(multiplier as u128);
         assert_eq!(

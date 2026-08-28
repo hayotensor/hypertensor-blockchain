@@ -122,7 +122,12 @@ overwatch_interval_budget = saturating_mul(
 ```
 
 That budget is distributed by normalized Overwatch scores only when the interval has a nonzero
-total final score.
+total final score. At interval close, the pallet snapshots this exact budget together with the
+stake-weight exponent and each canonical revealing Overwatch node's validator relationship and raw
+stake. Delayed settlement uses only that same-epoch snapshot, never current membership, stake, or
+exponent. A missing snapshot leaves settlement pending. A node removed or replaced after close is
+still rewarded under its snapshotted historical Overwatch node ID, and successful settlement
+consumes both the pending header and snapshot exactly once.
 
 ## Issuance rules
 

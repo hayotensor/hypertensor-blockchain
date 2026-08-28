@@ -104,6 +104,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    #[frame_support::transactional]
     pub fn do_remove_node_stake(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
@@ -163,24 +164,21 @@ impl<T: Config> Pallet<T> {
             Error::<T>::TxRateLimitExceeded
         );
 
-        let cooldown_blocks = StakeCooldownEpochs::<T>::get() * T::EpochLength::get();
-        Self::prepare_unbonding_ledger_entry(
-            &coldkey,
-            stake_to_be_removed,
-            cooldown_blocks,
-            block,
-        )?;
+        let cooldown_blocks = StakeCooldownEpochs::<T>::get()
+            .checked_mul(T::EpochLength::get())
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
 
         // --- 7. We remove the balance from the subnet_node_id.
         Self::decrease_node_stake(subnet_node_id, subnet_id, stake_to_be_removed);
 
-        // --- 9. We add the balancer to the coldkey.  If the above fails we will not credit this coldkey.
-        Self::insert_balance_to_unbonding_ledger(
+        // Keep the source debit and ledger credit atomic.
+        Self::add_balance_to_unbonding_ledger(
             &coldkey,
             stake_to_be_removed,
             cooldown_blocks,
             block,
-        );
+            UnbondingSource::Network,
+        )?;
 
         // Set last block for rate limiting
         Self::set_last_tx_block(&coldkey, block);

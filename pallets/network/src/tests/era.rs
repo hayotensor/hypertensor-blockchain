@@ -1,14 +1,16 @@
 use super::mock::*;
+use crate::tests::test_utils::queue_overwatch_settlement;
 use crate::{
     ActiveOverwatchCommitCutoffPercent, ActiveOverwatchEpochLengthMultiplier, BaseSlashPercentage,
     ConsensusValidatorIdentityAttestationPercentage, CurrentOverwatchEpoch,
     InConsensusSubnetReputationFactor, LastFinalizedOverwatchEpoch,
     NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
     OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock, PendingOverwatchSettlement,
-    PendingOverwatchSettlementData, SubnetElectedValidator, SubnetNodeElectionSlots,
+    SubnetElectedValidator, SubnetNodeElectionSlots,
     SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeValidatorId,
     SubnetReputationFactorSchedules, SubnetReputationFactors, SubnetSlot, ValidatorReputation,
     ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor,
+    NETWORK_OVERWATCH_SETTLEMENT_SLOT, NETWORK_SUBNET_EMISSION_SLOT,
 };
 use frame_support::{assert_ok, traits::OnInitialize};
 
@@ -120,7 +122,7 @@ fn validator_election_metadata_uses_the_general_chain_epoch() {
         let validator_id = 21;
         let target_subnet_epoch = 42;
         let election_epoch = 5;
-        let election_block = election_epoch * EpochLength::get() + 3;
+        let election_block = election_epoch * EpochLength::get() + DesignatedEpochSlots::get();
 
         SubnetNodeElectionSlots::<Test>::insert(subnet_id, vec![subnet_node_id]);
         SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
@@ -405,8 +407,9 @@ fn test_delayed_overwatch_boundary_realigns_before_settlement() {
         );
         assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), None);
 
-        System::set_block_number(aligned_boundary + 1);
-        Network::on_initialize(aligned_boundary + 1);
+        let settlement_block = aligned_boundary + NETWORK_OVERWATCH_SETTLEMENT_SLOT;
+        System::set_block_number(settlement_block);
+        Network::on_initialize(settlement_block);
 
         assert!(PendingOverwatchSettlement::<Test>::get().is_none());
         assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), Some(3));
@@ -419,25 +422,19 @@ fn test_overwatch_settlement_waits_for_reserved_slot_one() {
         let epoch_length = EpochLength::get();
         CurrentOverwatchEpoch::<Test>::put(8);
         OverwatchEpochStartBlock::<Test>::put(epoch_length);
-        PendingOverwatchSettlement::<Test>::put(PendingOverwatchSettlementData {
-            epoch: 7,
-            epoch_length_multiplier: 1,
-            reveal_records: 0,
-            revealing_nodes: 0,
-            revealed_subnets: 0,
-        });
+        queue_overwatch_settlement(7);
 
-        // Slot two is reserved for global subnet-emission calculation. A settlement delayed by a
-        // global pause must remain durable instead of pre-empting that work.
-        let slot_two = epoch_length + 2;
-        System::set_block_number(slot_two);
-        Network::on_initialize(slot_two);
+        // The subnet-emission slot remains reserved. A settlement delayed by a global pause must
+        // remain durable instead of pre-empting that work.
+        let emission_block = epoch_length + NETWORK_SUBNET_EMISSION_SLOT;
+        System::set_block_number(emission_block);
+        Network::on_initialize(emission_block);
         assert!(PendingOverwatchSettlement::<Test>::get().is_some());
         assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), None);
 
-        let next_slot_one = epoch_length * 2 + 1;
-        System::set_block_number(next_slot_one);
-        Network::on_initialize(next_slot_one);
+        let next_settlement_block = epoch_length * 2 + NETWORK_OVERWATCH_SETTLEMENT_SLOT;
+        System::set_block_number(next_settlement_block);
+        Network::on_initialize(next_settlement_block);
         assert!(PendingOverwatchSettlement::<Test>::get().is_none());
         assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), Some(7));
     });

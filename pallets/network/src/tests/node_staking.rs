@@ -547,8 +547,8 @@ fn test_remove_stake() {
             stake_amount
         );
 
-        let unbondings: BTreeMap<u32, u128> = StakeUnbondingLedger::<Test>::get(coldkey.clone());
-        let total_ledger_balance: u128 = unbondings.values().copied().sum();
+        let unbondings = StakeUnbondingLedger::<Test>::get(coldkey.clone());
+        let total_ledger_balance: u128 = unbondings.values().map(|entry| entry.network).sum();
         assert_eq!(unbondings.len() as u32, 1);
         assert_eq!(total_ledger_balance, stake_amount);
         let (ledger_block, ledger_balance) = unbondings.iter().last().unwrap();
@@ -556,7 +556,8 @@ fn test_remove_stake() {
             *ledger_block,
             &block + StakeCooldownEpochs::<Test>::get() * EpochLength::get()
         );
-        assert_eq!(*ledger_balance, stake_amount);
+        assert_eq!(ledger_balance.network, stake_amount);
+        assert_eq!(ledger_balance.overwatch, 0);
     });
 }
 
@@ -817,8 +818,8 @@ fn test_remove_stake_after_remove_subnet() {
 
         assert_eq!(NodeSubnetStake::<Test>::get(end, subnet_id), 0);
 
-        let unbondings: BTreeMap<u32, u128> = StakeUnbondingLedger::<Test>::get(coldkey.clone());
-        let total_ledger_balance: u128 = unbondings.values().copied().sum();
+        let unbondings = StakeUnbondingLedger::<Test>::get(coldkey.clone());
+        let total_ledger_balance: u128 = unbondings.values().map(|entry| entry.network).sum();
         assert_eq!(unbondings.len() as u32, 1);
         assert_eq!(total_ledger_balance, stake_amount);
         let (ledger_block, ledger_balance) = unbondings.iter().last().unwrap();
@@ -826,7 +827,8 @@ fn test_remove_stake_after_remove_subnet() {
             *ledger_block,
             &block + StakeCooldownEpochs::<Test>::get() * EpochLength::get()
         );
-        assert_eq!(*ledger_balance, stake_amount);
+        assert_eq!(ledger_balance.network, stake_amount);
+        assert_eq!(ledger_balance.overwatch, 0);
 
         let coldkey_subnet_nodes = ValidatorSubnetNodes::<Test>::get(end);
         assert_eq!(coldkey_subnet_nodes.get(&subnet_id), None);

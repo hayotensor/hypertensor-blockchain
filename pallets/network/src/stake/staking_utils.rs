@@ -14,37 +14,74 @@
 // limitations under the License.
 
 use super::*;
+use frame_support::pallet_prelude::{DispatchError, Zero};
+use frame_support::traits::Imbalance;
 use sp_core::U256;
+use sp_runtime::ArithmeticError;
 
 impl<T: Config> Pallet<T> {
     /// Min liquidity/shares in any pool
     /// Used to mint dead shares on first deposit
     pub const MIN_LIQUIDITY: u128 = 1000;
 
+    #[frame_support::transactional]
     pub fn add_balance_to_unbonding_ledger(
         coldkey: &T::AccountId,
         amount: u128,
         cooldown_blocks: u32,
         block: u32,
+        source: UnbondingSource,
     ) -> DispatchResult {
-        Self::prepare_unbonding_ledger_entry(coldkey, amount, cooldown_blocks, block)?;
-        Self::insert_balance_to_unbonding_ledger(coldkey, amount, cooldown_blocks, block);
+        let claim_block = Self::prepare_unbonding_ledger_entry(coldkey, cooldown_blocks, block)?;
+
+        let next_total_network_unbonding = match source {
+            UnbondingSource::Network => Some(
+                TotalNetworkUnbondingBalance::<T>::get()
+                    .checked_add(amount)
+                    .ok_or(ArithmeticError::Overflow)?,
+            ),
+            UnbondingSource::Overwatch => None,
+        };
+
+        StakeUnbondingLedger::<T>::try_mutate(coldkey, |ledger| -> DispatchResult {
+            let entry = ledger.entry(claim_block).or_default();
+            match source {
+                UnbondingSource::Network => {
+                    entry.network = entry
+                        .network
+                        .checked_add(amount)
+                        .ok_or(ArithmeticError::Overflow)?;
+                }
+                UnbondingSource::Overwatch => {
+                    entry.overwatch = entry
+                        .overwatch
+                        .checked_add(amount)
+                        .ok_or(ArithmeticError::Overflow)?;
+                }
+            }
+            Ok(())
+        })?;
+
+        if let Some(total) = next_total_network_unbonding {
+            TotalNetworkUnbondingBalance::<T>::put(total);
+        }
 
         Ok(())
     }
 
     pub fn prepare_unbonding_ledger_entry(
         coldkey: &T::AccountId,
-        _amount: u128,
         cooldown_blocks: u32,
         block: u32,
-    ) -> DispatchResult {
-        let claim_block = block.saturating_add(cooldown_blocks);
+    ) -> Result<u32, DispatchError> {
+        let claim_block = block
+            .checked_add(cooldown_blocks)
+            .ok_or(ArithmeticError::Overflow)?;
         let max_unbondings = MaxUnbondings::<T>::get();
         let mut unbondings = StakeUnbondingLedger::<T>::get(coldkey);
 
         if unbondings.contains_key(&claim_block) {
-            return Ok(());
+            return Ok(claim_block);
         }
 
         // --- Ensure we don't surpass max unlockings by attempting to unlock unbondings
@@ -58,25 +95,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::MaxUnlockingsReached
         );
 
-        Ok(())
-    }
-
-    pub(crate) fn insert_balance_to_unbonding_ledger(
-        coldkey: &T::AccountId,
-        amount: u128,
-        cooldown_blocks: u32,
-        block: u32,
-    ) {
-        let claim_block = block.saturating_add(cooldown_blocks);
-
-        StakeUnbondingLedger::<T>::mutate(coldkey, |ledger| {
-            ledger
-                .entry(claim_block)
-                .and_modify(|v| v.saturating_accrue(amount))
-                .or_insert(amount);
-        });
-
-        TotalUnbondingBalance::<T>::mutate(|total| *total = total.saturating_add(amount));
+        Ok(claim_block)
     }
 
     pub fn do_claim_unbondings(coldkey: &T::AccountId) -> u32 {
@@ -87,23 +106,40 @@ impl<T: Config> Pallet<T> {
 
         let mut successful_unbondings = 0;
 
-        for (unbonding_block, amount) in unbondings.iter() {
+        for (unbonding_block, entry) in unbondings.iter() {
             if block < *unbonding_block {
                 continue;
             }
 
-            let stake_to_be_added_as_currency = match Self::u128_to_balance(*amount) {
+            let Some(amount) = entry.network.checked_add(entry.overwatch) else {
+                continue;
+            };
+            let stake_to_be_added_as_currency = match Self::u128_to_balance(amount) {
                 Some(b) => b,
-                None => {
-                    // Redundant, but attempt to remove the unbonding
-                    unbondings_copy.remove(&unbonding_block);
-                    continue;
-                }
+                None => continue,
+            };
+            let Some(total_network_unbonding) =
+                TotalNetworkUnbondingBalance::<T>::get().checked_sub(entry.network)
+            else {
+                continue;
             };
 
+            // A reaped currency account cannot be recreated below the existential deposit.
+            // Retain the entry until the full principal can actually be credited.
+            if T::Currency::total_balance(coldkey).is_zero()
+                && stake_to_be_added_as_currency < T::Currency::minimum_balance()
+            {
+                continue;
+            }
+
+            let credited = T::Currency::deposit_creating(coldkey, stake_to_be_added_as_currency);
+            if credited.peek() != stake_to_be_added_as_currency {
+                continue;
+            }
+            drop(credited);
+
+            TotalNetworkUnbondingBalance::<T>::put(total_network_unbonding);
             unbondings_copy.remove(&unbonding_block);
-            Self::add_balance_to_coldkey_account(&coldkey, stake_to_be_added_as_currency);
-            TotalUnbondingBalance::<T>::mutate(|total| *total = total.saturating_sub(*amount));
             successful_unbondings += 1;
         }
 
@@ -218,40 +254,5 @@ impl<T: Config> Pallet<T> {
         Self::checked_mul_div(shares, total_balance, total_shares)
             .and_then(|res| res.try_into().ok())
             .unwrap_or(u128::MAX)
-    }
-
-    pub fn queue_to_subnet_delegate_stake(
-        account_id: T::AccountId,
-        to_subnet_id: u32,
-        balance: u128,
-    ) -> DispatchResult {
-        let call = QueuedSwapCall::SwapToSubnetDelegateStake {
-            account_id,
-            to_subnet_id,
-            balance,
-        };
-
-        let id = NextSwapQueueId::<T>::get();
-
-        let queued_item = QueuedSwapItem {
-            id,
-            call,
-            queued_at_block: Self::get_current_block_as_u32(),
-            execute_after_blocks: T::EpochLength::get(),
-        };
-
-        SwapQueueOrder::<T>::try_mutate(|queue| -> DispatchResult {
-            queue.try_push(id).map_err(|_| Error::<T>::SwapQueueFull)?;
-            Ok(())
-        })?;
-        SwapQueueCount::<T>::mutate(|count| *count = count.saturating_add(1));
-
-        SwapCallQueue::<T>::insert(&id, &queued_item);
-
-        NextSwapQueueId::<T>::mutate(|next_id| *next_id = next_id.saturating_add(1));
-
-        // Self::deposit_event(Event::SwapCallQueued { id, who });
-
-        Ok(())
     }
 }

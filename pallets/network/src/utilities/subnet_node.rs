@@ -1574,7 +1574,7 @@ impl<T: Config> Pallet<T> {
         let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
             .map_err(|_| Error::<T>::InvalidValidatorId)?;
 
-        // An overwatch node-specific hotkey overrides the validator hotkey when present.
+        // A subnet-node-specific hotkey overrides the validator hotkey when present.
         if let Some(subnet_node_hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node_id) {
             return Ok((validator_coldkey, subnet_node_hotkey));
         }

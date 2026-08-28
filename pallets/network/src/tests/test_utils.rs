@@ -2,35 +2,39 @@ use super::mock::*;
 use crate::Event;
 pub use crate::NetworkBytes;
 use crate::{
-    multiaddr::*, AccountSubnetDelegateStakeShares, AttestEntry, BootnodePeerIdSubnetNodeId,
-    ClientPeerIdSubnetNodeId, ColdkeyValidatorId, ConsensusData, CurrentOverwatchEpoch,
-    DelegateAccount, EmergencySubnetNodeElectionData, HotkeyValidatorId, InitialValidatorData,
-    MaxMaxRegisteredNodes, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
-    MinSubnetNodes, MinSubnetRegistrationEpochs, MultiaddrSubnetNodeId, NetworkMaxStakeBalance,
-    NodeSubnetStake, OverwatchCommitCutoffPercent, OverwatchEpochLengthMultiplier,
-    OverwatchEpochStartBlock, OverwatchMinAge, OverwatchMinStakeBalance, OverwatchNode,
-    OverwatchNodeIdHotkey, OverwatchNodeStakeBalance, OverwatchNodeValidatorId, OverwatchNodes,
-    OverwatchReveals, PeerIdSubnetNodeId, PeerInfo, PendingOverwatchSettlement,
-    PendingOverwatchSettlementData, RegisteredSubnetNodesData, RegistrationSubnetData, Reputation,
-    StakeCooldownEpochs, StakeUnbondingLedger, SubnetConsensusSubmission, SubnetData,
-    SubnetElectedValidator, SubnetIdFriendlyUid, SubnetMaxStakeBalance, SubnetMinStakeBalance,
-    SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeConsensusData,
-    SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueue, SubnetNodeReputation,
-    SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
-    SubnetPauseData, SubnetRegistrationEpoch, SubnetRegistrationEpochs, SubnetReputation,
-    SubnetSlot, SubnetState, SubnetsData, TotalActiveNodes, TotalActiveSubnetNodes,
-    TotalActiveSubnets, TotalNodes, TotalOverwatchNodeStakeBalance, TotalOverwatchNodeUids,
-    TotalOverwatchNodes, TotalStake, TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids,
-    TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorDelegateStakeBalance,
-    TotalValidatorNodes, UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey,
-    ValidatorData, ValidatorDelegateStakeBalance, ValidatorIdHotkey, ValidatorReputation,
-    ValidatorSubnetNodes, ValidatorsData,
+    multiaddr::*, AccountSubnetDelegateStakeShares, ActiveOverwatchEpochLengthMultiplier,
+    AttestEntry, BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ColdkeyValidatorId,
+    ConsensusData, CurrentOverwatchEpoch, DelegateAccount, EmergencySubnetNodeElectionData,
+    HotkeyValidatorId, InitialValidatorData, MaxMaxRegisteredNodes, MaxOverwatchNodes,
+    MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs,
+    MultiaddrSubnetNodeId, NetworkMaxStakeBalance, NodeSubnetStake, OverwatchCommitCutoffPercent,
+    OverwatchEpochLengthMultiplier, OverwatchEpochSettlementSnapshot,
+    OverwatchEpochSettlementSnapshots, OverwatchEpochStartBlock, OverwatchMinAge,
+    OverwatchMinStakeBalance, OverwatchNode, OverwatchNodeIdHotkey,
+    OverwatchNodeSettlementSnapshot, OverwatchNodeStakeBalance, OverwatchNodeValidatorId,
+    OverwatchNodes, OverwatchReveals, OverwatchStakeWeightFactor, PeerIdSubnetNodeId, PeerInfo,
+    PendingOverwatchSettlement, PendingOverwatchSettlementData, RegisteredSubnetNodesData,
+    RegistrationSubnetData, Reputation, StakeCooldownEpochs, StakeUnbondingLedger,
+    SubnetConsensusSubmission, SubnetData, SubnetElectedValidator, SubnetIdFriendlyUid,
+    SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
+    SubnetNodeClassification, SubnetNodeConsensusData, SubnetNodeElectionSlots, SubnetNodeIdHotkey,
+    SubnetNodeQueue, SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
+    SubnetPauseCooldownEpochs, SubnetPauseData, SubnetRegistrationEpoch, SubnetRegistrationEpochs,
+    SubnetReputation, SubnetSlot, SubnetState, SubnetsData, TotalActiveNodes,
+    TotalActiveSubnetNodes, TotalActiveSubnets, TotalNodes, TotalOverwatchNodeStakeBalance,
+    TotalOverwatchNodeUids, TotalOverwatchNodes, TotalStake, TotalSubnetDelegateStakeBalance,
+    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids,
+    TotalValidatorDelegateStakeBalance, TotalValidatorNodes, UniqueParamSubnetNodeId,
+    ValidatorColdkey, ValidatorColdkeyHotkey, ValidatorData, ValidatorDelegateStakeBalance,
+    ValidatorIdHotkey, ValidatorOverwatchNodeId, ValidatorReputation, ValidatorSubnetNodes,
+    ValidatorsData,
 };
 use fp_account::AccountId20;
 use frame_support::assert_ok;
 use frame_support::storage::bounded_vec::BoundedVec;
 use frame_support::traits::{Currency, ExistenceRequirement, Hooks};
 use frame_support::weights::WeightMeter;
+use frame_support::BoundedBTreeMap;
 use sp_core::keccak_256;
 use sp_core::OpaquePeerId as PeerId;
 use sp_core::H160;
@@ -1925,13 +1929,70 @@ pub fn set_overwatch_epoch(epoch: u32) {
 }
 
 pub fn queue_overwatch_settlement(epoch: u32) {
+    let mut reveal_records = 0u32;
+    let mut revealing_nodes = BTreeSet::new();
+    let mut revealed_subnets = BTreeSet::new();
+    for ((subnet_id, overwatch_node_id), _weight) in OverwatchReveals::<Test>::iter_prefix((epoch,))
+    {
+        reveal_records = reveal_records.saturating_add(1);
+        revealing_nodes.insert(overwatch_node_id);
+        revealed_subnets.insert(subnet_id);
+    }
+
+    seed_overwatch_settlement_snapshot(epoch);
     PendingOverwatchSettlement::<Test>::put(PendingOverwatchSettlementData {
         epoch,
-        epoch_length_multiplier: OverwatchEpochLengthMultiplier::<Test>::get(),
-        reveal_records: 0,
-        revealing_nodes: 0,
-        revealed_subnets: 0,
+        epoch_length_multiplier: ActiveOverwatchEpochLengthMultiplier::<Test>::get(),
+        reveal_records,
+        revealing_nodes: revealing_nodes.len() as u32,
+        revealed_subnets: revealed_subnets.len() as u32,
     });
+}
+
+/// Seed the close-time economics and active ownership data used by a direct settlement fixture.
+/// Real epoch rollover writes this snapshot atomically with `PendingOverwatchSettlement`.
+pub fn seed_overwatch_settlement_snapshot(epoch: u32) {
+    let mut nodes = BoundedBTreeMap::<
+        u32,
+        OverwatchNodeSettlementSnapshot,
+        <Test as crate::Config>::MaxOverwatchNodesUpperBound,
+    >::new();
+
+    let revealing_node_ids = OverwatchReveals::<Test>::iter_prefix((epoch,))
+        .map(|((_subnet_id, overwatch_node_id), _weight)| overwatch_node_id)
+        .collect::<BTreeSet<_>>();
+
+    for overwatch_node_id in revealing_node_ids {
+        if !OverwatchNodes::<Test>::contains_key(overwatch_node_id) {
+            continue;
+        }
+        let Some(validator_id) = OverwatchNodeValidatorId::<Test>::get(overwatch_node_id) else {
+            continue;
+        };
+        if ValidatorOverwatchNodeId::<Test>::get(validator_id) != Some(overwatch_node_id) {
+            continue;
+        }
+
+        nodes
+            .try_insert(
+                overwatch_node_id,
+                OverwatchNodeSettlementSnapshot {
+                    validator_id,
+                    stake: OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
+                },
+            )
+            .expect("test Overwatch node snapshot fits the runtime upper bound");
+    }
+
+    let multiplier = ActiveOverwatchEpochLengthMultiplier::<Test>::get();
+    OverwatchEpochSettlementSnapshots::<Test>::insert(
+        epoch,
+        OverwatchEpochSettlementSnapshot::<Test> {
+            stake_weight_factor: OverwatchStakeWeightFactor::<Test>::get(),
+            reward_budget: OVERWATCH_EPOCH_EMISSIONS.saturating_mul(multiplier as u128),
+            nodes,
+        },
+    );
 }
 
 pub fn set_block_to_overwatch_reveal_block(epoch: u32) {
@@ -2099,20 +2160,19 @@ pub fn to_bounded<Len: frame_support::traits::Get<u32>>(s: &str) -> BoundedVec<u
 }
 
 // When using this function, manually add stake because some tests require fine tuning stake
-pub fn insert_overwatch_node(coldkey_n: u32, hotkey_n: u32) -> u32 {
-    let coldkey = account(coldkey_n);
+pub fn insert_overwatch_node(validator_id: u32, hotkey_n: u32) -> u32 {
     let hotkey = account(hotkey_n);
 
     TotalOverwatchNodeUids::<Test>::mutate(|n: &mut u32| *n += 1);
     let current_uid = TotalOverwatchNodeUids::<Test>::get();
 
-    let overwatch_node = OverwatchNode {
-        id: current_uid,
-        hotkey: hotkey.clone(),
-    };
+    let overwatch_node = OverwatchNode { id: current_uid };
 
     OverwatchNodes::<Test>::insert(current_uid, overwatch_node);
     OverwatchNodeIdHotkey::<Test>::insert(current_uid, hotkey.clone());
+    OverwatchNodeValidatorId::<Test>::insert(current_uid, validator_id);
+    ValidatorOverwatchNodeId::<Test>::insert(validator_id, current_uid);
+    TotalOverwatchNodes::<Test>::mutate(|n: &mut u32| *n += 1);
 
     // let stake_balance = OverwatchMinStakeBalance::<Test>::get();
 
@@ -2122,19 +2182,14 @@ pub fn insert_overwatch_node(coldkey_n: u32, hotkey_n: u32) -> u32 {
 }
 
 pub fn insert_overwatch_node_v2(validator_id: u32) -> u32 {
-    let coldkey = ValidatorColdkey::<Test>::get(validator_id).unwrap();
-    let hotkey = ValidatorColdkeyHotkey::<Test>::get(coldkey.clone()).unwrap();
-
     TotalOverwatchNodeUids::<Test>::mutate(|n: &mut u32| *n += 1);
     let current_uid = TotalOverwatchNodeUids::<Test>::get();
 
-    let overwatch_node = OverwatchNode {
-        id: current_uid,
-        hotkey: hotkey.clone(),
-    };
+    let overwatch_node = OverwatchNode { id: current_uid };
 
     OverwatchNodes::<Test>::insert(current_uid, overwatch_node);
     OverwatchNodeValidatorId::<Test>::insert(current_uid, validator_id);
+    ValidatorOverwatchNodeId::<Test>::insert(validator_id, current_uid);
     TotalOverwatchNodes::<Test>::mutate(|n: &mut u32| *n += 1);
 
     current_uid
@@ -2399,42 +2454,15 @@ pub fn run_subnet_consensus_step_v2(
     }
 }
 
-pub fn make_overwatch_qualified_v2(validator_id: u32, coldkey_n: u32) {
-    let max_subnets = MaxSubnets::<Test>::get();
-    let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-
-    let mut subnet_nodes: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
-    for n in 0..max_subnets - 1 {
-        let mut node_ids = BTreeSet::new();
-        let _n = n + 1;
-        let hotkey_n = get_hotkey_n(_n, max_subnet_nodes, max_subnets, _n);
-        insert_subnet(_n, SubnetState::Active, 0);
-        manual_insert_subnet_node_v2(
-            validator_id,
-            _n,
-            1,         // node id
-            coldkey_n, // coldkey
-            hotkey_n,  // hotkey
-            hotkey_n,  // peer
-            SubnetNodeClass::Validator,
-            0,
-        );
-        node_ids.insert(1);
-        subnet_nodes.insert(_n, node_ids);
-
-        TotalSubnetUids::<Test>::mutate(|n: &mut u32| *n += 1);
-        TotalActiveSubnets::<Test>::mutate(|n: &mut u32| *n += 1);
-    }
-
-    ValidatorSubnetNodes::<Test>::insert(validator_id, subnet_nodes);
+pub fn make_overwatch_qualified_v2(validator_id: u32) {
     // max reputation
     ValidatorReputation::<Test>::insert(
         validator_id,
         Reputation {
             start_epoch: Some(0),
             score: Network::percentage_factor_as_u128(),
-            lifetime_node_count: max_subnets * max_subnet_nodes,
-            total_active_nodes: max_subnets * max_subnet_nodes,
+            lifetime_node_count: 0,
+            total_active_nodes: 0,
             total_increases: 999,
             total_decreases: 0,
             average_proposal_identity_support: Network::percentage_factor_as_u128(),

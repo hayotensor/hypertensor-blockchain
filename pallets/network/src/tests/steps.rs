@@ -1,17 +1,93 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    DelegateStakeSubnetRemovalInterval, Event, MaxMinDelegateStakeMultiplier,
-    MaxPauseEpochsSubnetReputationFactor, MaxSubnetPauseEpochs, MaxSubnetRemovalInterval,
-    MaxSubnets, MinSubnetNodes, MinSubnetRemovalInterval, MinSubnetReputation,
+    DelegateStakeSubnetRemovalInterval, Event, MaxPauseEpochsSubnetReputationFactor,
+    MaxSubnetPauseEpochs, MaxSubnets, MinDelegateStakeDeposit, MinSubnetNodes, MinSubnetReputation,
     NewRegistrationCostMultiplier, PrevSubnetActivationEpoch, SubnetEnactmentEpochs, SubnetName,
     SubnetOwner, SubnetPauseData, SubnetRegistrationEpoch, SubnetRegistrationEpochs,
-    SubnetRemovalReason, SubnetReputation, SubnetState, SubnetsData, TotalActiveSubnetNodes,
-    TotalSubnetDelegateStakeBalance,
+    SubnetRemovalActivationCooldown, SubnetRemovalCheckInterval, SubnetRemovalReason,
+    SubnetReputation, SubnetState, SubnetsData, TotalActiveSubnetNodes,
+    TotalSubnetDelegateStakeBalance, NETWORK_EPOCH_PRELIMINARIES_SLOT,
 };
 use frame_support::assert_ok;
 use frame_support::traits::{Currency, OnInitialize};
 use frame_support::weights::WeightMeter;
+
+fn top_up_subnet_delegate_stake(subnet_id: u32, margin: u128) {
+    for _ in 0..16 {
+        let current = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+        let required =
+            Network::get_min_subnet_delegate_stake_balance(subnet_id).saturating_add(margin);
+        if current >= required {
+            return;
+        }
+
+        // The top-up itself changes the live subnet average and can raise the requirement.
+        // Recompute until the inclusive boundary is met; the minimum deposit guarantees forward
+        // progress at the end.
+        let amount = required
+            .saturating_sub(current)
+            .max(MinDelegateStakeDeposit::<Test>::get());
+        if Balances::free_balance(account(0)) <= amount {
+            let _ = Balances::deposit_creating(&account(0), amount.saturating_add(500));
+        }
+        assert_ok!(Network::add_subnet_delegate_stake(
+            RuntimeOrigin::signed(account(0)),
+            subnet_id,
+            amount,
+        ));
+    }
+
+    assert!(
+        TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id)
+            >= Network::get_min_subnet_delegate_stake_balance(subnet_id).saturating_add(margin)
+    );
+}
+
+#[test]
+fn test_excess_subnet_removal_schedule_combines_cooldown_and_cadence() {
+    let activation_epoch = 7;
+    let activation_cooldown_epochs = 10;
+    let check_interval_epochs = 10;
+
+    assert!(!Network::can_remove_excess_subnet_at_epoch(
+        10,
+        activation_epoch,
+        activation_cooldown_epochs,
+        check_interval_epochs,
+    ));
+    assert!(!Network::can_remove_excess_subnet_at_epoch(
+        19,
+        activation_epoch,
+        activation_cooldown_epochs,
+        check_interval_epochs,
+    ));
+    assert!(Network::can_remove_excess_subnet_at_epoch(
+        20,
+        activation_epoch,
+        activation_cooldown_epochs,
+        check_interval_epochs,
+    ));
+    assert!(!Network::can_remove_excess_subnet_at_epoch(
+        20,
+        activation_epoch,
+        activation_cooldown_epochs,
+        0,
+    ));
+
+    assert!(!Network::can_remove_excess_subnet_at_epoch(
+        u32::MAX - 1,
+        u32::MAX - 5,
+        10,
+        1,
+    ));
+    assert!(Network::can_remove_excess_subnet_at_epoch(
+        u32::MAX,
+        u32::MAX - 5,
+        10,
+        1,
+    ));
+}
 
 #[test]
 fn test_do_epoch_preliminaries_remove_expired_pause() {
@@ -68,25 +144,7 @@ fn test_do_epoch_preliminaries_remove_expired_pause() {
                 let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
                 // This will revert if subnet doesn't exist so we know the removal subnet is still alive
                 let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-                let total_delegate_stake_balance =
-                    TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-                let min_subnet_delegate_stake =
-                    Network::get_min_subnet_delegate_stake_balance(subnet_id);
-
-                if Balances::free_balance(&account(0))
-                    <= total_delegate_stake_balance - min_subnet_delegate_stake + 500
-                {
-                    let _ = Balances::deposit_creating(
-                        &account(0),
-                        total_delegate_stake_balance - min_subnet_delegate_stake + 500,
-                    );
-                }
-
-                assert_ok!(Network::add_subnet_delegate_stake(
-                    RuntimeOrigin::signed(account(0)),
-                    subnet_id,
-                    total_delegate_stake_balance - min_subnet_delegate_stake,
-                ));
+                top_up_subnet_delegate_stake(subnet_id, 0);
             }
 
             Network::do_epoch_preliminaries(
@@ -94,7 +152,7 @@ fn test_do_epoch_preliminaries_remove_expired_pause() {
                 System::block_number(),
                 current_epoch,
             );
-            set_epoch(current_epoch + 1, 0);
+            set_epoch(current_epoch + 1, NETWORK_EPOCH_PRELIMINARIES_SLOT);
         }
 
         assert_eq!(SubnetsData::<Test>::try_get(remove_subnet_id), Err(()));
@@ -146,14 +204,14 @@ fn test_max_pause_expiry_is_global_and_hook_precedes_boundary_unpause() {
 
         let strict_boundary =
             pause_started_global_epoch.saturating_add(MaxSubnetPauseEpochs::<Test>::get());
-        set_epoch(strict_boundary, 0);
+        set_epoch(strict_boundary, NETWORK_EPOCH_PRELIMINARIES_SLOT);
         Network::on_initialize(System::block_number());
         for subnet_id in &subnet_ids {
             assert_eq!(SubnetReputation::<Test>::get(subnet_id), initial_reputation);
         }
 
         let first_expired_epoch = strict_boundary.saturating_add(1);
-        set_epoch(first_expired_epoch, 0);
+        set_epoch(first_expired_epoch, NETWORK_EPOCH_PRELIMINARIES_SLOT);
         System::set_block_number(System::block_number().saturating_sub(1));
 
         // Unpausing in the final block before the boundary ends the pause episode, so the next
@@ -169,7 +227,7 @@ fn test_max_pause_expiry_is_global_and_hook_precedes_boundary_unpause() {
 
         // Runtime hooks execute before extrinsics in the boundary block. The still-paused subnet
         // is therefore decayed first, and unpausing later in that block cannot undo the decay.
-        set_epoch(first_expired_epoch, 0);
+        set_epoch(first_expired_epoch, NETWORK_EPOCH_PRELIMINARIES_SLOT);
         Network::on_initialize(System::block_number());
         assert_eq!(
             SubnetReputation::<Test>::get(subnet_ids[0]),
@@ -228,7 +286,10 @@ fn test_do_epoch_preliminaries_waits_for_first_local_consensus_slot() {
 
         // At global slot zero the subnet is still in the preceding local epoch, so ordinary
         // health enforcement must not run before its first consensus opportunity.
-        set_epoch(consensus_eligible_from_subnet_epoch, 0);
+        set_epoch(
+            consensus_eligible_from_subnet_epoch,
+            NETWORK_EPOCH_PRELIMINARIES_SLOT,
+        );
         let preparation_boundary = System::block_number();
         Network::on_initialize(preparation_boundary);
         assert!(SubnetsData::<Test>::contains_key(subnet_id));
@@ -236,7 +297,7 @@ fn test_do_epoch_preliminaries_waits_for_first_local_consensus_slot() {
         // At the following global boundary the target subnet slot has passed. Normal health
         // enforcement resumes and observes the already-low reputation.
         let enforcement_epoch = consensus_eligible_from_subnet_epoch.saturating_add(1);
-        set_epoch(enforcement_epoch, 0);
+        set_epoch(enforcement_epoch, NETWORK_EPOCH_PRELIMINARIES_SLOT);
         Network::on_initialize(System::block_number());
         assert_eq!(SubnetsData::<Test>::try_get(subnet_id), Err(()));
     });
@@ -285,13 +346,13 @@ fn test_do_epoch_preliminaries_keeps_paused_subnet_in_excess_capacity_cohort() {
         });
 
         PrevSubnetActivationEpoch::<Test>::put(0);
-        let removal_interval = MaxSubnetRemovalInterval::<Test>::get();
-        let min_removal_epoch = MinSubnetRemovalInterval::<Test>::get();
+        let removal_interval = SubnetRemovalCheckInterval::<Test>::get();
+        let min_removal_epoch = SubnetRemovalActivationCooldown::<Test>::get();
         let removal_epoch = min_removal_epoch
             .saturating_add(removal_interval.saturating_sub(1))
             .saturating_div(removal_interval)
             .saturating_mul(removal_interval);
-        set_epoch(removal_epoch, 0);
+        set_epoch(removal_epoch, NETWORK_EPOCH_PRELIMINARIES_SLOT);
 
         Network::do_epoch_preliminaries(
             &mut WeightMeter::new(),
@@ -343,15 +404,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake() {
         increase_epochs(current_epoch % dstake_epoch_interval + dstake_epoch_interval);
 
         // ensure first subnet has enough dstake
-        let total_delegate_stake_balance =
-            TotalSubnetDelegateStakeBalance::<Test>::get(first_subnet_id);
-        let min_subnet_delegate_stake =
-            Network::get_min_subnet_delegate_stake_balance(first_subnet_id);
-        assert_ok!(Network::add_subnet_delegate_stake(
-            RuntimeOrigin::signed(account(0)),
-            first_subnet_id,
-            total_delegate_stake_balance - min_subnet_delegate_stake,
-        ));
+        top_up_subnet_delegate_stake(first_subnet_id, 0);
 
         // ensure removal subnet has less than minimum dstake
         let min_subnet_delegate_stake =
@@ -411,15 +464,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake_fail() {
         increase_epochs(current_epoch % dstake_epoch_interval + dstake_epoch_interval - 1);
 
         // ensure first subnet has enough dstake
-        let total_delegate_stake_balance =
-            TotalSubnetDelegateStakeBalance::<Test>::get(first_subnet_id);
-        let min_subnet_delegate_stake =
-            Network::get_min_subnet_delegate_stake_balance(first_subnet_id);
-        assert_ok!(Network::add_subnet_delegate_stake(
-            RuntimeOrigin::signed(account(0)),
-            first_subnet_id,
-            total_delegate_stake_balance - min_subnet_delegate_stake,
-        ));
+        top_up_subnet_delegate_stake(first_subnet_id, 0);
 
         // ensure removal subnet has less than minimum dstake
         let min_subnet_delegate_stake =
@@ -472,15 +517,7 @@ fn test_do_epoch_preliminaries_remove_under_min_reputation() {
         for s in 0..last_subnet {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
             let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-            let total_delegate_stake_balance =
-                TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-            let min_subnet_delegate_stake =
-                Network::get_min_subnet_delegate_stake_balance(subnet_id);
-            assert_ok!(Network::add_subnet_delegate_stake(
-                RuntimeOrigin::signed(account(0)),
-                subnet_id,
-                total_delegate_stake_balance - min_subnet_delegate_stake,
-            ));
+            top_up_subnet_delegate_stake(subnet_id, 0);
         }
 
         // ensure removal subnet has n-1 min reputation
@@ -494,7 +531,7 @@ fn test_do_epoch_preliminaries_remove_under_min_reputation() {
             .consensus_eligible_from_subnet_epoch
             .unwrap()
             .saturating_add(1);
-        set_epoch(current_epoch, 0);
+        set_epoch(current_epoch, NETWORK_EPOCH_PRELIMINARIES_SLOT);
         Network::do_epoch_preliminaries(
             &mut WeightMeter::new(),
             System::block_number(),
@@ -523,7 +560,7 @@ fn test_do_epoch_preliminaries_remove_max_subnets() {
         let max_subnets = MaxSubnets::<Test>::get();
         let end = MinSubnetNodes::<Test>::get();
 
-        let mut remove_subnet_id = 0;
+        let mut subnet_ids = Vec::new();
         for s in 0..max_subnets.saturating_add(1) {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
             build_activated_subnet_new_excess_subnets(
@@ -535,24 +572,30 @@ fn test_do_epoch_preliminaries_remove_max_subnets() {
                 1,
             );
             let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-            remove_subnet_id = subnet_id;
-
-            if s + 1 != max_subnets.saturating_add(1) {
-                // Force all non-last subnets to be > last subnet
-                TotalSubnetDelegateStakeBalance::<Test>::mutate(subnet_id, |mut n| *n += 1000);
-            }
+            subnet_ids.push(subnet_id);
         }
+
+        // Each newly built subnet adds to TVL, so later subnets no longer begin with the same
+        // delegate balance. Select the actual weakest subnet, then keep every other subnet above
+        // it while exercising the excess-capacity schedule.
+        let remove_subnet_id = *subnet_ids
+            .iter()
+            .min_by_key(|subnet_id| TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id))
+            .unwrap();
 
         // increase past n+1 epoch so they are on their activation epochs
         increase_epochs(1);
 
-        let removal_interval = MaxSubnetRemovalInterval::<Test>::get();
+        let removal_interval = SubnetRemovalCheckInterval::<Test>::get();
         let current_epoch = Network::get_current_epoch_as_u32();
 
         // Set on an epoch where a subnet should not be removed
         let offset_epoch = removal_interval - current_epoch % removal_interval;
 
-        set_epoch(current_epoch + offset_epoch + 1, 0);
+        set_epoch(
+            current_epoch + offset_epoch + 1,
+            NETWORK_EPOCH_PRELIMINARIES_SLOT,
+        );
         let mut non_removal_epoch_touched = false;
 
         let current_epoch = Network::get_current_epoch_as_u32();
@@ -563,25 +606,35 @@ fn test_do_epoch_preliminaries_remove_max_subnets() {
 
             if !is_removal_epoch {
                 // always ensure subnet is at the minimum required delegate stake
-                for s in 0..max_subnets.saturating_add(1) {
-                    let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
+                for _ in 0..16 {
+                    for s in 0..max_subnets.saturating_add(1) {
+                        let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
 
-                    // This will revert if subnet doesn't exist so we know the removal subnet is still alive
-                    let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-                    let total_delegate_stake_balance =
-                        TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-                    let min_subnet_delegate_stake =
-                        Network::get_min_subnet_delegate_stake_balance(subnet_id);
-                    let add = if subnet_id == remove_subnet_id {
-                        total_delegate_stake_balance - min_subnet_delegate_stake
-                    } else {
-                        total_delegate_stake_balance - min_subnet_delegate_stake + 100
-                    };
-                    assert_ok!(Network::add_subnet_delegate_stake(
-                        RuntimeOrigin::signed(account(0)),
-                        subnet_id,
-                        add,
-                    ));
+                        // This will revert if subnet doesn't exist so we know the removal subnet is still alive
+                        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
+                        let margin = if subnet_id == remove_subnet_id {
+                            0
+                        } else {
+                            MinDelegateStakeDeposit::<Test>::get().saturating_mul(10)
+                        };
+                        top_up_subnet_delegate_stake(subnet_id, margin);
+                    }
+
+                    let all_funded = (0..max_subnets.saturating_add(1)).all(|s| {
+                        let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
+                        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+                        let margin = if subnet_id == remove_subnet_id {
+                            0
+                        } else {
+                            MinDelegateStakeDeposit::<Test>::get().saturating_mul(10)
+                        };
+                        TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id)
+                            >= Network::get_min_subnet_delegate_stake_balance(subnet_id)
+                                .saturating_add(margin)
+                    });
+                    if all_funded {
+                        break;
+                    }
                 }
             }
             Network::do_epoch_preliminaries(
@@ -596,7 +649,7 @@ fn test_do_epoch_preliminaries_remove_max_subnets() {
                     remove_subnet_id
                 );
             }
-            set_epoch(current_epoch + 1, 0);
+            set_epoch(current_epoch + 1, NETWORK_EPOCH_PRELIMINARIES_SLOT);
         }
         assert!(non_removal_epoch_touched);
         assert_eq!(SubnetsData::<Test>::try_get(remove_subnet_id), Err(()));
@@ -647,7 +700,7 @@ fn test_do_epoch_preliminaries_remove_registered_min_nodes() {
         TotalActiveSubnetNodes::<Test>::insert(subnet_id, MinSubnetNodes::<Test>::get() - 1);
 
         // push into enactment period
-        set_epoch(max_enactment_epoch, 0);
+        set_epoch(max_enactment_epoch, NETWORK_EPOCH_PRELIMINARIES_SLOT);
 
         let current_epoch = Network::get_current_epoch_as_u32();
 
@@ -702,7 +755,7 @@ fn test_do_epoch_preliminaries_remove_past_enactment_phase() {
         let max_enactment_epoch = max_registration_epoch.saturating_add(subnet_enactment_epochs);
 
         // push into enactment period
-        set_epoch(max_enactment_epoch + 1, 0);
+        set_epoch(max_enactment_epoch + 1, NETWORK_EPOCH_PRELIMINARIES_SLOT);
 
         let current_epoch = Network::get_current_epoch_as_u32();
 

@@ -85,43 +85,107 @@ impl<T: Config> Pallet<T> {
             .clamp(0, Self::percentage_factor_as_u128())
     }
 
+    /// Converts raw Overwatch stakes into normalized Q18 reward coefficients.
+    ///
+    /// The common maximum-stake scale cancels during the final normalization, while keeping every
+    /// fractional-power input in `[0, 1]`. Consequently, no powered value can exceed the Q18
+    /// percentage factor and the intermediate sum cannot approach `u128::MAX`.
+    pub(crate) fn normalize_overwatch_stake_weights(
+        node_stake_weights: &mut BTreeMap<u32, u128>,
+        stake_weight_factor: u128,
+    ) {
+        let percentage_factor = Self::percentage_factor_as_u128();
+        let max_stake = node_stake_weights
+            .values()
+            .copied()
+            .max()
+            .unwrap_or_default();
+
+        if max_stake == 0 {
+            node_stake_weights
+                .values_mut()
+                .for_each(|weight| *weight = 0);
+            return;
+        }
+
+        let exponent = Self::get_percent_as_f64(stake_weight_factor);
+        let total_powered_weight: u128 = node_stake_weights
+            .values_mut()
+            .map(|stake| {
+                let powered_weight = if *stake == 0 {
+                    0
+                } else if stake_weight_factor == percentage_factor {
+                    // The linear exponent uses integer fixed-point arithmetic throughout.
+                    Self::percent_div(*stake, max_stake)
+                } else {
+                    let relative_stake = (*stake as f64 / max_stake as f64).clamp(0.0, 1.0);
+                    let powered_stake = Self::pow(relative_stake, exponent);
+
+                    if powered_stake.is_finite() {
+                        Self::get_f64_as_percentage(powered_stake.clamp(0.0, 1.0))
+                            .min(percentage_factor)
+                    } else {
+                        0
+                    }
+                };
+
+                *stake = powered_weight;
+                powered_weight
+            })
+            .sum();
+
+        if total_powered_weight == 0 {
+            node_stake_weights
+                .values_mut()
+                .for_each(|weight| *weight = 0);
+            return;
+        }
+
+        node_stake_weights.values_mut().for_each(|weight| {
+            *weight = Self::percent_div(*weight, total_powered_weight);
+        });
+    }
+
     // Returns subnet weights, node scores, and db weight
     pub fn calculate_overwatch_rewards() -> Weight {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
-        // Taking the settlement makes finalization idempotent: a second invocation cannot score or
-        // mint rewards for the same epoch. Empty epochs are finalized as well so consumers can
-        // distinguish "no score" from "not processed yet".
-        let Some(settlement) = PendingOverwatchSettlement::<T>::take() else {
+        let Some(settlement) = PendingOverwatchSettlement::<T>::get() else {
             return db_weight.reads(1);
         };
-        weight = weight.saturating_add(db_weight.reads_writes(1, 1));
+        weight = weight.saturating_add(db_weight.reads(1));
+
+        // A pending header without its matching close-time snapshot is not settleable. Preserve
+        // the header so a transient or externally repaired storage gap cannot silently finalize
+        // the epoch from mutable live membership or economic inputs.
+        let Some(settlement_snapshot) =
+            OverwatchEpochSettlementSnapshots::<T>::get(settlement.epoch)
+        else {
+            return weight.saturating_add(db_weight.reads(1));
+        };
+        weight = weight.saturating_add(db_weight.reads(1));
+
+        // Consume both pieces before scoring. A second invocation cannot score or mint rewards for
+        // the same epoch. An explicit empty snapshot is consumed and finalized in the same way.
+        PendingOverwatchSettlement::<T>::kill();
+        OverwatchEpochSettlementSnapshots::<T>::remove(settlement.epoch);
+        weight = weight.saturating_add(db_weight.writes(2));
 
         LastFinalizedOverwatchEpoch::<T>::put(settlement.epoch);
         weight = weight.saturating_add(db_weight.writes(1));
 
         let percentage_factor = Self::percentage_factor_as_u128();
 
-        let stake_weight_pow: f64 =
-            Self::get_percent_as_f64(OverwatchStakeWeightFactor::<T>::get());
-        weight = weight.saturating_add(db_weight.reads(1));
-        let mut total_stake_weight: u128 = 0;
+        let stake_weight_factor = settlement_snapshot.stake_weight_factor;
 
         // {node_id, score}
         let mut node_total_scores: BTreeMap<u32, u128> = BTreeMap::new();
-        // {node_id, account_id}
-        let mut node_hotkeys: BTreeMap<u32, T::AccountId> = BTreeMap::new();
-
-        let total_stake = TotalOverwatchNodeStakeBalance::<T>::get();
-        // TotalOverwatchNodeStakeBalance
-        weight = weight.saturating_add(db_weight.reads(1));
-
         // Step 1: Group reveals by subnet
-        // {node_id, stake_weight}
+        // {node_id, raw stake; normalized stake weight after the reveal scan}
         let mut node_stake_weights: BTreeMap<u32, u128> = BTreeMap::new();
-        // {subnet_id, (subnet_weight sum, {node_id, subnet_weight})}
-        let mut subnet_reveals: BTreeMap<u32, (u128, BTreeMap<u32, u128>)> = BTreeMap::new();
+        // {subnet_id, {node_id, submitted subnet weight}}
+        let mut subnet_reveals: BTreeMap<u32, BTreeMap<u32, u128>> = BTreeMap::new();
         for ((subnet_id, overwatch_node_id), subnet_weight) in
             OverwatchReveals::<T>::iter_prefix((settlement.epoch,))
         {
@@ -129,47 +193,29 @@ impl<T: Config> Pallet<T> {
             // Get stake weights of all revealing nodes
             weight = weight.saturating_add(db_weight.reads(1));
 
-            if node_stake_weights.get(&overwatch_node_id).is_none() {
-                weight = weight.saturating_add(db_weight.reads(1));
-                let Some(overwatch_node) = OverwatchNodes::<T>::get(overwatch_node_id) else {
+            if !node_stake_weights.contains_key(&overwatch_node_id) {
+                // Membership and stake are authoritative at close time. A node may have been
+                // removed or replaced before this delayed settlement and still earns under its
+                // historical node ID; a reveal absent from the snapshot is never admitted.
+                let Some(node_snapshot) = settlement_snapshot.nodes.get(&overwatch_node_id) else {
                     continue;
                 };
 
-                let stake_balance = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
-                // OverwatchNodeStakeBalance
-                weight = weight.saturating_add(db_weight.reads(1));
-
-                let stake_weight_adj =
-                    Self::get_f64_as_percentage(Self::pow(stake_balance as f64, stake_weight_pow));
-
-                total_stake_weight = total_stake_weight.saturating_add(stake_weight_adj);
-
-                node_stake_weights.insert(overwatch_node_id, stake_weight_adj);
-                node_hotkeys.insert(overwatch_node_id, overwatch_node.hotkey.clone());
+                node_stake_weights.insert(overwatch_node_id, node_snapshot.stake);
             }
 
-            let entry = subnet_reveals
+            subnet_reveals
                 .entry(subnet_id)
-                .or_insert((0, BTreeMap::new()));
-            entry.0 = entry.0.saturating_add(subnet_weight); // sum all weights for this subnet
-            entry.1.insert(overwatch_node_id, subnet_weight); // store each node's weight per subnet (subnet weight the overwatch submitted)
+                .or_default()
+                .insert(overwatch_node_id, subnet_weight);
         }
 
-        // Normalize stake weights
-        if total_stake_weight == 0 {
-            for stake_weight in node_stake_weights.values_mut() {
-                *stake_weight = 0;
-            }
-        } else {
-            for stake_weight in node_stake_weights.values_mut() {
-                *stake_weight = Self::percent_div(*stake_weight, total_stake_weight);
-            }
-        }
+        Self::normalize_overwatch_stake_weights(&mut node_stake_weights, stake_weight_factor);
 
         // Step 2: Iterate each subnet
         // - Get subnet weights from nodes
         // - Score nodes
-        for (&subnet_id, (_sum_weights, node_weights)) in subnet_reveals.iter() {
+        for (&subnet_id, node_weights) in subnet_reveals.iter() {
             // Get node stake weight
             let total_adjusted: u128 = node_weights
                 .iter()
@@ -221,11 +267,7 @@ impl<T: Config> Pallet<T> {
         //
         // Step 5: Reward nodes
         //
-        // `OverwatchEpochEmissions` is the budget for one general blockchain epoch. Overwatch
-        // nodes submit only once per multiplied interval, so the completed interval receives all
-        // general-epoch budgets that it spans.
-        let ow_emissions = T::OverwatchEpochEmissions::get()
-            .saturating_mul(settlement.epoch_length_multiplier as u128);
+        let ow_emissions = settlement_snapshot.reward_budget;
 
         for (node_id, score) in node_total_scores.iter() {
             if *score == 0 {
@@ -237,11 +279,6 @@ impl<T: Config> Pallet<T> {
             // For data purposes only
             OverwatchNodeWeights::<T>::insert(settlement.epoch, node_id, node_final_score);
             weight = weight.saturating_add(db_weight.writes(1));
-
-            // Skip if no hotkey
-            let Some(hotkey) = node_hotkeys.get(&node_id) else {
-                continue;
-            };
 
             let amount = Self::percent_mul(node_final_score, ow_emissions);
             if amount == 0 {
@@ -580,14 +617,13 @@ impl<T: Config> Pallet<T> {
         // `SubnetData` value on this hook-critical path.
         let subnet_ids: Vec<u32> = SubnetsData::<T>::iter_keys().collect();
 
-        // At general slot two, every assigned subnet is still in the local epoch whose election
-        // completed at its slot in the preceding general epoch. Derive that phase from the
-        // allocation epoch itself so this calculation is deterministic even when invoked by a
-        // benchmark or test outside the hook. In `on_initialize`, this is exactly the current
-        // block (`epoch * EpochLength + 2`).
+        // At the global subnet-emission slot, every assigned subnet is still in the local epoch
+        // whose election completed at its slot in the preceding general epoch. Derive that phase
+        // from the allocation epoch itself so this calculation is deterministic even when invoked
+        // by a benchmark or test outside the hook.
         let allocation_block = epoch
             .saturating_mul(T::EpochLength::get())
-            .saturating_add(2);
+            .saturating_add(NETWORK_SUBNET_EMISSION_SLOT);
         let mut eligible_subnet_totals: BTreeMap<u32, (u128, u32)> = BTreeMap::new();
         let mut total_delegate_stake = 0u128;
         let mut total_electable_nodes = 0u32;

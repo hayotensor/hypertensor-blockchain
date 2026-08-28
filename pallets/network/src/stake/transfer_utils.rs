@@ -27,6 +27,7 @@ impl<T: Config> Pallet<T> {
     /// * `to_subnet_id` - Subnet ID staking to in relation to subnet node ID .
     /// * `delegate_stake_shares_to_swap` - Shares to remove (from node) to (to subnet) then be added as converted balance.
     ///
+    #[frame_support::transactional]
     pub fn do_swap_from_validator_to_subnet(
         origin: T::RuntimeOrigin,
         from_validator_id: u32,
@@ -64,6 +65,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    #[frame_support::transactional]
     pub fn do_swap_from_subnet_to_validator(
         origin: T::RuntimeOrigin,
         from_subnet_id: u32,
@@ -99,6 +101,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    #[frame_support::transactional]
     pub fn do_swap_from_subnet_to_subnet(
         origin: T::RuntimeOrigin,
         from_subnet_id: u32,
@@ -136,6 +139,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    #[frame_support::transactional]
     pub fn do_swap_from_validator_to_validator(
         origin: T::RuntimeOrigin,
         from_validator_id: u32,

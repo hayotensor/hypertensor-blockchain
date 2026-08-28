@@ -19,6 +19,7 @@ use super::*;
 use sp_runtime::Saturating;
 
 impl<T: Config> Pallet<T> {
+    #[frame_support::transactional]
     pub fn do_remove_delegate_account_balance(
         origin: T::RuntimeOrigin,
         amount_to_remove: u128,
@@ -43,24 +44,20 @@ impl<T: Config> Pallet<T> {
         };
 
         let block: u32 = Self::get_current_block_as_u32();
-        let cooldown_blocks = StakeCooldownEpochs::<T>::get() * T::EpochLength::get();
-
-        Self::prepare_unbonding_ledger_entry(
-            &account_id,
-            amount_to_remove,
-            cooldown_blocks,
-            block,
-        )?;
+        let cooldown_blocks = StakeCooldownEpochs::<T>::get()
+            .checked_mul(T::EpochLength::get())
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
 
         Self::decrease_delegate_account_balance(&account_id, amount_to_remove);
 
         // Add to ledger and always match the stake cooldown epochs (or greater cooldown)
-        Self::insert_balance_to_unbonding_ledger(
+        Self::add_balance_to_unbonding_ledger(
             &account_id,
             amount_to_remove,
             cooldown_blocks,
             block,
-        );
+            UnbondingSource::Network,
+        )?;
 
         Self::deposit_event(Event::DelegateBalanceRemoved {
             account_id,

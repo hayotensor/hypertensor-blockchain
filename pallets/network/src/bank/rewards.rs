@@ -1002,7 +1002,7 @@ impl<T: Config> Pallet<T> {
         // --- Ensure users are staked to subnet node
         let total_node_delegated_stake_shares =
             ValidatorDelegateStakeShares::<T>::get(validator_id);
-        // TotalNodeDelegateStakeShares
+        // ValidatorDelegateStakeShares
         weight_meter.consume(db_weight.reads(1));
 
         // We make sure the pool has shares before depositing into it
@@ -1011,10 +1011,12 @@ impl<T: Config> Pallet<T> {
             let updated_account_reward = account_reward.saturating_sub(node_delegate_reward);
             Self::do_increase_validator_delegate_stake(validator_id, node_delegate_reward);
             // reads:
-            // TotalNodeDelegateStakeBalance | TotalNodeDelegateStakeShares
+            // ValidatorDelegateStakeBalance | ValidatorDelegateStakeShares |
+            // TotalValidatorDelegateStakeBalance
             //
             // writes:
-            // TotalNodeDelegateStakeShares | TotalNodeDelegateStakeBalance | TotalNodeDelegateStake
+            // ValidatorDelegateStakeShares | ValidatorDelegateStakeBalance |
+            // TotalValidatorDelegateStakeBalance
             weight_meter.consume(db_weight.reads_writes(5, 3));
 
             return Some((updated_account_reward, (validator_id, node_delegate_reward)));

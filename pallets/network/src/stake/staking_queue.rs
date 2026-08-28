@@ -14,8 +14,6 @@
 // limitations under the License.
 
 use super::*;
-use sp_core::U256;
-
 impl<T: Config> Pallet<T> {
     /// Queue a swap call
     ///
@@ -23,11 +21,8 @@ impl<T: Config> Pallet<T> {
     ///
     /// Queues a swap call to be executed after a certain number of blocks.
     ///
-    /// Only callable by
-    /// - `do_swap_delegate_stake`
-    /// - `do_swap_node_delegate_stake`
-    /// - `do_swap_from_node_to_subnet`
-    /// - `do_swap_from_subnet_to_node`
+    /// Used after source principal has been removed by one of the four transactional
+    /// subnet/validator swap paths.
     ///
     /// # Arguments
     ///
@@ -39,6 +34,16 @@ impl<T: Config> Pallet<T> {
         call: QueuedSwapCall<T::AccountId>,
     ) -> DispatchResult {
         let id = NextSwapQueueId::<T>::get();
+        let next_id = id.checked_add(1).ok_or(Error::<T>::SwapQueueIdExhausted)?;
+        let queued_balance = call.get_queue_balance();
+        let next_queued_principal = TotalQueuedSwapPrincipal::<T>::get()
+            .checked_add(queued_balance)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+
+        ensure!(
+            !SwapCallQueue::<T>::contains_key(id),
+            Error::<T>::SwapQueueIdExhausted
+        );
 
         let queued_item = QueuedSwapItem {
             id,
@@ -47,15 +52,15 @@ impl<T: Config> Pallet<T> {
             execute_after_blocks: T::EpochLength::get(),
         };
 
-        SwapQueueOrder::<T>::try_mutate(|queue| -> DispatchResult {
+        let queue_count = SwapQueueOrder::<T>::try_mutate(|queue| -> Result<u32, Error<T>> {
             queue.try_push(id).map_err(|_| Error::<T>::SwapQueueFull)?;
-            Ok(())
+            Ok(queue.len() as u32)
         })?;
-        SwapQueueCount::<T>::mutate(|count| *count = count.saturating_add(1));
 
         SwapCallQueue::<T>::insert(&id, &queued_item);
-
-        NextSwapQueueId::<T>::mutate(|next_id| *next_id = next_id.saturating_add(1));
+        SwapQueueCount::<T>::put(queue_count);
+        NextSwapQueueId::<T>::put(next_id);
+        TotalQueuedSwapPrincipal::<T>::put(next_queued_principal);
 
         Self::deposit_event(Event::SwapCallQueued {
             id,

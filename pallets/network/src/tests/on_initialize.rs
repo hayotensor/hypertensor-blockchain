@@ -2,13 +2,16 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     ActiveOverwatchEpochLengthMultiplier, CurrentOverwatchEpoch, FinalSubnetEmissionWeights,
-    LastFinalizedOverwatchEpoch, MaxOverwatchNodes, MaxSubnets, MinSubnetNodes,
-    MinSubnetReputation, NewRegistrationCostMultiplier, NodeSubnetStake, OverwatchCommit,
-    OverwatchCommits, OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock,
+    LastFinalizedOverwatchEpoch, MaxOverwatchNodes, MaxSubnets, MinDelegateStakeDeposit,
+    MinSubnetNodes, MinSubnetReputation, NewRegistrationCostMultiplier, NodeSubnetStake,
+    OverwatchCommit, OverwatchCommits, OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock,
     OverwatchNodeStakeBalance, OverwatchReveal, OverwatchReveals, OverwatchSubnetWeights,
-    OverwatchValidatorWhitelist, SlotAssignment, SubnetConsensusSubmission, SubnetElectedValidator,
-    SubnetName, SubnetOwner, SubnetPauseData, SubnetReputation, SubnetState, SubnetsData,
-    TotalSubnetDelegateStakeBalance,
+    OverwatchValidatorWhitelist, PrevSubnetActivationEpoch, SlotAssignment,
+    SubnetConsensusSubmission, SubnetElectedValidator, SubnetName, SubnetOwner, SubnetPauseData,
+    SubnetRemovalCheckInterval, SubnetReputation, SubnetState, SubnetsData, TotalActiveSubnets,
+    TotalSubnetDelegateStakeBalance, TotalSubnetElectableNodes, TotalSubnets,
+    NETWORK_EPOCH_PRELIMINARIES_SLOT, NETWORK_OVERWATCH_SETTLEMENT_SLOT,
+    NETWORK_SUBNET_EMISSION_SLOT,
 };
 use frame_support::assert_ok;
 use frame_support::traits::{Currency, OnInitialize};
@@ -57,6 +60,38 @@ fn get_commit(num: u32) -> (u128, Vec<u8>, sp_core::H256) {
     let commit_hash = make_commit(weight, salt.clone());
 
     (weight, salt, commit_hash)
+}
+
+#[test]
+fn test_on_initialize_health_removal_at_max_plus_one_does_not_evict_healthy_subnet() {
+    new_test_ext().execute_with(|| {
+        MaxSubnets::<Test>::put(2);
+        PrevSubnetActivationEpoch::<Test>::put(0);
+
+        let percentage_factor = Network::percentage_factor_as_u128();
+        for (subnet_id, delegate_stake) in [(1, 1_000), (2, 500), (3, 700)] {
+            insert_subnet(subnet_id, SubnetState::Active, 0);
+            TotalSubnetDelegateStakeBalance::<Test>::insert(
+                subnet_id,
+                delegate_stake * percentage_factor,
+            );
+            TotalSubnetElectableNodes::<Test>::insert(subnet_id, MinSubnetNodes::<Test>::get());
+            SubnetReputation::<Test>::insert(subnet_id, percentage_factor);
+        }
+        SubnetReputation::<Test>::insert(1, MinSubnetReputation::<Test>::get().saturating_sub(1));
+        TotalSubnets::<Test>::put(3);
+        TotalActiveSubnets::<Test>::put(3);
+
+        let epoch = SubnetRemovalCheckInterval::<Test>::get();
+        set_epoch(epoch, NETWORK_EPOCH_PRELIMINARIES_SLOT);
+        let block = System::block_number();
+        Network::on_initialize(block);
+
+        assert!(!SubnetsData::<Test>::contains_key(1));
+        assert!(SubnetsData::<Test>::contains_key(2));
+        assert!(SubnetsData::<Test>::contains_key(3));
+        assert_eq!(TotalSubnets::<Test>::get(), 2);
+    });
 }
 
 #[test]
@@ -132,7 +167,7 @@ fn test_on_initialize() {
 
         for offset in 0..=overwatch_epochs_to_simulate
             .saturating_mul(overwatch_epoch_length)
-            .saturating_add(1)
+            .saturating_add(NETWORK_OVERWATCH_SETTLEMENT_SLOT)
         {
             let block = start_block.saturating_add(offset);
             System::set_block_number(block);
@@ -141,14 +176,18 @@ fn test_on_initialize() {
             let current_overwatch_epoch = Network::get_current_overwatch_epoch_as_u32();
             let epoch_slot = block % epoch_length;
 
-            let runs_epoch_preliminaries = block >= epoch_length && block % epoch_length == 0;
+            let runs_epoch_preliminaries =
+                block >= epoch_length && block % epoch_length == NETWORK_EPOCH_PRELIMINARIES_SLOT;
             let runs_overwatch_rewards = !runs_epoch_preliminaries
-                && block.saturating_sub(1) >= overwatch_epoch_length
-                && block.saturating_sub(1) % overwatch_epoch_length == 0;
+                && block.saturating_sub(NETWORK_OVERWATCH_SETTLEMENT_SLOT)
+                    >= overwatch_epoch_length
+                && block.saturating_sub(NETWORK_OVERWATCH_SETTLEMENT_SLOT) % overwatch_epoch_length
+                    == NETWORK_EPOCH_PRELIMINARIES_SLOT;
             let runs_emission_weights = !runs_epoch_preliminaries
                 && !runs_overwatch_rewards
-                && block.saturating_sub(2) >= epoch_length
-                && block.saturating_sub(2) % epoch_length == 0;
+                && block.saturating_sub(NETWORK_SUBNET_EMISSION_SLOT) >= epoch_length
+                && block.saturating_sub(NETWORK_SUBNET_EMISSION_SLOT) % epoch_length
+                    == NETWORK_EPOCH_PRELIMINARIES_SLOT;
             let slot_subnet_id =
                 if runs_epoch_preliminaries || runs_overwatch_rewards || runs_emission_weights {
                     None
@@ -157,22 +196,41 @@ fn test_on_initialize() {
                 };
 
             if runs_epoch_preliminaries {
-                for subnet_id in subnet_ids.iter().copied() {
-                    let total_delegate_stake_balance =
-                        TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-                    let min_subnet_delegate_stake =
-                        Network::get_min_subnet_delegate_stake_balance(subnet_id);
-                    if total_delegate_stake_balance < min_subnet_delegate_stake {
-                        let delta = min_subnet_delegate_stake - total_delegate_stake_balance;
-                        let delegate = account(10000 + subnet_id);
-                        let _ = Balances::deposit_creating(&delegate, delta + 500);
-                        assert_ok!(Network::add_subnet_delegate_stake(
-                            RuntimeOrigin::signed(delegate),
-                            subnet_id,
-                            delta,
-                        ));
+                // A top-up changes the live-subnet average. Recompute until every subnet satisfies
+                // the inclusive boundary before the hook snapshots the common requirement.
+                for pass in 0u32..16 {
+                    let mut all_funded = true;
+                    for subnet_id in subnet_ids.iter().copied() {
+                        let total_delegate_stake_balance =
+                            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+                        let min_subnet_delegate_stake =
+                            Network::get_min_subnet_delegate_stake_balance(subnet_id);
+                        if total_delegate_stake_balance < min_subnet_delegate_stake {
+                            all_funded = false;
+                            let amount = min_subnet_delegate_stake
+                                .saturating_sub(total_delegate_stake_balance)
+                                .max(MinDelegateStakeDeposit::<Test>::get());
+                            let delegate =
+                                account(10_000 + pass.saturating_mul(max_subnets) + subnet_id);
+                            let _ =
+                                Balances::deposit_creating(&delegate, amount.saturating_add(500));
+                            assert_ok!(Network::add_subnet_delegate_stake(
+                                RuntimeOrigin::signed(delegate),
+                                subnet_id,
+                                amount,
+                            ));
+                        }
                     }
+                    if all_funded {
+                        break;
+                    }
+                }
 
+                for subnet_id in subnet_ids.iter().copied() {
+                    assert!(
+                        TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id)
+                            >= Network::get_min_subnet_delegate_stake_balance(subnet_id)
+                    );
                     let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
                     if get_elected_subnet_node_id(subnet_id, subnet_epoch).is_some() {
                         run_subnet_consensus_step_v2(subnet_id, None, None);
@@ -455,7 +513,7 @@ fn test_on_initialize_bootstraps_election_before_emission_weight() {
         let reward_epoch = first_consensus_epoch.saturating_add(1);
         let emission_weight_block = reward_epoch
             .saturating_mul(EpochLength::get())
-            .saturating_add(2);
+            .saturating_add(NETWORK_SUBNET_EMISSION_SLOT);
         System::set_block_number(emission_weight_block);
 
         assert!(FinalSubnetEmissionWeights::<Test>::get(reward_epoch)
@@ -472,7 +530,7 @@ fn test_on_initialize_bootstraps_election_before_emission_weight() {
 #[test]
 fn test_on_initialize_paused_skips_scheduled_work_and_early_blocks_are_safe() {
     new_test_ext().execute_with(|| {
-        for block in 0..=2 {
+        for block in NETWORK_EPOCH_PRELIMINARIES_SLOT..=NETWORK_SUBNET_EMISSION_SLOT {
             System::set_block_number(block);
             Network::on_initialize(block);
         }
@@ -492,7 +550,7 @@ fn test_on_initialize_paused_skips_scheduled_work_and_early_blocks_are_safe() {
         let block = Network::get_current_epoch_as_u32()
             .saturating_add(1)
             .saturating_mul(EpochLength::get())
-            .saturating_add(2);
+            .saturating_add(NETWORK_SUBNET_EMISSION_SLOT);
         let current_epoch = block.saturating_div(EpochLength::get());
         System::set_block_number(block);
 
@@ -536,7 +594,7 @@ fn test_paused_subnet_settles_allocated_history_without_new_election() {
         ));
 
         let settlement_epoch = election_epoch.saturating_add(1);
-        set_epoch(settlement_epoch, 2);
+        set_epoch(settlement_epoch, NETWORK_SUBNET_EMISSION_SLOT);
         Network::on_initialize(System::block_number());
         assert!(FinalSubnetEmissionWeights::<Test>::get(settlement_epoch)
             .subnet_weights
@@ -598,7 +656,7 @@ fn test_pause_after_election_preserves_allocation_and_settlement() {
         Network::on_initialize(System::block_number());
 
         let historical_election_epoch = first_election_epoch.saturating_add(1);
-        set_epoch(historical_election_epoch, 2);
+        set_epoch(historical_election_epoch, NETWORK_SUBNET_EMISSION_SLOT);
         Network::on_initialize(System::block_number());
         set_block_to_subnet_slot_epoch(historical_election_epoch, subnet_id);
         Network::on_initialize(System::block_number());
@@ -615,7 +673,7 @@ fn test_pause_after_election_preserves_allocation_and_settlement() {
         ));
 
         let settlement_epoch = historical_election_epoch.saturating_add(1);
-        set_epoch(settlement_epoch, 2);
+        set_epoch(settlement_epoch, NETWORK_SUBNET_EMISSION_SLOT);
         Network::on_initialize(System::block_number());
         assert!(FinalSubnetEmissionWeights::<Test>::get(settlement_epoch)
             .subnet_weights
@@ -664,7 +722,7 @@ fn test_paused_subnet_can_submit_and_attest_historical_round_then_settle_success
         run_subnet_consensus_step_v2(subnet_id, None, None);
 
         let historical_election_epoch = first_election_epoch.saturating_add(1);
-        set_epoch(historical_election_epoch, 2);
+        set_epoch(historical_election_epoch, NETWORK_SUBNET_EMISSION_SLOT);
         Network::on_initialize(System::block_number());
         set_block_to_subnet_slot_epoch(historical_election_epoch, subnet_id);
         Network::on_initialize(System::block_number());
@@ -693,7 +751,7 @@ fn test_paused_subnet_can_submit_and_attest_historical_round_then_settle_success
         let elected_stake_before = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
 
         let settlement_epoch = historical_election_epoch.saturating_add(1);
-        set_epoch(settlement_epoch, 2);
+        set_epoch(settlement_epoch, NETWORK_SUBNET_EMISSION_SLOT);
         Network::on_initialize(System::block_number());
         assert!(FinalSubnetEmissionWeights::<Test>::get(settlement_epoch)
             .subnet_weights

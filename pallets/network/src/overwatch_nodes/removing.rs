@@ -27,11 +27,6 @@ impl<T: Config> Pallet<T> {
 
         ensure!(coldkey == overwatch_coldkey, Error::<T>::NotKeyOwner);
 
-        let overwatch_node = match OverwatchNodes::<T>::try_get(overwatch_node_id) {
-            Ok(overwatch_node) => overwatch_node,
-            Err(()) => return Err(Error::<T>::InvalidOverwatchNodeId.into()),
-        };
-
         Self::perform_remove_overwatch_node(overwatch_node_id);
 
         Ok(())
@@ -50,8 +45,19 @@ impl<T: Config> Pallet<T> {
             PeerIdOverwatchNodeId::<T>::remove(subnet_id, peer_id);
         }
 
+        // Node-scoped authentication ends with active ownership; it has no historical staking use.
+        OverwatchNodeIdHotkey::<T>::remove(overwatch_node_id);
+
         TotalOverwatchNodes::<T>::mutate(|n: &mut u32| n.saturating_dec());
 
-        // NOTE: We never delete `OverwatchNodeValidatorId`
+        // Release only the active validator-to-node ownership entry. The historical inverse entry
+        // remains so the validator can withdraw stake after its node is removed.
+        if let Some(validator_id) = OverwatchNodeValidatorId::<T>::get(overwatch_node_id) {
+            if ValidatorOverwatchNodeId::<T>::get(validator_id) == Some(overwatch_node_id) {
+                ValidatorOverwatchNodeId::<T>::remove(validator_id);
+            }
+        }
+
+        // NOTE: We never delete `OverwatchNodeValidatorId`.
     }
 }

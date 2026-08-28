@@ -14,59 +14,84 @@
 // limitations under the License.
 
 use super::*;
+use sp_core::U256;
+
+/// Immutable delegate balances for the subnets that are economically live at one block.
+pub(crate) struct LiveSubnetDelegateStakeSnapshot {
+    pub balances: BTreeMap<u32, u128>,
+}
 
 impl<T: Config> Pallet<T> {
-    /// The minimum delegate stake balance for a subnet to stay live
-    /// Get total required subnet nodes based on total nodes
+    /// Returns the common delegate-stake minimum required for a subnet to stay active.
     ///
-    /// We use electable node count to ensure users can spam registered
-    /// node slots or spam active node slots without being in-consensus
-    /// to being an actual node
-    pub fn get_min_subnet_delegate_stake_balance(subnet_id: u32) -> u128 {
-        let total_network_issuance = Self::get_total_network_issuance();
-        let factor: u128 = MinSubnetDelegateStakeFactor::<T>::get(); // 0.1%
-        let base_min = Self::percent_mul(total_network_issuance, factor);
+    /// The requirement is the greater of the configured absolute minimum and the configured
+    /// percentage of average delegation across live subnets. The queried subnet affects the
+    /// result only when it already belongs to that shared live cohort.
+    pub fn get_min_subnet_delegate_stake_balance(_subnet_id: u32) -> u128 {
+        let block = Self::get_current_block_as_u32();
+        let subnets: Vec<_> = SubnetsData::<T>::iter().collect();
+        let snapshot = Self::live_subnet_delegate_stake_snapshot(block, &subnets);
 
-        let electable_node_count = SubnetNodeElectionSlots::<T>::get(subnet_id).len() as u32;
-        let multiplier = Self::get_subnet_min_delegate_staking_multiplier(electable_node_count);
-
-        Self::percent_mul(base_min, multiplier)
+        Self::min_subnet_delegate_stake_balance_from_snapshot(&snapshot)
     }
 
-    /// Get the subnet's minimum delegate stake multiplier based on the current electable nodes count.
-    ///
-    /// Returns a multiplier that scales linearly between:
-    /// - `min_multiplier` (100%) when `electable_node_count <= MinSubnetNodes`
-    /// - `max_multiplier` (MaxMinDelegateStakeMultiplier) when `electable_node_count >= MaxSubnetNodes`
-    ///
-    /// For counts between min and max nodes, the multiplier is interpolated proportionally.
-    ///
-    /// # Example
-    /// If MinSubnetNodes = 10, MaxSubnetNodes = 100, and MaxMinDelegateStakeMultiplier = 500%:
-    /// - At 10 nodes: returns 100%
-    /// - At 55 nodes (midpoint): returns ~300%
-    /// - At 100+ nodes: returns 500%
-    /// The return value is then applied to the base minimum delegate stake balance
-    pub fn get_subnet_min_delegate_staking_multiplier(electable_node_count: u32) -> u128 {
-        let min_nodes = MinSubnetNodes::<T>::get();
-        let max_nodes = MaxSubnetNodes::<T>::get();
-        let min_multiplier = Self::percentage_factor_as_u128(); // 100%
-        let max_multiplier = MaxMinDelegateStakeMultiplier::<T>::get();
+    /// Snapshots delegate balances for active subnets whose consensus start epoch has arrived.
+    pub(crate) fn live_subnet_delegate_stake_snapshot(
+        block: u32,
+        subnets: &[(u32, SubnetData)],
+    ) -> LiveSubnetDelegateStakeSnapshot {
+        let mut balances = BTreeMap::new();
 
-        // Increase multiplier linearly between min and max nodes
-        // This requires subnets with more nodes to have a higher minimum delegate stake
-        if electable_node_count <= min_nodes {
-            return min_multiplier;
-        } else if electable_node_count >= max_nodes {
-            return max_multiplier;
+        for (subnet_id, data) in subnets {
+            if data.state != SubnetState::Active {
+                continue;
+            }
+            let subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(*subnet_id, block);
+            if Self::_is_subnet_active_and_live(data, subnet_epoch) {
+                balances.insert(
+                    *subnet_id,
+                    TotalSubnetDelegateStakeBalance::<T>::get(subnet_id),
+                );
+            }
         }
 
-        let node_delta = electable_node_count.saturating_sub(min_nodes);
-        let range = max_nodes.saturating_sub(min_nodes);
+        LiveSubnetDelegateStakeSnapshot { balances }
+    }
 
-        let ratio = Self::percent_div(node_delta as u128, range as u128);
-        let delta = max_multiplier.saturating_sub(min_multiplier);
+    /// Calculates `max(absolute_minimum, factor * total / count)` from one immutable snapshot.
+    ///
+    /// All arithmetic is performed in U256. An impossible arithmetic or conversion failure returns
+    /// `u128::MAX`, so an accounting failure cannot lower the survival requirement.
+    pub(crate) fn min_subnet_delegate_stake_balance_from_snapshot(
+        snapshot: &LiveSubnetDelegateStakeSnapshot,
+    ) -> u128 {
+        let absolute_minimum = MinSubnetDelegateStakeBalance::<T>::get();
+        let live_subnet_count = snapshot.balances.len() as u128;
 
-        min_multiplier.saturating_add(Self::percent_mul(ratio, delta))
+        if live_subnet_count == 0 {
+            return absolute_minimum;
+        }
+
+        let total_live_delegation = snapshot
+            .balances
+            .values()
+            .try_fold(U256::zero(), |total, balance| {
+                total.checked_add(U256::from(*balance))
+            });
+        let divisor = U256::from(live_subnet_count).checked_mul(Self::PERCENTAGE_FACTOR);
+
+        let dynamic_minimum = total_live_delegation
+            .zip(divisor)
+            .and_then(|(total, divisor)| {
+                Self::checked_mul_div(
+                    total,
+                    U256::from(MinSubnetDelegateStakeFactor::<T>::get()),
+                    divisor,
+                )
+            })
+            .and_then(|value| value.try_into().ok())
+            .unwrap_or(u128::MAX);
+
+        absolute_minimum.max(dynamic_minimum)
     }
 }

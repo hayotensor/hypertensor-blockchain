@@ -710,6 +710,7 @@ impl pallet_author_subsidy::Config for Runtime {
 
 parameter_types! {
     pub const InitialTxRateLimit: u32 = 0;
+    pub const InitialMinSubnetDelegateStakeBalance: u128 = 100_000_000_000_000_000_000;
     pub const EpochLength: u32 = BLOCKS_PER_EPOCH; // Testnet 600 blocks per erpoch / 69 mins per epoch, Local 10
     pub const EpochsPerYear: u32 = EPOCHS_PER_YEAR; // Testnet 600 blocks per erpoch / 69 mins per epoch, Local 10
     pub const NetworkPalletId: PalletId = PalletId(*b"/network");
@@ -752,6 +753,7 @@ impl pallet_network::Config for Runtime {
     type EpochLength = EpochLength;
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = InitialTxRateLimit;
+    type InitialMinSubnetDelegateStakeBalance = InitialMinSubnetDelegateStakeBalance;
     type PalletId = NetworkPalletId;
     type Randomness = InsecureRandomnessCollectiveFlip;
     type TreasuryAccount = TreasuryAccount;

@@ -138,14 +138,10 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_max_min_delegate_stake_multiplier(value: u128) -> DispatchResult {
-        ensure!(
-            value >= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
-        );
-        MaxMinDelegateStakeMultiplier::<T>::set(value);
+    pub fn do_set_min_subnet_delegate_stake_balance(value: u128) -> DispatchResult {
+        MinSubnetDelegateStakeBalance::<T>::set(value);
 
-        Self::deposit_event(Event::SetMaxMinDelegateStakeMultiplier(value));
+        Self::deposit_event(Event::SetMinSubnetDelegateStakeBalance(value));
 
         Ok(())
     }
@@ -509,13 +505,6 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_overwatch_min_diversification_ratio(value: u128) -> DispatchResult {
-        OverwatchMinDiversificationRatio::<T>::set(value);
-
-        Self::deposit_event(Event::SetOverwatchMinDiversificationRatio(value));
-
-        Ok(())
-    }
     pub fn do_set_overwatch_min_rep_score(value: u128) -> DispatchResult {
         OverwatchMinRepScore::<T>::set(value);
 
@@ -591,17 +580,6 @@ impl<T: Config> Pallet<T> {
     pub fn do_collective_remove_overwatch_node(overwatch_node_id: u32) -> DispatchResult {
         Self::perform_remove_overwatch_node(overwatch_node_id);
         Self::deposit_event(Event::CollectiveRemoveOverwatchNode(overwatch_node_id));
-        Ok(())
-    }
-    /// Temporary solution until network maturity
-    pub fn do_collective_set_coldkey_overwatch_node_eligibility(
-        coldkey: T::AccountId,
-        value: bool,
-    ) -> DispatchResult {
-        OverwatchNodeBlacklist::<T>::insert(&coldkey, value);
-
-        Self::deposit_event(Event::OverwatchNodeBlacklist(coldkey.clone(), value));
-
         Ok(())
     }
     pub fn do_set_min_subnet_registration_epochs(value: u32) -> DispatchResult {
@@ -691,7 +669,7 @@ impl<T: Config> Pallet<T> {
         ensure!(min < max && min > 0, Error::<T>::InvalidValues);
 
         ensure!(
-            max <= Self::percentage_factor_as_u128(),
+            max <= DefaultMaxNodeBurnRate::get(),
             Error::<T>::InvalidPercent
         );
 
@@ -714,13 +692,22 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_subnet_removal_intervals(min: u32, max: u32) -> DispatchResult {
-        ensure!(min < max, Error::<T>::InvalidValues);
+    pub fn do_set_subnet_removal_intervals(
+        activation_cooldown_epochs: u32,
+        check_interval_epochs: u32,
+    ) -> DispatchResult {
+        ensure!(
+            check_interval_epochs > 0,
+            Error::<T>::InvalidSubnetRemovalCheckInterval
+        );
 
-        MinSubnetRemovalInterval::<T>::put(min);
-        MaxSubnetRemovalInterval::<T>::put(max);
+        SubnetRemovalActivationCooldown::<T>::put(activation_cooldown_epochs);
+        SubnetRemovalCheckInterval::<T>::put(check_interval_epochs);
 
-        Self::deposit_event(Event::SetSubnetRemovalIntervals(min, max));
+        Self::deposit_event(Event::SetSubnetRemovalIntervals(
+            activation_cooldown_epochs,
+            check_interval_epochs,
+        ));
 
         Ok(())
     }
@@ -967,9 +954,12 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn do_set_overwatch_stake_weight_factor(value: u128) -> DispatchResult {
-        // Must be greater than or equal to 1.0
+        let min_value = DefaultOverwatchStakeWeightFactor::get();
+        let max_value = Self::percentage_factor_as_u128();
+
+        // The exponent may range from the default 0.9 dampening to linear weighting at 1.0.
         ensure!(
-            value > 0 && value >= Self::percentage_factor_as_u128(),
+            value >= min_value && value <= max_value,
             Error::<T>::InvalidPercent
         );
 
@@ -1025,6 +1015,11 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn do_set_overwatch_validator_whitelist(validator_id: u32, value: bool) -> DispatchResult {
+        ensure!(
+            ValidatorsData::<T>::contains_key(validator_id),
+            Error::<T>::InvalidValidatorId
+        );
+
         OverwatchValidatorWhitelist::<T>::insert(validator_id, value);
 
         Self::deposit_event(Event::SetOverwatchValidatorWhitelist(validator_id, value));

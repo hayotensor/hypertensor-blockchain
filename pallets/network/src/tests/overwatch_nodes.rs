@@ -1,16 +1,18 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    Error, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes,
-    OverwatchEpochLengthMultiplier, OverwatchMinAge, OverwatchMinStakeBalance,
-    OverwatchNodeBlacklist, OverwatchNodeIdHotkey, OverwatchNodeIndex, OverwatchNodeStakeBalance,
-    OverwatchNodeValidatorId, OverwatchNodeWeights, OverwatchNodes, OverwatchStakeWeightFactor,
-    OverwatchSubnetWeights, OverwatchValidatorWhitelist, PeerId, PeerIdOverwatchNodeId,
+    ActiveOverwatchEpochLengthMultiplier, Error, LastFinalizedOverwatchEpoch, MaxOverwatchNodes,
+    MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes, OverwatchEpochLengthMultiplier,
+    OverwatchEpochSettlementSnapshots, OverwatchEpochStartBlock, OverwatchMinAge,
+    OverwatchMinStakeBalance, OverwatchNode, OverwatchNodeIdHotkey, OverwatchNodeIndex,
+    OverwatchNodeStakeBalance, OverwatchNodeValidatorId, OverwatchNodeWeights, OverwatchNodes,
+    OverwatchStakeWeightFactor, OverwatchSubnetWeights, OverwatchValidatorWhitelist, PeerId,
+    PeerIdOverwatchNodeId, PendingOverwatchSettlement, PendingOverwatchSettlementData,
     StakeCooldownEpochs, StakeUnbondingLedger, SubnetName, SubnetNodesData, SubnetState,
     TotalOverwatchNodeStakeBalance, TotalOverwatchNodeUids, TotalOverwatchNodes, TotalValidatorIds,
-    ValidatorSubnetNodes,
+    ValidatorOverwatchNodeId, ValidatorSubnetNodes, NETWORK_OVERWATCH_SETTLEMENT_SLOT,
 };
-use frame_support::traits::{Currency, Get};
+use frame_support::traits::{Currency, OnInitialize};
 use frame_support::{assert_err, assert_ok};
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 
@@ -31,11 +33,615 @@ use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 //
 //
 
+fn setup_qualified_overwatch_validator(
+    coldkey_n: u32,
+    hotkey_n: u32,
+    funding: u128,
+) -> (u32, AccountId) {
+    let coldkey = account(coldkey_n);
+    assert_ok!(Network::do_register_validator(
+        RuntimeOrigin::signed(coldkey.clone()),
+        account(hotkey_n),
+        test_percent(1, 20),
+        None,
+        None,
+    ));
+
+    let validator_id = TotalValidatorIds::<Test>::get();
+    OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
+    make_overwatch_qualified_v2(validator_id);
+    let _ = Balances::deposit_creating(&coldkey, funding);
+
+    (validator_id, coldkey)
+}
+
+/// Run a minimal two-node settlement whose opposing reveals expose the normalized stake shares.
+/// If the first node reveals 100% and the second reveals 0%, both the subnet result and the final
+/// node scores are the powered stake proportions (subject only to fixed-point flooring).
+fn run_two_node_overwatch_stake_weight_case(
+    exponent: u128,
+    first_stake: u128,
+    second_stake: u128,
+) -> (u128, u128, u128) {
+    new_test_ext().execute_with(|| {
+        OverwatchStakeWeightFactor::<Test>::set(exponent);
+        let epoch = Network::get_current_overwatch_epoch_as_u32();
+        let subnet_id = 1;
+
+        manual_insert_validator(1, 101, 201);
+        manual_insert_validator(2, 102, 202);
+        let first_node_id = insert_overwatch_node_v2(1);
+        let second_node_id = insert_overwatch_node_v2(2);
+        set_overwatch_node_stake(first_node_id, first_stake);
+        set_overwatch_node_stake(second_node_id, second_stake);
+
+        submit_weight(
+            epoch,
+            subnet_id,
+            first_node_id,
+            Network::percentage_factor_as_u128(),
+        );
+        submit_weight(epoch, subnet_id, second_node_id, 0);
+        queue_overwatch_settlement(epoch);
+        Network::calculate_overwatch_rewards();
+
+        (
+            OverwatchSubnetWeights::<Test>::get(epoch, subnet_id)
+                .expect("the revealed subnet must be finalized"),
+            OverwatchNodeWeights::<Test>::get(epoch, first_node_id).unwrap_or_default(),
+            OverwatchNodeWeights::<Test>::get(epoch, second_node_id).unwrap_or_default(),
+        )
+    })
+}
+
+fn assert_normalized_pair(first: u128, second: u128) {
+    let percentage_factor = Network::percentage_factor_as_u128();
+    assert!(first <= percentage_factor);
+    assert!(second <= percentage_factor);
+    let sum = first
+        .checked_add(second)
+        .expect("two normalized percentages cannot overflow u128");
+    assert!(sum <= percentage_factor);
+    assert!(percentage_factor.saturating_sub(sum) <= 2);
+}
+
+fn close_active_overwatch_epoch() -> u32 {
+    let epoch = Network::get_current_overwatch_epoch_as_u32();
+    let close_block = OverwatchEpochStartBlock::<Test>::get().saturating_add(
+        EpochLength::get().saturating_mul(ActiveOverwatchEpochLengthMultiplier::<Test>::get()),
+    );
+    System::set_block_number(close_block);
+    Network::advance_overwatch_epoch(close_block);
+    assert_eq!(
+        PendingOverwatchSettlement::<Test>::get().map(|settlement| settlement.epoch),
+        Some(epoch)
+    );
+    epoch
+}
+
+#[test]
+fn test_overwatch_close_snapshots_exact_economics_and_revealers() {
+    new_test_ext().execute_with(|| {
+        let multiplier = 3;
+        let stake_weight_factor = test_percent(9, 10);
+        OverwatchEpochLengthMultiplier::<Test>::set(multiplier);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(multiplier);
+        OverwatchStakeWeightFactor::<Test>::set(stake_weight_factor);
+        set_overwatch_epoch(7);
+
+        manual_insert_validator(11, 101, 201);
+        manual_insert_validator(12, 102, 202);
+        let first_node_id = insert_overwatch_node_v2(11);
+        let second_node_id = insert_overwatch_node_v2(12);
+        set_overwatch_node_stake(first_node_id, 400);
+        set_overwatch_node_stake(second_node_id, 125);
+        submit_weight(7, 1, first_node_id, test_percent(1, 2));
+        submit_weight(7, 2, second_node_id, test_percent(3, 5));
+
+        let closed_epoch = close_active_overwatch_epoch();
+        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch)
+            .expect("rollover must atomically store its settlement snapshot");
+
+        assert_eq!(snapshot.stake_weight_factor, stake_weight_factor);
+        assert_eq!(
+            snapshot.reward_budget,
+            OVERWATCH_EPOCH_EMISSIONS.saturating_mul(multiplier as u128)
+        );
+        assert_eq!(snapshot.nodes.len(), 2);
+        assert_eq!(
+            snapshot.nodes.get(&first_node_id),
+            Some(&crate::OverwatchNodeSettlementSnapshot {
+                validator_id: 11,
+                stake: 400,
+            })
+        );
+        assert_eq!(
+            snapshot.nodes.get(&second_node_id),
+            Some(&crate::OverwatchNodeSettlementSnapshot {
+                validator_id: 12,
+                stake: 125,
+            })
+        );
+    });
+}
+
+#[test]
+fn test_direct_overwatch_settlement_fixture_uses_active_multiplier_and_exact_counts() {
+    new_test_ext().execute_with(|| {
+        OverwatchEpochLengthMultiplier::<Test>::set(9);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(2);
+        set_overwatch_epoch(1);
+
+        manual_insert_validator(1, 101, 201);
+        manual_insert_validator(2, 102, 202);
+        let first_node_id = insert_overwatch_node_v2(1);
+        let second_node_id = insert_overwatch_node_v2(2);
+        set_overwatch_node_stake(first_node_id, 100);
+        set_overwatch_node_stake(second_node_id, 200);
+        submit_weight(1, 1, first_node_id, test_percent(1, 2));
+        submit_weight(1, 2, first_node_id, test_percent(1, 2));
+        submit_weight(1, 2, second_node_id, test_percent(1, 2));
+
+        queue_overwatch_settlement(1);
+
+        let pending = PendingOverwatchSettlement::<Test>::get().unwrap();
+        assert_eq!(pending.epoch_length_multiplier, 2);
+        assert_eq!(pending.reveal_records, 3);
+        assert_eq!(pending.revealing_nodes, 2);
+        assert_eq!(pending.revealed_subnets, 2);
+        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(1).unwrap();
+        assert_eq!(
+            snapshot.reward_budget,
+            OVERWATCH_EPOCH_EMISSIONS.saturating_mul(2)
+        );
+        assert_eq!(snapshot.nodes.len(), 2);
+    });
+}
+
+#[test]
+fn test_overwatch_close_snapshot_accepts_empty_and_maximum_committee() {
+    new_test_ext().execute_with(|| {
+        OverwatchEpochLengthMultiplier::<Test>::set(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        set_overwatch_epoch(1);
+
+        let closed_epoch = close_active_overwatch_epoch();
+        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch)
+            .expect("an empty close still has a valid snapshot");
+        assert!(snapshot.nodes.is_empty());
+
+        Network::calculate_overwatch_rewards();
+        assert_eq!(
+            LastFinalizedOverwatchEpoch::<Test>::get(),
+            Some(closed_epoch)
+        );
+        assert!(!OverwatchEpochSettlementSnapshots::<Test>::contains_key(
+            closed_epoch
+        ));
+    });
+
+    new_test_ext().execute_with(|| {
+        OverwatchEpochLengthMultiplier::<Test>::set(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        set_overwatch_epoch(1);
+        assert_eq!(NetworkMaxOverwatchNodesUpperBound::get(), 64);
+
+        for validator_id in 1..=NetworkMaxOverwatchNodesUpperBound::get() {
+            manual_insert_validator(validator_id, 1_000 + validator_id, 2_000 + validator_id);
+            let node_id = insert_overwatch_node_v2(validator_id);
+            set_overwatch_node_stake(node_id, validator_id as u128);
+            submit_weight(1, 1, node_id, test_percent(1, 2));
+        }
+
+        let closed_epoch = close_active_overwatch_epoch();
+        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch)
+            .expect("the maximum-size committee must fit the bounded snapshot");
+        assert_eq!(snapshot.nodes.len(), 64);
+        for node_id in 1..=64 {
+            assert_eq!(
+                snapshot.nodes.get(&node_id),
+                Some(&crate::OverwatchNodeSettlementSnapshot {
+                    validator_id: node_id,
+                    stake: node_id as u128,
+                })
+            );
+        }
+    });
+}
+
+#[test]
+fn test_post_close_stake_changes_do_not_change_closed_epoch_weights() {
+    new_test_ext().execute_with(|| {
+        let percentage_factor = Network::percentage_factor_as_u128();
+        OverwatchEpochLengthMultiplier::<Test>::set(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        OverwatchStakeWeightFactor::<Test>::set(percentage_factor);
+        set_overwatch_epoch(1);
+
+        manual_insert_validator(1, 101, 201);
+        manual_insert_validator(2, 102, 202);
+        let first_node_id = insert_overwatch_node_v2(1);
+        let second_node_id = insert_overwatch_node_v2(2);
+        set_overwatch_node_stake(first_node_id, 100);
+        set_overwatch_node_stake(second_node_id, 100);
+        submit_weight(1, 1, first_node_id, percentage_factor);
+        submit_weight(1, 1, second_node_id, 0);
+
+        let closed_epoch = close_active_overwatch_epoch();
+        Network::increase_overwatch_node_stake(first_node_id, 900);
+        Network::decrease_overwatch_node_stake(second_node_id, 90);
+
+        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch).unwrap();
+        assert_eq!(snapshot.nodes.get(&first_node_id).unwrap().stake, 100);
+        assert_eq!(snapshot.nodes.get(&second_node_id).unwrap().stake, 100);
+
+        Network::calculate_overwatch_rewards();
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(closed_epoch, 1),
+            Some(test_percent(1, 2))
+        );
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(closed_epoch, first_node_id),
+            Some(test_percent(1, 2))
+        );
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(closed_epoch, second_node_id),
+            Some(test_percent(1, 2))
+        );
+    });
+}
+
+#[test]
+fn test_node_removed_after_close_is_rewarded_under_closed_id() {
+    new_test_ext().execute_with(|| {
+        OverwatchEpochLengthMultiplier::<Test>::set(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        set_overwatch_epoch(1);
+
+        manual_insert_validator(1, 101, 201);
+        let node_id = insert_overwatch_node_v2(1);
+        let starting_stake = 100;
+        set_overwatch_node_stake(node_id, starting_stake);
+        submit_weight(1, 1, node_id, test_percent(1, 2));
+
+        let closed_epoch = close_active_overwatch_epoch();
+        assert_ok!(Network::remove_overwatch_node(
+            RuntimeOrigin::signed(account(101)),
+            node_id,
+        ));
+        assert!(!OverwatchNodes::<Test>::contains_key(node_id));
+
+        Network::calculate_overwatch_rewards();
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(closed_epoch, node_id),
+            Some(Network::percentage_factor_as_u128())
+        );
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(node_id),
+            starting_stake + OVERWATCH_EPOCH_EMISSIONS
+        );
+    });
+}
+
+#[test]
+fn test_node_removed_before_close_is_excluded_from_snapshot_and_rewards() {
+    new_test_ext().execute_with(|| {
+        OverwatchEpochLengthMultiplier::<Test>::set(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        set_overwatch_epoch(1);
+
+        manual_insert_validator(1, 101, 201);
+        manual_insert_validator(2, 102, 202);
+        let active_node_id = insert_overwatch_node_v2(1);
+        let removed_node_id = insert_overwatch_node_v2(2);
+        set_overwatch_node_stake(active_node_id, 100);
+        set_overwatch_node_stake(removed_node_id, 100);
+        submit_weight(1, 1, active_node_id, test_percent(1, 2));
+        submit_weight(1, 1, removed_node_id, Network::percentage_factor_as_u128());
+
+        assert_ok!(Network::remove_overwatch_node(
+            RuntimeOrigin::signed(account(102)),
+            removed_node_id,
+        ));
+        let closed_epoch = close_active_overwatch_epoch();
+        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch).unwrap();
+        assert!(snapshot.nodes.contains_key(&active_node_id));
+        assert!(!snapshot.nodes.contains_key(&removed_node_id));
+
+        Network::calculate_overwatch_rewards();
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(closed_epoch, 1),
+            Some(test_percent(1, 2))
+        );
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(closed_epoch, active_node_id),
+            Some(Network::percentage_factor_as_u128())
+        );
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(closed_epoch, removed_node_id),
+            None
+        );
+        assert_eq!(OverwatchNodeStakeBalance::<Test>::get(removed_node_id), 100);
+    });
+}
+
+#[test]
+fn test_post_close_exponent_change_does_not_change_closed_epoch_weights() {
+    new_test_ext().execute_with(|| {
+        let linear_exponent = Network::percentage_factor_as_u128();
+        OverwatchEpochLengthMultiplier::<Test>::set(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        OverwatchStakeWeightFactor::<Test>::set(linear_exponent);
+        set_overwatch_epoch(1);
+
+        manual_insert_validator(1, 101, 201);
+        manual_insert_validator(2, 102, 202);
+        let first_node_id = insert_overwatch_node_v2(1);
+        let second_node_id = insert_overwatch_node_v2(2);
+        set_overwatch_node_stake(first_node_id, 4);
+        set_overwatch_node_stake(second_node_id, 1);
+        submit_weight(1, 1, first_node_id, linear_exponent);
+        submit_weight(1, 1, second_node_id, 0);
+
+        let closed_epoch = close_active_overwatch_epoch();
+        OverwatchStakeWeightFactor::<Test>::set(0);
+
+        Network::calculate_overwatch_rewards();
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(closed_epoch, 1),
+            Some(test_percent(4, 5))
+        );
+    });
+}
+
+#[test]
+fn test_missing_snapshot_keeps_delayed_settlement_retryable_and_success_is_idempotent() {
+    new_test_ext().execute_with(|| {
+        OverwatchEpochLengthMultiplier::<Test>::set(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        set_overwatch_epoch(3);
+
+        manual_insert_validator(1, 101, 201);
+        let node_id = insert_overwatch_node_v2(1);
+        let starting_stake = 100;
+        set_overwatch_node_stake(node_id, starting_stake);
+        submit_weight(3, 1, node_id, test_percent(1, 2));
+
+        let pending = PendingOverwatchSettlementData {
+            epoch: 3,
+            epoch_length_multiplier: 1,
+            reveal_records: 1,
+            revealing_nodes: 1,
+            revealed_subnets: 1,
+        };
+        PendingOverwatchSettlement::<Test>::put(pending);
+        seed_overwatch_settlement_snapshot(4);
+        crate::CurrentOverwatchEpoch::<Test>::put(9);
+
+        Network::calculate_overwatch_rewards();
+        assert_eq!(PendingOverwatchSettlement::<Test>::get(), Some(pending));
+        assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), None);
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(node_id),
+            starting_stake
+        );
+        assert!(OverwatchEpochSettlementSnapshots::<Test>::contains_key(4));
+
+        seed_overwatch_settlement_snapshot(3);
+        Network::calculate_overwatch_rewards();
+        assert!(PendingOverwatchSettlement::<Test>::get().is_none());
+        assert!(!OverwatchEpochSettlementSnapshots::<Test>::contains_key(3));
+        assert!(OverwatchEpochSettlementSnapshots::<Test>::contains_key(4));
+        assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), Some(3));
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(node_id),
+            starting_stake + OVERWATCH_EPOCH_EMISSIONS
+        );
+
+        let settled_stake = OverwatchNodeStakeBalance::<Test>::get(node_id);
+        Network::calculate_overwatch_rewards();
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(node_id),
+            settled_stake
+        );
+        assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), Some(3));
+    });
+}
+
+#[test]
+fn test_closed_node_can_be_collectively_removed_withdrawn_replaced_and_still_settled() {
+    new_test_ext().execute_with(|| {
+        OverwatchEpochLengthMultiplier::<Test>::set(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+
+        let registration_stake = OverwatchMinStakeBalance::<Test>::get();
+        let (validator_id, coldkey) = setup_qualified_overwatch_validator(
+            10_400,
+            10_401,
+            registration_stake.saturating_mul(2).saturating_add(500),
+        );
+        assert_ok!(Network::register_overwatch_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            registration_stake,
+        ));
+        let old_node_id = TotalOverwatchNodeUids::<Test>::get();
+        let epoch = Network::get_current_overwatch_epoch_as_u32();
+        submit_weight(epoch, 1, old_node_id, test_percent(1, 2));
+
+        let closed_epoch = close_active_overwatch_epoch();
+        assert_ok!(Network::collective_remove_overwatch_node(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+            old_node_id,
+        ));
+        assert_ok!(Network::remove_overwatch_node_stake(
+            RuntimeOrigin::signed(coldkey.clone()),
+            old_node_id,
+            registration_stake,
+        ));
+        assert_eq!(OverwatchNodeStakeBalance::<Test>::get(old_node_id), 0);
+
+        assert_ok!(Network::register_overwatch_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            registration_stake,
+        ));
+        let replacement_node_id = TotalOverwatchNodeUids::<Test>::get();
+        assert_eq!(replacement_node_id, old_node_id + 1);
+        assert_eq!(
+            ValidatorOverwatchNodeId::<Test>::get(validator_id),
+            Some(replacement_node_id)
+        );
+        assert_eq!(
+            OverwatchNodeValidatorId::<Test>::get(old_node_id),
+            Some(validator_id)
+        );
+        assert_eq!(
+            OverwatchNodeValidatorId::<Test>::get(replacement_node_id),
+            Some(validator_id)
+        );
+
+        Network::calculate_overwatch_rewards();
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(closed_epoch, old_node_id),
+            Some(Network::percentage_factor_as_u128())
+        );
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(closed_epoch, replacement_node_id),
+            None
+        );
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(old_node_id),
+            OVERWATCH_EPOCH_EMISSIONS
+        );
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(replacement_node_id),
+            registration_stake
+        );
+
+        // The old ID's historical node-to-validator mapping remains sufficient to withdraw the
+        // close-time reward even though the validator now owns a different active node.
+        assert_ok!(Network::remove_overwatch_node_stake(
+            RuntimeOrigin::signed(coldkey.clone()),
+            old_node_id,
+            OVERWATCH_EPOCH_EMISSIONS,
+        ));
+        assert_eq!(OverwatchNodeStakeBalance::<Test>::get(old_node_id), 0);
+        assert_eq!(
+            StakeUnbondingLedger::<Test>::get(coldkey)
+                .values()
+                .map(|entry| entry.overwatch)
+                .fold(0u128, u128::saturating_add),
+            registration_stake.saturating_add(OVERWATCH_EPOCH_EMISSIONS)
+        );
+    });
+}
+
+#[test]
+fn test_delayed_slot_one_settlement_uses_close_snapshot_after_stake_mutation() {
+    new_test_ext().execute_with(|| {
+        let percentage_factor = Network::percentage_factor_as_u128();
+        OverwatchEpochLengthMultiplier::<Test>::set(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        OverwatchStakeWeightFactor::<Test>::set(percentage_factor);
+        set_overwatch_epoch(1);
+
+        manual_insert_validator(1, 101, 201);
+        manual_insert_validator(2, 102, 202);
+        let first_node_id = insert_overwatch_node_v2(1);
+        let second_node_id = insert_overwatch_node_v2(2);
+        set_overwatch_node_stake(first_node_id, 100);
+        set_overwatch_node_stake(second_node_id, 100);
+        submit_weight(1, 1, first_node_id, percentage_factor);
+        submit_weight(1, 1, second_node_id, 0);
+
+        let rollover_block = OverwatchEpochStartBlock::<Test>::get() + EpochLength::get();
+        System::set_block_number(rollover_block);
+        Network::on_initialize(rollover_block);
+        assert_eq!(
+            PendingOverwatchSettlement::<Test>::get().map(|settlement| settlement.epoch),
+            Some(1)
+        );
+
+        // Skip the immediately following settlement slot and exercise another reserved slot.
+        let emission_slot = rollover_block + crate::NETWORK_SUBNET_EMISSION_SLOT;
+        System::set_block_number(emission_slot);
+        Network::on_initialize(emission_slot);
+        assert!(PendingOverwatchSettlement::<Test>::get().is_some());
+
+        Network::increase_overwatch_node_stake(first_node_id, 900);
+        Network::decrease_overwatch_node_stake(second_node_id, 90);
+
+        let delayed_settlement_block =
+            rollover_block + EpochLength::get() + NETWORK_OVERWATCH_SETTLEMENT_SLOT;
+        System::set_block_number(delayed_settlement_block);
+        Network::on_initialize(delayed_settlement_block);
+
+        assert!(PendingOverwatchSettlement::<Test>::get().is_none());
+        assert!(!OverwatchEpochSettlementSnapshots::<Test>::contains_key(1));
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(1, 1),
+            Some(test_percent(1, 2))
+        );
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(1, first_node_id),
+            Some(test_percent(1, 2))
+        );
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(1, second_node_id),
+            Some(test_percent(1, 2))
+        );
+    });
+}
+
+#[test]
+fn test_post_close_whitelist_and_hotkey_changes_do_not_affect_settlement() {
+    new_test_ext().execute_with(|| {
+        OverwatchEpochLengthMultiplier::<Test>::set(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+
+        let registration_stake = OverwatchMinStakeBalance::<Test>::get();
+        let (validator_id, coldkey) = setup_qualified_overwatch_validator(
+            10_500,
+            10_501,
+            registration_stake.saturating_add(500),
+        );
+        assert_ok!(Network::register_overwatch_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            registration_stake,
+        ));
+        let node_id = TotalOverwatchNodeUids::<Test>::get();
+        let epoch = Network::get_current_overwatch_epoch_as_u32();
+        submit_weight(epoch, 1, node_id, test_percent(1, 2));
+
+        let closed_epoch = close_active_overwatch_epoch();
+        OverwatchValidatorWhitelist::<Test>::insert(validator_id, false);
+        let replacement_hotkey = account(10_599);
+        assert_ok!(Network::update_overwatch_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            node_id,
+            Some(replacement_hotkey.clone()),
+        ));
+        assert_eq!(
+            OverwatchNodeIdHotkey::<Test>::get(node_id),
+            Some(replacement_hotkey)
+        );
+
+        Network::calculate_overwatch_rewards();
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(closed_epoch, node_id),
+            Some(Network::percentage_factor_as_u128())
+        );
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(node_id),
+            registration_stake.saturating_add(OVERWATCH_EPOCH_EMISSIONS)
+        );
+    });
+}
+
 #[test]
 fn test_overwatch_min_age_uses_general_epochs_and_exact_boundary() {
     new_test_ext().execute_with(|| {
         let validator_id = 1;
-        make_overwatch_qualified_v2(validator_id, validator_id);
+        make_overwatch_qualified_v2(validator_id);
 
         let min_age = OverwatchMinAge::<Test>::get();
         assert_eq!(min_age, EpochsPerYear::get() / 4);
@@ -49,6 +655,155 @@ fn test_overwatch_min_age_uses_general_epochs_and_exact_boundary() {
         assert!(Network::is_validator_overwatch_qualified_read_only(
             validator_id
         ));
+    });
+}
+
+#[test]
+fn test_validator_cannot_register_two_active_overwatch_nodes_but_can_replace_removed_node() {
+    new_test_ext().execute_with(|| {
+        let amount = OverwatchMinStakeBalance::<Test>::get();
+        let (validator_id, coldkey) = setup_qualified_overwatch_validator(
+            10_100,
+            10_101,
+            amount.saturating_mul(2).saturating_add(500),
+        );
+
+        // Active Overwatch ownership is validator-only; the validator needs no subnet nodes.
+        assert!(ValidatorSubnetNodes::<Test>::get(validator_id).is_empty());
+
+        assert_ok!(Network::register_overwatch_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            amount,
+        ));
+        let first_node_id = TotalOverwatchNodeUids::<Test>::get();
+        assert_eq!(
+            ValidatorOverwatchNodeId::<Test>::get(validator_id),
+            Some(first_node_id)
+        );
+        assert_eq!(
+            OverwatchNodeValidatorId::<Test>::get(first_node_id),
+            Some(validator_id)
+        );
+
+        let free_balance = Balances::free_balance(&coldkey);
+        let total_stake = TotalOverwatchNodeStakeBalance::<Test>::get();
+        assert_err!(
+            Network::register_overwatch_node(RuntimeOrigin::signed(coldkey.clone()), amount),
+            Error::<Test>::ValidatorAlreadyHasOverwatchNode
+        );
+        assert_eq!(TotalOverwatchNodeUids::<Test>::get(), first_node_id);
+        assert_eq!(TotalOverwatchNodes::<Test>::get(), 1);
+        assert_eq!(Balances::free_balance(&coldkey), free_balance);
+        assert_eq!(TotalOverwatchNodeStakeBalance::<Test>::get(), total_stake);
+        assert_eq!(
+            ValidatorOverwatchNodeId::<Test>::get(validator_id),
+            Some(first_node_id)
+        );
+
+        assert_ok!(Network::remove_overwatch_node(
+            RuntimeOrigin::signed(coldkey.clone()),
+            first_node_id,
+        ));
+        assert_eq!(ValidatorOverwatchNodeId::<Test>::get(validator_id), None);
+        assert_eq!(
+            OverwatchNodeValidatorId::<Test>::get(first_node_id),
+            Some(validator_id)
+        );
+
+        assert_ok!(Network::register_overwatch_node(
+            RuntimeOrigin::signed(coldkey),
+            amount,
+        ));
+        let replacement_node_id = TotalOverwatchNodeUids::<Test>::get();
+        assert_eq!(replacement_node_id, first_node_id + 1);
+        assert_eq!(
+            ValidatorOverwatchNodeId::<Test>::get(validator_id),
+            Some(replacement_node_id)
+        );
+        assert_eq!(
+            OverwatchNodeValidatorId::<Test>::get(replacement_node_id),
+            Some(validator_id)
+        );
+        assert_eq!(TotalOverwatchNodes::<Test>::get(), 1);
+    });
+}
+
+#[test]
+fn test_distinct_validators_can_register_distinct_active_overwatch_nodes() {
+    new_test_ext().execute_with(|| {
+        let amount = OverwatchMinStakeBalance::<Test>::get();
+        let (validator_id_1, coldkey_1) =
+            setup_qualified_overwatch_validator(10_200, 10_201, amount.saturating_add(500));
+        let (validator_id_2, coldkey_2) =
+            setup_qualified_overwatch_validator(10_202, 10_203, amount.saturating_add(500));
+
+        assert_ne!(validator_id_1, validator_id_2);
+        assert!(Network::is_validator_overwatch_qualified_read_only(
+            validator_id_1
+        ));
+        assert!(Network::is_validator_overwatch_qualified_read_only(
+            validator_id_2
+        ));
+
+        // Keep validator and Overwatch IDs deliberately different so the test cannot pass by
+        // accidentally treating an Overwatch node ID as a validator identity.
+        TotalOverwatchNodeUids::<Test>::set(40);
+
+        assert_ok!(Network::register_overwatch_node(
+            RuntimeOrigin::signed(coldkey_1),
+            amount,
+        ));
+        let node_id_1 = TotalOverwatchNodeUids::<Test>::get();
+        assert_ok!(Network::register_overwatch_node(
+            RuntimeOrigin::signed(coldkey_2),
+            amount,
+        ));
+        let node_id_2 = TotalOverwatchNodeUids::<Test>::get();
+
+        assert_ne!(node_id_1, node_id_2);
+        assert_ne!(validator_id_1, node_id_1);
+        assert_ne!(validator_id_2, node_id_2);
+        assert_eq!(
+            ValidatorOverwatchNodeId::<Test>::get(validator_id_1),
+            Some(node_id_1)
+        );
+        assert_eq!(
+            ValidatorOverwatchNodeId::<Test>::get(validator_id_2),
+            Some(node_id_2)
+        );
+        assert_eq!(
+            OverwatchNodeValidatorId::<Test>::get(node_id_1),
+            Some(validator_id_1)
+        );
+        assert_eq!(
+            OverwatchNodeValidatorId::<Test>::get(node_id_2),
+            Some(validator_id_2)
+        );
+        assert_eq!(TotalOverwatchNodes::<Test>::get(), 2);
+    });
+}
+
+#[test]
+fn test_overwatch_node_uid_exhaustion_does_not_mutate_registration_state() {
+    new_test_ext().execute_with(|| {
+        let amount = OverwatchMinStakeBalance::<Test>::get();
+        let (validator_id, coldkey) =
+            setup_qualified_overwatch_validator(10_300, 10_301, amount.saturating_add(500));
+        TotalOverwatchNodeUids::<Test>::set(u32::MAX);
+
+        let free_balance = Balances::free_balance(&coldkey);
+        let total_stake = TotalOverwatchNodeStakeBalance::<Test>::get();
+        assert_err!(
+            Network::register_overwatch_node(RuntimeOrigin::signed(coldkey.clone()), amount),
+            Error::<Test>::OverwatchNodeIdExhausted
+        );
+
+        assert_eq!(TotalOverwatchNodeUids::<Test>::get(), u32::MAX);
+        assert_eq!(TotalOverwatchNodes::<Test>::get(), 0);
+        assert_eq!(TotalOverwatchNodeStakeBalance::<Test>::get(), total_stake);
+        assert_eq!(Balances::free_balance(&coldkey), free_balance);
+        assert_eq!(ValidatorOverwatchNodeId::<Test>::get(validator_id), None);
+        assert!(OverwatchNodes::<Test>::iter_keys().next().is_none());
     });
 }
 
@@ -80,7 +835,7 @@ fn test_register_overwatch_node() {
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get();
 
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         let init_total_overwatch_nodes = TotalOverwatchNodes::<Test>::get();
 
@@ -112,7 +867,7 @@ fn test_register_overwatch_node() {
 }
 
 #[test]
-fn test_register_overwatch_node_blacklisted() {
+fn test_register_overwatch_node_requires_whitelisted_validator() {
     new_test_ext().execute_with(|| {
         let amount = 100000000000000000000;
 
@@ -132,7 +887,7 @@ fn test_register_overwatch_node_blacklisted() {
 
         assert_err!(
             Network::register_overwatch_node(RuntimeOrigin::signed(coldkey.clone()), amount,),
-            Error::<Test>::ColdkeyBlacklisted
+            Error::<Test>::ValidatorNotOverwatchWhitelisted
         );
     });
 }
@@ -156,7 +911,7 @@ fn test_register_overwatch_node_min_stake_error() {
         OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_err!(
             Network::register_overwatch_node(
@@ -208,7 +963,7 @@ fn test_register_overwatch_node_stake_failure_does_not_commit_partial_state_or_c
         OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
 
         increase_epochs(OverwatchEpochLengthMultiplier::<Test>::get() as u32);
-        make_overwatch_qualified_v2(validator_id, coldkey_n);
+        make_overwatch_qualified_v2(validator_id);
 
         let stale_subnet_id = TotalOverwatchNodeUids::<Test>::get()
             .saturating_add(MaxSubnets::<Test>::get())
@@ -288,7 +1043,7 @@ fn test_register_overwatch_node_errors() {
         let validator_id = TotalValidatorIds::<Test>::get();
         OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
 
-        // make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        // make_overwatch_qualified_v2(validator_id);
 
         set_overwatch_epoch(1);
 
@@ -302,11 +1057,11 @@ fn test_register_overwatch_node_errors() {
 
         assert_err!(
             Network::register_overwatch_node(RuntimeOrigin::signed(coldkey.clone()), amount,),
-            Error::<Test>::ColdkeyNotOverwatchQualified
+            Error::<Test>::ValidatorNotOverwatchQualified
         );
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_err!(
             Network::register_overwatch_node(RuntimeOrigin::signed(coldkey.clone()), 1,),
@@ -364,7 +1119,7 @@ fn test_set_overwatch_peer_id_v2() {
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
 
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -390,6 +1145,34 @@ fn test_set_overwatch_peer_id_v2() {
             .get(&subnet_id)
             .map_or(false, |x_peer_id| *x_peer_id == peer_id);
         assert!(exists);
+
+        // Re-submitting the node's existing peer is idempotent.
+        assert_ok!(Network::set_overwatch_node_peer_id(
+            RuntimeOrigin::signed(coldkey.clone()),
+            subnet_id,
+            overwatch_node_id,
+            peer_id.clone(),
+        ));
+
+        // Replacing it updates both directions and releases the old peer ID.
+        let replacement_peer_id = peer(2);
+        assert_ok!(Network::set_overwatch_node_peer_id(
+            RuntimeOrigin::signed(coldkey),
+            subnet_id,
+            overwatch_node_id,
+            replacement_peer_id.clone(),
+        ));
+        assert!(!PeerIdOverwatchNodeId::<Test>::contains_key(
+            subnet_id, &peer_id
+        ));
+        assert_eq!(
+            PeerIdOverwatchNodeId::<Test>::get(subnet_id, &replacement_peer_id),
+            overwatch_node_id
+        );
+        assert_eq!(
+            OverwatchNodeIndex::<Test>::get(overwatch_node_id).get(&subnet_id),
+            Some(&replacement_peer_id)
+        );
     });
 }
 
@@ -424,7 +1207,7 @@ fn test_update_overwatch_hotkey_override_and_clear() {
         OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
 
         let expected_overwatch_node_id = TotalOverwatchNodeUids::<Test>::get().saturating_add(1);
-        make_overwatch_qualified_v2(validator_id, expected_overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
             OverwatchMinStakeBalance::<Test>::get(),
@@ -508,7 +1291,7 @@ fn test_set_overwatch_peer_id_errors() {
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
 
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
@@ -617,7 +1400,7 @@ fn test_remove_overwatch_node() {
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
 
-        make_overwatch_qualified_v2(validator_id, validator_id);
+        make_overwatch_qualified_v2(validator_id);
 
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
@@ -698,7 +1481,7 @@ fn test_add_overwatch_node_stake_rejects_removed_overwatch_node() {
         increase_epochs(OverwatchEpochLengthMultiplier::<Test>::get() as u32);
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -727,6 +1510,199 @@ fn test_add_overwatch_node_stake_rejects_removed_overwatch_node() {
             node_stake
         );
         assert_eq!(TotalOverwatchNodeStakeBalance::<Test>::get(), total_stake);
+    });
+}
+
+#[test]
+fn test_overwatch_rewards_ignore_non_authoritative_duplicate_validator_node() {
+    new_test_ext().execute_with(|| {
+        let validator_id = 1;
+        manual_insert_validator(validator_id, validator_id, validator_id);
+
+        let canonical_node_id = insert_overwatch_node_v2(validator_id);
+        let duplicate_node_id = canonical_node_id + 1;
+        TotalOverwatchNodeUids::<Test>::set(duplicate_node_id);
+        TotalOverwatchNodes::<Test>::set(2);
+        OverwatchNodes::<Test>::insert(
+            duplicate_node_id,
+            OverwatchNode {
+                id: duplicate_node_id,
+            },
+        );
+        OverwatchNodeValidatorId::<Test>::insert(duplicate_node_id, validator_id);
+
+        let starting_stake = 100;
+        set_overwatch_node_stake(canonical_node_id, starting_stake);
+        set_overwatch_node_stake(duplicate_node_id, starting_stake);
+
+        let epoch = Network::get_current_overwatch_epoch_as_u32();
+        let subnet_id = 1;
+        let submitted_weight = test_percent(1, 2);
+        submit_weight(epoch, subnet_id, canonical_node_id, submitted_weight);
+        submit_weight(epoch, subnet_id, duplicate_node_id, submitted_weight);
+        queue_overwatch_settlement(epoch);
+
+        Network::calculate_overwatch_rewards();
+
+        assert_eq!(
+            ValidatorOverwatchNodeId::<Test>::get(validator_id),
+            Some(canonical_node_id)
+        );
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(epoch, canonical_node_id),
+            Some(Network::percentage_factor_as_u128())
+        );
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(epoch, duplicate_node_id),
+            None
+        );
+        assert!(OverwatchNodeStakeBalance::<Test>::get(canonical_node_id) > starting_stake);
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(duplicate_node_id),
+            starting_stake
+        );
+    });
+}
+
+#[test]
+fn test_overwatch_stake_normalization_linear_handles_realistic_token_stakes() {
+    let percentage_factor = Network::percentage_factor_as_u128();
+    let (subnet_weight, first_node_weight, second_node_weight) =
+        run_two_node_overwatch_stake_weight_case(
+            percentage_factor,
+            1_000 * percentage_factor,
+            100 * percentage_factor,
+        );
+
+    let expected_first_weight = test_percent(10, 11);
+    let expected_second_weight = test_percent(1, 11);
+    assert_eq!(subnet_weight, expected_first_weight);
+    assert_eq!(first_node_weight, expected_first_weight);
+    assert_eq!(second_node_weight, expected_second_weight);
+    assert_normalized_pair(first_node_weight, second_node_weight);
+}
+
+#[test]
+fn test_overwatch_stake_normalization_point_nine_handles_sixty_four_large_equal_stakes() {
+    new_test_ext().execute_with(|| {
+        let percentage_factor = Network::percentage_factor_as_u128();
+        OverwatchStakeWeightFactor::<Test>::set(test_percent(9, 10));
+        assert_eq!(MaxOverwatchNodes::<Test>::get(), 64);
+
+        let epoch = Network::get_current_overwatch_epoch_as_u32();
+        let subnet_id = 1;
+        for validator_id in 1..=64 {
+            manual_insert_validator(validator_id, 1_000 + validator_id, 2_000 + validator_id);
+            let node_id = insert_overwatch_node_v2(validator_id);
+            set_overwatch_node_stake(node_id, 1_000 * percentage_factor);
+            submit_weight(epoch, subnet_id, node_id, test_percent(1, 2));
+        }
+
+        queue_overwatch_settlement(epoch);
+        Network::calculate_overwatch_rewards();
+
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(epoch, subnet_id),
+            Some(test_percent(1, 2))
+        );
+
+        let expected_node_weight = percentage_factor / 64;
+        let mut normalized_sum = 0u128;
+        for node_id in 1..=64 {
+            let node_weight = OverwatchNodeWeights::<Test>::get(epoch, node_id)
+                .expect("every equally weighted revealer must receive a score");
+            assert_eq!(node_weight, expected_node_weight);
+            normalized_sum = normalized_sum
+                .checked_add(node_weight)
+                .expect("normalized Overwatch weights cannot overflow u128");
+        }
+        assert_eq!(normalized_sum, percentage_factor);
+    });
+}
+
+#[test]
+fn test_overwatch_stake_normalization_is_scale_invariant_and_handles_edges() {
+    const ROUNDING_TOLERANCE: u128 = 512;
+    let percentage_factor = Network::percentage_factor_as_u128();
+    let large_scale = u128::MAX / 3;
+
+    for exponent in [test_percent(9, 10), percentage_factor] {
+        let small = run_two_node_overwatch_stake_weight_case(exponent, 2, 1);
+        let large =
+            run_two_node_overwatch_stake_weight_case(exponent, large_scale * 2, large_scale);
+
+        assert!(small.0.abs_diff(large.0) <= ROUNDING_TOLERANCE);
+        assert!(small.1.abs_diff(large.1) <= ROUNDING_TOLERANCE);
+        assert!(small.2.abs_diff(large.2) <= ROUNDING_TOLERANCE);
+        assert_normalized_pair(small.1, small.2);
+        assert_normalized_pair(large.1, large.2);
+
+        let max_and_zero = run_two_node_overwatch_stake_weight_case(exponent, u128::MAX, 0);
+        assert_eq!(max_and_zero, (percentage_factor, percentage_factor, 0));
+
+        let all_zero = run_two_node_overwatch_stake_weight_case(exponent, 0, 0);
+        assert_eq!(all_zero, (0, 0, 0));
+    }
+}
+
+#[test]
+fn test_overwatch_stake_normalization_linear_runs_through_on_initialize() {
+    new_test_ext().execute_with(|| {
+        let percentage_factor = Network::percentage_factor_as_u128();
+        OverwatchStakeWeightFactor::<Test>::set(percentage_factor);
+        OverwatchEpochLengthMultiplier::<Test>::set(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        set_overwatch_epoch(1);
+
+        let epoch = Network::get_current_overwatch_epoch_as_u32();
+        let subnet_id = 1;
+        manual_insert_validator(1, 101, 201);
+        manual_insert_validator(2, 102, 202);
+        let first_node_id = insert_overwatch_node_v2(1);
+        let second_node_id = insert_overwatch_node_v2(2);
+        set_overwatch_node_stake(first_node_id, 1_000 * percentage_factor);
+        set_overwatch_node_stake(second_node_id, 1_000 * percentage_factor);
+        submit_weight(epoch, subnet_id, first_node_id, test_percent(1, 2));
+        submit_weight(epoch, subnet_id, second_node_id, test_percent(1, 2));
+
+        let rollover_block = System::block_number() + EpochLength::get();
+        System::set_block_number(rollover_block);
+        Network::on_initialize(rollover_block);
+        assert_eq!(
+            PendingOverwatchSettlement::<Test>::get().map(|settlement| settlement.epoch),
+            Some(epoch)
+        );
+        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(epoch)
+            .expect("the hook rollover must store a close-time snapshot");
+        assert_eq!(snapshot.nodes.len(), 2);
+        assert_eq!(
+            snapshot.nodes.get(&first_node_id).unwrap().stake,
+            1_000 * percentage_factor
+        );
+        assert_eq!(
+            snapshot.nodes.get(&second_node_id).unwrap().stake,
+            1_000 * percentage_factor
+        );
+
+        let settlement_block = rollover_block + NETWORK_OVERWATCH_SETTLEMENT_SLOT;
+        System::set_block_number(settlement_block);
+        Network::on_initialize(settlement_block);
+
+        assert!(PendingOverwatchSettlement::<Test>::get().is_none());
+        assert!(!OverwatchEpochSettlementSnapshots::<Test>::contains_key(
+            epoch
+        ));
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(epoch, subnet_id),
+            Some(test_percent(1, 2))
+        );
+        let first_node_weight = OverwatchNodeWeights::<Test>::get(epoch, first_node_id)
+            .expect("the first node must be finalized by the hook");
+        let second_node_weight = OverwatchNodeWeights::<Test>::get(epoch, second_node_id)
+            .expect("the second node must be finalized by the hook");
+        assert_eq!(first_node_weight, test_percent(1, 2));
+        assert_eq!(second_node_weight, test_percent(1, 2));
+        assert_normalized_pair(first_node_weight, second_node_weight);
     });
 }
 
@@ -1282,7 +2258,7 @@ fn test_add_to_overwatch_stake() {
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
 
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -1342,7 +2318,7 @@ fn test_add_to_overwatch_stake_errors() {
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
 
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -1396,7 +2372,7 @@ fn test_add_to_remove_overwatch_stake() {
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
 
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -1474,7 +2450,7 @@ fn test_add_to_remove_overwatch_stake_unbond() {
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
 
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -1513,14 +2489,15 @@ fn test_add_to_remove_overwatch_stake_unbond() {
 
         assert_eq!(starting_balance, Balances::free_balance(&coldkey.clone()));
 
-        let unbondings: BTreeMap<u32, u128> = StakeUnbondingLedger::<Test>::get(coldkey.clone());
+        let unbondings = StakeUnbondingLedger::<Test>::get(coldkey.clone());
         assert_eq!(unbondings.len(), 1);
         let (ledger_block, ledger_balance) = unbondings.iter().next().unwrap();
         assert_eq!(
             *ledger_block,
             &block + StakeCooldownEpochs::<Test>::get() * EpochLength::get()
         );
-        assert_eq!(*ledger_balance, remove_amount);
+        assert_eq!(ledger_balance.network, 0);
+        assert_eq!(ledger_balance.overwatch, remove_amount);
 
         System::set_block_number(block + StakeCooldownEpochs::<Test>::get() * EpochLength::get());
 
@@ -1535,7 +2512,7 @@ fn test_add_to_remove_overwatch_stake_unbond() {
             starting_balance + remove_amount
         );
 
-        let unbondings: BTreeMap<u32, u128> = StakeUnbondingLedger::<Test>::get(coldkey.clone());
+        let unbondings = StakeUnbondingLedger::<Test>::get(coldkey.clone());
         assert_eq!(unbondings.len(), 0);
     });
 }
@@ -1566,7 +2543,7 @@ fn test_remove_overwatch_stake_after_removing_overwatch_node() {
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
 
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -1635,7 +2612,7 @@ fn test_add_to_remove_overwatch_stake_errors() {
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
 
-        make_overwatch_qualified_v2(validator_id, overwatch_node_id);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -1711,14 +2688,33 @@ fn test_zero_score() {
 
         let subnet_weight = OverwatchSubnetWeights::<Test>::get(epoch, subnet_id);
 
-        // Score should be 0.1
-        assert_eq!(subnet_weight, Some(121585365354349706));
+        const ROUNDING_TOLERANCE: u128 = 256;
+        let expected_low_weight = 121_585_365_354_349_700;
+        let expected_high_weight = 878_414_634_645_650_300;
+
+        // Floating-point exponentiation can move the final fixed-point result by a few units.
+        assert!(
+            subnet_weight
+                .expect("the revealed subnet must be finalized")
+                .abs_diff(expected_low_weight)
+                <= ROUNDING_TOLERANCE
+        );
 
         let score_1 = OverwatchNodeWeights::<Test>::get(epoch, node_id_1);
         let score_2 = OverwatchNodeWeights::<Test>::get(epoch, node_id_2);
 
-        assert_eq!(score_1, Some(878414634645650299));
-        assert_eq!(score_2, Some(121585365354349700));
+        assert!(
+            score_1
+                .expect("the first node must receive a score")
+                .abs_diff(expected_high_weight)
+                <= ROUNDING_TOLERANCE
+        );
+        assert!(
+            score_2
+                .expect("the second node must receive a score")
+                .abs_diff(expected_low_weight)
+                <= ROUNDING_TOLERANCE
+        );
 
         let mut score_sum = 0;
         let mut nodes = 0;

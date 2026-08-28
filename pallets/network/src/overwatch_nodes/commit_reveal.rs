@@ -15,22 +15,15 @@ impl<T: Config> Pallet<T> {
         );
         let hotkey: T::AccountId = ensure_signed(origin)?;
 
-        ensure!(
-            OverwatchNodes::<T>::contains_key(overwatch_node_id),
-            Error::<T>::InvalidOverwatchNodeId
-        );
-
-        // Ensure the caller is coming from the overwatch hotkey or validator hotkey
-        let overwatch_hotkey = Self::get_overwatch_node_associated_hotkey(overwatch_node_id)?;
+        // Resolve active ownership and authentication from the same canonical validator identity.
+        let (validator_id, overwatch_hotkey) =
+            Self::get_active_overwatch_validator_id_and_hotkey(overwatch_node_id)?;
 
         ensure!(overwatch_hotkey == hotkey, Error::<T>::NotKeyOwner);
 
-        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
-            .map_err(|_| Error::<T>::InvalidValidatorId)?;
-
         ensure!(
             OverwatchValidatorWhitelist::<T>::get(validator_id),
-            Error::<T>::ColdkeyBlacklisted
+            Error::<T>::ValidatorNotOverwatchWhitelisted
         );
 
         // --- Check if we are in commit period
@@ -100,21 +93,14 @@ impl<T: Config> Pallet<T> {
         );
         let hotkey: T::AccountId = ensure_signed(origin)?;
 
-        ensure!(
-            OverwatchNodes::<T>::contains_key(overwatch_node_id),
-            Error::<T>::InvalidOverwatchNodeId
-        );
-
-        let overwatch_hotkey = Self::get_overwatch_node_associated_hotkey(overwatch_node_id)?;
+        let (validator_id, overwatch_hotkey) =
+            Self::get_active_overwatch_validator_id_and_hotkey(overwatch_node_id)?;
 
         ensure!(overwatch_hotkey == hotkey, Error::<T>::NotKeyOwner);
 
-        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
-            .map_err(|_| Error::<T>::InvalidValidatorId)?;
-
         ensure!(
             OverwatchValidatorWhitelist::<T>::get(validator_id),
-            Error::<T>::ColdkeyBlacklisted
+            Error::<T>::ValidatorNotOverwatchWhitelisted
         );
 
         // --- Check if we are in reveal period

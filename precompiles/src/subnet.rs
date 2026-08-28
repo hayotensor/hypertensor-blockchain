@@ -1,5 +1,5 @@
 use core::marker::PhantomData;
-use frame_support::traits::ConstU32;
+use frame_support::traits::{ConstU32, Get};
 use frame_support::{
     dispatch::{GetDispatchInfo, PostDispatchInfo},
     storage::bounded_vec::BoundedVec,
@@ -368,7 +368,11 @@ where
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
     ) -> EvmResult<u128> {
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
+        // The shared minimum scans the bounded subnet cohort and, for each active subnet, reads
+        // its slot and delegate balance. Charge the worst case so this view cannot underpay gas.
+        let max_subnets = <R as pallet_network::Config>::MaxPhysicalSubnetsUpperBound::get() as u64;
+        let reads = 4_u64.saturating_add(max_subnets.saturating_mul(3));
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost().saturating_mul(reads))?;
 
         let subnet_id = try_u256_to_u32(subnet_id)?;
 

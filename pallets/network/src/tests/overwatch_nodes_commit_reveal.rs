@@ -2,10 +2,11 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     ActiveOverwatchRevealStats, Error, MinSubnetMinStake, MinSubnetNodes, OverwatchCommit,
-    OverwatchCommits, OverwatchNode, OverwatchNodeBlacklist, OverwatchNodeIdHotkey,
-    OverwatchNodeValidatorId, OverwatchNodes, OverwatchReveal, OverwatchRevealStats,
-    OverwatchReveals, OverwatchValidatorWhitelist, SubnetData, SubnetName, SubnetState,
-    SubnetsData, TotalOverwatchNodeUids, TotalValidatorIds, ValidatorColdkey, ValidatorIdHotkey,
+    OverwatchCommits, OverwatchNode, OverwatchNodeIdHotkey, OverwatchNodeValidatorId,
+    OverwatchNodes, OverwatchReveal, OverwatchRevealStats, OverwatchReveals,
+    OverwatchValidatorWhitelist, SubnetData, SubnetName, SubnetState, SubnetsData,
+    TotalOverwatchNodeUids, TotalValidatorIds, ValidatorColdkey, ValidatorIdHotkey,
+    ValidatorOverwatchNodeId,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
@@ -68,15 +69,13 @@ fn test_do_commit_and_reveal_weights_success() {
         TotalOverwatchNodeUids::<Test>::mutate(|n: &mut u32| *n += 1);
         let current_uid = TotalOverwatchNodeUids::<Test>::get();
 
-        let overwatch_node = OverwatchNode {
-            id: current_uid,
-            hotkey: hotkey.clone(),
-        };
+        let overwatch_node = OverwatchNode { id: current_uid };
 
         OverwatchNodes::<Test>::insert(current_uid, overwatch_node);
         OverwatchNodeIdHotkey::<Test>::insert(current_uid, hotkey.clone());
         OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
         OverwatchNodeValidatorId::<Test>::insert(current_uid, validator_id);
+        ValidatorOverwatchNodeId::<Test>::insert(validator_id, current_uid);
 
         // Weight + salt
         let weight: u128 = 123456;
@@ -341,15 +340,13 @@ fn test_do_commit_and_reveal_weights_not_key_owner_error() {
         TotalOverwatchNodeUids::<Test>::mutate(|n: &mut u32| *n += 1);
         let current_uid = TotalOverwatchNodeUids::<Test>::get();
 
-        let overwatch_node = OverwatchNode {
-            id: current_uid,
-            hotkey: hotkey.clone(),
-        };
+        let overwatch_node = OverwatchNode { id: current_uid };
 
         OverwatchNodes::<Test>::insert(current_uid, overwatch_node);
         OverwatchNodeIdHotkey::<Test>::insert(current_uid, hotkey.clone());
         OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
         OverwatchNodeValidatorId::<Test>::insert(current_uid, validator_id);
+        ValidatorOverwatchNodeId::<Test>::insert(validator_id, current_uid);
 
         // Weight + salt
         let weight: u128 = 123456;
@@ -372,7 +369,7 @@ fn test_do_commit_and_reveal_weights_not_key_owner_error() {
 }
 
 #[test]
-fn test_do_commit_and_reveal_weights_blacklisted_error() {
+fn test_do_commit_and_reveal_weights_unwhitelisted_validator_error() {
     new_test_ext().execute_with(|| {
         let coldkey: AccountId = account(1);
         let hotkey: AccountId = account(2);
@@ -412,14 +409,12 @@ fn test_do_commit_and_reveal_weights_blacklisted_error() {
         TotalOverwatchNodeUids::<Test>::mutate(|n: &mut u32| *n += 1);
         let current_uid = TotalOverwatchNodeUids::<Test>::get();
 
-        let overwatch_node = OverwatchNode {
-            id: current_uid,
-            hotkey: hotkey.clone(),
-        };
+        let overwatch_node = OverwatchNode { id: current_uid };
 
         OverwatchNodes::<Test>::insert(current_uid, overwatch_node);
         OverwatchNodeIdHotkey::<Test>::insert(current_uid, hotkey.clone());
         OverwatchNodeValidatorId::<Test>::insert(current_uid, validator_id);
+        ValidatorOverwatchNodeId::<Test>::insert(validator_id, current_uid);
 
         // Weight + salt
         let weight: u128 = 123456;
@@ -438,7 +433,7 @@ fn test_do_commit_and_reveal_weights_blacklisted_error() {
                     weight: commit_hash
                 }]
             ),
-            Error::<Test>::ColdkeyBlacklisted
+            Error::<Test>::ValidatorNotOverwatchWhitelisted
         );
     });
 }
@@ -483,15 +478,13 @@ fn test_do_commit_and_reveal_weights_commits_empty_error() {
         TotalOverwatchNodeUids::<Test>::mutate(|n: &mut u32| *n += 1);
         let current_uid = TotalOverwatchNodeUids::<Test>::get();
 
-        let overwatch_node = OverwatchNode {
-            id: current_uid,
-            hotkey: hotkey.clone(),
-        };
+        let overwatch_node = OverwatchNode { id: current_uid };
 
         OverwatchNodes::<Test>::insert(current_uid, overwatch_node);
         OverwatchNodeIdHotkey::<Test>::insert(current_uid, hotkey.clone());
         OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
         OverwatchNodeValidatorId::<Test>::insert(current_uid, validator_id);
+        ValidatorOverwatchNodeId::<Test>::insert(validator_id, current_uid);
 
         // Weight + salt
         let weight: u128 = 123456;
@@ -549,15 +542,13 @@ fn test_do_commit_and_reveal_weights_already_committed_error() {
         TotalOverwatchNodeUids::<Test>::mutate(|n: &mut u32| *n += 1);
         let current_uid = TotalOverwatchNodeUids::<Test>::get();
 
-        let overwatch_node = OverwatchNode {
-            id: current_uid,
-            hotkey: hotkey.clone(),
-        };
+        let overwatch_node = OverwatchNode { id: current_uid };
 
         OverwatchNodes::<Test>::insert(current_uid, overwatch_node);
         OverwatchNodeIdHotkey::<Test>::insert(current_uid, hotkey.clone());
         OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
         OverwatchNodeValidatorId::<Test>::insert(current_uid, validator_id);
+        ValidatorOverwatchNodeId::<Test>::insert(validator_id, current_uid);
 
         // Weight + salt
         let weight: u128 = 123456;
@@ -629,7 +620,7 @@ fn test_commit_and_reveal_extrinsics() {
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
-        make_overwatch_qualified_v2(overwatch_node_id, 1);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -717,7 +708,7 @@ fn test_reveal_overwatch_subnet_weights_not_key_owner_error() {
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
-        make_overwatch_qualified_v2(overwatch_node_id, 1);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -795,7 +786,7 @@ fn test_reveal_overwatch_subnet_weights_not_key_owner_error() {
 }
 
 #[test]
-fn test_reveal_overwatch_subnet_weights_blacklisted_error() {
+fn test_reveal_overwatch_subnet_weights_unwhitelisted_validator_error() {
     new_test_ext().execute_with(|| {
         // subnet
         let subnet_name: Vec<u8> = "subnet-name".into();
@@ -814,7 +805,7 @@ fn test_reveal_overwatch_subnet_weights_blacklisted_error() {
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
-        make_overwatch_qualified_v2(overwatch_node_id, 1);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -862,7 +853,6 @@ fn test_reveal_overwatch_subnet_weights_blacklisted_error() {
 
         set_block_to_overwatch_reveal_block(overwatch_epoch);
 
-        OverwatchNodeBlacklist::<Test>::insert(coldkey.clone(), true);
         OverwatchValidatorWhitelist::<Test>::insert(validator_id, false);
 
         // Reveal
@@ -876,7 +866,7 @@ fn test_reveal_overwatch_subnet_weights_blacklisted_error() {
                     salt: salt.clone().try_into().unwrap()
                 }]
             ),
-            Error::<Test>::ColdkeyBlacklisted
+            Error::<Test>::ValidatorNotOverwatchWhitelisted
         );
     });
 }
@@ -901,7 +891,7 @@ fn test_reveal_overwatch_subnet_weights_no_commit_found_error() {
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
-        make_overwatch_qualified_v2(overwatch_node_id, 1);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -970,7 +960,7 @@ fn test_reveal_overwatch_subnet_weights_reveal_mismatch_error() {
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
-        make_overwatch_qualified_v2(overwatch_node_id, 1);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -1106,7 +1096,7 @@ fn test_commit_reveal_multiple_times_in_same_epoch() {
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
-        make_overwatch_qualified_v2(overwatch_node_id, 1);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -1227,7 +1217,7 @@ fn test_commit_and_reveal_phase_errors() {
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
-        make_overwatch_qualified_v2(overwatch_node_id, 1);
+        make_overwatch_qualified_v2(validator_id);
 
         assert_ok!(Network::register_overwatch_node(
             RuntimeOrigin::signed(coldkey.clone()),

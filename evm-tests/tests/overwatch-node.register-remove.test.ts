@@ -1,396 +1,151 @@
-import { getDevnetApi } from "../src/substrate"
-import { dev } from "@polkadot-api/descriptors"
-import { TypedApi } from "polkadot-api";
-import { ethers } from "ethers"
-import { generateRandomEd25519PeerId, generateRandomMultiaddr, generateRandomEthersWallet, generateRandomString, getPublicClient, OVERWATCH_NODE_CONTRACT_ABI, OVERWATCH_NODE_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, SUBNET_CONTRACT_ADDRESS } from "../src/utils"
-import {
-    anyoneRemoveOverwatchNode,
-    batchTransferBalanceFromSudoManual,
-    createAndFinalizeBlock,
-    createAndFinalizeBlocks,
-    getCurrentRegistrationCost,
-    registerOverwatchNode,
-    registerSubnet,
-    registerSubnetNode,
-    removeOverwatchNode,
-    setOverwatchNodePeerId,
-} from "../src/network"
-import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
-import { PublicClient } from "viem";
+import { dev } from "@polkadot-api/descriptors";
 import { ApiPromise, WsProvider } from "@polkadot/api";
+import { Option } from "@polkadot/types";
 import { expect } from "chai";
-import { Option } from '@polkadot/types';
+import { ethers } from "ethers";
+import { TypedApi } from "polkadot-api";
 
-// npm test -- -g "test overwatch nodes-0xDDDDDJUUK9996"
-describe("test overwatch nodes-0xDDDDDJUUK9996", () => {
-    // init eth part
-    const wallet0 = generateRandomEthersWallet();
-    const wallet1 = generateRandomEthersWallet();
-    const wallet2 = generateRandomEthersWallet();
-    const wallet3 = generateRandomEthersWallet();
-    const wallet4 = generateRandomEthersWallet();
-    const wallet5 = generateRandomEthersWallet();
-    const wallet6 = generateRandomEthersWallet();
-    const wallet7 = generateRandomEthersWallet();
-    const wallet8 = generateRandomEthersWallet();
+import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
+import {
+  batchTransferBalanceFromSudoManual,
+  createAndFinalizeBlock,
+  qualifyOverwatchValidatorForDevnet,
+  registerOverwatchNode,
+  registerValidator,
+  removeOverwatchNode,
+} from "../src/network";
+import { getDevnetApi } from "../src/substrate";
+import {
+  generateRandomEthersWallet,
+  OVERWATCH_NODE_CONTRACT_ABI,
+  OVERWATCH_NODE_CONTRACT_ADDRESS,
+  SUBNET_CONTRACT_ABI,
+  SUBNET_CONTRACT_ADDRESS,
+} from "../src/utils";
 
-    const ALL_ACCOUNTS = [
-        wallet0.address,
-        wallet1.address,
-        wallet2.address,
-        wallet3.address,
-        wallet4.address,
-        wallet5.address,
-        wallet6.address,
-        wallet7.address,
-        wallet8.address,
-    ]
-    const initialColdkeys = [
-        {
-            coldkey: wallet1.address,
-            count: 1
-        },
-        {
-            coldkey: wallet2.address,
-            count: 1
-        },
-        {
-            coldkey: wallet3.address,
-            count: 1
-        },
-        {
-            coldkey: wallet4.address,
-            count: 1
-        },
-        {
-            coldkey: wallet5.address,
-            count: 1
-        },
-        {
-            coldkey: wallet6.address,
-            count: 1
-        },
-        {
-            coldkey: wallet7.address,
-            count: 1
-        },
-        {
-            coldkey: wallet8.address,
-            count: 1
-        },
-    ];
+// Requires a manually-sealed local development chain.
+describe("Overwatch validator registration lifecycle", () => {
+  const coldkey = generateRandomEthersWallet();
+  const validatorHotkey = generateRandomEthersWallet();
 
-    let publicClient: PublicClient;
-    // init substrate part
+  const subnetContract = new ethers.Contract(
+    SUBNET_CONTRACT_ADDRESS,
+    SUBNET_CONTRACT_ABI,
+    coldkey,
+  );
+  const overwatchContract = new ethers.Contract(
+    OVERWATCH_NODE_CONTRACT_ADDRESS,
+    OVERWATCH_NODE_CONTRACT_ABI,
+    coldkey,
+  );
 
-    let papiApi: TypedApi<typeof dev>
-    let api: ApiPromise
-    let ethersProvider: ethers.JsonRpcProvider;
+  let api: ApiPromise;
+  let papiApi: TypedApi<typeof dev>;
+  let provider: ethers.JsonRpcProvider;
+  let validatorId: string;
+  let minStake: bigint;
 
-    const sudoTransferAmount = BigInt(10000e18)
+  before(async () => {
+    papiApi = await getDevnetApi();
+    api = await ApiPromise.create({ provider: new WsProvider(SUB_LOCAL_URL) });
+    provider = new ethers.JsonRpcProvider(ETH_LOCAL_URL);
+    await createAndFinalizeBlock(provider);
 
-    const subnetContract = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet0);
-    const subnetContract1 = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet1);
+    await batchTransferBalanceFromSudoManual(api, papiApi, provider, [
+      {
+        address: coldkey.address,
+        balance: BigInt("10000000000000000000000"),
+      },
+    ]);
+    await registerValidator(
+      subnetContract,
+      validatorHotkey.address,
+      provider,
+      true,
+    );
 
-    const overwatchNodeContract1 = new ethers.Contract(OVERWATCH_NODE_CONTRACT_ADDRESS, OVERWATCH_NODE_CONTRACT_ABI, wallet1);
+    const validatorIdOption = (await api.query.network.coldkeyValidatorId(
+      coldkey.address,
+    )) as Option<any>;
+    expect(validatorIdOption.isSome).to.equal(true);
+    validatorId = validatorIdOption.unwrap().toString();
+    await qualifyOverwatchValidatorForDevnet(api, validatorId, provider);
+    minStake = BigInt(
+      (await api.query.network.overwatchMinStakeBalance()).toString(),
+    );
+  });
 
-    let subnetId: string;
-    let subnetNodeId1: string;
-    before(async () => {
-        let BOOTNODES: { peerId: string; multiaddr: Uint8Array }[] = [
-            {
-                peerId: (await generateRandomEd25519PeerId()),
-                multiaddr: await generateRandomMultiaddr((await generateRandomEd25519PeerId()))
-            }
-        ]
+  it("clears the active reverse lookup on removal and permits re-registration", async () => {
+    await registerOverwatchNode(overwatchContract, minStake, provider, true);
 
-        publicClient = await getPublicClient(ETH_LOCAL_URL)
-        // init variables got from await and async
-        papiApi = await getDevnetApi()
+    const [firstExists, firstNodeIdValue] =
+      await overwatchContract.validatorOverwatchNodeId(validatorId);
+    expect(firstExists).to.equal(true);
+    const firstNodeId = firstNodeIdValue.toString();
 
-        const provider = new WsProvider(SUB_LOCAL_URL);
-        ethersProvider = new ethers.JsonRpcProvider(ETH_LOCAL_URL);
+    const [returnedNodeId, returnedHotkey] =
+      await overwatchContract.overwatchNodes(firstNodeId);
+    expect(returnedNodeId.toString()).to.equal(firstNodeId);
+    expect(returnedHotkey.toLowerCase()).to.equal(
+      validatorHotkey.address.toLowerCase(),
+    );
+    expect(
+      (
+        await overwatchContract.overwatchNodeIdHotkey(firstNodeId)
+      ).toLowerCase(),
+    ).to.equal(validatorHotkey.address.toLowerCase());
 
-        api = await ApiPromise.create({ provider });
+    let duplicateRejected = false;
+    try {
+      await overwatchContract.registerOverwatchNode.staticCall(minStake);
+    } catch {
+      duplicateRejected = true;
+    }
+    expect(duplicateRejected).to.equal(true);
 
-        await createAndFinalizeBlock(ethersProvider)
-        const recipients = ALL_ACCOUNTS.map(address => ({
-            address: address,
-            balance: BigInt(sudoTransferAmount + BigInt(500))
-        }));
+    await removeOverwatchNode(overwatchContract, firstNodeId, provider, true);
 
-        // await api.rpc.engine.createBlock(true, true)
-        await batchTransferBalanceFromSudoManual(
-            api,
-            papiApi,
-            ethersProvider,
-            recipients
-        )
+    const palletReverseAfterRemoval =
+      (await api.query.network.validatorOverwatchNodeId(
+        validatorId,
+      )) as Option<any>;
+    expect(palletReverseAfterRemoval.isNone).to.equal(true);
+    const [existsAfterRemoval, nodeIdAfterRemoval] =
+      await overwatchContract.validatorOverwatchNodeId(validatorId);
+    expect(existsAfterRemoval).to.equal(false);
+    expect(nodeIdAfterRemoval.toString()).to.equal("0");
 
-        // ==============
-        // Register subnet
-        // ==============
-        let cost = await getCurrentRegistrationCost(subnetContract, api)
-        const subnetName = generateRandomString(30)
-        const repo = generateRandomString(30)
-        const description = generateRandomString(30)
-        const misc = generateRandomString(30)
-        const minStake = await api.query.network.minSubnetMinStake();
-        const maxStake = await api.query.network.networkMaxStakeBalance();
-        const delegateStakePercentage = await api.query.network.minDelegateStakePercentage();
+    let removedNodeViewRejected = false;
+    try {
+      await overwatchContract.overwatchNodes(firstNodeId);
+    } catch {
+      removedNodeViewRejected = true;
+    }
+    expect(removedNodeViewRejected).to.equal(true);
 
-        console.log("registering subnet")
+    let removedHotkeyViewRejected = false;
+    try {
+      await overwatchContract.overwatchNodeIdHotkey(firstNodeId);
+    } catch {
+      removedHotkeyViewRejected = true;
+    }
+    expect(removedHotkeyViewRejected).to.equal(true);
 
-        await registerSubnet(
-            subnetContract,
-            cost,
-            subnetName,
-            repo,
-            description,
-            misc,
-            minStake.toString(),
-            maxStake.toString(),
-            delegateStakePercentage.toString(),
-            initialColdkeys,
-            BOOTNODES,
-            cost,
-            ethersProvider,
-            true
-        )
+    await registerOverwatchNode(overwatchContract, minStake, provider, true);
+    const [secondExists, secondNodeIdValue] =
+      await overwatchContract.validatorOverwatchNodeId(validatorId);
+    expect(secondExists).to.equal(true);
+    expect(BigInt(secondNodeIdValue.toString())).to.be.greaterThan(
+      BigInt(firstNodeIdValue.toString()),
+    );
 
-        subnetId = await subnetContract.getSubnetId(subnetName);
-        console.log("subnetId", subnetId)
-
-        await createAndFinalizeBlock(ethersProvider)
-
-        // ================
-        // Add subnet nodes
-        // ================
-
-        // ================
-        // Subnet node 1
-        // ================
-        let peer1 = await generateRandomEd25519PeerId()
-        let peer_info_1 = {
-            peerId: peer1,
-            multiaddr: await generateRandomMultiaddr(peer1)
-        }
-        // let peer2 = await generateRandomEd25519PeerId()
-        let peer_info_2 = {
-            peerId: "",
-            multiaddr: new Uint8Array()
-        }
-        // let peer3 = await generateRandomEd25519PeerId()
-        let peer_info_3 = {
-            peerId: "",
-            multiaddr: new Uint8Array()
-        }
-
-        let delegateAccount = {
-            accountId: wallet1.address,
-            rate: BigInt(0)
-        }
-        const delegateRewardRate = "0";
-
-        const unique = generateRandomString(16)
-        const nonUnique = generateRandomString(16)
-
-        console.log("registering node")
-
-        await registerSubnetNode(
-            subnetContract1,
-            subnetId,
-            wallet4.address,
-            peer_info_1,
-            peer_info_2,
-            peer_info_3,
-            delegateRewardRate,
-            BigInt(minStake.toString()),
-            unique,
-            nonUnique,
-            delegateAccount,
-            "1000000000000000000",
-            ethersProvider,
-            true
-        )
-        console.log("registering node complete")
-
-        await createAndFinalizeBlock(ethersProvider)
-
-        let subnetNodeId1Fetched = await api.query.network.hotkeySubnetNodeId(subnetId, wallet4.address);
-
-        const subnetNodeId1Opt = subnetNodeId1Fetched as Option<any>;
-        expect(subnetNodeId1Opt.isSome);
-
-        let subnetNode1Exists: boolean = false;
-        if (subnetNodeId1Opt.isSome) {
-            subnetNode1Exists = true;
-            const subnetNodeId2Unwrapped = subnetNodeId1Opt.unwrap();
-            const human = subnetNodeId2Unwrapped.toHuman();
-            subnetNodeId1 = human?.toString();
-            expect(Number(subnetNodeId1)).to.be.greaterThan(0);
-        }
-        expect(subnetNode1Exists);
-
-        console.log("subnetNodeId1", subnetNodeId1)
-    })
-
-    // Status: passing
-    // npm test -- -g "testing register overwatch node-0xffff2t54444"
-    it("testing register overwatch node-0xffff2t54444", async () => {
-        let overwatch_epochs = await api.query.network.overwatchEpochLengthMultiplier();
-
-        await createAndFinalizeBlocks(ethersProvider, Number(overwatch_epochs.toString()) * 300)
-
-        const minStake = await api.query.network.overwatchMinStakeBalance();
-
-        await registerOverwatchNode(
-            overwatchNodeContract1,
-            wallet5.address,
-            BigInt(minStake.toString()),
-            ethersProvider,
-            true
-        )
-        await createAndFinalizeBlock(ethersProvider)
-
-        let hotkeyOverwatchNodeId = await api.query.network.hotkeyOverwatchNodeId(wallet5.address);
-        let hotkeyOverwatchNodeIdOpt = hotkeyOverwatchNodeId as Option<any>;
-        expect(hotkeyOverwatchNodeIdOpt.isSome);
-        if (hotkeyOverwatchNodeIdOpt.isSome) {
-            const data = hotkeyOverwatchNodeIdOpt.unwrap();
-            const human = data.toHuman();
-            expect(Number(human)).to.not.equal(0);
-        }
-
-        console.log("✅ Registering overwatch node testing complete")
-    })
-
-    // Status: passing
-    // npm test -- -g "testing remove overwatch-0xgggggggunit69"
-    it("testing remove overwatch-0xgggggggunit69", async () => {
-        let overwatch_epochs = await api.query.network.overwatchEpochLengthMultiplier();
-
-        await createAndFinalizeBlocks(ethersProvider, Number(overwatch_epochs.toString()) * 300)
-
-        const minStake = await api.query.network.overwatchMinStakeBalance();
-
-        await registerOverwatchNode(
-            overwatchNodeContract1,
-            wallet6.address,
-            BigInt(minStake.toString()),
-            ethersProvider,
-            true
-        )
-
-        let overwatchNodeId;
-        let hotkeyOverwatchNodeId = await api.query.network.hotkeyOverwatchNodeId(wallet6.address);
-        let hotkeyOverwatchNodeIdOpt = hotkeyOverwatchNodeId as Option<any>;
-        expect(hotkeyOverwatchNodeIdOpt.isSome);
-        if (hotkeyOverwatchNodeIdOpt.isSome) {
-            const data = hotkeyOverwatchNodeIdOpt.unwrap();
-            const human = data.toHuman();
-            overwatchNodeId = human;
-            expect(Number(human)).to.not.equal(0);
-        }
-
-        await removeOverwatchNode(
-            overwatchNodeContract1,
-            overwatchNodeId,
-            ethersProvider,
-            true
-        )
-
-        hotkeyOverwatchNodeId = await api.query.network.hotkeyOverwatchNodeId(wallet6.address);
-        hotkeyOverwatchNodeIdOpt = hotkeyOverwatchNodeId as Option<any>;
-        expect(hotkeyOverwatchNodeIdOpt.isSome).to.equal(false);
-
-        console.log("✅ Remove overwatch node testing complete")
-    })
-
-    // Status: pending
-    // npm test -- -g "testing anyone remove overwatch-0xgsssssgunit69"
-    it("testing anyone remove overwatch-0xgsssssgunit69", async () => {
-        let overwatch_epochs = await api.query.network.overwatchEpochLengthMultiplier();
-
-        await createAndFinalizeBlocks(ethersProvider, Number(overwatch_epochs.toString()) * 300)
-
-        const minStake = await api.query.network.overwatchMinStakeBalance();
-
-        await registerOverwatchNode(
-            overwatchNodeContract1,
-            wallet7.address,
-            BigInt(minStake.toString()),
-            ethersProvider,
-            true
-        )
-
-        let overwatchNodeId;
-        let hotkeyOverwatchNodeId = await api.query.network.hotkeyOverwatchNodeId(wallet7.address);
-        let hotkeyOverwatchNodeIdOpt = hotkeyOverwatchNodeId as Option<any>;
-        expect(hotkeyOverwatchNodeIdOpt.isSome);
-        if (hotkeyOverwatchNodeIdOpt.isSome) {
-            const data = hotkeyOverwatchNodeIdOpt.unwrap();
-            const human = data.toHuman();
-            overwatchNodeId = human;
-            expect(Number(human)).to.not.equal(0);
-        }
-
-        await anyoneRemoveOverwatchNode(
-            overwatchNodeContract1,
-            overwatchNodeId,
-            ethersProvider,
-            true
-        )
-
-        hotkeyOverwatchNodeId = await api.query.network.hotkeyOverwatchNodeId(wallet7.address);
-        hotkeyOverwatchNodeIdOpt = hotkeyOverwatchNodeId as Option<any>;
-        expect(hotkeyOverwatchNodeIdOpt.isSome).to.equal(false);
-
-        console.log("✅ Registering overwatch node testing complete")
-    })
-
-    // Status: passing
-    // npm test -- -g "testing set overwatch peer-oxferddorski3wggE"
-    it("testing set overwatch peer-oxferddorski3wggE", async () => {
-        let overwatch_epochs = await api.query.network.overwatchEpochLengthMultiplier();
-
-        await createAndFinalizeBlocks(ethersProvider, Number(overwatch_epochs.toString()) * 300)
-
-        const minStake = await api.query.network.overwatchMinStakeBalance();
-
-        await registerOverwatchNode(
-            overwatchNodeContract1,
-            wallet8.address,
-            BigInt(minStake.toString()),
-            ethersProvider,
-            true
-        )
-
-        let overwatchNodeId;
-        let hotkeyOverwatchNodeId = await api.query.network.hotkeyOverwatchNodeId(wallet8.address);
-        let hotkeyOverwatchNodeIdOpt = hotkeyOverwatchNodeId as Option<any>;
-        expect(hotkeyOverwatchNodeIdOpt.isSome);
-        if (hotkeyOverwatchNodeIdOpt.isSome) {
-            const data = hotkeyOverwatchNodeIdOpt.unwrap();
-            const human = data.toHuman();
-            overwatchNodeId = human;
-            expect(Number(human)).to.not.equal(0);
-        }
-
-        let peerId = await generateRandomEd25519PeerId()
-
-        await setOverwatchNodePeerId(
-            overwatchNodeContract1,
-            subnetId,
-            overwatchNodeId,
-            peerId,
-            ethersProvider,
-            true
-        )
-
-        let overwatchNodePeerIdNodeId = await api.query.network.peerIdOverwatchNodeId(subnetId, peerId);
-        expect(overwatchNodePeerIdNodeId.toString()).to.not.equal(overwatchNodeId);
-
-        console.log("✅ Registering overwatch node testing complete")
-    })
+    const secondPalletReverse =
+      (await api.query.network.validatorOverwatchNodeId(
+        validatorId,
+      )) as Option<any>;
+    expect(secondPalletReverse.isSome).to.equal(true);
+    expect(secondPalletReverse.unwrap().toString()).to.equal(
+      secondNodeIdValue.toString(),
+    );
+  });
 });

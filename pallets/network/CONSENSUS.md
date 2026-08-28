@@ -97,6 +97,26 @@ minimum-node, and stake checks skip an active subnet whose phase-aware local epo
 cannot penalize the preparing subnet; those checks resume at the following global boundary, after
 the subnet has reached its first live slot.
 
+The minimum subnet delegation needed for activation and continued survival is shared across the
+consensus-live subnet cohort. A subnet enters that cohort only after it is Active and its phase-aware
+local epoch reaches `consensus_eligible_from_subnet_epoch`; Registered, Paused, and preparation-period
+subnets are excluded. The common requirement is:
+
+```text
+max(
+    MinSubnetDelegateStakeBalance,
+    MinSubnetDelegateStakeFactor * total live subnet delegation / live subnet count,
+)
+```
+
+There is no node-count weighting. The initial absolute floor is 100 tokens and the default factor is
+50%. If no subnet is live, the absolute floor applies. Activation compares a candidate with the
+current live-cohort requirement; the candidate begins contributing to the average once it becomes
+consensus-live. On a delegate-stake removal epoch, preliminary processing snapshots every live
+subnet's delegation before iterating, so all subnets are evaluated against the same total, count,
+and boundary even if an earlier subnet is removed. Equality satisfies the requirement; only a
+balance below it is underfunded.
+
 Pausing uses both clocks for different purposes. The phase-aware subnet epoch records skipped local
 slots for queue compensation, and the global pause-start epoch governs maximum-pause reputation
 decay and removal. Paused subnets remain eligible for lowest-stake capacity removal when the network
@@ -117,22 +137,34 @@ Collective updates write `OverwatchEpochLengthMultiplier` and
 shorten, or change the phase of the active round. At normal rollover, the pallet snapshots the
 latest configured values into the active fields and advances the epoch ID and anchored start block.
 
-When an Overwatch epoch closes, the pallet queues the closed ID and its multiplier as an explicit
-settlement snapshot. Rollover is aligned with general epoch slot zero and settlement runs in the
-reserved slot one, normally the following block. If global transaction pause skips a boundary, the
-active Overwatch clock is frozen by shifting its anchored start block by the pause duration. Nodes
-therefore retain the same commit or reveal time that remained when pause began. Any shifted end is
-then rounded forward to the next slot-zero boundary, keeping Overwatch work away from subnet slots.
-A delayed settlement remains queued until the next slot one. Settlement is idempotent, and empty
-epochs are still marked finalized, which distinguishes a processed epoch with no subnet score from
-an epoch that has not been processed. Consumers use `LastFinalizedOverwatchEpoch` rather than
-deriving `CurrentOverwatchEpoch - 1`.
+When an Overwatch epoch closes, the pallet queues a compact settlement header and a separate
+epoch-keyed snapshot. The snapshot freezes the stake-weight exponent, exact interval reward
+budget, and each revealing node's canonical validator relationship and raw stake. Only the active
+validator-to-Overwatch-node relation at close is included, and an epoch with no eligible revealers
+stores an explicit empty snapshot. The snapshot is assembled completely before rollover changes
+any epoch state; if bounded construction fails, the old epoch remains active and unchanged.
+
+Rollover is aligned with general epoch slot zero and settlement runs in reserved slot one, normally
+the following block. If global transaction pause skips a boundary, the active Overwatch clock is
+frozen by shifting its anchored start block by the pause duration. Nodes therefore retain the same
+commit or reveal time that remained when pause began. Any shifted end is then rounded forward to
+the next slot-zero boundary, keeping Overwatch work away from subnet slots.
+
+A delayed settlement uses only its matching close-time snapshot: it never falls back to live node
+membership, stake, or exponent. A missing snapshot leaves the pending header queued. Removal or
+replacement after close does not invalidate a snapshotted revealer or redirect its reward; any
+reward is credited to the historical Overwatch node ID. Successful finalization consumes the
+header and snapshot exactly once. Explicitly empty epochs are still marked finalized, which
+distinguishes a processed epoch with no subnet score from an epoch that has not been processed.
+Consumers use `LastFinalizedOverwatchEpoch` rather than deriving
+`CurrentOverwatchEpoch - 1`.
 
 `OverwatchEpochEmissions` is the budget for one general blockchain epoch. A completed Overwatch
-epoch spanning `M` general epochs therefore pays `M * OverwatchEpochEmissions`. Its finalized
-subnet weights remain the latest available Overwatch signal and are reused by each general emission
-calculation until a later Overwatch epoch is finalized. A subnet missing a score in an otherwise
-finalized Overwatch epoch uses the configured default Overwatch subnet weight.
+epoch spanning `M` general epochs therefore snapshots the exact saturating product
+`M * OverwatchEpochEmissions` at close and distributes no more than that captured budget. Its
+finalized subnet weights remain the latest available Overwatch signal and are reused by each
+general emission calculation until a later Overwatch epoch is finalized. A subnet missing a score
+in an otherwise finalized Overwatch epoch uses the configured default Overwatch subnet weight.
 
 ## Becoming Electable
 

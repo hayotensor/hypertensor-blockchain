@@ -649,64 +649,6 @@ where
 
         Ok(balance)
     }
-
-    #[precompile::public("accountNodeDelegateStakeShares(address,uint256,uint256)")]
-    #[precompile::view]
-    fn account_node_delegate_stake_shares(
-        handle: &mut impl PrecompileHandle,
-        hotkey: Address,
-        subnet_id: U256,
-        subnet_node_id: U256,
-    ) -> EvmResult<u128> {
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
-        let subnet_id = try_u256_to_u32(subnet_id)?;
-        let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-
-        let account_node_delegate_stake_shares: u128 =
-            pallet_network::AccountNodeDelegateStakeShares::<R>::get((
-                &hotkey,
-                subnet_id,
-                subnet_node_id,
-            ));
-        Ok(account_node_delegate_stake_shares)
-    }
-
-    #[precompile::public("accountNodeDelegateStakeBalance(address,uint256,uint256)")]
-    #[precompile::view]
-    fn account_node_delegate_stake_balance(
-        handle: &mut impl PrecompileHandle,
-        hotkey: Address,
-        subnet_id: U256,
-        subnet_node_id: U256,
-    ) -> EvmResult<u128> {
-        let hotkey = R::AddressMapping::into_account_id(hotkey.into());
-
-        let subnet_id = try_u256_to_u32(subnet_id)?;
-        let subnet_node_id = try_u256_to_u32(subnet_node_id)?;
-
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let account_node_delegate_stake_shares: u128 =
-            pallet_network::AccountNodeDelegateStakeShares::<R>::get((
-                &hotkey,
-                subnet_id,
-                subnet_node_id,
-            ));
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let total_node_delegated_stake_shares =
-            pallet_network::TotalNodeDelegateStakeShares::<R>::get(subnet_id, subnet_node_id);
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let total_node_delegated_stake_balance =
-            pallet_network::TotalNodeDelegateStakeBalance::<R>::get(subnet_id, subnet_node_id);
-
-        let balance: u128 = pallet_network::Pallet::<R>::convert_to_balance(
-            account_node_delegate_stake_shares,
-            total_node_delegated_stake_shares,
-            total_node_delegated_stake_balance,
-        );
-
-        Ok(balance)
-    }
 }
 
 fn try_u256_to_u32(value: U256) -> Result<u32, PrecompileFailure> {

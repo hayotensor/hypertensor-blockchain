@@ -31,7 +31,7 @@ use crate::{
     SubnetNodeReputation, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs, SubnetPauseData,
     SubnetRemovalReason, SubnetRepo, SubnetReputation, SubnetReputationFactorSchedules,
     SubnetReputationFactorUpdates, SubnetState, SubnetsData, TargetNodeRegistrationsPerEpoch,
-    TotalElectableNodes, TotalSubnetElectableNodes,
+    TotalElectableNodes, TotalSubnetElectableNodes, NETWORK_SUBNET_EMISSION_SLOT,
 };
 use codec::Decode;
 use frame_support::{
@@ -957,7 +957,7 @@ fn test_owner_unpause_reserves_full_epoch_before_consensus() {
         // The complete following local epoch is preparation-only for new work. An exact election
         // made before the pause remains allocation-eligible and settles here, but the preparation
         // slot must not elect a replacement validator.
-        set_epoch(preparation_epoch, 2);
+        set_epoch(preparation_epoch, NETWORK_SUBNET_EMISSION_SLOT);
         Network::on_initialize(System::block_number());
         assert!(FinalSubnetEmissionWeights::<Test>::get(preparation_epoch)
             .subnet_weights
@@ -980,7 +980,7 @@ fn test_owner_unpause_reserves_full_epoch_before_consensus() {
 
         // The first live epoch still has no prior work to fund, but its subnet slot must
         // elect a validator and begin a complete consensus round.
-        set_epoch(first_consensus_epoch, 2);
+        set_epoch(first_consensus_epoch, NETWORK_SUBNET_EMISSION_SLOT);
         Network::on_initialize(System::block_number());
         assert!(!FinalSubnetEmissionWeights::<Test>::contains_key(
             first_consensus_epoch
@@ -1003,7 +1003,7 @@ fn test_owner_unpause_reserves_full_epoch_before_consensus() {
 
         // The following distribution now sees exact prior work and includes the subnet.
         let first_reward_epoch = first_consensus_epoch.saturating_add(1);
-        set_epoch(first_reward_epoch, 2);
+        set_epoch(first_reward_epoch, NETWORK_SUBNET_EMISSION_SLOT);
         Network::on_initialize(System::block_number());
         assert!(FinalSubnetEmissionWeights::<Test>::get(first_reward_epoch)
             .subnet_weights
@@ -1289,10 +1289,11 @@ fn test_owner_unpause_default_cooldown_requires_first_live_round_to_settle() {
 
         let settlement_epoch = consensus_eligible_from_subnet_epoch.saturating_add(1);
 
-        // Allocation runs at global slot two before the subnet's assigned settlement slot.
+        // Allocation runs at the global subnet-emission slot before the subnet's assigned
+        // settlement slot.
         // Without this hook the later slot would merely advance the local epoch and would not
         // prove that the missing round was evaluated before the owner could pause again.
-        set_epoch(settlement_epoch, 2);
+        set_epoch(settlement_epoch, NETWORK_SUBNET_EMISSION_SLOT);
         Network::on_initialize(System::block_number());
         assert!(FinalSubnetEmissionWeights::<Test>::get(settlement_epoch)
             .subnet_weights

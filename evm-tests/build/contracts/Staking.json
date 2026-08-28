@@ -530,67 +530,9 @@
       ],
       "stateMutability": "view",
       "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "account",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "subnetId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "subnetNodeId",
-          "type": "uint256"
-        }
-      ],
-      "name": "accountNodeDelegateStakeShares",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
-    },
-    {
-      "inputs": [
-        {
-          "internalType": "address",
-          "name": "account",
-          "type": "address"
-        },
-        {
-          "internalType": "uint256",
-          "name": "subnetId",
-          "type": "uint256"
-        },
-        {
-          "internalType": "uint256",
-          "name": "subnetNodeId",
-          "type": "uint256"
-        }
-      ],
-      "name": "accountNodeDelegateStakeBalance",
-      "outputs": [
-        {
-          "internalType": "uint256",
-          "name": "",
-          "type": "uint256"
-        }
-      ],
-      "stateMutability": "view",
-      "type": "function"
     }
   ],
-  "metadata": "{\"compiler\":{\"version\":\"0.8.25+commit.b61c2a91\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"account\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetNodeId\",\"type\":\"uint256\"}],\"name\":\"accountNodeDelegateStakeBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"account\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetNodeId\",\"type\":\"uint256\"}],\"name\":\"accountNodeDelegateStakeShares\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"account\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"accountSubnetDelegateStakeBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"account\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"accountSubnetDelegateStakeShares\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeAdded\",\"type\":\"uint256\"}],\"name\":\"addNodeStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeAdded\",\"type\":\"uint256\"}],\"name\":\"addToDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"validatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"delegateStakeToBeAdded\",\"type\":\"uint256\"}],\"name\":\"addValidatorDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"claimUnbondings\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"validatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"donateValidatorDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"id\",\"type\":\"uint256\"}],\"name\":\"getQueuedSwapCall\",\"outputs\":[{\"components\":[{\"internalType\":\"uint32\",\"name\":\"id\",\"type\":\"uint32\"},{\"internalType\":\"address\",\"name\":\"accountId\",\"type\":\"address\"},{\"internalType\":\"uint8\",\"name\":\"callType\",\"type\":\"uint8\"},{\"internalType\":\"uint32\",\"name\":\"toValidatorId\",\"type\":\"uint32\"},{\"internalType\":\"uint32\",\"name\":\"toSubnetId\",\"type\":\"uint32\"},{\"internalType\":\"uint128\",\"name\":\"balance\",\"type\":\"uint128\"},{\"internalType\":\"uint32\",\"name\":\"queuedAtBlock\",\"type\":\"uint32\"},{\"internalType\":\"uint32\",\"name\":\"executeAfterBlocks\",\"type\":\"uint32\"}],\"internalType\":\"struct Staking.QueuedSwapData\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"increaseDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"nodeSubnetStake\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"amountToRemove\",\"type\":\"uint256\"}],\"name\":\"removeDelegateAccountBalance\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"sharesToBeRemoved\",\"type\":\"uint256\"}],\"name\":\"removeDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeRemoved\",\"type\":\"uint256\"}],\"name\":\"removeNodeStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"validatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"validatorDelegateStakeSharesToBeRemoved\",\"type\":\"uint256\"}],\"name\":\"removeValidatorDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"fromSubnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toSubnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"delegateStakeSharesToSwap\",\"type\":\"uint256\"}],\"name\":\"swapDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"fromValidatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toValidatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeRemoved\",\"type\":\"uint256\"}],\"name\":\"swapNodeDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"totalSubnetDelegateStakeBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"totalSubnetDelegateStakeShares\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"totalSubnetStake\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"toAccount\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"delegateStakeSharesToTransfer\",\"type\":\"uint256\"}],\"name\":\"transferDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"fromSubnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toValidatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetDelegateStakeSharesToSwap\",\"type\":\"uint256\"}],\"name\":\"transferFromSubnetToValidator\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"fromValidatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toSubnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"nodeDelegateStakeSharesToSwap\",\"type\":\"uint256\"}],\"name\":\"transferFromValidatorToSubnet\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"validatorId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"toAccount\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"validatorDelegateStakeSharesToTransfer\",\"type\":\"uint256\"}],\"name\":\"transferValidatorDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"id\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"callType\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toValidatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toSubnetId\",\"type\":\"uint256\"}],\"name\":\"updateSwapQueue\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"project:/contracts/Staking.sol\":\"Staking\"},\"evmVersion\":\"cancun\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":false,\"runs\":200},\"remappings\":[]},\"sources\":{\"project:/contracts/Staking.sol\":{\"keccak256\":\"0x01f53e3a986ed882fe296e8537c9289a71108794908d79101507771d7ace4cdb\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://b58afd986c6088a41424f21947e482a73b3fcaf1bdc45ccb62f87c46c3d53675\",\"dweb:/ipfs/QmXxhjypw4HomDKvPqjEw8Dd9LJ9ZE3B1z9cWkHerUqTuf\"]}},\"version\":1}",
+  "metadata": "{\"compiler\":{\"version\":\"0.8.25+commit.b61c2a91\"},\"language\":\"Solidity\",\"output\":{\"abi\":[{\"inputs\":[{\"internalType\":\"address\",\"name\":\"account\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"accountSubnetDelegateStakeBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"address\",\"name\":\"account\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"accountSubnetDelegateStakeShares\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeAdded\",\"type\":\"uint256\"}],\"name\":\"addNodeStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeAdded\",\"type\":\"uint256\"}],\"name\":\"addToDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"validatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"delegateStakeToBeAdded\",\"type\":\"uint256\"}],\"name\":\"addValidatorDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[],\"name\":\"claimUnbondings\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"validatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"donateValidatorDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"id\",\"type\":\"uint256\"}],\"name\":\"getQueuedSwapCall\",\"outputs\":[{\"components\":[{\"internalType\":\"uint32\",\"name\":\"id\",\"type\":\"uint32\"},{\"internalType\":\"address\",\"name\":\"accountId\",\"type\":\"address\"},{\"internalType\":\"uint8\",\"name\":\"callType\",\"type\":\"uint8\"},{\"internalType\":\"uint32\",\"name\":\"toValidatorId\",\"type\":\"uint32\"},{\"internalType\":\"uint32\",\"name\":\"toSubnetId\",\"type\":\"uint32\"},{\"internalType\":\"uint128\",\"name\":\"balance\",\"type\":\"uint128\"},{\"internalType\":\"uint32\",\"name\":\"queuedAtBlock\",\"type\":\"uint32\"},{\"internalType\":\"uint32\",\"name\":\"executeAfterBlocks\",\"type\":\"uint32\"}],\"internalType\":\"struct Staking.QueuedSwapData\",\"name\":\"\",\"type\":\"tuple\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"amount\",\"type\":\"uint256\"}],\"name\":\"increaseDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"nodeSubnetStake\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"amountToRemove\",\"type\":\"uint256\"}],\"name\":\"removeDelegateAccountBalance\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"sharesToBeRemoved\",\"type\":\"uint256\"}],\"name\":\"removeDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetNodeId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeRemoved\",\"type\":\"uint256\"}],\"name\":\"removeNodeStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"validatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"validatorDelegateStakeSharesToBeRemoved\",\"type\":\"uint256\"}],\"name\":\"removeValidatorDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"fromSubnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toSubnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"delegateStakeSharesToSwap\",\"type\":\"uint256\"}],\"name\":\"swapDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"fromValidatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toValidatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"stakeToBeRemoved\",\"type\":\"uint256\"}],\"name\":\"swapNodeDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"totalSubnetDelegateStakeBalance\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"totalSubnetDelegateStakeShares\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"}],\"name\":\"totalSubnetStake\",\"outputs\":[{\"internalType\":\"uint256\",\"name\":\"\",\"type\":\"uint256\"}],\"stateMutability\":\"view\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"subnetId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"toAccount\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"delegateStakeSharesToTransfer\",\"type\":\"uint256\"}],\"name\":\"transferDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"fromSubnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toValidatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"subnetDelegateStakeSharesToSwap\",\"type\":\"uint256\"}],\"name\":\"transferFromSubnetToValidator\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"fromValidatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toSubnetId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"nodeDelegateStakeSharesToSwap\",\"type\":\"uint256\"}],\"name\":\"transferFromValidatorToSubnet\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"validatorId\",\"type\":\"uint256\"},{\"internalType\":\"address\",\"name\":\"toAccount\",\"type\":\"address\"},{\"internalType\":\"uint256\",\"name\":\"validatorDelegateStakeSharesToTransfer\",\"type\":\"uint256\"}],\"name\":\"transferValidatorDelegateStake\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"},{\"inputs\":[{\"internalType\":\"uint256\",\"name\":\"id\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"callType\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toValidatorId\",\"type\":\"uint256\"},{\"internalType\":\"uint256\",\"name\":\"toSubnetId\",\"type\":\"uint256\"}],\"name\":\"updateSwapQueue\",\"outputs\":[],\"stateMutability\":\"payable\",\"type\":\"function\"}],\"devdoc\":{\"kind\":\"dev\",\"methods\":{},\"version\":1},\"userdoc\":{\"kind\":\"user\",\"methods\":{},\"version\":1}},\"settings\":{\"compilationTarget\":{\"project:/contracts/Staking.sol\":\"Staking\"},\"evmVersion\":\"cancun\",\"libraries\":{},\"metadata\":{\"bytecodeHash\":\"ipfs\"},\"optimizer\":{\"enabled\":false,\"runs\":200},\"remappings\":[]},\"sources\":{\"project:/contracts/Staking.sol\":{\"keccak256\":\"0xd0984acf9be18ccd77c0d20838f5971e10398381e94ceab24d12e8618ae616bb\",\"license\":\"MIT\",\"urls\":[\"bzz-raw://b8244b76e8169d5dc42d4077801a47533dc0d029394294e77c264d391675b753\",\"dweb:/ipfs/QmNjaZYaaCzPZfju9FYwuG2yoyNa7mFgoHKkcxGqvaxUPs\"]}},\"version\":1}",
   "bytecode": "0x",
   "deployedBytecode": "0x",
   "immutableReferences": {},
@@ -598,16 +540,16 @@
   "deployedGeneratedSources": [],
   "sourceMap": "",
   "deployedSourceMap": "",
-  "source": "// SPDX-License-Identifier: MIT\n\npragma solidity ^0.8.0;\n\ninterface Staking {\n    struct QueuedSwapData {\n        uint32 id;\n        address accountId;\n        uint8 callType;\n        uint32 toValidatorId;\n        uint32 toSubnetId;\n        uint128 balance;\n        uint32 queuedAtBlock;\n        uint32 executeAfterBlocks;\n    }\n\n    function addNodeStake(\n        uint256 subnetId,\n        uint256 subnetNodeId,\n        uint256 stakeToBeAdded\n    ) external payable;\n\n    function removeNodeStake(\n        uint256 subnetId,\n        uint256 subnetNodeId,\n        uint256 stakeToBeRemoved\n    ) external payable;\n\n    function claimUnbondings() external payable;\n\n    function addToDelegateStake(\n        uint256 subnetId,\n        uint256 stakeToBeAdded\n    ) external payable;\n\n    function swapDelegateStake(\n        uint256 fromSubnetId,\n        uint256 toSubnetId,\n        uint256 delegateStakeSharesToSwap\n    ) external payable;\n\n    function transferDelegateStake(\n        uint256 subnetId,\n        address toAccount,\n        uint256 delegateStakeSharesToTransfer\n    ) external payable;\n\n    function removeDelegateStake(\n        uint256 subnetId,\n        uint256 sharesToBeRemoved\n    ) external payable;\n\n    function increaseDelegateStake(\n        uint256 subnetId,\n        uint256 amount\n    ) external payable;\n\n    function addValidatorDelegateStake(\n        uint256 validatorId,\n        uint256 delegateStakeToBeAdded\n    ) external payable;\n\n    function swapNodeDelegateStake(\n        uint256 fromValidatorId,\n        uint256 toValidatorId,\n        uint256 stakeToBeRemoved\n    ) external payable;\n\n    function transferValidatorDelegateStake(\n        uint256 validatorId,\n        address toAccount,\n        uint256 validatorDelegateStakeSharesToTransfer\n    ) external payable;\n\n    function removeValidatorDelegateStake(\n        uint256 validatorId,\n        uint256 validatorDelegateStakeSharesToBeRemoved\n    ) external payable;\n\n    function donateValidatorDelegateStake(\n        uint256 validatorId,\n        uint256 amount\n    ) external payable;\n\n    function transferFromValidatorToSubnet(\n        uint256 fromValidatorId,\n        uint256 toSubnetId,\n        uint256 nodeDelegateStakeSharesToSwap\n    ) external payable;\n\n    function transferFromSubnetToValidator(\n        uint256 fromSubnetId,\n        uint256 toValidatorId,\n        uint256 subnetDelegateStakeSharesToSwap\n    ) external payable;\n\n    function updateSwapQueue(\n        uint256 id,\n        uint256 callType,\n        uint256 toValidatorId,\n        uint256 toSubnetId\n    ) external payable;\n\n    function removeDelegateAccountBalance(\n        uint256 amountToRemove\n    ) external payable;\n\n    function getQueuedSwapCall(\n        uint256 id\n    ) external view returns (QueuedSwapData memory);\n\n    function totalSubnetStake(\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function nodeSubnetStake(\n        uint256 subnetNodeId,\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function totalSubnetDelegateStakeBalance(\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function totalSubnetDelegateStakeShares(\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function accountSubnetDelegateStakeShares(\n        address account,\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function accountSubnetDelegateStakeBalance(\n        address account,\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function accountNodeDelegateStakeShares(\n        address account,\n        uint256 subnetId,\n        uint256 subnetNodeId\n    ) external view returns (uint256);\n\n    function accountNodeDelegateStakeBalance(\n        address account,\n        uint256 subnetId,\n        uint256 subnetNodeId\n    ) external view returns (uint256);\n}\n",
+  "source": "// SPDX-License-Identifier: MIT\n\npragma solidity ^0.8.0;\n\ninterface Staking {\n    struct QueuedSwapData {\n        uint32 id;\n        address accountId;\n        uint8 callType;\n        uint32 toValidatorId;\n        uint32 toSubnetId;\n        uint128 balance;\n        uint32 queuedAtBlock;\n        uint32 executeAfterBlocks;\n    }\n\n    function addNodeStake(\n        uint256 subnetId,\n        uint256 subnetNodeId,\n        uint256 stakeToBeAdded\n    ) external payable;\n\n    function removeNodeStake(\n        uint256 subnetId,\n        uint256 subnetNodeId,\n        uint256 stakeToBeRemoved\n    ) external payable;\n\n    function claimUnbondings() external payable;\n\n    function addToDelegateStake(\n        uint256 subnetId,\n        uint256 stakeToBeAdded\n    ) external payable;\n\n    function swapDelegateStake(\n        uint256 fromSubnetId,\n        uint256 toSubnetId,\n        uint256 delegateStakeSharesToSwap\n    ) external payable;\n\n    function transferDelegateStake(\n        uint256 subnetId,\n        address toAccount,\n        uint256 delegateStakeSharesToTransfer\n    ) external payable;\n\n    function removeDelegateStake(\n        uint256 subnetId,\n        uint256 sharesToBeRemoved\n    ) external payable;\n\n    function increaseDelegateStake(\n        uint256 subnetId,\n        uint256 amount\n    ) external payable;\n\n    function addValidatorDelegateStake(\n        uint256 validatorId,\n        uint256 delegateStakeToBeAdded\n    ) external payable;\n\n    function swapNodeDelegateStake(\n        uint256 fromValidatorId,\n        uint256 toValidatorId,\n        uint256 stakeToBeRemoved\n    ) external payable;\n\n    function transferValidatorDelegateStake(\n        uint256 validatorId,\n        address toAccount,\n        uint256 validatorDelegateStakeSharesToTransfer\n    ) external payable;\n\n    function removeValidatorDelegateStake(\n        uint256 validatorId,\n        uint256 validatorDelegateStakeSharesToBeRemoved\n    ) external payable;\n\n    function donateValidatorDelegateStake(\n        uint256 validatorId,\n        uint256 amount\n    ) external payable;\n\n    function transferFromValidatorToSubnet(\n        uint256 fromValidatorId,\n        uint256 toSubnetId,\n        uint256 nodeDelegateStakeSharesToSwap\n    ) external payable;\n\n    function transferFromSubnetToValidator(\n        uint256 fromSubnetId,\n        uint256 toValidatorId,\n        uint256 subnetDelegateStakeSharesToSwap\n    ) external payable;\n\n    function updateSwapQueue(\n        uint256 id,\n        uint256 callType,\n        uint256 toValidatorId,\n        uint256 toSubnetId\n    ) external payable;\n\n    function removeDelegateAccountBalance(\n        uint256 amountToRemove\n    ) external payable;\n\n    function getQueuedSwapCall(\n        uint256 id\n    ) external view returns (QueuedSwapData memory);\n\n    function totalSubnetStake(\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function nodeSubnetStake(\n        uint256 subnetNodeId,\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function totalSubnetDelegateStakeBalance(\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function totalSubnetDelegateStakeShares(\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function accountSubnetDelegateStakeShares(\n        address account,\n        uint256 subnetId\n    ) external view returns (uint256);\n\n    function accountSubnetDelegateStakeBalance(\n        address account,\n        uint256 subnetId\n    ) external view returns (uint256);\n\n}\n",
   "sourcePath": "/home/bob/hypertensor-blockchain-weighted/evm-tests/contracts/Staking.sol",
   "ast": {
     "absolutePath": "project:/contracts/Staking.sol",
     "exportedSymbols": {
       "Staking": [
-        230
+        208
       ]
     },
-    "id": 231,
+    "id": 209,
     "license": "MIT",
     "nodeType": "SourceUnit",
     "nodes": [
@@ -629,9 +571,9 @@
         "contractDependencies": [],
         "contractKind": "interface",
         "fullyImplemented": false,
-        "id": 230,
+        "id": 208,
         "linearizedBaseContracts": [
-          230
+          208
         ],
         "name": "Staking",
         "nameLocation": "68:7:0",
@@ -862,7 +804,7 @@
             "name": "QueuedSwapData",
             "nameLocation": "89:14:0",
             "nodeType": "StructDefinition",
-            "scope": 230,
+            "scope": 208,
             "src": "82:246:0",
             "visibility": "public"
           },
@@ -969,7 +911,7 @@
               "parameters": [],
               "src": "466:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "334:133:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -1078,7 +1020,7 @@
               "parameters": [],
               "src": "610:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "473:138:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -1105,7 +1047,7 @@
               "parameters": [],
               "src": "660:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "617:44:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -1187,7 +1129,7 @@
               "parameters": [],
               "src": "775:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "667:109:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -1296,7 +1238,7 @@
               "parameters": [],
               "src": "932:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "782:151:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -1406,7 +1348,7 @@
               "parameters": [],
               "src": "1092:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "939:154:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -1488,7 +1430,7 @@
               "parameters": [],
               "src": "1211:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "1099:113:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -1570,7 +1512,7 @@
               "parameters": [],
               "src": "1321:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "1218:104:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -1652,7 +1594,7 @@
               "parameters": [],
               "src": "1454:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "1328:127:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -1761,7 +1703,7 @@
               "parameters": [],
               "src": "1612:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "1461:152:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -1871,7 +1813,7 @@
               "parameters": [],
               "src": "1793:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "1619:175:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -1953,7 +1895,7 @@
               "parameters": [],
               "src": "1946:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "1800:147:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -2035,7 +1977,7 @@
               "parameters": [],
               "src": "2066:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "1953:114:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -2144,7 +2086,7 @@
               "parameters": [],
               "src": "2242:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "2073:170:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -2253,7 +2195,7 @@
               "parameters": [],
               "src": "2420:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "2249:172:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -2389,7 +2331,7 @@
               "parameters": [],
               "src": "2579:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "2427:153:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -2444,7 +2386,7 @@
               "parameters": [],
               "src": "2678:0:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "2586:93:0",
             "stateMutability": "payable",
             "virtual": false,
@@ -2537,7 +2479,7 @@
               ],
               "src": "2760:23:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "2685:99:0",
             "stateMutability": "view",
             "virtual": false,
@@ -2620,7 +2562,7 @@
               ],
               "src": "2870:9:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "2790:90:0",
             "stateMutability": "view",
             "virtual": false,
@@ -2730,7 +2672,7 @@
               ],
               "src": "2995:9:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "2886:119:0",
             "stateMutability": "view",
             "virtual": false,
@@ -2813,7 +2755,7 @@
               ],
               "src": "3106:9:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "3011:105:0",
             "stateMutability": "view",
             "virtual": false,
@@ -2896,7 +2838,7 @@
               ],
               "src": "3216:9:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "3122:104:0",
             "stateMutability": "view",
             "virtual": false,
@@ -3007,7 +2949,7 @@
               ],
               "src": "3353:9:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "3232:131:0",
             "stateMutability": "view",
             "virtual": false,
@@ -3118,296 +3060,20 @@
               ],
               "src": "3491:9:0"
             },
-            "scope": 230,
+            "scope": 208,
             "src": "3369:132:0",
-            "stateMutability": "view",
-            "virtual": false,
-            "visibility": "external"
-          },
-          {
-            "functionSelector": "dfabdacc",
-            "id": 218,
-            "implemented": false,
-            "kind": "function",
-            "modifiers": [],
-            "name": "accountNodeDelegateStakeShares",
-            "nameLocation": "3516:30:0",
-            "nodeType": "FunctionDefinition",
-            "parameters": {
-              "id": 214,
-              "nodeType": "ParameterList",
-              "parameters": [
-                {
-                  "constant": false,
-                  "id": 209,
-                  "mutability": "mutable",
-                  "name": "account",
-                  "nameLocation": "3564:7:0",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 218,
-                  "src": "3556:15:0",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_address",
-                    "typeString": "address"
-                  },
-                  "typeName": {
-                    "id": 208,
-                    "name": "address",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "3556:7:0",
-                    "stateMutability": "nonpayable",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_address",
-                      "typeString": "address"
-                    }
-                  },
-                  "visibility": "internal"
-                },
-                {
-                  "constant": false,
-                  "id": 211,
-                  "mutability": "mutable",
-                  "name": "subnetId",
-                  "nameLocation": "3589:8:0",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 218,
-                  "src": "3581:16:0",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 210,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "3581:7:0",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                },
-                {
-                  "constant": false,
-                  "id": 213,
-                  "mutability": "mutable",
-                  "name": "subnetNodeId",
-                  "nameLocation": "3615:12:0",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 218,
-                  "src": "3607:20:0",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 212,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "3607:7:0",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                }
-              ],
-              "src": "3546:87:0"
-            },
-            "returnParameters": {
-              "id": 217,
-              "nodeType": "ParameterList",
-              "parameters": [
-                {
-                  "constant": false,
-                  "id": 216,
-                  "mutability": "mutable",
-                  "name": "",
-                  "nameLocation": "-1:-1:-1",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 218,
-                  "src": "3657:7:0",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 215,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "3657:7:0",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                }
-              ],
-              "src": "3656:9:0"
-            },
-            "scope": 230,
-            "src": "3507:159:0",
-            "stateMutability": "view",
-            "virtual": false,
-            "visibility": "external"
-          },
-          {
-            "functionSelector": "0cf282aa",
-            "id": 229,
-            "implemented": false,
-            "kind": "function",
-            "modifiers": [],
-            "name": "accountNodeDelegateStakeBalance",
-            "nameLocation": "3681:31:0",
-            "nodeType": "FunctionDefinition",
-            "parameters": {
-              "id": 225,
-              "nodeType": "ParameterList",
-              "parameters": [
-                {
-                  "constant": false,
-                  "id": 220,
-                  "mutability": "mutable",
-                  "name": "account",
-                  "nameLocation": "3730:7:0",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 229,
-                  "src": "3722:15:0",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_address",
-                    "typeString": "address"
-                  },
-                  "typeName": {
-                    "id": 219,
-                    "name": "address",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "3722:7:0",
-                    "stateMutability": "nonpayable",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_address",
-                      "typeString": "address"
-                    }
-                  },
-                  "visibility": "internal"
-                },
-                {
-                  "constant": false,
-                  "id": 222,
-                  "mutability": "mutable",
-                  "name": "subnetId",
-                  "nameLocation": "3755:8:0",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 229,
-                  "src": "3747:16:0",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 221,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "3747:7:0",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                },
-                {
-                  "constant": false,
-                  "id": 224,
-                  "mutability": "mutable",
-                  "name": "subnetNodeId",
-                  "nameLocation": "3781:12:0",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 229,
-                  "src": "3773:20:0",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 223,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "3773:7:0",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                }
-              ],
-              "src": "3712:87:0"
-            },
-            "returnParameters": {
-              "id": 228,
-              "nodeType": "ParameterList",
-              "parameters": [
-                {
-                  "constant": false,
-                  "id": 227,
-                  "mutability": "mutable",
-                  "name": "",
-                  "nameLocation": "-1:-1:-1",
-                  "nodeType": "VariableDeclaration",
-                  "scope": 229,
-                  "src": "3823:7:0",
-                  "stateVariable": false,
-                  "storageLocation": "default",
-                  "typeDescriptions": {
-                    "typeIdentifier": "t_uint256",
-                    "typeString": "uint256"
-                  },
-                  "typeName": {
-                    "id": 226,
-                    "name": "uint256",
-                    "nodeType": "ElementaryTypeName",
-                    "src": "3823:7:0",
-                    "typeDescriptions": {
-                      "typeIdentifier": "t_uint256",
-                      "typeString": "uint256"
-                    }
-                  },
-                  "visibility": "internal"
-                }
-              ],
-              "src": "3822:9:0"
-            },
-            "scope": 230,
-            "src": "3672:160:0",
             "stateMutability": "view",
             "virtual": false,
             "visibility": "external"
           }
         ],
-        "scope": 231,
-        "src": "58:3776:0",
+        "scope": 209,
+        "src": "58:3446:0",
         "usedErrors": [],
         "usedEvents": []
       }
     ],
-    "src": "33:3802:0"
+    "src": "33:3472:0"
   },
   "compiler": {
     "name": "solc",
@@ -3415,7 +3081,7 @@
   },
   "networks": {},
   "schemaVersion": "3.4.16",
-  "updatedAt": "2026-07-06T20:07:15.227Z",
+  "updatedAt": "2026-08-27T00:50:03.210Z",
   "devdoc": {
     "kind": "dev",
     "methods": {},

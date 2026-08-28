@@ -2,18 +2,18 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     AccountSubnetDelegateStakeShares, AccountValidatorDelegateStakeShares,
-    BaseValidatorDelegateStakeSlashPercentage, Error, Event, MaxSubnetNodes,
-    MaxValidatorDelegateStakeSlashAmount, MinDelegateStakeDeposit, MinSubnetMinStake,
-    NextSwapQueueId, NodeDelegateStakeCooldownEpochs, NodeSubnetStake, QueuedSwapCall,
-    StakeUnbondingLedger, SubnetElectedValidator, SubnetName, SubnetNodeElectionSlots,
-    SubnetNodeReputation, SubnetNodeValidatorId, SwapCallQueue, SwapQueueOrder, TotalActiveSubnets,
-    TotalSubnetNodes, TotalValidatorDelegateStakeBalance, TxRateLimit,
-    ValidatorDelegateStakeBalance, ValidatorDelegateStakeShares,
-    ValidatorDelegateStakeSlashLockUntil, ValidatorDelegateStakeSlashThreshold,
+    BaseValidatorDelegateStakeSlashPercentage, DelegateStakeCooldownEpochs, Error, Event,
+    MaxSubnetNodes, MaxValidatorDelegateStakeSlashAmount, MinDelegateStakeDeposit,
+    MinSubnetMinStake, NextSwapQueueId, NodeSubnetStake, QueuedSwapCall, StakeUnbondingLedger,
+    SubnetElectedValidator, SubnetName, SubnetNodeElectionSlots, SubnetNodeReputation,
+    SubnetNodeValidatorId, SwapCallQueue, SwapQueueOrder, TotalActiveSubnets, TotalSubnetNodes,
+    TotalValidatorDelegateStakeBalance, TxRateLimit, ValidatorDelegateStakeBalance,
+    ValidatorDelegateStakeShares, ValidatorDelegateStakeSlashLockUntil,
+    ValidatorDelegateStakeSlashThreshold,
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
-use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
+use sp_std::collections::btree_set::BTreeSet;
 
 #[test]
 fn test_validator_delegate_pool_slash_formula_boundaries_and_caps() {
@@ -170,13 +170,13 @@ fn test_validator_delegate_pool_slashing_launch_defaults_do_not_lock_elected_poo
             })
             .collect::<BTreeSet<_>>();
         for validator_id in validator_ids {
-            let (result, balance_added, shares_added) =
+            let (balance_added, shares_added) =
                 Network::handle_increase_account_validator_delegate_stake(
                     &account(920),
                     validator_id,
                     pool_balance,
-                );
-            assert_ok!(result);
+                )
+                .expect("validator delegate stake credit must succeed");
             assert_eq!(balance_added, pool_balance);
             assert!(shares_added > 0);
         }
@@ -920,15 +920,15 @@ fn test_remove_validator_delegate_stake() {
         );
 
         // Ensure stake in ledger
-        let unbondings: BTreeMap<u32, u128> =
-            StakeUnbondingLedger::<Test>::get(account(total_subnet_nodes + 1));
+        let unbondings = StakeUnbondingLedger::<Test>::get(account(total_subnet_nodes + 1));
         assert_eq!(unbondings.len(), 1);
         let (ledger_block, ledger_balance) = unbondings.iter().next().unwrap();
         assert_eq!(
             *ledger_block,
-            &block + NodeDelegateStakeCooldownEpochs::<Test>::get() * EpochLength::get()
+            &block + DelegateStakeCooldownEpochs::<Test>::get() * EpochLength::get()
         );
-        assert_eq!(*ledger_balance, expected_balance_to_be_removed);
+        assert_eq!(ledger_balance.network, expected_balance_to_be_removed);
+        assert_eq!(ledger_balance.overwatch, 0);
     })
 }
 
@@ -1081,8 +1081,7 @@ fn test_swap_validator_delegate_stake() {
             total_node_delegate_stake_shares - account_node_delegate_stake_shares_to_be_removed,
             total_node_delegate_stake_balance - expected_balance_to_be_removed,
         );
-        let unbondings: BTreeMap<u32, u128> =
-            StakeUnbondingLedger::<Test>::get(account(total_from_subnet_nodes + 1));
+        let unbondings = StakeUnbondingLedger::<Test>::get(account(total_from_subnet_nodes + 1));
         assert_eq!(unbondings.len(), 0);
 
         let pre_transfer_balance = Balances::free_balance(&account(total_from_subnet_nodes + 1));
@@ -1220,11 +1219,9 @@ fn test_transfer_validator_delegate_stake() {
         assert_eq!(to_n_account_balance, after_to_n_account_balance);
 
         // no ledger balances
-        let n_account_unbondings: BTreeMap<u32, u128> =
-            StakeUnbondingLedger::<Test>::get(account(n_account));
+        let n_account_unbondings = StakeUnbondingLedger::<Test>::get(account(n_account));
         assert_eq!(n_account_unbondings.len(), 0);
-        let to_n_account_unbondings: BTreeMap<u32, u128> =
-            StakeUnbondingLedger::<Test>::get(account(to_n_account));
+        let to_n_account_unbondings = StakeUnbondingLedger::<Test>::get(account(to_n_account));
         assert_eq!(to_n_account_unbondings.len(), 0);
 
         // from shares
@@ -1325,11 +1322,9 @@ fn test_transfer_validator_delegate_stake_partial_balance() {
         assert_eq!(to_n_account_balance, after_to_n_account_balance);
 
         // no ledger balances
-        let n_account_unbondings: BTreeMap<u32, u128> =
-            StakeUnbondingLedger::<Test>::get(account(n_account));
+        let n_account_unbondings = StakeUnbondingLedger::<Test>::get(account(n_account));
         assert_eq!(n_account_unbondings.len(), 0);
-        let to_n_account_unbondings: BTreeMap<u32, u128> =
-            StakeUnbondingLedger::<Test>::get(account(to_n_account));
+        let to_n_account_unbondings = StakeUnbondingLedger::<Test>::get(account(to_n_account));
         assert_eq!(to_n_account_unbondings.len(), 0);
 
         // from shares
@@ -1870,8 +1865,7 @@ fn test_swap_from_validator_to_subnet() {
 
         let before_transfer_tensor = Balances::free_balance(&account(total_from_subnet_nodes + 1));
 
-        let unbondings: BTreeMap<u32, u128> =
-            StakeUnbondingLedger::<Test>::get(account(total_from_subnet_nodes + 1));
+        let unbondings = StakeUnbondingLedger::<Test>::get(account(total_from_subnet_nodes + 1));
         assert_eq!(unbondings.len(), 0);
 
         let prev_next_id = NextSwapQueueId::<Test>::get();
@@ -1883,8 +1877,7 @@ fn test_swap_from_validator_to_subnet() {
             account_node_delegate_stake_shares_to_be_removed,
         ));
 
-        let unbondings: BTreeMap<u32, u128> =
-            StakeUnbondingLedger::<Test>::get(account(total_from_subnet_nodes + 1));
+        let unbondings = StakeUnbondingLedger::<Test>::get(account(total_from_subnet_nodes + 1));
         assert_eq!(unbondings.len(), 0);
 
         let after_transfer_tensor = Balances::free_balance(&account(total_from_subnet_nodes + 1));

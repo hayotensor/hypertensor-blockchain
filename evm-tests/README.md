@@ -16,7 +16,6 @@ Some tests have time constraints conditions, set the `build` function with seede
 fn build(&self) {
     MinSubnetRegistrationEpochs::<T>::set(0);
     OverwatchEpochLengthMultiplier::<T>::set(1);
-    OverwatchMinDiversificationRatio::<T>::set(0);
     OverwatchMinRepScore::<T>::set(0);
     OverwatchMinAvgAttestationRatio::<T>::set(0);
     OverwatchMinAge::<T>::set(0);
@@ -27,7 +26,7 @@ fn build(&self) {
     SubnetDelegateStakeRewardsUpdatePeriod::<T>::put(0);
     NodeRewardRateUpdatePeriod::<T>::put(0);
     MinSubnetDelegateStakeFactor::<T>::put(0);
-    MaxMinDelegateStakeMultiplier::<T>::put(1000000000000000000);
+    MinSubnetDelegateStakeBalance::<T>::put(0);
     SubnetPauseCooldownEpochs::<T>::put(0);
 
     // ...rest of code

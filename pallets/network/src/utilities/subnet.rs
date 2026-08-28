@@ -19,7 +19,8 @@ use frame_support::pallet_prelude::DispatchError;
 impl<T: Config> Pallet<T> {
     pub fn get_available_subnet_slot() -> Result<u32, DispatchError> {
         let epoch_length = T::EpochLength::get();
-        // See `on_initialize` for why there are 3 epoch designated
+        // Network-wide hook work owns the leading designated slots; subnet work may only use the
+        // remaining schedule. See the named `NETWORK_*_SLOT` constants and `on_initialize`.
         // Saturation makes an invalid runtime configuration fail closed with
         // `NoAvailableSlots` instead of underflowing while calculating capacity.
         let max_slots = epoch_length.saturating_sub(T::DesignatedEpochSlots::get());
@@ -32,11 +33,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NoAvailableSlots
         );
 
-        // Find first free slot [3..epoch_length)
-        // Slot 0: Electing validators
-        // Slot 1: Overwatch weights
-        // Slot 2: Generating weights
-        // See `on_initialize`
+        // Find the first free subnet-specific slot after the network-wide hook schedule.
         let free_slot = (T::DesignatedEpochSlots::get()..epoch_length)
             .find(|slot| !assigned_slots.contains(slot))
             .ok_or(Error::<T>::NoAvailableSlots)?;

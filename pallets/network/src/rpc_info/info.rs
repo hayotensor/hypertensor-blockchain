@@ -290,22 +290,18 @@ impl<T: Config> Pallet<T> {
     pub fn get_overwatch_node_info(
         overwatch_node_id: u32,
     ) -> Option<OverwatchNodeInfo<T::AccountId>> {
-        // The validator mapping is deliberately retained after removal so stake can be
-        // withdrawn. Only the canonical active-node map proves RPC-visible membership.
-        if !OverwatchNodes::<T>::contains_key(overwatch_node_id) {
-            return None;
-        }
+        // Only the canonical active validator-to-node relationship is RPC-visible. The
+        // historical node-to-validator entry may outlive removal for stake withdrawal.
+        let (validator_id, hotkey) =
+            Self::get_active_overwatch_validator_id_and_hotkey(overwatch_node_id).ok()?;
 
-        if let Some(validator_id) = OverwatchNodeValidatorId::<T>::get(overwatch_node_id) {
-            return Some(OverwatchNodeInfo {
-                overwatch_node_id,
-                hotkey: Some(Self::get_overwatch_node_associated_hotkey(overwatch_node_id).ok()?),
-                peer_ids: OverwatchNodeIndex::<T>::get(overwatch_node_id),
-                reputation: ValidatorReputation::<T>::get(validator_id),
-                account_overwatch_stake: OverwatchNodeStakeBalance::<T>::get(overwatch_node_id),
-            });
-        }
-        None
+        Some(OverwatchNodeInfo {
+            overwatch_node_id,
+            hotkey: Some(hotkey),
+            peer_ids: OverwatchNodeIndex::<T>::get(overwatch_node_id),
+            reputation: ValidatorReputation::<T>::get(validator_id),
+            account_overwatch_stake: OverwatchNodeStakeBalance::<T>::get(overwatch_node_id),
+        })
     }
 
     pub fn get_all_overwatch_nodes_info() -> Vec<OverwatchNodeInfo<T::AccountId>> {

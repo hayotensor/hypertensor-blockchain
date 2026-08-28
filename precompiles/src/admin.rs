@@ -157,14 +157,17 @@ where
     #[precompile::public("setSubnetRemovalIntervals(uint256,uint256)")]
     fn set_subnet_removal_intervals(
         handle: &mut impl PrecompileHandle,
-        min: U256,
-        max: U256,
+        activation_cooldown_epochs: U256,
+        check_interval_epochs: U256,
     ) -> EvmResult<()> {
-        let min = try_u256_to_u32(min)?;
-        let max = try_u256_to_u32(max)?;
+        let activation_cooldown_epochs = try_u256_to_u32(activation_cooldown_epochs)?;
+        let check_interval_epochs = try_u256_to_u32(check_interval_epochs)?;
         dispatch_call::<R>(
             handle,
-            pallet_network::Call::<R>::set_subnet_removal_intervals { min, max },
+            pallet_network::Call::<R>::set_subnet_removal_intervals {
+                activation_cooldown_epochs,
+                check_interval_epochs,
+            },
         )
     }
 
@@ -225,15 +228,15 @@ where
         )
     }
 
-    #[precompile::public("setMaxMinDelegateStakeMultiplier(uint256)")]
-    fn set_max_min_delegate_stake_multiplier(
+    #[precompile::public("setMinSubnetDelegateStakeBalance(uint256)")]
+    fn set_min_subnet_delegate_stake_balance(
         handle: &mut impl PrecompileHandle,
         value: U256,
     ) -> EvmResult<()> {
         let value = try_u256_to_u128(value)?;
         dispatch_call::<R>(
             handle,
-            pallet_network::Call::<R>::set_max_min_delegate_stake_multiplier { value },
+            pallet_network::Call::<R>::set_min_subnet_delegate_stake_balance { value },
         )
     }
 
@@ -563,18 +566,6 @@ where
         )
     }
 
-    #[precompile::public("setOverwatchMinDiversificationRatio(uint256)")]
-    fn set_overwatch_min_diversification_ratio(
-        handle: &mut impl PrecompileHandle,
-        value: U256,
-    ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_overwatch_min_diversification_ratio { value },
-        )
-    }
-
     #[precompile::public("setOverwatchMinRepScore(uint256)")]
     fn set_overwatch_min_rep_score(
         handle: &mut impl PrecompileHandle,
@@ -640,22 +631,6 @@ where
         dispatch_call::<R>(
             handle,
             pallet_network::Call::<R>::set_tx_rate_limit { value },
-        )
-    }
-
-    #[precompile::public("collectiveSetColdkeyOverwatchNodeEligibility(address,bool)")]
-    fn collective_set_coldkey_overwatch_node_eligibility(
-        handle: &mut impl PrecompileHandle,
-        coldkey: Address,
-        value: bool,
-    ) -> EvmResult<()> {
-        let coldkey = R::AddressMapping::into_account_id(coldkey.into());
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::collective_set_coldkey_overwatch_node_eligibility {
-                coldkey,
-                value,
-            },
         )
     }
 

@@ -223,6 +223,120 @@ export async function batchTransferBalanceFromSudoManual(
 // ==================
 // Subnet interaction
 // ==================
+export async function registerValidator(
+  contract: Contract,
+  hotkey: string,
+  provider?: JsonRpcProvider,
+  manualSeal?: boolean,
+) {
+  const zeroAddress = "0x0000000000000000000000000000000000000000";
+  const tx = await contract.registerValidator(
+    hotkey,
+    BigInt(0),
+    false,
+    zeroAddress,
+    BigInt(0),
+    false,
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+  );
+
+  if (manualSeal) {
+    let receipt = null;
+    while (!receipt) {
+      await createAndFinalizeBlock(provider!);
+      receipt = await provider!.getTransactionReceipt(tx.hash);
+    }
+  } else {
+    await tx.wait();
+  }
+}
+
+/**
+ * Seed the validator-ID-keyed qualification state needed by Overwatch integration tests.
+ *
+ * This deliberately avoids creating subnet nodes and does not model the consensus activity that
+ * normally earns validator reputation. It uses the development chain's sudo account and
+ * `System.setStorage`, so it must never be used against a non-development network.
+ */
+export async function qualifyOverwatchValidatorForDevnet(
+  api: ApiPromise,
+  validatorId: string,
+  provider: JsonRpcProvider,
+) {
+  const validatorReputation = await api.query.network.validatorReputation(validatorId);
+  const reputationJson = validatorReputation.toJSON() as Record<string, unknown>;
+  const setReputationField = (camelCase: string, snakeCase: string, value: unknown) => {
+    reputationJson[snakeCase in reputationJson ? snakeCase : camelCase] = value;
+  };
+  const percentageFactor = "1000000000000000000";
+
+  setReputationField("startEpoch", "start_epoch", 0);
+  setReputationField("score", "score", percentageFactor);
+  setReputationField(
+    "averageProposalIdentitySupport",
+    "average_proposal_identity_support",
+    percentageFactor,
+  );
+  setReputationField("identitySupportSamples", "identity_support_samples", 1);
+
+  const qualifiedReputation = api.registry.createType(
+    validatorReputation.toRawType(),
+    reputationJson,
+  );
+  const currentBlock = Number((await api.query.system.number()).toString());
+  const u32 = (value: number) => api.registry.createType("u32", value).toHex();
+  const storageItems = [
+    [
+      api.query.network.validatorReputation.key(validatorId),
+      qualifiedReputation.toHex(),
+    ],
+    [
+      api.query.network.overwatchValidatorWhitelist.key(validatorId),
+      api.registry.createType("bool", true).toHex(),
+    ],
+    [api.query.network.overwatchMinAge.key(), u32(0)],
+    [api.query.network.currentOverwatchEpoch.key(), u32(1)],
+    [api.query.network.overwatchEpochStartBlock.key(), u32(currentBlock)],
+  ];
+
+  const keyring = new Keyring({ type: "ethereum" });
+  const sudoPair = keyring.addFromUri(
+    "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133",
+  );
+  const sudoSetStorage = api.tx.sudo.sudo(api.tx.system.setStorage(storageItems));
+  let finalized = false;
+  let dispatchError: Error | undefined;
+  let unsubscribe: (() => void) | undefined;
+
+  unsubscribe = await sudoSetStorage.signAndSend(sudoPair, (result) => {
+    if (result.dispatchError) {
+      dispatchError = new Error(result.dispatchError.toString());
+    }
+    if (result.status.isFinalized || result.dispatchError) {
+      finalized = true;
+      unsubscribe?.();
+    }
+  });
+
+  while (!finalized) {
+    await createAndFinalizeBlock(provider);
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+
+  if (dispatchError) {
+    throw dispatchError;
+  }
+}
+
 export async function registerSubnet(
   contract: Contract,
   maxCost: string,
@@ -233,7 +347,7 @@ export async function registerSubnet(
   minStake: string,
   maxStake: string,
   delegateStakePercentage: string,
-  initialColdkeys: any,
+  initialValidators: any,
   bootnodes: Array<{ peerId: string, multiaddr: Uint8Array }>,
   fee: bigint,
   provider?: JsonRpcProvider,
@@ -248,7 +362,7 @@ export async function registerSubnet(
     minStake,
     maxStake,
     delegateStakePercentage,
-    initialColdkeys,
+    initialValidators,
     bootnodes,
     { value: fee }
   );
@@ -635,69 +749,6 @@ export async function transferDelegateStake(
   await tx.wait();
 }
 
-// ===================
-// Node delegate stake
-// ===================
-
-export async function addToNodeDelegateStake(
-  contract: Contract,
-  subnetId: string,
-  subnetNodeId: string,
-  stakeAmount: bigint
-) {
-  const tx = await contract.addToNodeDelegateStake(subnetId, subnetNodeId, stakeAmount);
-
-  await tx.wait();
-}
-
-export async function removeNodeDelegateStake(
-  contract: Contract,
-  subnetId: string,
-  subnetNodeId: string,
-  shares: bigint
-) {
-  const tx = await contract.removeNodeDelegateStake(subnetId, subnetNodeId, shares);
-
-  await tx.wait();
-}
-
-export async function swapNodeDelegateStake(
-  contract: Contract,
-  fromSubnetId: string,
-  fromSubnetNodeId: string,
-  toSubnetId: string,
-  toSubnetNodeId: string,
-  shares: bigint
-) {
-  const tx = await contract.swapNodeDelegateStake(
-    fromSubnetId,
-    fromSubnetNodeId,
-    toSubnetId,
-    toSubnetNodeId,
-    shares
-  );
-
-  await tx.wait();
-}
-
-export async function transferNodeDelegateStake(
-  contract: Contract,
-  subnetId: string,
-  subnetNodeId: string,
-  toAccountId: string,
-  shares: bigint
-) {
-  const tx = await contract.transferNodeDelegateStake(
-    subnetId,
-    subnetNodeId,
-    toAccountId,
-    shares,
-  );
-
-  await tx.wait();
-}
-
-
 export async function updateSwapQueue(
   contract: Contract,
   id: string,
@@ -1050,15 +1101,11 @@ export async function updateBootnodes(
 // =======
 export async function registerOverwatchNode(
   contract: Contract,
-  hotkey: string,
   stakeToBeAdded: bigint,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
 ) {
-  const tx = await contract.registerOverwatchNode(
-    hotkey,
-    stakeToBeAdded
-  );
+  const tx = await contract.registerOverwatchNode(stakeToBeAdded);
 
   if (manualSeal) {
     let receipt = null;
@@ -1098,23 +1145,23 @@ export async function removeOverwatchNode(
   }
 }
 
-export async function anyoneRemoveOverwatchNode(
+export async function updateOverwatchHotkey(
   contract: Contract,
   overwatchNodeId: string,
+  newHotkey: string | null,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
 ) {
-  const tx = await contract.anyoneRemoveOverwatchNode(
-    overwatchNodeId
+  const tx = await contract.updateOverwatchHotkey(
+    overwatchNodeId,
+    newHotkey !== null,
+    newHotkey ?? "0x0000000000000000000000000000000000000000",
   );
 
   if (manualSeal) {
     let receipt = null;
     while (!receipt) {
-      // Seal a new block
       await createAndFinalizeBlock(provider!);
-
-      // Try to fetch the receipt
       receipt = await provider!.getTransactionReceipt(tx.hash);
     }
   } else {
@@ -1153,15 +1200,13 @@ export async function setOverwatchNodePeerId(
 export async function addToOverwatchStake(
   contract: Contract,
   overwatchNodeId: string,
-  hotkey: string,
   stakeToBeAdded: bigint,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
 ) {
-  const tx = await contract.addToOverwatchStake(
+  const tx = await contract.addOverwatchStake(
     overwatchNodeId,
-    hotkey,
-    stakeToBeAdded
+    stakeToBeAdded,
   );
 
   if (manualSeal) {
@@ -1180,13 +1225,13 @@ export async function addToOverwatchStake(
 
 export async function removeOverwatchStake(
   contract: Contract,
-  hotkey: string,
+  overwatchNodeId: string,
   stakeToBeRemoved: bigint,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
 ) {
   const tx = await contract.removeOverwatchStake(
-    hotkey,
+    overwatchNodeId,
     stakeToBeRemoved,
   );
 

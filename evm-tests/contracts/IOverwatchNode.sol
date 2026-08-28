@@ -58,9 +58,9 @@ interface IOverwatchNode {
 
     function totalOverwatchStake() external view returns (uint256);
 
-    function overwatchNodeBlacklist(
-        address coldkey
-    ) external view returns (bool);
+    function validatorOverwatchNodeId(
+        uint256 validatorId
+    ) external view returns (bool exists, uint256 overwatchNodeId);
 
     function maxOverwatchNodes() external view returns (uint256);
 
@@ -113,11 +113,6 @@ interface IOverwatchNode {
         uint256 overwatchEpoch,
         uint256 overwatchNodeId
     ) external view returns (uint256);
-
-    function overwatchMinDiversificationRatio()
-        external
-        view
-        returns (uint256);
 
     function overwatchMinRepScore() external view returns (uint256);
 

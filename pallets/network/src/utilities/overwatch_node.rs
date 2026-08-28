@@ -18,6 +18,70 @@ use super::*;
 use frame_support::pallet_prelude::DispatchError;
 
 impl<T: Config> Pallet<T> {
+    /// Return whether `peer_id` is available to this Overwatch node in `subnet_id`.
+    ///
+    /// Subnet-node peer maps are consulted solely to preserve subnet-wide peer-ID uniqueness. No
+    /// subnet-node ID is used as an Overwatch identity or ownership sentinel.
+    pub fn is_overwatch_peer_owner_or_ownerless(
+        subnet_id: u32,
+        overwatch_node_id: u32,
+        peer_id: &PeerId,
+    ) -> bool {
+        if PeerIdSubnetNodeId::<T>::contains_key(subnet_id, peer_id)
+            || BootnodePeerIdSubnetNodeId::<T>::contains_key(subnet_id, peer_id)
+            || ClientPeerIdSubnetNodeId::<T>::contains_key(subnet_id, peer_id)
+        {
+            return false;
+        }
+
+        match PeerIdOverwatchNodeId::<T>::try_get(subnet_id, peer_id) {
+            Ok(peer_overwatch_node_id) => peer_overwatch_node_id == overwatch_node_id,
+            Err(()) => true,
+        }
+    }
+
+    /// Resolve the validator identity historically associated with an Overwatch node ID.
+    ///
+    /// This remains valid after removal solely so the owner can withdraw residual node stake.
+    pub fn get_historical_overwatch_validator_id(
+        overwatch_node_id: u32,
+    ) -> Result<u32, DispatchError> {
+        OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
+            .map_err(|_| Error::<T>::InvalidOverwatchNodeId.into())
+    }
+
+    /// Resolve and validate the one-to-one active Overwatch ownership relationship.
+    pub fn get_active_overwatch_validator_id(overwatch_node_id: u32) -> Result<u32, DispatchError> {
+        ensure!(
+            OverwatchNodes::<T>::contains_key(overwatch_node_id),
+            Error::<T>::InvalidOverwatchNodeId
+        );
+
+        let validator_id = Self::get_historical_overwatch_validator_id(overwatch_node_id)?;
+        ensure!(
+            ValidatorOverwatchNodeId::<T>::get(validator_id) == Some(overwatch_node_id),
+            Error::<T>::InvalidOverwatchNodeId
+        );
+
+        Ok(validator_id)
+    }
+
+    /// Resolve the canonical active validator identity and operational hotkey for its single
+    /// Overwatch node in one pass.
+    pub fn get_active_overwatch_validator_id_and_hotkey(
+        overwatch_node_id: u32,
+    ) -> Result<(u32, T::AccountId), DispatchError> {
+        let validator_id = Self::get_active_overwatch_validator_id(overwatch_node_id)?;
+        let hotkey = match OverwatchNodeIdHotkey::<T>::get(overwatch_node_id) {
+            Some(overwatch_node_hotkey) => overwatch_node_hotkey,
+            None => {
+                ValidatorIdHotkey::<T>::get(validator_id).ok_or(Error::<T>::InvalidValidator)?
+            }
+        };
+
+        Ok((validator_id, hotkey))
+    }
+
     pub fn is_overwatch_node_keys_owner(overwatch_node_id: u32, key: T::AccountId) -> bool {
         match Self::get_overwatch_associated_coldkey_and_hotkey(overwatch_node_id) {
             Ok((coldkey, hotkey)) => key == hotkey || key == coldkey,
@@ -28,21 +92,13 @@ impl<T: Config> Pallet<T> {
     pub fn get_overwatch_associated_coldkey_and_hotkey(
         overwatch_node_id: u32,
     ) -> Result<(T::AccountId, T::AccountId), DispatchError> {
-        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
-            .map_err(|_| Error::<T>::InvalidOverwatchNodeId)?;
+        let (validator_id, hotkey) =
+            Self::get_active_overwatch_validator_id_and_hotkey(overwatch_node_id)?;
 
         let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
             .map_err(|_| Error::<T>::InvalidValidatorId)?;
 
-        // An overwatch node-specific hotkey overrides the validator hotkey when present.
-        if let Some(overwatch_node_hotkey) = OverwatchNodeIdHotkey::<T>::get(overwatch_node_id) {
-            return Ok((validator_coldkey, overwatch_node_hotkey));
-        }
-
-        let validator_hotkey =
-            ValidatorIdHotkey::<T>::get(validator_id).ok_or(Error::<T>::InvalidValidator)?;
-
-        Ok((validator_coldkey, validator_hotkey))
+        Ok((validator_coldkey, hotkey))
     }
 
     /// Get a hotkeys associated overwatch node.
@@ -52,26 +108,15 @@ impl<T: Config> Pallet<T> {
     pub fn get_overwatch_node_associated_hotkey(
         overwatch_node_id: u32,
     ) -> Result<T::AccountId, DispatchError> {
-        // An overwatch node-specific hotkey overrides the validator hotkey when present.
-        if let Some(overwatch_node_hotkey) = OverwatchNodeIdHotkey::<T>::get(overwatch_node_id) {
-            return Ok(overwatch_node_hotkey);
-        }
-
-        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
-            .map_err(|_| Error::<T>::InvalidOverwatchNodeId)?;
-
-        let validator_hotkey =
-            ValidatorIdHotkey::<T>::get(validator_id).ok_or(Error::<T>::InvalidValidator)?;
-
-        Ok(validator_hotkey)
+        Self::get_active_overwatch_validator_id_and_hotkey(overwatch_node_id)
+            .map(|(_, hotkey)| hotkey)
     }
 
     /// Get the coldkey of the validator that owns the overwatch node.
     pub fn get_overwatch_node_associated_coldkey(
         overwatch_node_id: u32,
     ) -> Result<T::AccountId, DispatchError> {
-        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
-            .map_err(|_| Error::<T>::InvalidOverwatchNodeId)?;
+        let validator_id = Self::get_active_overwatch_validator_id(overwatch_node_id)?;
 
         let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
             .map_err(|_| Error::<T>::InvalidValidatorId)?;

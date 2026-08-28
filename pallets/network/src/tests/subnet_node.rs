@@ -3122,34 +3122,6 @@ fn test_update_client_peer_id_invalid_peer_id() {
 }
 
 #[test]
-fn subnet_stake_multiplier_works() {
-    new_test_ext().execute_with(|| {
-        let subnet_id = 1;
-
-        // Set test constants
-        MinSubnetNodes::<Test>::put(10);
-        MaxSubnetNodes::<Test>::put(100);
-        TotalActiveSubnetNodes::<Test>::insert(subnet_id, 10);
-
-        // Multiplier should be 100% at min
-        let mult = Network::get_subnet_min_delegate_staking_multiplier(10);
-        assert_eq!(mult, Network::percentage_factor_as_u128()); // 100%
-
-        // Multiplier should be 400% at max
-        TotalActiveSubnetNodes::<Test>::insert(subnet_id, 100);
-        let mult = Network::get_subnet_min_delegate_staking_multiplier(100);
-        assert_eq!(mult, Network::percentage_factor_as_u128() * 4);
-
-        // Multiplier should be ~250% halfway
-        TotalActiveSubnetNodes::<Test>::insert(subnet_id, 55); // halfway between 10 and 100
-        let mult = Network::get_subnet_min_delegate_staking_multiplier(55);
-        let expected =
-            Network::percentage_factor_as_u128() + (Network::percentage_factor_as_u128() * 3 / 2);
-        assert_eq!(mult, expected);
-    });
-}
-
-#[test]
 fn test_update_node_hotkey_override_and_clear() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-hotkey".into();

@@ -58,28 +58,25 @@ impl<T: Config> Pallet<T> {
         input.try_into().ok()
     }
 
-    /// Get total tokens in circulation
-    pub fn get_total_network_issuance() -> u128 {
-        // Balance in accounts
-        let total_issuance_as_balance = T::Currency::total_issuance();
-        let total_issuance: u128 = total_issuance_as_balance.try_into().unwrap_or(0);
-        // Balance staked as nodes
-        let total_staked: u128 = TotalStake::<T>::get();
-        // Balance delegated
-        let total_delegate_staked: u128 = TotalDelegateStake::<T>::get();
-        // Balance node delegate staked
-        let total_node_delegate_staked: u128 = TotalNodeDelegateStake::<T>::get();
-        // Balance unbonding
-        let unbonding_balance = TotalUnbondingBalance::<T>::get();
-        // Balance delegate accounts
-        let delegate_account_balance = TotalAccountDelegateStake::<T>::get();
-
-        total_issuance
-            .saturating_add(total_staked)
-            .saturating_add(total_delegate_staked)
-            .saturating_add(total_node_delegate_staked)
-            .saturating_add(unbonding_balance)
-            .saturating_add(delegate_account_balance)
+    /// Returns all locked, non-Overwatch capital for informational TVL accounting.
+    /// Subnet survival depends only on live subnet delegate balances.
+    ///
+    /// Liquid currency and active or unbonding Overwatch stake are intentionally excluded. Queued
+    /// swap principal and ordinary network unbonding remain included so moving capital between
+    /// live network pools cannot temporarily lower the minimum stake required to keep a subnet
+    /// alive. Arithmetic overflow fails closed at `u128::MAX` rather than lowering that minimum.
+    pub fn get_total_network_tvl() -> u128 {
+        [
+            TotalStake::<T>::get(),
+            TotalDelegateStake::<T>::get(),
+            TotalValidatorDelegateStakeBalance::<T>::get(),
+            TotalAccountDelegateStake::<T>::get(),
+            TotalNetworkUnbondingBalance::<T>::get(),
+            TotalQueuedSwapPrincipal::<T>::get(),
+        ]
+        .into_iter()
+        .try_fold(0u128, u128::checked_add)
+        .unwrap_or(u128::MAX)
     }
 
     pub fn get_avg_nodes_per_subnet() -> u128 {

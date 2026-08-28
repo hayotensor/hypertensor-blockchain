@@ -23,6 +23,7 @@ use crate::{
     ValidatorDelegateStakeShares, ValidatorNodeDelegateStakeWeightUpdateInterval,
     ValidatorNodeDelegateStakeWeights, ValidatorReputation, ValidatorReputationDecreaseFactor,
     ValidatorReputationIncreaseFactor, ValidatorSubnetNodes, ValidatorsData,
+    NETWORK_EPOCH_PRELIMINARIES_SLOT,
 };
 use crate::{AttestEntry, ConsensusPolicySnapshot, Event, SubnetReputationFactors};
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays};
@@ -7632,13 +7633,12 @@ fn run_submitted_validator_pool_slash_case(
             })
             .collect::<BTreeSet<_>>();
         for validator_id in validator_ids {
-            let (result, _, shares_added) =
-                Network::handle_increase_account_validator_delegate_stake(
-                    &account(910),
-                    validator_id,
-                    pool_balance,
-                );
-            assert_ok!(result);
+            let (_, shares_added) = Network::handle_increase_account_validator_delegate_stake(
+                &account(910),
+                validator_id,
+                pool_balance,
+            )
+            .expect("validator delegate stake credit must succeed");
             assert!(shares_added > 0);
         }
         seed_equal_validator_delegate_stake_for_subnet(subnet_id);
@@ -7652,13 +7652,12 @@ fn run_submitted_validator_pool_slash_case(
         assert_eq!(round.validator_delegate_stake_balance, pool_balance);
 
         if add_stake_after_election {
-            let (result, _, shares_added) =
-                Network::handle_increase_account_validator_delegate_stake(
-                    &account(911),
-                    validator_id,
-                    pool_balance,
-                );
-            assert_ok!(result);
+            let (_, shares_added) = Network::handle_increase_account_validator_delegate_stake(
+                &account(911),
+                validator_id,
+                pool_balance,
+            )
+            .expect("post-election validator delegate stake credit must succeed");
             assert!(shares_added > 0);
         }
 
@@ -7827,13 +7826,13 @@ fn test_missing_proposal_uses_zero_support_slashes_and_one_absence_penalty() {
             })
             .collect::<BTreeSet<_>>();
         for validator_id in validator_ids {
-            let (result, balance_added, shares_added) =
+            let (balance_added, shares_added) =
                 Network::handle_increase_account_validator_delegate_stake(
                     &account(900),
                     validator_id,
                     pool_balance,
-                );
-            assert_ok!(result);
+                )
+                .expect("validator delegate stake credit must succeed");
             assert_eq!(balance_added, pool_balance);
             assert!(shares_added > 0);
         }
@@ -10419,7 +10418,7 @@ fn test_do_epoch_preliminaries_deactivate_min_reputation() {
             .consensus_eligible_from_subnet_epoch
             .unwrap()
             .saturating_add(1);
-        set_epoch(epoch, 0);
+        set_epoch(epoch, NETWORK_EPOCH_PRELIMINARIES_SLOT);
         let block_number = System::block_number();
 
         Network::do_epoch_preliminaries(&mut WeightMeter::new(), block_number, epoch);
@@ -10467,7 +10466,7 @@ fn test_do_epoch_preliminaries_deactivate_min_subnet_delegate_stake() {
             .saturating_add(removal_interval.saturating_sub(1))
             .saturating_div(removal_interval)
             .saturating_mul(removal_interval);
-        set_epoch(epoch, 0);
+        set_epoch(epoch, NETWORK_EPOCH_PRELIMINARIES_SLOT);
         let block_number = System::block_number();
 
         Network::do_epoch_preliminaries(&mut WeightMeter::new(), block_number, epoch);

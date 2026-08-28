@@ -10,8 +10,8 @@ use crate::{
     SubnetName, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
     SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetOwner, SubnetState, SubnetsData,
     TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes,
-    TotalNodeDelegateStakeBalance, TotalNodes, TotalStake, TotalSubnetElectableNodes,
-    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, UniqueParamSubnetNodeId,
+    TotalNodes, TotalStake, TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes,
+    TotalSubnetStake, UniqueParamSubnetNodeId,
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;

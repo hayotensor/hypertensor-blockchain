@@ -14,10 +14,21 @@
 // limitations under the License.
 
 use super::*;
-use frame_support::pallet_prelude::Weight;
+use frame_support::{pallet_prelude::Weight, BoundedBTreeMap};
 use frame_system::pallet_prelude::BlockNumberFor;
 
 impl<T: Config> Pallet<T> {
+    pub(crate) fn can_remove_excess_subnet_at_epoch(
+        epoch: u32,
+        previous_activation_epoch: u32,
+        activation_cooldown_epochs: u32,
+        check_interval_epochs: u32,
+    ) -> bool {
+        check_interval_epochs != 0
+            && epoch % check_interval_epochs == 0
+            && epoch >= previous_activation_epoch.saturating_add(activation_cooldown_epochs)
+    }
+
     pub fn consensus_policy_snapshot(subnet_id: u32, subnet_epoch: u32) -> ConsensusPolicySnapshot {
         ConsensusPolicySnapshot {
             min_attestation_percentage: T::MinAttestationPercentage::get(),
@@ -151,12 +162,13 @@ impl<T: Config> Pallet<T> {
             return weight;
         }
 
-        // Overwatch boundaries share the general epoch's reserved hook schedule: rollover is slot
-        // zero, settlement is slot one, and global emission calculation is slot two. If global
+        // Overwatch boundaries share the general epoch's reserved hook schedule. If global
         // transaction pause delayed this hook past its original end, leave the old round open
-        // through the next slot-zero boundary. This gives revealers a grace period after unpause
+        // through the next preliminaries slot. This gives revealers a grace period after unpause
         // and prevents a permanently unaligned Overwatch cadence from pre-empting subnet slots.
-        if general_epoch_length == 0 || current_block % general_epoch_length != 0 {
+        if general_epoch_length == 0
+            || current_block % general_epoch_length != NETWORK_EPOCH_PRELIMINARIES_SLOT
+        {
             return weight;
         }
 
@@ -170,9 +182,53 @@ impl<T: Config> Pallet<T> {
         let completed_epoch = CurrentOverwatchEpoch::<T>::get();
         weight = weight.saturating_add(db_weight.reads(1));
 
-        let reveal_stats = ActiveOverwatchRevealStats::<T>::take();
-        weight = weight.saturating_add(db_weight.reads_writes(1, 1));
+        // Assemble every close-time settlement input before changing any epoch state. If the
+        // bounded snapshot cannot be constructed, the active epoch and its reveal statistics stay
+        // untouched so rollover can be retried safely.
+        let reveal_stats = ActiveOverwatchRevealStats::<T>::get();
+        let stake_weight_factor = OverwatchStakeWeightFactor::<T>::get();
+        weight = weight.saturating_add(db_weight.reads(2));
 
+        let reward_budget = T::OverwatchEpochEmissions::get().saturating_mul(multiplier as u128);
+        let mut nodes = BoundedBTreeMap::<
+            u32,
+            OverwatchNodeSettlementSnapshot,
+            T::MaxOverwatchNodesUpperBound,
+        >::new();
+
+        for overwatch_node_id in reveal_stats.revealing_nodes.iter().copied() {
+            // Only the canonical active validator-to-node relationship at close time is eligible.
+            // Charge conservatively for the three ownership reads plus the stake read even when
+            // an inconsistent relationship fails before all of them are reached.
+            weight = weight.saturating_add(db_weight.reads(4));
+            let Ok(validator_id) = Self::get_active_overwatch_validator_id(overwatch_node_id)
+            else {
+                continue;
+            };
+            let stake = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
+            if nodes
+                .try_insert(
+                    overwatch_node_id,
+                    OverwatchNodeSettlementSnapshot {
+                        validator_id,
+                        stake,
+                    },
+                )
+                .is_err()
+            {
+                return weight;
+            }
+        }
+
+        let settlement_snapshot = OverwatchEpochSettlementSnapshot::<T> {
+            stake_weight_factor,
+            reward_budget,
+            nodes,
+        };
+
+        // Persist an explicit snapshot even when no canonical node revealed. Missing storage is
+        // reserved for an incomplete/corrupt close and must never be interpreted as an empty epoch.
+        OverwatchEpochSettlementSnapshots::<T>::insert(completed_epoch, settlement_snapshot);
         PendingOverwatchSettlement::<T>::put(PendingOverwatchSettlementData {
             epoch: completed_epoch,
             epoch_length_multiplier: multiplier,
@@ -180,6 +236,7 @@ impl<T: Config> Pallet<T> {
             revealing_nodes: reveal_stats.revealing_nodes.len() as u32,
             revealed_subnets: reveal_stats.revealed_subnets.len() as u32,
         });
+        ActiveOverwatchRevealStats::<T>::kill();
         CurrentOverwatchEpoch::<T>::put(completed_epoch.saturating_add(1));
 
         // Snapshot the latest configuration for the epoch that begins now. From this point until
@@ -194,7 +251,7 @@ impl<T: Config> Pallet<T> {
         // the new epoch still receives its full configured interval.
         OverwatchEpochStartBlock::<T>::put(current_block);
         weight = weight.saturating_add(db_weight.reads(2));
-        weight = weight.saturating_add(db_weight.writes(5));
+        weight = weight.saturating_add(db_weight.writes(7));
 
         Self::deposit_event(Event::OverwatchEpochStarted {
             epoch: completed_epoch.saturating_add(1),
@@ -394,8 +451,9 @@ impl<T: Config> Pallet<T> {
     /// - Subnets in the **paused state** are penalized if they exceed allowed pause duration, potentially leading to removal.
     /// - Activated subnets are checked to ensure they meet minimum delegate stake requirements; otherwise they are removed.
     /// - Activated subnets with insufficient active nodes decrease reputation.  
-    /// - Subnets exceeding the minimum reputation are removed.
-    /// - If the total number of subnets exceeds the configured maximum, the subnet with the lowest delegate stake is removed.
+    /// - Subnets below the minimum reputation are removed.
+    /// - If successful health removals still leave the network above its configured maximum, at
+    ///   most one eligible subnet with the lowest delegate stake is removed for capacity.
     ///
     /// Reputations are global and can be increased or decreased by other runtime logic as well, so this function enforces removal
     /// conditions based on the current reputation regardless of its origin.
@@ -404,10 +462,6 @@ impl<T: Config> Pallet<T> {
     ///
     /// * `block` - The current block number, used to resolve each subnet's phase-aware epoch.
     /// * `epoch` - The current epoch number.
-    ///
-    /// # Returns
-    ///
-    /// The accumulated weight consumed by database reads and writes during the operation.
     ///
     /// # Notes
     ///
@@ -431,22 +485,35 @@ impl<T: Config> Pallet<T> {
         let dstake_epoch_interval = DelegateStakeSubnetRemovalInterval::<T>::get();
         // Epoch of the previous subnet activation which will push back the removal interval
         let prev_activation_epoch = PrevSubnetActivationEpoch::<T>::get();
-        // Whether the current epoch is a removal epoch
-        let is_removal_epoch: bool = epoch % MaxSubnetRemovalInterval::<T>::get() == 0;
-        // Whether the current epoch is a removal epoch for excess subnets
-        let can_remove: bool =
-            epoch >= prev_activation_epoch + MinSubnetRemovalInterval::<T>::get();
-        // Whether the current epoch is a removal epoch for delegate stake
-        let dstake_epoch_interval_can_remove: bool = epoch % dstake_epoch_interval == 0;
-
+        // A zero interval cannot be set through governance, but the helper also guards against
+        // corrupted storage trapping epoch initialization on a modulo operation.
+        let can_remove_excess_subnet = Self::can_remove_excess_subnet_at_epoch(
+            epoch,
+            prev_activation_epoch,
+            SubnetRemovalActivationCooldown::<T>::get(),
+            SubnetRemovalCheckInterval::<T>::get(),
+        );
         let subnets: Vec<_> = SubnetsData::<T>::iter().collect();
-        let total_subnets: u32 = subnets.len() as u32;
+        let initial_subnet_count: u32 = subnets.len() as u32;
+        let mut current_subnet_count = initial_subnet_count;
 
-        let excess_subnets: bool = total_subnets > max_subnets;
+        // Capture the complete live-subnet delegation cohort before any removal. Every subnet in
+        // this pass is compared against the same balance/count snapshot and common requirement.
+        // The explicit nonzero guard prevents corrupted interval storage from trapping the hook.
+        let delegate_stake_removal_snapshot =
+            (dstake_epoch_interval != 0 && epoch % dstake_epoch_interval == 0).then(|| {
+                let snapshot = Self::live_subnet_delegate_stake_snapshot(block, &subnets);
+                let minimum = Self::min_subnet_delegate_stake_balance_from_snapshot(&snapshot);
+                (snapshot, minimum)
+            });
+
+        // This snapshot controls only whether capacity candidates need to be collected. Whether a
+        // capacity eviction is still required is recalculated after all health removals.
+        let initially_over_capacity = initial_subnet_count > max_subnets;
         let mut subnet_delegate_stake: Vec<(u32, u128)> = Vec::new();
 
-        if excess_subnets {
-            subnet_delegate_stake.reserve(total_subnets as usize);
+        if initially_over_capacity {
+            subnet_delegate_stake.reserve(initial_subnet_count as usize);
         }
 
         for (subnet_id, data) in &subnets {
@@ -471,21 +538,27 @@ impl<T: Config> Pallet<T> {
                         // We don't check delegate stake here because users can continue to stake in this phase
                         let active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
                         if active_nodes < min_subnet_nodes {
-                            Self::try_do_remove_subnet(
+                            if Self::try_do_remove_subnet(
                                 weight_meter,
                                 *subnet_id,
                                 SubnetRemovalReason::MinSubnetNodes,
-                            );
+                            ) == SubnetRemovalOutcome::Removed
+                            {
+                                current_subnet_count = current_subnet_count.saturating_sub(1);
+                            }
                         }
                         continue;
                     }
 
                     // --- Out of Enactment Period: not activated → remove
-                    Self::try_do_remove_subnet(
+                    if Self::try_do_remove_subnet(
                         weight_meter,
                         *subnet_id,
                         SubnetRemovalReason::EnactmentPeriod,
-                    );
+                    ) == SubnetRemovalOutcome::Removed
+                    {
+                        current_subnet_count = current_subnet_count.saturating_sub(1);
+                    }
                     continue;
                 }
                 continue;
@@ -506,11 +579,14 @@ impl<T: Config> Pallet<T> {
 
                         if new_subnet_reputation < min_reputation {
                             // --- Remove
-                            Self::try_do_remove_subnet(
+                            if Self::try_do_remove_subnet(
                                 weight_meter,
                                 *subnet_id,
                                 SubnetRemovalReason::PauseExpired,
-                            );
+                            ) == SubnetRemovalOutcome::Removed
+                            {
+                                current_subnet_count = current_subnet_count.saturating_sub(1);
+                            }
                             continue;
                         }
                     }
@@ -518,7 +594,7 @@ impl<T: Config> Pallet<T> {
 
                 // Pausing exempts a subnet from operational health checks, but must not shield a
                 // low-stake subnet from the network-wide excess-capacity eviction cohort.
-                if excess_subnets && is_removal_epoch && can_remove {
+                if initially_over_capacity && can_remove_excess_subnet {
                     subnet_delegate_stake.push((
                         *subnet_id,
                         TotalSubnetDelegateStakeBalance::<T>::get(subnet_id),
@@ -527,31 +603,38 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            // At general slot zero the subnet may still be in the preceding local epoch. Skip
-            // ordinary health checks until its first post-activation/unpause consensus slot has
-            // occurred; checks resume at the following general boundary.
-            let current_subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(*subnet_id, block);
-            if !Self::_is_subnet_active_and_live(data, current_subnet_epoch) {
+            // On funding-removal epochs the snapshot is also the canonical live cohort. On other
+            // epochs resolve liveness directly for the remaining operational health checks.
+            let is_live = delegate_stake_removal_snapshot
+                .as_ref()
+                .map(|(snapshot, _)| snapshot.balances.contains_key(subnet_id))
+                .unwrap_or_else(|| {
+                    let current_subnet_epoch =
+                        Self::get_subnet_epoch_with_block_as_u32(*subnet_id, block);
+                    Self::_is_subnet_active_and_live(data, current_subnet_epoch)
+                });
+            if !is_live {
                 continue;
             }
 
-            // --- Activated subnet checks and conditionals
-            let min_subnet_delegate_stake_balance =
-                Self::get_min_subnet_delegate_stake_balance(*subnet_id);
+            let subnet_delegate_stake_balance = delegate_stake_removal_snapshot
+                .as_ref()
+                .and_then(|(snapshot, _)| snapshot.balances.get(subnet_id).copied())
+                .unwrap_or_else(|| TotalSubnetDelegateStakeBalance::<T>::get(subnet_id));
 
-            let subnet_delegate_stake_balance =
-                TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
-
-            // Remove if below delegate stake requirement
-            if subnet_delegate_stake_balance < min_subnet_delegate_stake_balance
-                && dstake_epoch_interval_can_remove
-            {
-                Self::try_do_remove_subnet(
-                    weight_meter,
-                    *subnet_id,
-                    SubnetRemovalReason::MinSubnetDelegateStake,
-                );
-                continue;
+            // Remove if below the requirement captured for this removal pass.
+            if let Some((_, minimum)) = &delegate_stake_removal_snapshot {
+                if subnet_delegate_stake_balance < *minimum {
+                    if Self::try_do_remove_subnet(
+                        weight_meter,
+                        *subnet_id,
+                        SubnetRemovalReason::MinSubnetDelegateStake,
+                    ) == SubnetRemovalOutcome::Removed
+                    {
+                        current_subnet_count = current_subnet_count.saturating_sub(1);
+                    }
+                    continue;
+                }
             }
 
             // Check min nodes (we don't kick active subnet for this to give them time to recoup)
@@ -573,16 +656,19 @@ impl<T: Config> Pallet<T> {
 
             if subnet_reputation < min_reputation {
                 // --- Remove
-                Self::try_do_remove_subnet(
+                if Self::try_do_remove_subnet(
                     weight_meter,
                     *subnet_id,
                     SubnetRemovalReason::MinReputation,
-                );
+                ) == SubnetRemovalOutcome::Removed
+                {
+                    current_subnet_count = current_subnet_count.saturating_sub(1);
+                }
                 continue;
             }
 
             // Store delegate stake for possible excess removal
-            if excess_subnets && is_removal_epoch && can_remove {
+            if initially_over_capacity && can_remove_excess_subnet {
                 subnet_delegate_stake.push((*subnet_id, subnet_delegate_stake_balance));
             }
         }
@@ -590,11 +676,16 @@ impl<T: Config> Pallet<T> {
         // --- Excess subnet removal
         // We allow max+1 subnets to exist in the economy and every `x` epochs remove one
         // based on the delegate stake balance
-        if excess_subnets && !subnet_delegate_stake.is_empty() && is_removal_epoch && can_remove {
+        let still_over_capacity = current_subnet_count > max_subnets;
+        if still_over_capacity && !subnet_delegate_stake.is_empty() && can_remove_excess_subnet {
             subnet_delegate_stake.sort_by_key(|&(_, value)| value);
 
             let subnet_id = subnet_delegate_stake[0].0.clone();
-            Self::try_do_remove_subnet(weight_meter, subnet_id, SubnetRemovalReason::MaxSubnets);
+            let _ = Self::try_do_remove_subnet(
+                weight_meter,
+                subnet_id,
+                SubnetRemovalReason::MaxSubnets,
+            );
         }
     }
 

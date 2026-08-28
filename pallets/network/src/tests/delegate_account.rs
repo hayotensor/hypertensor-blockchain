@@ -440,14 +440,15 @@ fn test_remove_delegate_account_balance() {
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
-        let unbondings: BTreeMap<u32, u128> = StakeUnbondingLedger::<Test>::get(&account_id);
+        let unbondings = StakeUnbondingLedger::<Test>::get(&account_id);
         assert_eq!(unbondings.len(), 1);
         let (ledger_block, ledger_balance) = unbondings.iter().next().unwrap();
         assert_eq!(
             *ledger_block,
             &block + StakeCooldownEpochs::<Test>::get() * EpochLength::get()
         );
-        assert_eq!(*ledger_balance, 100);
+        assert_eq!(ledger_balance.network, 100);
+        assert_eq!(ledger_balance.overwatch, 0);
     })
 }
 

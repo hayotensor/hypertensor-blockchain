@@ -289,18 +289,22 @@ where
         Ok(total_stake)
     }
 
-    #[precompile::public("overwatchNodeBlacklist(address)")]
+    #[precompile::public("validatorOverwatchNodeId(uint256)")]
     #[precompile::view]
-    fn overwatch_node_blacklist(
+    fn validator_overwatch_node_id(
         handle: &mut impl PrecompileHandle,
-        coldkey: Address,
-    ) -> EvmResult<bool> {
-        let coldkey = R::AddressMapping::into_account_id(coldkey.into());
+        validator_id: U256,
+    ) -> EvmResult<(bool, U256)> {
+        let validator_id = try_u256_to_u32(validator_id)?;
 
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let blacklisted = pallet_network::OverwatchNodeBlacklist::<R>::get(coldkey);
+        let Some(overwatch_node_id) =
+            pallet_network::ValidatorOverwatchNodeId::<R>::get(validator_id)
+        else {
+            return Ok((false, U256::from(0u8)));
+        };
 
-        Ok(blacklisted)
+        Ok((true, try_u32_to_u256(overwatch_node_id)?))
     }
 
     #[precompile::public("maxOverwatchNodes()")]
@@ -365,13 +369,14 @@ where
     ) -> EvmResult<(U256, Address)> {
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
 
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let overwatch_node = pallet_network::OverwatchNodes::<R>::get(overwatch_node_id)
-            .ok_or(revert("Overwatch node not found"))?;
-
-        // Convert AccountId to Address
-        let hotkey = Address(sp_core::H160::from(overwatch_node.hotkey.into()));
-        let overwatch_node_id = try_u32_to_u256(overwatch_node.id)?;
+        // Active identity validation reads the active node, both validator/node directions, the
+        // optional node hotkey, and (when there is no override) the validator hotkey.
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost().saturating_mul(5))?;
+        let hotkey =
+            pallet_network::Pallet::<R>::get_overwatch_node_associated_hotkey(overwatch_node_id)
+                .map_err(|_| revert("Overwatch node identity is inconsistent"))?;
+        let hotkey = Address(sp_core::H160::from(hotkey.into()));
+        let overwatch_node_id = try_u32_to_u256(overwatch_node_id)?;
 
         Ok((overwatch_node_id, hotkey))
     }
@@ -384,10 +389,12 @@ where
     ) -> EvmResult<Address> {
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
 
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
+        // Return the operational hotkey. A node-specific override is optional; otherwise this is
+        // the hotkey of the validator identity that owns the active Overwatch node.
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost().saturating_mul(5))?;
         let overwatch_node_hotkey =
-            pallet_network::OverwatchNodeIdHotkey::<R>::get(overwatch_node_id)
-                .ok_or(revert("Overwatch node ID hotkey not found"))?;
+            pallet_network::Pallet::<R>::get_overwatch_node_associated_hotkey(overwatch_node_id)
+                .map_err(|_| revert("Overwatch node identity is inconsistent"))?;
 
         // Convert AccountId to Address
         let hotkey = Address(sp_core::H160::from(overwatch_node_hotkey.into()));
@@ -502,17 +509,6 @@ where
         let overwatch_node_weight = try_u128_to_u256(overwatch_node_weight)?;
 
         Ok(overwatch_node_weight)
-    }
-
-    #[precompile::public("overwatchMinDiversificationRatio()")]
-    #[precompile::view]
-    fn overwatch_min_diversification_ratio(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let value = pallet_network::OverwatchMinDiversificationRatio::<R>::get();
-
-        let value = try_u128_to_u256(value)?;
-
-        Ok(value)
     }
 
     #[precompile::public("overwatchMinRepScore()")]
