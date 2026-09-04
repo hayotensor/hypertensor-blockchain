@@ -14,8 +14,6 @@
 // limitations under the License.
 
 use super::*;
-use frame_support::pallet_prelude::DispatchError;
-use frame_support::pallet_prelude::Weight;
 
 impl<T: Config> Pallet<T> {
     pub fn do_update_validator_delegate_reward_rate(
@@ -274,9 +272,8 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
-        // --- Ensure is or has had a subnet node
-        // This will not completely stop non-subnet-node users from registering identities but prevents it
-        // Accounts that have never registered a subnet node will not have a hotkey stored
+        // Resolve the canonical validator owner. Validator identity updates do not depend on
+        // subnet-node history.
         let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
             .map_err(|_| Error::<T>::InvalidValidatorId)?;
 
@@ -285,7 +282,7 @@ impl<T: Config> Pallet<T> {
         ValidatorsData::<T>::try_mutate_exists(validator_id, |maybe_params| -> DispatchResult {
             let params = maybe_params
                 .as_mut()
-                .ok_or(Error::<T>::InvalidOverwatchNodeId)?;
+                .ok_or(Error::<T>::InvalidValidatorId)?;
             params.identity = identity.clone();
             Ok(())
         });

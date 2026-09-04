@@ -831,7 +831,9 @@ fn test_remove_stake_after_remove_subnet() {
         assert_eq!(ledger_balance.overwatch, 0);
 
         let coldkey_subnet_nodes = ValidatorSubnetNodes::<Test>::get(end);
-        assert_eq!(coldkey_subnet_nodes.get(&subnet_id), None);
+        assert!(coldkey_subnet_nodes
+            .get(&subnet_id)
+            .is_some_and(|node_ids| node_ids.contains(&end)));
     });
 }
 

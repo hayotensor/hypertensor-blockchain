@@ -2868,7 +2868,7 @@ fn test_owner_update_churn_limit_multiplier() {
             Network::owner_update_churn_limit_multiplier(
                 RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
-                min_multiplier.saturating_sub(1)
+                0
             ),
             Error::<Test>::InvalidChurnLimitMultiplier
         );

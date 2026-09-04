@@ -216,9 +216,9 @@ parameter_types! {
     pub const NetworkMaxPhysicalSubnetsUpperBound: u32 =
         crate::physical_subnet_upper_bound(EPOCH_LENGTH);
     pub const NetworkMaxSubnetNodesUpperBound: u32 = 512;
-    pub const NetworkMaxConsensusNodeRemovalsPerSettlement: u32 = 4;
     pub const NetworkMaxValidatorNodesUpperBound: u32 = 512;
     pub const NetworkMaxOverwatchNodesUpperBound: u32 = 64;
+    pub const NetworkMaxOverwatchCommitCutoffPercent: u128 = 950_000_000_000_000_000;
     pub const NetworkMaxBootnodesUpperBound: u32 = 256;
     pub const NetworkMaxSubnetBootnodeAccessUpperBound: u32 = 256;
     pub const NetworkMaxChurnLimitUpperBound: u32 = 64;
@@ -257,9 +257,9 @@ impl Config for Test {
     type InitialSubnetUid = NetworkInitialSubnetUid;
     type MaxPhysicalSubnetsUpperBound = NetworkMaxPhysicalSubnetsUpperBound;
     type MaxSubnetNodesUpperBound = NetworkMaxSubnetNodesUpperBound;
-    type MaxConsensusNodeRemovalsPerSettlement = NetworkMaxConsensusNodeRemovalsPerSettlement;
     type MaxValidatorNodesUpperBound = NetworkMaxValidatorNodesUpperBound;
     type MaxOverwatchNodesUpperBound = NetworkMaxOverwatchNodesUpperBound;
+    type MaxOverwatchCommitCutoffPercent = NetworkMaxOverwatchCommitCutoffPercent;
     type MaxBootnodesUpperBound = NetworkMaxBootnodesUpperBound;
     type MaxSubnetBootnodeAccessUpperBound = NetworkMaxSubnetBootnodeAccessUpperBound;
     type MaxChurnLimitUpperBound = NetworkMaxChurnLimitUpperBound;

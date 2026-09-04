@@ -14,9 +14,27 @@
 // limitations under the License.
 
 use super::*;
+use frame_support::pallet_prelude::DispatchError;
 use sp_runtime::Saturating;
 
 impl<T: Config> Pallet<T> {
+    /// Authenticate the coldkey which owns a node's persistent validator identity. Physical node
+    /// removal intentionally retains this mapping so the owner can still withdraw residual stake.
+    fn ensure_node_stake_owner(
+        coldkey: &T::AccountId,
+        subnet_id: u32,
+        subnet_node_id: u32,
+    ) -> Result<u32, DispatchError> {
+        let validator_id = SubnetNodeValidatorId::<T>::try_get(subnet_id, subnet_node_id)
+            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
+
+        let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
+            .map_err(|_| Error::<T>::InvalidValidatorId)?;
+
+        ensure!(coldkey == &validator_coldkey, Error::<T>::NotKeyOwner);
+        Ok(validator_id)
+    }
+
     pub fn do_add_node_stake(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
@@ -36,15 +54,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidSubnetNodeId
         );
 
-        // Resolve the validator that owns this subnet node, then ensure the caller is that
-        // validator's coldkey. Only the owner is allowed to add stake.
-        let validator_id = SubnetNodeValidatorId::<T>::try_get(subnet_id, subnet_node_id)
-            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
-
-        let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
-            .map_err(|_| Error::<T>::InvalidValidatorId)?;
-
-        ensure!(coldkey == validator_coldkey, Error::<T>::NotKeyOwner);
+        Self::ensure_node_stake_owner(&coldkey, subnet_id, subnet_node_id)?;
 
         ensure!(stake_to_be_added != 0, Error::<T>::InvalidAmount);
 
@@ -114,23 +124,10 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
-        // Resolve the validator that owns this subnet node, then ensure the caller is that
-        // validator's coldkey. Only the owner is allowed to add stake.
-        let validator_id = SubnetNodeValidatorId::<T>::try_get(subnet_id, subnet_node_id)
-            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
-
-        let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
-            .map_err(|_| Error::<T>::InvalidValidatorId)?;
-
-        ensure!(coldkey == validator_coldkey, Error::<T>::NotKeyOwner);
+        Self::ensure_node_stake_owner(&coldkey, subnet_id, subnet_node_id)?;
 
         // Check if node is currently active
-        let is_subnet_node =
-            if let Some(rep) = SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id) {
-                true
-            } else {
-                false
-            };
+        let is_subnet_node = SubnetNodeReputation::<T>::contains_key(subnet_id, subnet_node_id);
 
         let node_stake_balance: u128 = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
 

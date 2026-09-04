@@ -1,11 +1,15 @@
 import * as assert from "assert";
-import { dev } from '@polkadot-api/descriptors';
-import { TypedApi, TxCallData, HexString } from 'polkadot-api';
-import { KeyPair } from "@polkadot-labs/hdkd-helpers"
-import { getAliceSigner, waitForTransactionCompletion, getSignerFromKeypair } from './substrate'
-import { convertH160ToSS58, convertPublicKeyToSs58 } from './address-utils'
-import { cryptoWaitReady, decodeAddress } from '@polkadot/util-crypto';
-import { hexToU8a, u8aToHex } from '@polkadot/util';
+import { dev } from "@polkadot-api/descriptors";
+import { TypedApi, TxCallData, HexString } from "polkadot-api";
+import { KeyPair } from "@polkadot-labs/hdkd-helpers";
+import {
+  getAliceSigner,
+  waitForTransactionCompletion,
+  getSignerFromKeypair,
+} from "./substrate";
+import { convertH160ToSS58, convertPublicKeyToSs58 } from "./address-utils";
+import { cryptoWaitReady, decodeAddress } from "@polkadot/util-crypto";
+import { hexToU8a, u8aToHex } from "@polkadot/util";
 import { KeyringPair } from "@polkadot/keyring/types";
 import { ApiPromise, Keyring } from "@polkadot/api";
 import { Contract, JsonRpcProvider } from "ethers";
@@ -16,24 +20,31 @@ export async function transferBalanceFromSudo(
   papiApi: TypedApi<typeof dev>,
   url: string,
   who: string,
-  balance: bigint
+  balance: bigint,
 ) {
-  console.log("transferBalanceFromSudo", balance)
-  const keyring = new Keyring({ type: 'ethereum' });
-  const sudoPair: KeyringPair = keyring.addFromUri("0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133");
+  console.log("transferBalanceFromSudo", balance);
+  const keyring = new Keyring({ type: "ethereum" });
+  const sudoPair: KeyringPair = keyring.addFromUri(
+    "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133",
+  );
 
-  const aliceBalance_ = (await papiApi.query.System.Account.getValue(sudoPair.address)).data.free
+  const aliceBalance_ = (
+    await papiApi.query.System.Account.getValue(sudoPair.address)
+  ).data.free;
   expect(Number(aliceBalance_)).to.be.greaterThanOrEqual(0);
 
   await new Promise<void>((resolve, reject) => {
     api.tx.balances
       .transferKeepAlive(who, balance)
       .signAndSend(sudoPair, async (result) => {
-
         if (result.status.isInBlock) {
-          console.log(`Transaction included at blockHash ${result.status.asInBlock}`);
+          console.log(
+            `Transaction included at blockHash ${result.status.asInBlock}`,
+          );
         } else if (result.status.isFinalized) {
-          console.log(`Transaction finalized at blockHash ${result.status.asFinalized}`);
+          console.log(
+            `Transaction finalized at blockHash ${result.status.asFinalized}`,
+          );
 
           // unsubscribe safely if available
           if (typeof unsub === "function") unsub();
@@ -55,7 +66,7 @@ export async function transferBalanceFromSudo(
     let unsub: () => void; // scoped outside to be accessible
   });
 
-  const balance_ = (await papiApi.query.System.Account.getValue(who)).data.free
+  const balance_ = (await papiApi.query.System.Account.getValue(who)).data.free;
 
   expect(Number(balance_)).to.be.greaterThanOrEqual(Number(balance));
 }
@@ -67,14 +78,18 @@ export async function transferBalanceFromSudoManual(
   balance: bigint,
   provider: JsonRpcProvider,
 ) {
-  const keyring = new Keyring({ type: 'ethereum' });
+  const keyring = new Keyring({ type: "ethereum" });
   const sudoPair: KeyringPair = keyring.addFromUri(
-    "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
+    "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133",
   );
 
   // Optional: check sudo balance before transfer
-  const sudoBalance = (await papiApi.query.System.Account.getValue(sudoPair.address)).data.free;
-  expect(BigInt(sudoBalance.toString())).to.be.greaterThanOrEqual(Number(balance));
+  const sudoBalance = (
+    await papiApi.query.System.Account.getValue(sudoPair.address)
+  ).data.free;
+  expect(BigInt(sudoBalance.toString())).to.be.greaterThanOrEqual(
+    Number(balance),
+  );
 
   let finalized = false;
   let unsub: (() => void) | undefined;
@@ -86,7 +101,9 @@ export async function transferBalanceFromSudoManual(
       console.log(`Status: ${result.status.toString()}`);
 
       if (result.status.isFinalized) {
-        console.log(`Transaction finalized at blockHash: ${result.status.asFinalized}`);
+        console.log(
+          `Transaction finalized at blockHash: ${result.status.asFinalized}`,
+        );
         finalized = true;
         if (unsub) unsub();
       }
@@ -99,30 +116,37 @@ export async function transferBalanceFromSudoManual(
 
   // Manually seal blocks until finalized
   while (!finalized) {
-    await createAndFinalizeBlock(provider)
-    await new Promise((r) => setTimeout(r, 10));   // small delay to avoid tight loop
+    await createAndFinalizeBlock(provider);
+    await new Promise((r) => setTimeout(r, 10)); // small delay to avoid tight loop
   }
 
   // Verify the recipient's balance
-  const recipientBalance = (await papiApi.query.System.Account.getValue(who)).data.free;
-  expect(BigInt(recipientBalance.toString())).to.be.greaterThanOrEqual(Number(balance));
+  const recipientBalance = (await papiApi.query.System.Account.getValue(who))
+    .data.free;
+  expect(BigInt(recipientBalance.toString())).to.be.greaterThanOrEqual(
+    Number(balance),
+  );
   console.log(`Balance successfully transferred to ${who}`);
 }
 
 export async function batchTransferBalanceFromSudo(
   api: ApiPromise,
   papiApi: TypedApi<typeof dev>,
-  recipients: Array<{ address: string, balance: bigint }>
+  recipients: Array<{ address: string; balance: bigint }>,
 ) {
-  const keyring = new Keyring({ type: 'ethereum' });
-  const sudoPair: KeyringPair = keyring.addFromUri("0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133");
+  const keyring = new Keyring({ type: "ethereum" });
+  const sudoPair: KeyringPair = keyring.addFromUri(
+    "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133",
+  );
 
-  const aliceBalance_ = (await papiApi.query.System.Account.getValue(sudoPair.address)).data.free
+  const aliceBalance_ = (
+    await papiApi.query.System.Account.getValue(sudoPair.address)
+  ).data.free;
   expect(Number(aliceBalance_)).to.be.greaterThanOrEqual(0);
 
   // Create batch of transfer calls
   const transferCalls = recipients.map(({ address, balance }) =>
-    api.tx.balances.transferKeepAlive(address, balance)
+    api.tx.balances.transferKeepAlive(address, balance),
   );
 
   await new Promise<void>((resolve, reject) => {
@@ -134,14 +158,20 @@ export async function batchTransferBalanceFromSudo(
         console.log(`Batch transfer status is ${result.status}`);
 
         if (result.status.isInBlock) {
-          console.log(`Batch transaction included at blockHash ${result.status.asInBlock}`);
+          console.log(
+            `Batch transaction included at blockHash ${result.status.asInBlock}`,
+          );
         } else if (result.status.isFinalized) {
-          console.log(`Batch transaction finalized at blockHash ${result.status.asFinalized}`);
+          console.log(
+            `Batch transaction finalized at blockHash ${result.status.asFinalized}`,
+          );
 
           // Check for any failed transfers in the batch
           if (result.dispatchError) {
             if (typeof unsub === "function") unsub();
-            reject(new Error(`Batch transaction failed: ${result.dispatchError}`));
+            reject(
+              new Error(`Batch transaction failed: ${result.dispatchError}`),
+            );
             return;
           }
 
@@ -163,7 +193,8 @@ export async function batchTransferBalanceFromSudo(
 
   // Verify all balances after batch transfer
   for (const { address, balance } of recipients) {
-    const balance_ = (await papiApi.query.System.Account.getValue(address)).data.free;
+    const balance_ = (await papiApi.query.System.Account.getValue(address)).data
+      .free;
     expect(Number(balance_)).to.be.greaterThanOrEqual(Number(balance));
   }
 }
@@ -172,16 +203,16 @@ export async function batchTransferBalanceFromSudoManual(
   api: ApiPromise,
   papiApi: TypedApi<typeof dev>,
   provider: JsonRpcProvider,
-  recipients: Array<{ address: string, balance: bigint }>
+  recipients: Array<{ address: string; balance: bigint }>,
 ) {
-  const keyring = new Keyring({ type: 'ethereum' });
+  const keyring = new Keyring({ type: "ethereum" });
   const sudoPair: KeyringPair = keyring.addFromUri(
-    "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
+    "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133",
   );
 
   // Create batch of transfer calls
   const transferCalls = recipients.map(({ address, balance }) =>
-    api.tx.balances.transferKeepAlive(address, balance)
+    api.tx.balances.transferKeepAlive(address, balance),
   );
 
   let finalized = false;
@@ -194,30 +225,35 @@ export async function batchTransferBalanceFromSudoManual(
       console.log(`Batch status: ${result.status.toString()}`);
 
       if (result.status.isFinalized) {
-        console.log(`Batch finalized at blockHash: ${result.status.asFinalized}`);
+        console.log(
+          `Batch finalized at blockHash: ${result.status.asFinalized}`,
+        );
         finalized = true;
         if (unsub) unsub();
       }
 
       if (result.isError) {
         if (unsub) unsub();
-        throw new Error('Batch transaction failed');
+        throw new Error("Batch transaction failed");
       }
     });
 
   // Manually seal blocks until finalized
   while (!finalized) {
-    await createAndFinalizeBlock(provider)
+    await createAndFinalizeBlock(provider);
     await new Promise((r) => setTimeout(r, 10)); // small delay
   }
 
   // Verify all balances after batch transfer
   for (const { address, balance } of recipients) {
-    const balance_ = (await papiApi.query.System.Account.getValue(address)).data.free;
+    const balance_ = (await papiApi.query.System.Account.getValue(address)).data
+      .free;
     expect(Number(balance_)).to.be.greaterThanOrEqual(Number(balance));
   }
 
-  console.log(`Batch transfer to ${recipients.length} recipients completed successfully`);
+  console.log(
+    `Batch transfer to ${recipients.length} recipients completed successfully`,
+  );
 }
 
 // ==================
@@ -260,59 +296,20 @@ export async function registerValidator(
   }
 }
 
-/**
- * Seed the validator-ID-keyed qualification state needed by Overwatch integration tests.
- *
- * This deliberately avoids creating subnet nodes and does not model the consensus activity that
- * normally earns validator reputation. It uses the development chain's sudo account and
- * `System.setStorage`, so it must never be used against a non-development network.
- */
-export async function qualifyOverwatchValidatorForDevnet(
+type DevnetStorageItem = [string, string];
+
+async function setStorageForDevnet(
   api: ApiPromise,
-  validatorId: string,
   provider: JsonRpcProvider,
+  storageItems: DevnetStorageItem[],
 ) {
-  const validatorReputation = await api.query.network.validatorReputation(validatorId);
-  const reputationJson = validatorReputation.toJSON() as Record<string, unknown>;
-  const setReputationField = (camelCase: string, snakeCase: string, value: unknown) => {
-    reputationJson[snakeCase in reputationJson ? snakeCase : camelCase] = value;
-  };
-  const percentageFactor = "1000000000000000000";
-
-  setReputationField("startEpoch", "start_epoch", 0);
-  setReputationField("score", "score", percentageFactor);
-  setReputationField(
-    "averageProposalIdentitySupport",
-    "average_proposal_identity_support",
-    percentageFactor,
-  );
-  setReputationField("identitySupportSamples", "identity_support_samples", 1);
-
-  const qualifiedReputation = api.registry.createType(
-    validatorReputation.toRawType(),
-    reputationJson,
-  );
-  const currentBlock = Number((await api.query.system.number()).toString());
-  const u32 = (value: number) => api.registry.createType("u32", value).toHex();
-  const storageItems = [
-    [
-      api.query.network.validatorReputation.key(validatorId),
-      qualifiedReputation.toHex(),
-    ],
-    [
-      api.query.network.overwatchValidatorWhitelist.key(validatorId),
-      api.registry.createType("bool", true).toHex(),
-    ],
-    [api.query.network.overwatchMinAge.key(), u32(0)],
-    [api.query.network.currentOverwatchEpoch.key(), u32(1)],
-    [api.query.network.overwatchEpochStartBlock.key(), u32(currentBlock)],
-  ];
-
   const keyring = new Keyring({ type: "ethereum" });
   const sudoPair = keyring.addFromUri(
     "0x5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133",
   );
-  const sudoSetStorage = api.tx.sudo.sudo(api.tx.system.setStorage(storageItems));
+  const sudoSetStorage = api.tx.sudo.sudo(
+    api.tx.system.setStorage(storageItems),
+  );
   let finalized = false;
   let dispatchError: Error | undefined;
   let unsubscribe: (() => void) | undefined;
@@ -337,6 +334,118 @@ export async function qualifyOverwatchValidatorForDevnet(
   }
 }
 
+function encodeStorageValueFromMetadata(
+  api: ApiPromise,
+  storageEntry: any,
+  value: unknown,
+): string {
+  const storageType = storageEntry.creator.meta.type;
+  const valueType = storageType.isPlain
+    ? storageType.asPlain
+    : storageType.asMap.value;
+  const typeName = api.registry.lookup.getTypeDef(valueType).type;
+  return api.registry.createType(typeName, value).toHex();
+}
+
+/**
+ * Whitelist a validator identity and seed Overwatch epoch timing for integration tests.
+ *
+ * This uses the development chain's sudo account and `System.setStorage`, so it must never be used
+ * against a non-development network.
+ */
+export async function whitelistOverwatchValidatorForDevnet(
+  api: ApiPromise,
+  validatorId: string,
+  provider: JsonRpcProvider,
+) {
+  const currentBlock = Number((await api.query.system.number()).toString());
+  const u32 = (value: number) => api.registry.createType("u32", value).toHex();
+  const storageItems = [
+    [api.query.network.overwatchValidatorWhitelist.key(validatorId), "0x"],
+    [api.query.network.currentOverwatchEpoch.key(), u32(1)],
+    [api.query.network.overwatchEpochStartBlock.key(), u32(currentBlock)],
+  ] as DevnetStorageItem[];
+
+  await setStorageForDevnet(api, provider, storageItems);
+}
+
+/**
+ * Seed finalized and latest-effective Overwatch view state on a development chain.
+ *
+ * Values are SCALE-encoded from the connected runtime's storage metadata rather than
+ * duplicating runtime type layouts in the test suite.
+ */
+export async function seedOverwatchSignalViewsForDevnet(
+  api: ApiPromise,
+  provider: JsonRpcProvider,
+  values: {
+    historicalEpoch: number;
+    subnetId: number;
+    overwatchNodeId: string;
+    historicalSubnetWeight: bigint;
+    historicalNodeWeight: bigint;
+    effectiveRawWeight: bigint;
+    revision: bigint;
+  },
+) {
+  const network = api.query.network;
+  const effectiveSignal = {
+    sourceEpoch: values.historicalEpoch,
+    valid: true,
+    subnetWeights: new Map([[values.subnetId, values.effectiveRawWeight]]),
+  };
+  const storageItems: DevnetStorageItem[] = [
+    [
+      network.overwatchSubnetWeights.key(
+        values.historicalEpoch,
+        values.subnetId,
+      ),
+      encodeStorageValueFromMetadata(
+        api,
+        network.overwatchSubnetWeights,
+        values.historicalSubnetWeight,
+      ),
+    ],
+    [
+      network.overwatchNodeWeights.key(
+        values.historicalEpoch,
+        values.overwatchNodeId,
+      ),
+      encodeStorageValueFromMetadata(
+        api,
+        network.overwatchNodeWeights,
+        values.historicalNodeWeight,
+      ),
+    ],
+    [
+      network.lastFinalizedOverwatchEpoch.key(),
+      encodeStorageValueFromMetadata(
+        api,
+        network.lastFinalizedOverwatchEpoch,
+        values.historicalEpoch,
+      ),
+    ],
+    [
+      network.latestEffectiveOverwatchSignal.key(),
+      encodeStorageValueFromMetadata(
+        api,
+        network.latestEffectiveOverwatchSignal,
+        effectiveSignal,
+      ),
+    ],
+    [
+      network.latestOverwatchSignalRevision.key(),
+      encodeStorageValueFromMetadata(
+        api,
+        network.latestOverwatchSignalRevision,
+        values.revision,
+      ),
+    ],
+  ];
+
+  await setStorageForDevnet(api, provider, storageItems);
+}
+
 export async function registerSubnet(
   contract: Contract,
   maxCost: string,
@@ -348,7 +457,7 @@ export async function registerSubnet(
   maxStake: string,
   delegateStakePercentage: string,
   initialValidators: any,
-  bootnodes: Array<{ peerId: string, multiaddr: Uint8Array }>,
+  bootnodes: Array<{ peerId: string; multiaddr: Uint8Array }>,
   fee: bigint,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
@@ -364,7 +473,7 @@ export async function registerSubnet(
     delegateStakePercentage,
     initialValidators,
     bootnodes,
-    { value: fee }
+    { value: fee },
   );
 
   if (manualSeal) {
@@ -381,13 +490,8 @@ export async function registerSubnet(
   }
 }
 
-export async function activateSubnet(
-  contract: Contract,
-  subnetId: string,
-) {
-  const tx = await contract.activateSubnet(
-    subnetId,
-  );
+export async function activateSubnet(contract: Contract, subnetId: string) {
+  const tx = await contract.activateSubnet(subnetId);
 
   await tx.wait();
 }
@@ -396,20 +500,23 @@ export async function getCurrentRegistrationCost(
   contract: Contract,
   api: ApiPromise,
 ) {
-  const ethBlockNumber = await api.rpc.eth.blockNumber()
+  const ethBlockNumber = await api.rpc.eth.blockNumber();
   const substrateBlockNumber = await api.query.system.number();
 
-  const cost = await contract.getCurrentRegistrationCost(ethBlockNumber.toString());
+  const cost = await contract.getCurrentRegistrationCost(
+    ethBlockNumber.toString(),
+  );
 
-  return cost
+  return cost;
 }
 
 export async function getMinSubnetDelegateStakeBalance(
   contract: Contract,
-  subnetId: string
+  subnetId: string,
 ) {
-  const minDelegateStake = await contract.getMinSubnetDelegateStakeBalance(subnetId);
-  return minDelegateStake
+  const minDelegateStake =
+    await contract.getMinSubnetDelegateStakeBalance(subnetId);
+  return minDelegateStake;
 }
 
 // ===========
@@ -419,14 +526,14 @@ export async function registerSubnetNode(
   contract: Contract,
   subnetId: string,
   hotkey: string,
-  peerInfo: { peerId: string, multiaddr: Uint8Array },
-  bootnodePeerInfo: { peerId: string, multiaddr: Uint8Array },
-  clientPeerInfo: { peerId: string, multiaddr: Uint8Array },
+  peerInfo: { peerId: string; multiaddr: Uint8Array },
+  bootnodePeerInfo: { peerId: string; multiaddr: Uint8Array },
+  clientPeerInfo: { peerId: string; multiaddr: Uint8Array },
   delegateRewardRate: string,
   stakeToBeAdded: bigint,
   unique: string,
   nonUnique: string,
-  delegateAccount: { accountId: string, rate: bigint },
+  delegateAccount: { accountId: string; rate: bigint },
   maxBurnAmount: string,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
@@ -443,7 +550,7 @@ export async function registerSubnetNode(
     nonUnique,
     delegateAccount,
     maxBurnAmount,
-    { value: stakeToBeAdded }
+    { value: stakeToBeAdded },
   );
 
   if (manualSeal) {
@@ -465,10 +572,7 @@ export async function activateSubnetNode(
   subnetId: string,
   subnetNodeId: string,
 ) {
-  const tx = await contract.activateSubnetNode(
-    subnetId,
-    subnetNodeId,
-  );
+  const tx = await contract.activateSubnetNode(subnetId, subnetNodeId);
 
   await tx.wait();
 }
@@ -478,10 +582,7 @@ export async function removeSubnetNode(
   subnetId: string,
   subnetNodeId: string,
 ) {
-  const tx = await contract.removeSubnetNode(
-    subnetId,
-    subnetNodeId,
-  );
+  const tx = await contract.removeSubnetNode(subnetId, subnetNodeId);
 
   await tx.wait();
 }
@@ -490,7 +591,7 @@ export async function updateDelegateRewardRate(
   contract: Contract,
   subnetId: string,
   subnetNodeId: string,
-  value: string
+  value: string,
 ) {
   const tx = await contract.updateDelegateRewardRate(
     subnetId,
@@ -505,13 +606,9 @@ export async function updateUnique(
   contract: Contract,
   subnetId: string,
   subnetNodeId: string,
-  value: string
+  value: string,
 ) {
-  const tx = await contract.updateUnique(
-    subnetId,
-    subnetNodeId,
-    value,
-  );
+  const tx = await contract.updateUnique(subnetId, subnetNodeId, value);
 
   await tx.wait();
 }
@@ -520,13 +617,9 @@ export async function updateNonUnique(
   contract: Contract,
   subnetId: string,
   subnetNodeId: string,
-  value: string
+  value: string,
 ) {
-  const tx = await contract.updateNonUnique(
-    subnetId,
-    subnetNodeId,
-    value,
-  );
+  const tx = await contract.updateNonUnique(subnetId, subnetNodeId, value);
 
   await tx.wait();
 }
@@ -536,10 +629,7 @@ export async function updateColdkey(
   hotkey: string,
   newColdkey: string,
 ) {
-  const tx = await contract.updateColdkey(
-    hotkey,
-    newColdkey,
-  );
+  const tx = await contract.updateColdkey(hotkey, newColdkey);
 
   await tx.wait();
 }
@@ -549,10 +639,7 @@ export async function updateHotkey(
   oldHotkey: string,
   newHotkey: string,
 ) {
-  const tx = await contract.updateHotkey(
-    oldHotkey,
-    newHotkey,
-  );
+  const tx = await contract.updateHotkey(oldHotkey, newHotkey);
 
   await tx.wait();
 }
@@ -561,13 +648,9 @@ export async function updatePeerInfo(
   contract: Contract,
   subnetId: string,
   subnetNodeId: string,
-  newPeerInfo: { peerId: string, multiaddr: Uint8Array }
+  newPeerInfo: { peerId: string; multiaddr: Uint8Array },
 ) {
-  const tx = await contract.updatePeerInfo(
-    subnetId,
-    subnetNodeId,
-    newPeerInfo
-  );
+  const tx = await contract.updatePeerInfo(subnetId, subnetNodeId, newPeerInfo);
 
   await tx.wait();
 }
@@ -576,13 +659,9 @@ export async function updateBootnode(
   contract: Contract,
   subnetId: string,
   subnetNodeId: string,
-  newBootnode: string
+  newBootnode: string,
 ) {
-  const tx = await contract.updateBootnode(
-    subnetId,
-    subnetNodeId,
-    newBootnode
-  );
+  const tx = await contract.updateBootnode(subnetId, subnetNodeId, newBootnode);
 
   await tx.wait();
 }
@@ -591,12 +670,12 @@ export async function updateBootnodePeerInfo(
   contract: Contract,
   subnetId: string,
   subnetNodeId: string,
-  newPeerInfo: { peerId: string, multiaddr: Uint8Array }
+  newPeerInfo: { peerId: string; multiaddr: Uint8Array },
 ) {
   const tx = await contract.updateBootnodePeerInfo(
     subnetId,
     subnetNodeId,
-    newPeerInfo
+    newPeerInfo,
   );
 
   await tx.wait();
@@ -606,12 +685,12 @@ export async function updateClientPeerInfo(
   contract: Contract,
   subnetId: string,
   subnetNodeId: string,
-  newPeerInfo: { peerId: string, multiaddr: Uint8Array }
+  newPeerInfo: { peerId: string; multiaddr: Uint8Array },
 ) {
   const tx = await contract.updateClientPeerInfo(
     subnetId,
     subnetNodeId,
-    newPeerInfo
+    newPeerInfo,
   );
 
   await tx.wait();
@@ -645,15 +724,13 @@ export async function registerOrUpdateIdentity(
     github,
     huggingFace,
     description,
-    misc
+    misc,
   );
 
   await tx.wait();
 }
 
-export async function removeIdentity(
-  contract: Contract,
-) {
+export async function removeIdentity(contract: Contract) {
   const tx = await contract.removeIdentity();
 
   await tx.wait();
@@ -668,14 +745,14 @@ export async function addToStake(
   subnetId: string,
   subnetNodeId: string,
   hotkey: string,
-  balance: bigint
+  balance: bigint,
 ) {
   const tx = await contract.addToStake(
     subnetId,
     subnetNodeId,
     hotkey,
     balance,
-    { value: balance }
+    { value: balance },
   );
 
   await tx.wait();
@@ -685,14 +762,11 @@ export async function removeStake(
   contract: Contract,
   subnetId: string,
   hotkey: string,
-  balance: bigint
+  balance: bigint,
 ) {
-  const tx = await contract.removeStake(
-    subnetId,
-    hotkey,
-    balance,
-    { value: balance }
-  );
+  const tx = await contract.removeStake(subnetId, hotkey, balance, {
+    value: balance,
+  });
 
   await tx.wait();
 }
@@ -710,9 +784,11 @@ export async function addToDelegateStake(
   contract: Contract,
   subnetId: string,
   balance: bigint,
-  fee: bigint
+  fee: bigint,
 ) {
-  const tx = await contract.addToDelegateStake(subnetId, balance, { value: fee });
+  const tx = await contract.addToDelegateStake(subnetId, balance, {
+    value: fee,
+  });
 
   await tx.wait();
 }
@@ -720,7 +796,7 @@ export async function addToDelegateStake(
 export async function removeDelegateStake(
   contract: Contract,
   subnetId: string,
-  shares: bigint
+  shares: bigint,
 ) {
   const tx = await contract.removeDelegateStake(subnetId, shares);
 
@@ -731,7 +807,7 @@ export async function swapDelegateStake(
   contract: Contract,
   fromSubnetId: string,
   toSubnetId: string,
-  shares: bigint
+  shares: bigint,
 ) {
   const tx = await contract.swapDelegateStake(fromSubnetId, toSubnetId, shares);
 
@@ -742,7 +818,7 @@ export async function transferDelegateStake(
   contract: Contract,
   subnetId: string,
   toAccount: string,
-  shares: bigint
+  shares: bigint,
 ) {
   const tx = await contract.transferDelegateStake(subnetId, toAccount, shares);
 
@@ -760,30 +836,20 @@ export async function updateSwapQueue(
     id,
     callType,
     toSubnetId,
-    toSubnetNodeId
+    toSubnetNodeId,
   );
 
   await tx.wait();
 }
 
-export async function ownerPauseSubnet(
-  contract: Contract,
-  subnetId: string,
-) {
-  const tx = await contract.ownerPauseSubnet(
-    subnetId
-  );
+export async function ownerPauseSubnet(contract: Contract, subnetId: string) {
+  const tx = await contract.ownerPauseSubnet(subnetId);
 
   await tx.wait();
 }
 
-export async function ownerUnpauseSubnet(
-  contract: Contract,
-  subnetId: string,
-) {
-  const tx = await contract.ownerUnpauseSubnet(
-    subnetId
-  );
+export async function ownerUnpauseSubnet(contract: Contract, subnetId: string) {
+  const tx = await contract.ownerUnpauseSubnet(subnetId);
 
   await tx.wait();
 }
@@ -809,17 +875,11 @@ export async function getPauseStartedSubnetEpoch(
   return contract.getPauseStartedSubnetEpoch(subnetId);
 }
 
-export async function getSlotIndex(
-  contract: Contract,
-  subnetId: string,
-) {
+export async function getSlotIndex(contract: Contract, subnetId: string) {
   return contract.getSlotIndex(subnetId);
 }
 
-export async function getSubnetAtSlot(
-  contract: Contract,
-  slot: string,
-) {
+export async function getSubnetAtSlot(contract: Contract, slot: string) {
   return contract.getSubnetAtSlot(slot);
 }
 
@@ -827,9 +887,7 @@ export async function ownerDeactivateSubnet(
   contract: Contract,
   subnetId: string,
 ) {
-  const tx = await contract.ownerDeactivateSubnet(
-    subnetId
-  );
+  const tx = await contract.ownerDeactivateSubnet(subnetId);
 
   await tx.wait();
 }
@@ -837,12 +895,9 @@ export async function ownerDeactivateSubnet(
 export async function ownerUpdateName(
   contract: Contract,
   subnetId: string,
-  value: string
+  value: string,
 ) {
-  const tx = await contract.ownerUpdateName(
-    subnetId,
-    value
-  );
+  const tx = await contract.ownerUpdateName(subnetId, value);
 
   await tx.wait();
 }
@@ -850,12 +905,9 @@ export async function ownerUpdateName(
 export async function ownerUpdateRepo(
   contract: Contract,
   subnetId: string,
-  value: string
+  value: string,
 ) {
-  const tx = await contract.ownerUpdateRepo(
-    subnetId,
-    value
-  );
+  const tx = await contract.ownerUpdateRepo(subnetId, value);
 
   await tx.wait();
 }
@@ -863,12 +915,9 @@ export async function ownerUpdateRepo(
 export async function ownerUpdateDescription(
   contract: Contract,
   subnetId: string,
-  value: string
+  value: string,
 ) {
-  const tx = await contract.ownerUpdateDescription(
-    subnetId,
-    value
-  );
+  const tx = await contract.ownerUpdateDescription(subnetId, value);
 
   await tx.wait();
 }
@@ -876,12 +925,9 @@ export async function ownerUpdateDescription(
 export async function ownerUpdateMisc(
   contract: Contract,
   subnetId: string,
-  value: string
+  value: string,
 ) {
-  const tx = await contract.ownerUpdateMisc(
-    subnetId,
-    value
-  );
+  const tx = await contract.ownerUpdateMisc(subnetId, value);
 
   await tx.wait();
 }
@@ -889,12 +935,9 @@ export async function ownerUpdateMisc(
 export async function ownerUpdateChurnLimit(
   contract: Contract,
   subnetId: string,
-  value: string
+  value: string,
 ) {
-  const tx = await contract.ownerUpdateChurnLimit(
-    subnetId,
-    value
-  );
+  const tx = await contract.ownerUpdateChurnLimit(subnetId, value);
 
   await tx.wait();
 }
@@ -902,12 +945,9 @@ export async function ownerUpdateChurnLimit(
 export async function ownerUpdateRegistrationQueueEpochs(
   contract: Contract,
   subnetId: string,
-  value: string
+  value: string,
 ) {
-  const tx = await contract.ownerUpdateRegistrationQueueEpochs(
-    subnetId,
-    value
-  );
+  const tx = await contract.ownerUpdateRegistrationQueueEpochs(subnetId, value);
 
   await tx.wait();
 }
@@ -915,11 +955,11 @@ export async function ownerUpdateRegistrationQueueEpochs(
 export async function ownerUpdateIdleClassificationEpochs(
   contract: Contract,
   subnetId: string,
-  value: string
+  value: string,
 ) {
   const tx = await contract.ownerUpdateIdleClassificationEpochs(
     subnetId,
-    value
+    value,
   );
 
   await tx.wait();
@@ -928,11 +968,11 @@ export async function ownerUpdateIdleClassificationEpochs(
 export async function ownerUpdateIncludedClassificationEpochs(
   contract: Contract,
   subnetId: string,
-  value: string
+  value: string,
 ) {
   const tx = await contract.ownerUpdateIncludedClassificationEpochs(
     subnetId,
-    value
+    value,
   );
 
   await tx.wait();
@@ -941,12 +981,9 @@ export async function ownerUpdateIncludedClassificationEpochs(
 export async function ownerAddOrUpdateInitialColdkeys(
   contract: Contract,
   subnetId: string,
-  coldkeys: any
+  coldkeys: any,
 ) {
-  const tx = await contract.ownerAddOrUpdateInitialColdkeys(
-    subnetId,
-    coldkeys
-  );
+  const tx = await contract.ownerAddOrUpdateInitialColdkeys(subnetId, coldkeys);
 
   await tx.wait();
 }
@@ -954,12 +991,9 @@ export async function ownerAddOrUpdateInitialColdkeys(
 export async function ownerRemoveInitialColdkeys(
   contract: Contract,
   subnetId: string,
-  coldkeys: string[]
+  coldkeys: string[],
 ) {
-  const tx = await contract.ownerRemoveInitialColdkeys(
-    subnetId,
-    coldkeys
-  );
+  const tx = await contract.ownerRemoveInitialColdkeys(subnetId, coldkeys);
 
   await tx.wait();
 }
@@ -968,13 +1002,9 @@ export async function ownerUpdateMinMaxStake(
   contract: Contract,
   subnetId: string,
   min: string,
-  max: string
+  max: string,
 ) {
-  const tx = await contract.ownerUpdateMinMaxStake(
-    subnetId,
-    min,
-    max
-  );
+  const tx = await contract.ownerUpdateMinMaxStake(subnetId, min, max);
 
   await tx.wait();
 }
@@ -982,12 +1012,9 @@ export async function ownerUpdateMinMaxStake(
 export async function ownerUpdateDelegateStakePercentage(
   contract: Contract,
   subnetId: string,
-  value: string
+  value: string,
 ) {
-  const tx = await contract.ownerUpdateDelegateStakePercentage(
-    subnetId,
-    value
-  );
+  const tx = await contract.ownerUpdateDelegateStakePercentage(subnetId, value);
 
   await tx.wait();
 }
@@ -997,10 +1024,7 @@ export async function ownerUpdateMaxRegisteredNodes(
   subnetId: string,
   value: string,
 ) {
-  const tx = await contract.ownerUpdateMaxRegisteredNodes(
-    subnetId,
-    value
-  );
+  const tx = await contract.ownerUpdateMaxRegisteredNodes(subnetId, value);
 
   await tx.wait();
 }
@@ -1010,10 +1034,7 @@ export async function transferSubnetOwnership(
   subnetId: string,
   address: string,
 ) {
-  const tx = await contract.transferSubnetOwnership(
-    subnetId,
-    address
-  );
+  const tx = await contract.transferSubnetOwnership(subnetId, address);
 
   await tx.wait();
 }
@@ -1022,9 +1043,7 @@ export async function acceptSubnetOwnership(
   contract: Contract,
   subnetId: string,
 ) {
-  const tx = await contract.acceptSubnetOwnership(
-    subnetId,
-  );
+  const tx = await contract.acceptSubnetOwnership(subnetId);
 
   await tx.wait();
 }
@@ -1034,10 +1053,7 @@ export async function ownerAddBootnodeAccess(
   subnetId: string,
   newAccount: string,
 ) {
-  const tx = await contract.ownerAddBootnodeAccess(
-    subnetId,
-    newAccount
-  );
+  const tx = await contract.ownerAddBootnodeAccess(subnetId, newAccount);
 
   await tx.wait();
 }
@@ -1049,7 +1065,7 @@ export async function ownerUpdateTargetNodeRegistrationsPerEpoch(
 ) {
   const tx = await contract.ownerUpdateTargetNodeRegistrationsPerEpoch(
     subnetId,
-    value
+    value,
   );
 
   await tx.wait();
@@ -1060,10 +1076,7 @@ export async function ownerUpdateNodeBurnRateAlpha(
   subnetId: string,
   value: string,
 ) {
-  const tx = await contract.ownerUpdateNodeBurnRateAlpha(
-    subnetId,
-    value
-  );
+  const tx = await contract.ownerUpdateNodeBurnRateAlpha(subnetId, value);
 
   await tx.wait();
 }
@@ -1073,10 +1086,7 @@ export async function ownerUpdateQueueImmunityEpochs(
   subnetId: string,
   value: string,
 ) {
-  const tx = await contract.ownerUpdateQueueImmunityEpochs(
-    subnetId,
-    value
-  );
+  const tx = await contract.ownerUpdateQueueImmunityEpochs(subnetId, value);
 
   await tx.wait();
 }
@@ -1085,13 +1095,9 @@ export async function updateBootnodes(
   contract: Contract,
   subnetId: string,
   add: any,
-  remove: any
+  remove: any,
 ) {
-  const tx = await contract.updateBootnodes(
-    subnetId,
-    add,
-    remove
-  );
+  const tx = await contract.updateBootnodes(subnetId, add, remove);
 
   await tx.wait();
 }
@@ -1127,9 +1133,7 @@ export async function removeOverwatchNode(
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
 ) {
-  const tx = await contract.removeOverwatchNode(
-    overwatchNodeId
-  );
+  const tx = await contract.removeOverwatchNode(overwatchNodeId);
 
   if (manualSeal) {
     let receipt = null;
@@ -1204,10 +1208,7 @@ export async function addToOverwatchStake(
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
 ) {
-  const tx = await contract.addOverwatchStake(
-    overwatchNodeId,
-    stakeToBeAdded,
-  );
+  const tx = await contract.addOverwatchStake(overwatchNodeId, stakeToBeAdded);
 
   if (manualSeal) {
     let receipt = null;
@@ -1256,7 +1257,10 @@ export async function commitOverwatchSubnetWeights(
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
 ) {
-  const tx = await contract.commitOverwatchSubnetWeights(overwatchNodeId, commits);
+  const tx = await contract.commitOverwatchSubnetWeights(
+    overwatchNodeId,
+    commits,
+  );
 
   if (manualSeal) {
     let receipt = null;
@@ -1279,7 +1283,10 @@ export async function revealOverwatchSubnetWeights(
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
 ) {
-  const tx = await contract.revealOverwatchSubnetWeights(overwatchNodeId, reveals);
+  const tx = await contract.revealOverwatchSubnetWeights(
+    overwatchNodeId,
+    reveals,
+  );
 
   if (manualSeal) {
     let receipt = null;
@@ -1316,7 +1323,11 @@ export async function revealOverwatchSubnetWeights(
 //     });
 //   });
 // }
-export async function waitForFinalizedBalance(papiApi: any, address: string, lastBalance: bigint) {
+export async function waitForFinalizedBalance(
+  papiApi: any,
+  address: string,
+  lastBalance: bigint,
+) {
   while (true) {
     // Query latest System.Account
     const accountData = await papiApi.query.System.Account.getValue(address);
@@ -1333,19 +1344,27 @@ export async function waitForFinalizedBalance(papiApi: any, address: string, las
  * @param api - Connected ApiPromise instance
  * @param numBlocks - Number of blocks to produce
  */
-export async function advanceBlocks(api: ApiPromise, numBlocks: number): Promise<void> {
+export async function advanceBlocks(
+  api: ApiPromise,
+  numBlocks: number,
+): Promise<void> {
   for (let i = 0; i < numBlocks; i++) {
     // true, true => finalize block, include pending extrinsics
     await api.rpc.engine.createBlock(true, true);
   }
 
   const latestHash = await api.rpc.chain.getBlockHash();
-  const latestNumber = await api.rpc.chain.getHeader(latestHash).then(h => h.number.toNumber());
+  const latestNumber = await api.rpc.chain
+    .getHeader(latestHash)
+    .then((h) => h.number.toNumber());
 
   console.log(`Advanced ${numBlocks} blocks. Current block: ${latestNumber}`);
 }
 
-export async function createAndFinalizeBlock(provider: JsonRpcProvider, finalize = true) {
+export async function createAndFinalizeBlock(
+  provider: JsonRpcProvider,
+  finalize = true,
+) {
   const request = {
     jsonrpc: "2.0",
     id: Date.now(),
@@ -1363,7 +1382,11 @@ export async function createAndFinalizeBlock(provider: JsonRpcProvider, finalize
   await new Promise<void>((resolve) => setTimeout(resolve, 500));
 }
 
-export async function createAndFinalizeBlocks(provider: JsonRpcProvider, numBlocks: number, finalize = true) {
+export async function createAndFinalizeBlocks(
+  provider: JsonRpcProvider,
+  numBlocks: number,
+  finalize = true,
+) {
   for (let i = 0; i < numBlocks; i++) {
     const request = {
       jsonrpc: "2.0",
@@ -1375,13 +1398,16 @@ export async function createAndFinalizeBlocks(provider: JsonRpcProvider, numBloc
     const response = await provider.send(request.method, request.params);
 
     if (!response) {
-      throw new Error(`engine_createBlock failed on block ${i + 1}: ${JSON.stringify(response)}`);
+      throw new Error(
+        `engine_createBlock failed on block ${i + 1}: ${JSON.stringify(response)}`,
+      );
     }
 
     console.log(`Created block ${i + 1}/${numBlocks}`);
 
     // Optional delay between blocks
-    if (i < numBlocks - 1) { // Don't delay after the last block
+    if (i < numBlocks - 1) {
+      // Don't delay after the last block
       await new Promise<void>((resolve) => setTimeout(resolve, 500));
     }
   }
@@ -1389,29 +1415,37 @@ export async function createAndFinalizeBlocks(provider: JsonRpcProvider, numBloc
 
 export async function calculateRevealBlock(
   api: ApiPromise,
-  epoch: number
+  epoch: number,
 ): Promise<number> {
   // Read one finalized state snapshot so rollover cannot mix the old round ID with the new
   // round's start/configuration. Keep the 1e18-scaled cutoff in bigint arithmetic.
   const finalizedHash = await api.rpc.chain.getFinalizedHead();
   const apiAt = await api.at(finalizedHash);
   const epochLength = BigInt(apiAt.consts.network.epochLength.toString());
-  const multiplier = BigInt((await apiAt.query.network.overwatchEpochLengthMultiplier()).toString());
-  const epochStartBlock = BigInt((await apiAt.query.network.overwatchEpochStartBlock()).toString());
-  const currentEpoch = Number((await apiAt.query.network.currentOverwatchEpoch()).toString());
-  const cutoffPercentage = BigInt((await apiAt.query.network.overwatchCommitCutoffPercent()).toString());
+  const multiplier = BigInt(
+    (await apiAt.query.network.overwatchEpochLengthMultiplier()).toString(),
+  );
+  const epochStartBlock = BigInt(
+    (await apiAt.query.network.overwatchEpochStartBlock()).toString(),
+  );
+  const currentEpoch = Number(
+    (await apiAt.query.network.currentOverwatchEpoch()).toString(),
+  );
+  const cutoffPercentage = BigInt(
+    (await apiAt.query.network.overwatchCommitCutoffPercent()).toString(),
+  );
 
   if (epoch !== currentEpoch) {
     throw new Error(
-      `Can only calculate the active Overwatch epoch reveal block: requested ${epoch}, current ${currentEpoch}`
+      `Can only calculate the active Overwatch epoch reveal block: requested ${epoch}, current ${currentEpoch}`,
     );
   }
 
-  console.log('Configuration:');
-  console.log('  Epoch Length:', epochLength);
-  console.log('  Multiplier:', multiplier);
-  console.log('  Epoch Start Block:', epochStartBlock);
-  console.log('  Cutoff Percentage:', cutoffPercentage);
+  console.log("Configuration:");
+  console.log("  Epoch Length:", epochLength);
+  console.log("  Multiplier:", multiplier);
+  console.log("  Epoch Start Block:", epochStartBlock);
+  console.log("  Cutoff Percentage:", cutoffPercentage);
 
   // Calculate overwatch epoch length
   const overwatchEpochLength = epochLength * multiplier;
@@ -1424,13 +1458,15 @@ export async function calculateRevealBlock(
   // Calculate target block number
   const revealBlock = epochStartBlock + blockIncreaseCutoff;
   if (revealBlock > BigInt(Number.MAX_SAFE_INTEGER)) {
-    throw new Error(`Reveal block ${revealBlock} exceeds JavaScript's safe integer range`);
+    throw new Error(
+      `Reveal block ${revealBlock} exceeds JavaScript's safe integer range`,
+    );
   }
 
-  console.log('Calculations:');
-  console.log('  Overwatch Epoch Length:', overwatchEpochLength);
-  console.log('  Block Increase Cutoff:', blockIncreaseCutoff);
-  console.log('  Target Reveal Block:', revealBlock);
+  console.log("Calculations:");
+  console.log("  Overwatch Epoch Length:", overwatchEpochLength);
+  console.log("  Block Increase Cutoff:", blockIncreaseCutoff);
+  console.log("  Target Reveal Block:", revealBlock);
 
   return Number(revealBlock);
 }
@@ -1439,21 +1475,21 @@ export async function calculateRevealBlock(
 export async function advanceToRevealBlock(
   api: ApiPromise,
   provider: JsonRpcProvider,
-  epoch: number
+  epoch: number,
 ): Promise<number> {
   // Get current block number
   const currentBlock = Number((await api.query.system.number()).toString());
-  console.log('Current block:', currentBlock);
+  console.log("Current block:", currentBlock);
 
   // Calculate target reveal block
   const revealBlock = await calculateRevealBlock(api, epoch);
-  console.log('Target reveal block:', revealBlock);
+  console.log("Target reveal block:", revealBlock);
 
   // Calculate how many blocks to advance
   const blocksToAdvance = revealBlock - currentBlock;
 
   if (blocksToAdvance <= 0) {
-    console.log('Already at or past reveal block');
+    console.log("Already at or past reveal block");
     return currentBlock;
   }
 
@@ -1464,7 +1500,7 @@ export async function advanceToRevealBlock(
 
   // Verify we reached the target
   const newBlock = Number((await api.query.system.number()).toString());
-  console.log('New block number:', newBlock);
+  console.log("New block number:", newBlock);
 
   return newBlock;
 }

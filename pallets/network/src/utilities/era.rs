@@ -47,8 +47,6 @@ impl<T: Config> Pallet<T> {
                 BaseValidatorDelegateStakeSlashPercentage::<T>::get(),
             max_validator_delegate_stake_slash_amount:
                 MaxValidatorDelegateStakeSlashAmount::<T>::get(),
-            validator_reputation_increase_factor: ValidatorReputationIncreaseFactor::<T>::get(),
-            validator_reputation_decrease_factor: ValidatorReputationDecreaseFactor::<T>::get(),
             validator_absent_subnet_reputation_factor:
                 ValidatorAbsentSubnetReputationFactor::<T>::get(),
             in_consensus_subnet_reputation_factor: InConsensusSubnetReputationFactor::<T>::get(),
@@ -125,6 +123,21 @@ impl<T: Config> Pallet<T> {
         CurrentOverwatchEpoch::<T>::get()
     }
 
+    /// Validate the cutoff against the shortest permitted Overwatch epoch (a multiplier of one).
+    /// This guarantees at least one commit block and one reveal block for every valid multiplier.
+    pub fn is_usable_overwatch_commit_cutoff_percent(value: u128) -> bool {
+        if value > T::MaxOverwatchCommitCutoffPercent::get() {
+            return false;
+        }
+
+        let epoch_blocks = T::EpochLength::get() as u128;
+        let minimum_phase_blocks = MIN_OVERWATCH_PHASE_BLOCKS as u128;
+        let commit_blocks = Self::percent_mul(epoch_blocks, value);
+        let reveal_blocks = epoch_blocks.saturating_sub(commit_blocks);
+
+        commit_blocks >= minimum_phase_blocks && reveal_blocks >= minimum_phase_blocks
+    }
+
     pub fn in_overwatch_commit_period() -> bool {
         let current_block = Self::get_current_block_as_u32();
         let epoch_start_block = OverwatchEpochStartBlock::<T>::get();
@@ -196,24 +209,21 @@ impl<T: Config> Pallet<T> {
             T::MaxOverwatchNodesUpperBound,
         >::new();
 
-        for overwatch_node_id in reveal_stats.revealing_nodes.iter().copied() {
+        for (overwatch_node_id, reveals) in OverwatchReveals::<T>::iter_prefix(completed_epoch) {
+            weight = weight.saturating_add(db_weight.reads(1));
+            if reveals.is_empty() {
+                continue;
+            }
             // Only the canonical active validator-to-node relationship at close time is eligible.
             // Charge conservatively for the three ownership reads plus the stake read even when
             // an inconsistent relationship fails before all of them are reached.
             weight = weight.saturating_add(db_weight.reads(4));
-            let Ok(validator_id) = Self::get_active_overwatch_validator_id(overwatch_node_id)
-            else {
+            if Self::get_active_overwatch_validator_id(overwatch_node_id).is_err() {
                 continue;
-            };
+            }
             let stake = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
             if nodes
-                .try_insert(
-                    overwatch_node_id,
-                    OverwatchNodeSettlementSnapshot {
-                        validator_id,
-                        stake,
-                    },
-                )
+                .try_insert(overwatch_node_id, OverwatchNodeSettlementSnapshot { stake })
                 .is_err()
             {
                 return weight;
@@ -231,11 +241,19 @@ impl<T: Config> Pallet<T> {
         OverwatchEpochSettlementSnapshots::<T>::insert(completed_epoch, settlement_snapshot);
         PendingOverwatchSettlement::<T>::put(PendingOverwatchSettlementData {
             epoch: completed_epoch,
-            epoch_length_multiplier: multiplier,
             reveal_records: reveal_stats.records,
-            revealing_nodes: reveal_stats.revealing_nodes.len() as u32,
-            revealed_subnets: reveal_stats.revealed_subnets.len() as u32,
         });
+
+        // Commits are ephemeral authentication material. Remove them only after the complete
+        // pending settlement has been published so a failed close remains retryable.
+        let committed_nodes: Vec<u32> = OverwatchCommits::<T>::iter_prefix(completed_epoch)
+            .map(|(node_id, _)| node_id)
+            .collect();
+        weight = weight.saturating_add(db_weight.reads(committed_nodes.len() as u64));
+        for node_id in committed_nodes {
+            OverwatchCommits::<T>::remove(completed_epoch, node_id);
+            weight = weight.saturating_add(db_weight.writes(1));
+        }
         ActiveOverwatchRevealStats::<T>::kill();
         CurrentOverwatchEpoch::<T>::put(completed_epoch.saturating_add(1));
 
@@ -696,8 +714,13 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        let (slot_list, emergency, expired_emergency) =
-            Self::resolve_consensus_validator_ids(subnet_id, subnet_epoch);
+        let pending_ids = Self::pending_subnet_node_removal_ids(subnet_id);
+        let (physical_slot_list, emergency_active, expired_emergency) =
+            Self::resolve_consensus_validator_ids_with_pending(
+                subnet_id,
+                subnet_epoch,
+                &pending_ids,
+            );
 
         // Runtime queries use the same resolver without mutating state. Election is a state-changing
         // lifecycle point, so it also performs the cleanup once an emergency set has expired.
@@ -705,11 +728,20 @@ impl<T: Config> Pallet<T> {
             Self::finish_emergency_validator_set(subnet_id);
         }
 
-        if slot_list.is_empty() {
+        if physical_slot_list.is_empty() {
             return;
         }
 
-        let Some(eligible_validator_identity_ids) = slot_list
+        // Pending removal is a logical quarantine. Keep the physical canonical list intact so a
+        // single random draw retains its original domain, then scan circularly for the first
+        // healthy candidate. Physical deletion remains exclusively in metered cleanup paths.
+        let eligible_subnet_node_ids: Vec<u32> = physical_slot_list
+            .iter()
+            .copied()
+            .filter(|subnet_node_id| !pending_ids.contains(subnet_node_id))
+            .collect();
+
+        let Some(eligible_validator_identity_ids) = eligible_subnet_node_ids
             .iter()
             .map(|subnet_node_id| {
                 SubnetNodeValidatorId::<T>::get(subnet_id, *subnet_node_id)
@@ -724,12 +756,16 @@ impl<T: Config> Pallet<T> {
 
         let Some(idx) = Self::get_bounded_random_index(
             (subnet_id, subnet_epoch, block),
-            slot_list.len() as u32,
+            physical_slot_list.len() as u32,
         ) else {
             return;
         };
 
-        let subnet_node_id = slot_list.get(idx as usize).cloned();
+        let subnet_node_id = (0..physical_slot_list.len()).find_map(|offset| {
+            let candidate_index = (idx as usize).saturating_add(offset) % physical_slot_list.len();
+            let subnet_node_id = physical_slot_list[candidate_index];
+            (!pending_ids.contains(&subnet_node_id)).then_some(subnet_node_id)
+        });
 
         if let Some(node_id) = subnet_node_id {
             let policy = Self::consensus_policy_snapshot(subnet_id, subnet_epoch);
@@ -738,9 +774,18 @@ impl<T: Config> Pallet<T> {
             };
             let validator_delegate_stake_balance =
                 ValidatorDelegateStakeBalance::<T>::get(validator_id);
+            let emergency = if emergency_active {
+                let Some(data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id) else {
+                    return;
+                };
+                Some(Self::emergency_consensus_snapshot(
+                    &data,
+                    eligible_subnet_node_ids.clone(),
+                ))
+            } else {
+                None
+            };
 
-            // Persist the election before recording its validator-level metadata. Settlement for
-            // this election happens at the next subnet slot and must not relabel the election.
             SubnetElectedValidator::<T>::insert(
                 subnet_id,
                 subnet_epoch,
@@ -748,7 +793,7 @@ impl<T: Config> Pallet<T> {
                     validator_subnet_node_id: node_id,
                     validator_id,
                     emergency,
-                    eligible_subnet_node_ids: slot_list,
+                    eligible_subnet_node_ids,
                     eligible_validator_identity_ids,
                     policy,
                     validator_delegate_stake_balance,
@@ -766,9 +811,6 @@ impl<T: Config> Pallet<T> {
                     *lock_until = (*lock_until).max(settlement_block);
                 });
             }
-
-            let election_epoch = Self::get_current_epoch_with_block_as_u32(block);
-            Self::record_validator_election(validator_id, election_epoch);
         }
     }
 }

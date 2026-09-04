@@ -6,7 +6,7 @@ use crate::{
     MaxDelegateStakePercentage, MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes,
     MaxSubnets, MinSubnetNodes, MinSubnetRegistrationEpochs, MultiaddrSubnetNodeId,
     NodeRewardRateUpdatePeriod, NodeSlotIndex, PeerIdSubnetNodeId, PeerInfo,
-    RegisteredSubnetNodesData, Reputation, SubnetElectedValidator, SubnetMinStakeBalance,
+    RegisteredSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance,
     SubnetName, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
     SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetOwner, SubnetState, SubnetsData,
     TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes,

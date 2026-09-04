@@ -17,6 +17,11 @@ use super::*;
 use frame_support::pallet_prelude::DispatchError;
 use frame_support::pallet_prelude::Weight;
 
+/// Trie/SCALE overhead beyond the four encoded bytes for each bounded `u32` node ID in both
+/// pending-removal sets. This is deliberately conservative until the pending-aware removal
+/// benchmarks provide generated proof-size terms.
+const PENDING_NODE_REMOVAL_PROOF_OVERHEAD_BYTES: u64 = 8 * 1024;
+
 impl<T: Config> Pallet<T> {
     pub fn do_update_node_peer_info(
         subnet_id: u32,
@@ -975,6 +980,7 @@ impl<T: Config> Pallet<T> {
         let subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::take(subnet_id, subnet_node_id)
         } else {
+            Self::clear_pending_active_subnet_node_removal(subnet_id, subnet_node_id);
             return false;
         };
 
@@ -1006,6 +1012,7 @@ impl<T: Config> Pallet<T> {
         {
             RegisteredSubnetNodesData::<T>::take(subnet_id, subnet_node_id)
         } else {
+            Self::clear_pending_registered_subnet_node_removal(subnet_id, subnet_node_id);
             return;
         };
 
@@ -1021,6 +1028,10 @@ impl<T: Config> Pallet<T> {
         subnet_node_id: u32,
         subnet_node: SubnetNode<T>,
     ) {
+        // Physical removal is the terminal state for either quarantine class. Clear both markers
+        // defensively so a stale/mismatched marker cannot survive a node lifecycle transition.
+        Self::clear_pending_subnet_node_removal(subnet_id, subnet_node_id);
+
         if let Some(unique) = subnet_node.unique {
             UniqueParamSubnetNodeId::<T>::remove(subnet_id, unique);
         }
@@ -1071,11 +1082,6 @@ impl<T: Config> Pallet<T> {
             subnet_node_id,
         );
 
-        // Subtract from coldkey reputation
-        ValidatorReputation::<T>::mutate(subnet_node.validator_id, |rep| {
-            rep.total_active_nodes = rep.total_active_nodes.saturating_sub(1);
-        });
-
         // Update total subnet peers by subtracting  1
         TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| n.saturating_dec());
         TotalNodes::<T>::mutate(|n: &mut u32| n.saturating_dec());
@@ -1089,13 +1095,16 @@ impl<T: Config> Pallet<T> {
     pub fn perform_remove_subnet_node(subnet_id: u32, subnet_node_id: u32) {
         let mut is_active = false;
         let mut is_registered = false;
-        let subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
+        let _subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             is_active = true;
             SubnetNodesData::<T>::get(subnet_id, subnet_node_id)
         } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             is_registered = true;
             RegisteredSubnetNodesData::<T>::get(subnet_id, subnet_node_id)
         } else {
+            // A marker may outlive partially repaired node data. Treat an already-absent physical
+            // node as successfully finalized and remove any stale quarantine state.
+            Self::clear_pending_subnet_node_removal(subnet_id, subnet_node_id);
             return;
         };
 
@@ -1109,15 +1118,140 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    fn clear_pending_active_subnet_node_removal(subnet_id: u32, subnet_node_id: u32) {
+        PendingActiveNodeRemovals::<T>::mutate_exists(subnet_id, |maybe_pending| {
+            let Some(pending) = maybe_pending else {
+                return;
+            };
+
+            pending.remove(&subnet_node_id);
+            if pending.is_empty() {
+                *maybe_pending = None;
+            }
+        });
+    }
+
+    fn clear_pending_registered_subnet_node_removal(subnet_id: u32, subnet_node_id: u32) {
+        PendingRegisteredNodeRemovals::<T>::mutate_exists(subnet_id, |maybe_pending| {
+            let Some(pending) = maybe_pending else {
+                return;
+            };
+
+            pending.remove(&subnet_node_id);
+            if pending.is_empty() {
+                *maybe_pending = None;
+            }
+        });
+    }
+
+    fn clear_pending_subnet_node_removal(subnet_id: u32, subnet_node_id: u32) {
+        Self::clear_pending_active_subnet_node_removal(subnet_id, subnet_node_id);
+        Self::clear_pending_registered_subnet_node_removal(subnet_id, subnet_node_id);
+    }
+
+    /// Whether this subnet node is logically quarantined pending physical removal.
+    pub fn has_pending_subnet_node_removal(subnet_id: u32, subnet_node_id: u32) -> bool {
+        PendingActiveNodeRemovals::<T>::get(subnet_id).contains(&subnet_node_id)
+            || PendingRegisteredNodeRemovals::<T>::get(subnet_id).contains(&subnet_node_id)
+    }
+
+    /// Physically remove an authenticated pending target. `true` means the operation was consumed
+    /// by pending cleanup, including the idempotent case where physical node data was already gone.
+    /// Callers must authenticate ownership before invoking this helper.
+    pub fn finalize_pending_subnet_node_removal(subnet_id: u32, subnet_node_id: u32) -> bool {
+        if !Self::has_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+            return false;
+        }
+
+        Self::perform_remove_subnet_node(subnet_id, subnet_node_id);
+        true
+    }
+
+    pub(crate) fn pending_subnet_node_removal_proof_weight() -> Weight {
+        let bounded_ids = u64::from(T::MaxSubnetNodesUpperBound::get())
+            .saturating_add(u64::from(T::MaxRegisteredNodesUpperBound::get()));
+        Weight::from_parts(
+            0,
+            bounded_ids
+                .saturating_mul(core::mem::size_of::<u32>() as u64)
+                .saturating_add(PENDING_NODE_REMOVAL_PROOF_OVERHEAD_BYTES),
+        )
+    }
+
+    /// Conservative decode/materialization envelope for both bounded quarantine sets.
+    pub(crate) fn pending_node_removal_sets_weight() -> Weight {
+        T::WeightInfo::pending_active_removal_scan(T::MaxSubnetNodesUpperBound::get())
+            .saturating_add(T::WeightInfo::pending_registered_removal_scan(
+                T::MaxRegisteredNodesUpperBound::get(),
+            ))
+    }
+
+    /// Complete conservative surcharge for clearing both quarantine markers during physical
+    /// removal. The scan models cover bounded decode/CPU/proof work; the writes cover persistence.
+    pub(crate) fn pending_node_removal_marker_clear_weight() -> Weight {
+        Self::pending_node_removal_sets_weight().saturating_add(T::DbWeight::get().writes(2))
+    }
+
+    /// Conditional dispatch surcharge for a node-addressed call which finalizes pending removal.
+    ///
+    /// The four unconditional reads cover the two marker lookups performed while selecting call
+    /// weight and the two repeated lookups during dispatch. A pending branch additionally pays the
+    /// complete physical-removal dispatch model and the two set read/writes used to clear markers.
+    pub fn pending_node_cleanup_dispatch_weight(subnet_id: u32, subnet_node_id: u32) -> Weight {
+        // The weight selector and dispatch each inspect both bounded sets in the worst case.
+        let marker_lookup_weight = Self::pending_node_removal_sets_weight().saturating_mul(2);
+
+        if !Self::has_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+            return marker_lookup_weight;
+        }
+
+        marker_lookup_weight
+            .saturating_add(Self::remove_subnet_node_branch_weight(
+                subnet_id,
+                subnet_node_id,
+            ))
+            .saturating_add(Self::pending_node_removal_marker_clear_weight())
+    }
+
+    /// Maximum active pending-cleanup surcharge for dispatches which derive their node ID only
+    /// after dispatch begins (for example, the elected attestation proposer).
+    pub fn maximum_pending_active_cleanup_dispatch_weight() -> Weight {
+        let max_validator_nodes = T::MaxValidatorNodesUpperBound::get();
+        let max_election_nodes = T::MaxSubnetNodesUpperBound::get();
+        let maximum_active = if max_election_nodes < ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT {
+            T::WeightInfo::remove_active_subnet_node_dispatch_small(
+                max_validator_nodes,
+                max_election_nodes,
+            )
+        } else {
+            T::WeightInfo::remove_active_subnet_node_dispatch_small(
+                max_validator_nodes,
+                ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT,
+            )
+            .max(T::WeightInfo::remove_active_subnet_node_dispatch_large(
+                max_validator_nodes,
+                max_election_nodes,
+            ))
+        };
+
+        Self::pending_node_removal_sets_weight()
+            .saturating_mul(2)
+            .saturating_add(maximum_active)
+            .saturating_add(Self::pending_node_removal_marker_clear_weight())
+    }
+
     /// Select a reachable worst-case active-removal model. A live emergency set contains only
-    /// existing electable Validator nodes, so its cardinality is at most e: small elections use
-    /// m=e, while larger elections use the protocol emergency cap of 64.
+    /// existing electable Validator nodes, so its cardinality is at most e. Small and large
+    /// elections meet at the generated [`ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT`] endpoint.
     pub fn active_subnet_node_removal_weight(validator_nodes: u32, election_nodes: u32) -> Weight {
-        let n = validator_nodes.clamp(1, 512);
-        let e = election_nodes.clamp(3, 512);
-        if e < 64 {
+        let n = validator_nodes.clamp(1, T::MaxValidatorNodesUpperBound::get());
+        let e = election_nodes.clamp(
+            Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
+            T::MaxSubnetNodesUpperBound::get(),
+        );
+        if e < ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT {
             T::WeightInfo::remove_active_subnet_node_small(n, e)
-        } else if e == 64 {
+        } else if e == ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT {
             T::WeightInfo::remove_active_subnet_node_small(n, e)
                 .max(T::WeightInfo::remove_active_subnet_node_large(n, e))
         } else {
@@ -1129,11 +1263,14 @@ impl<T: Config> Pallet<T> {
     /// include the storage reads used by the call-weight selector and the extra presence checks in
     /// `perform_remove_subnet_node`; internal consensus cleanup uses the operation-only model.
     fn active_subnet_node_dispatch_weight(validator_nodes: u32, election_nodes: u32) -> Weight {
-        let n = validator_nodes.clamp(1, 512);
-        let e = election_nodes.clamp(3, 512);
-        if e < 64 {
+        let n = validator_nodes.clamp(1, T::MaxValidatorNodesUpperBound::get());
+        let e = election_nodes.clamp(
+            Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
+            T::MaxSubnetNodesUpperBound::get(),
+        );
+        if e < ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT {
             T::WeightInfo::remove_active_subnet_node_dispatch_small(n, e)
-        } else if e == 64 {
+        } else if e == ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT {
             T::WeightInfo::remove_active_subnet_node_dispatch_small(n, e).max(
                 T::WeightInfo::remove_active_subnet_node_dispatch_large(n, e),
             )
@@ -1150,18 +1287,23 @@ impl<T: Config> Pallet<T> {
     /// those dimensions before dispatch lets the call use the generated `Linear` models rather
     /// than the fixed four-node fixture used by the baseline extrinsic benchmark.
     pub fn remove_subnet_node_branch_weight(subnet_id: u32, subnet_node_id: u32) -> Weight {
-        let maximum_active = T::WeightInfo::remove_active_subnet_node_dispatch_small(512, 64).max(
-            T::WeightInfo::remove_active_subnet_node_dispatch_large(512, 512),
+        let max_validator_nodes = T::MaxValidatorNodesUpperBound::get();
+        let maximum_active = Self::active_subnet_node_dispatch_weight(
+            max_validator_nodes,
+            T::MaxSubnetNodesUpperBound::get(),
         );
-        let maximum_branch = maximum_active.max(
-            T::WeightInfo::remove_registered_subnet_node_dispatch(512, 64),
-        );
+        let maximum_branch =
+            maximum_active.max(T::WeightInfo::remove_registered_subnet_node_dispatch(
+                max_validator_nodes,
+                T::MaxRegisteredNodesUpperBound::get(),
+            ));
 
         let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) else {
             return maximum_branch;
         };
 
-        let validator_nodes = TotalValidatorNodes::<T>::get(validator_id).clamp(1, 512);
+        let validator_nodes = TotalValidatorNodes::<T>::get(validator_id)
+            .clamp(1, T::MaxValidatorNodesUpperBound::get());
 
         let branch_weight = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             // Avoid decoding variable-sized election/emergency vectors in the weight selector.
@@ -1171,7 +1313,7 @@ impl<T: Config> Pallet<T> {
             let active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
             let registered_nodes = TotalSubnetNodes::<T>::get(subnet_id)
                 .saturating_sub(active_nodes)
-                .clamp(1, 64);
+                .clamp(1, T::MaxRegisteredNodesUpperBound::get());
             T::WeightInfo::remove_registered_subnet_node_dispatch(validator_nodes, registered_nodes)
         };
 
@@ -1432,35 +1574,29 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn clean_validator_subnet_nodes(validator_id: u32) {
-        let mut subnets_to_remove: Vec<u32> = Vec::new();
-        let mut removed_nodes = 0u32;
+        let mut node_map = ValidatorSubnetNodes::<T>::get(validator_id);
+        let mut removed_stale_subnet = false;
 
-        ValidatorSubnetNodes::<T>::mutate(validator_id, |map| {
-            // Collect subnet_ids to remove (invalid subnets)
-            subnets_to_remove = map
-                .keys()
-                .filter(|&subnet_id| !Self::subnet_exists(*subnet_id))
-                .copied()
-                .collect();
-
-            // Remove invalid subnets
-            for subnet_id in &subnets_to_remove {
-                if let Some(nodes) = map.remove(subnet_id) {
-                    removed_nodes = removed_nodes.saturating_add(nodes.len() as u32);
-                }
-            }
-            // Individual node IDs are maintained by `perform_remove_subnet_node`; whole-subnet
-            // removal eagerly removes this subnet key in `clean_subnet_nodes`. Keep this repair for
-            // callers that can observe an incomplete lifecycle transition, but do not put it on
-            // weight paths parameterized only by the caller's post-clean node count.
+        node_map.retain(|subnet_id, _| {
+            let is_live = Self::subnet_exists(*subnet_id);
+            removed_stale_subnet |= !is_live;
+            is_live
         });
 
-        if !subnets_to_remove.is_empty() {
-            TotalValidatorNodes::<T>::mutate(validator_id, |count| {
-                *count = count.saturating_sub(removed_nodes)
-            });
-            Self::normalize_validator_node_delegate_stake_weights(validator_id);
+        if !removed_stale_subnet {
+            return;
         }
+
+        let total_nodes = node_map.values().fold(0u32, |total, nodes| {
+            total.saturating_add(nodes.len() as u32)
+        });
+        if node_map.is_empty() {
+            ValidatorSubnetNodes::<T>::remove(validator_id);
+        } else {
+            ValidatorSubnetNodes::<T>::insert(validator_id, node_map);
+        }
+        TotalValidatorNodes::<T>::insert(validator_id, total_nodes);
+        Self::normalize_validator_node_delegate_stake_weights(validator_id);
     }
 
     /// Calculate current burn amount based on burn rate

@@ -153,8 +153,8 @@ elected proposer can lose when its submitted proposal is strongly rejected. The 
 linear in the distinct-validator-identity support shortfall: it is zero at the
 network-controlled strong-rejection threshold and reaches the owner-configured maximum at 0%
 identity support. A failed proposal at or above that threshold does not apply this proposer-node
-factor. The proposer economic paths remain separate and can still apply, but the proposer
-validator-identity and subnet reputation paths use the same identity threshold and shortfall.
+factor. The proposer economic paths remain separate and can still apply, while the proposer-node
+and subnet reputation paths use the same identity threshold and shortfall.
 
 `non_consensus_attestor_decrease` is the maximum percentage of current reputation that a
 supporting attestor can lose when a proposal is strongly rejected. The actual loss is linear: it
@@ -180,11 +180,11 @@ does not slash node stake or validator delegate pools. Rejected, missing, and ze
 do not apply it. Queue mutations remain separately gated by stake-weighted supermajority.
 
 `validator_absent_decrease` remains an objective missing-proposal penalty for the elected proposer
-node when an allocated round reaches settlement. That missing proposal also uses the separate network
-`ValidatorAbsentSubnetReputationFactor`, records zero proposal identity support for the elected
-validator identity, and does not run the submitted-proposal reputation curves. Pause, minimum-node,
-and other subnet lifecycle reputation losses likewise remain independent of validator-identity
-support because they are not claims derived from proposal contents.
+node when an allocated round reaches settlement. That missing proposal also uses the separate
+network `ValidatorAbsentSubnetReputationFactor` and does not run the submitted-proposal reputation
+curves. Pause, minimum-node, and other subnet lifecycle reputation losses likewise remain
+independent of validator-identity support because they are not claims derived from proposal
+contents.
 
 The subnet's proposal-derived reputation is identity-based as well. An accepted proposal can apply
 `InConsensusSubnetReputationFactor` only after identity verification, with the distinct-identity
@@ -193,12 +193,6 @@ support ratio as its multiplier. A rejected submitted proposal applies
 strong-rejection threshold, scaled from zero loss at the threshold to the full configured factor at
 0% identity support. The threshold is one-third by default but can be changed by the admin
 collective. These are network factors rather than owner-controlled node factors.
-
-Every settled elected round also updates the proposer's validator-identity support history.
-Submitted proposals record their actual distinct-identity ratio and missing proposals record zero
-in `average_proposal_identity_support`; `identity_support_samples` tracks the denominator. These
-network-maintained statistics are independent of whether an owner-configured node factor changed a
-node's reputation. The bounded count and average freeze together at `u32::MAX`.
 
 ### Consensus and Attestation Settings
 

@@ -92,12 +92,16 @@ interface IOverwatchNode {
         string memory peerId
     ) external view returns (uint256);
 
+    /// @notice Ephemeral commit-row lookup. Entries disappear after a successful epoch close and
+    ///         the call reverts when the requested record is absent.
     function overwatchCommits(
         uint256 overwatchEpoch,
         uint256 overwatchNodeId,
         uint256 subnetId
     ) external view returns (bytes32);
 
+    /// @notice Ephemeral reveal-row lookup. Entries disappear after successful settlement or
+    ///         structural node removal and the call reverts when the requested record is absent.
     function overwatchReveals(
         uint256 overwatchEpoch,
         uint256 subnetId,
@@ -114,14 +118,26 @@ interface IOverwatchNode {
         uint256 overwatchNodeId
     ) external view returns (uint256);
 
-    function overwatchMinRepScore() external view returns (uint256);
-
-    function overwatchMinAvgAttestationRatio()
+    function effectiveOverwatchSignalMeta()
         external
         view
-        returns (uint256);
+        returns (
+            bool exists,
+            uint256 sourceEpoch,
+            uint256 revision,
+            bool valid
+        );
 
-    function overwatchMinAge() external view returns (uint256);
+    function effectiveOverwatchSubnetWeight(
+        uint256 subnetId
+    )
+        external
+        view
+        returns (
+            bool rawWeightExists,
+            uint256 rawWeight,
+            uint256 resolvedWeight
+        );
 
     function overwatchMinStakeBalance() external view returns (uint256);
 

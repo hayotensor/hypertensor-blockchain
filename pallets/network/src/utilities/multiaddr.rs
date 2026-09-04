@@ -28,6 +28,18 @@ pub const P2P: u64 = 421;
 pub const WS: u64 = 477;
 pub const WSS: u64 = 478;
 
+/* Fixed wire-format dimensions */
+const IPV4_OCTET_COUNT: usize = 4;
+const IPV6_BYTE_COUNT: usize = 16;
+const PORT_BYTE_COUNT: usize = core::mem::size_of::<u16>();
+const IPV6_SEGMENT_COUNT: usize = IPV6_BYTE_COUNT / PORT_BYTE_COUNT;
+const IPV6_RADIX: u32 = 16;
+const MAX_IPV6_COMPRESSION_PARTS: usize = 2;
+const VARINT_CONTINUATION_BIT: u8 = 0x80;
+const VARINT_DATA_MASK: u8 = 0x7f;
+const VARINT_PAYLOAD_BITS: u32 = 7;
+const MAX_U64_VARINT_SHIFT: u32 = u64::BITS - 1;
+
 /* Multiaddr */
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct Multiaddr {
@@ -47,9 +59,9 @@ impl Multiaddr {
             i += read;
 
             match proto {
-                IP4 => advance(bytes, &mut i, 4)?,
-                IP6 => advance(bytes, &mut i, 16)?,
-                TCP | UDP => advance(bytes, &mut i, 2)?,
+                IP4 => advance(bytes, &mut i, IPV4_OCTET_COUNT)?,
+                IP6 => advance(bytes, &mut i, IPV6_BYTE_COUNT)?,
+                TCP | UDP => advance(bytes, &mut i, PORT_BYTE_COUNT)?,
                 WS | WSS => advance(bytes, &mut i, 0)?, // WebSockets have no payload
                 DNS4 | DNS6 | DNSADDR => {
                     // DNS protocols have a length-prefixed string
@@ -109,14 +121,14 @@ impl Multiaddr {
 
             match proto {
                 IP4 => {
-                    let a = &self.bytes[i..i + 4];
-                    i += 4;
+                    let a = &self.bytes[i..i + IPV4_OCTET_COUNT];
+                    i += IPV4_OCTET_COUNT;
                     out.push(format!("/ip4/{}.{}.{}.{}", a[0], a[1], a[2], a[3]));
                 }
                 IP6 => {
-                    let a = &self.bytes[i..i + 16];
-                    i += 16;
-                    let segs: [u16; 8] = [
+                    let a = &self.bytes[i..i + IPV6_BYTE_COUNT];
+                    i += IPV6_BYTE_COUNT;
+                    let segs: [u16; IPV6_SEGMENT_COUNT] = [
                         u16::from_be_bytes([a[0], a[1]]),
                         u16::from_be_bytes([a[2], a[3]]),
                         u16::from_be_bytes([a[4], a[5]]),
@@ -133,7 +145,7 @@ impl Multiaddr {
                 }
                 TCP | UDP => {
                     let port = u16::from_be_bytes([self.bytes[i], self.bytes[i + 1]]);
-                    i += 2;
+                    i += PORT_BYTE_COUNT;
                     out.push(format!(
                         "/{}/{}",
                         if proto == TCP { "tcp" } else { "udp" },
@@ -193,7 +205,7 @@ impl Multiaddr {
                         .map(|b| b.parse::<u8>().map_err(|_| MultiaddrError::InvalidAddress))
                         .collect::<Result<_, _>>()?;
 
-                    if octets.len() != 4 {
+                    if octets.len() != IPV4_OCTET_COUNT {
                         return Err(MultiaddrError::InvalidAddress);
                     }
 
@@ -262,34 +274,34 @@ impl Multiaddr {
    Helpers
 ============================================================ */
 /// Parses IPv6 addresses with support for "::" compression
-fn parse_ipv6(addr: &str) -> Result<[u16; 8], MultiaddrError> {
-    let mut segs = [0u16; 8];
+fn parse_ipv6(addr: &str) -> Result<[u16; IPV6_SEGMENT_COUNT], MultiaddrError> {
+    let mut segs = [0u16; IPV6_SEGMENT_COUNT];
     let parts: Vec<&str> = addr.split("::").collect();
-    if parts.len() > 2 {
+    if parts.len() > MAX_IPV6_COMPRESSION_PARTS {
         return Err(MultiaddrError::InvalidAddress);
     }
 
     // Collect left and right parts as Vec<&str> so they have the same type
     let left: Vec<&str> = parts[0].split(':').filter(|s| !s.is_empty()).collect();
-    let right: Vec<&str> = if parts.len() == 2 {
+    let right: Vec<&str> = if parts.len() == MAX_IPV6_COMPRESSION_PARTS {
         parts[1].split(':').filter(|s| !s.is_empty()).collect()
     } else {
         Vec::new()
     };
 
-    if left.len() + right.len() > 8 {
+    if left.len() + right.len() > IPV6_SEGMENT_COUNT {
         return Err(MultiaddrError::InvalidAddress);
     }
 
     // Fill left segments
     for (i, p) in left.iter().enumerate() {
-        segs[i] = u16::from_str_radix(p, 16).map_err(|_| MultiaddrError::InvalidAddress)?;
+        segs[i] = u16::from_str_radix(p, IPV6_RADIX).map_err(|_| MultiaddrError::InvalidAddress)?;
     }
 
     // Fill right segments
-    let mut j = 8 - right.len();
+    let mut j = IPV6_SEGMENT_COUNT - right.len();
     for p in right {
-        segs[j] = u16::from_str_radix(p, 16).map_err(|_| MultiaddrError::InvalidAddress)?;
+        segs[j] = u16::from_str_radix(p, IPV6_RADIX).map_err(|_| MultiaddrError::InvalidAddress)?;
         j += 1;
     }
 
@@ -306,29 +318,29 @@ pub fn advance(bytes: &[u8], i: &mut usize, len: usize) -> Result<(), MultiaddrE
 }
 
 pub fn encode_varint(mut value: u64, out: &mut Vec<u8>) {
-    while value >= 0x80 {
-        out.push((value as u8) | 0x80);
-        value >>= 7;
+    while value >= VARINT_CONTINUATION_BIT as u64 {
+        out.push((value as u8) | VARINT_CONTINUATION_BIT);
+        value >>= VARINT_PAYLOAD_BITS;
     }
     out.push(value as u8);
 }
 
 pub fn decode_varint(input: &[u8]) -> Option<(u64, usize)> {
     let mut value = 0u64;
-    let mut shift = 0;
+    let mut shift = 0u32;
     let mut i = 0;
 
     while i < input.len() {
         let byte = input[i];
-        value |= ((byte & 0x7F) as u64) << shift;
+        value |= ((byte & VARINT_DATA_MASK) as u64) << shift;
         i += 1;
 
-        if byte & 0x80 == 0 {
+        if byte & VARINT_CONTINUATION_BIT == 0 {
             return Some((value, i));
         }
 
-        shift += 7;
-        if shift > 63 {
+        shift += VARINT_PAYLOAD_BITS;
+        if shift > MAX_U64_VARINT_SHIFT {
             return None;
         }
     }

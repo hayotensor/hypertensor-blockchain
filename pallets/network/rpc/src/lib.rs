@@ -5,10 +5,11 @@ use jsonrpsee::{
     types::{error::ErrorObject, ErrorObjectOwned},
 };
 use network_rpc_types::{
-    ConsensusRoundInfo, NetworkQueryError, OverwatchNodeInfo, OverwatchNodesPage, PageRequest,
-    SubnetBootnodes, SubnetEpochStatus, SubnetInfo, SubnetNodeCursor, SubnetNodeInfo,
-    SubnetNodesPage, SubnetValidatorNodesPage, SubnetsPage, ValidatorInfo,
-    ValidatorNodeAllocationsPage, ValidatorNodeStakesPage, ValidatorNodesPage,
+    ConsensusRoundInfo, EffectiveOverwatchSignalMeta, EffectiveOverwatchSubnetWeight,
+    NetworkQueryError, OverwatchNodeInfo, OverwatchNodesPage, PageRequest, SubnetBootnodes,
+    SubnetEpochStatus, SubnetInfo, SubnetNodeCursor, SubnetNodeInfo, SubnetNodesPage,
+    SubnetValidatorNodesPage, SubnetsPage, ValidatorInfo, ValidatorNodeAllocationsPage,
+    ValidatorNodeStakesPage, ValidatorNodesPage,
 };
 use sp_api::{ApiError, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
@@ -141,6 +142,19 @@ pub trait NetworkCustomApi<BlockHash> {
         request: PageRequest<u32>,
         at: Option<BlockHash>,
     ) -> RpcResult<OverwatchNodesPage<AccountId20>>;
+
+    #[method(name = "network_getEffectiveOverwatchSignalMeta")]
+    fn get_effective_overwatch_signal_meta(
+        &self,
+        at: Option<BlockHash>,
+    ) -> RpcResult<EffectiveOverwatchSignalMeta>;
+
+    #[method(name = "network_getEffectiveOverwatchSubnetWeight")]
+    fn get_effective_overwatch_subnet_weight(
+        &self,
+        subnet_id: u32,
+        at: Option<BlockHash>,
+    ) -> RpcResult<EffectiveOverwatchSubnetWeight>;
 }
 
 /// Native JSON-RPC adapter for the network runtime API.
@@ -409,6 +423,31 @@ where
         validate_page(&request)?;
         let at = self.resolve_at(at);
         query_result(self.client.runtime_api().get_overwatch_nodes(at, request))
+    }
+
+    fn get_effective_overwatch_signal_meta(
+        &self,
+        at: Option<Block::Hash>,
+    ) -> RpcResult<EffectiveOverwatchSignalMeta> {
+        let at = self.resolve_at(at);
+        runtime_result(
+            self.client
+                .runtime_api()
+                .get_effective_overwatch_signal_meta(at),
+        )
+    }
+
+    fn get_effective_overwatch_subnet_weight(
+        &self,
+        subnet_id: u32,
+        at: Option<Block::Hash>,
+    ) -> RpcResult<EffectiveOverwatchSubnetWeight> {
+        let at = self.resolve_at(at);
+        runtime_result(
+            self.client
+                .runtime_api()
+                .get_effective_overwatch_subnet_weight(at, subnet_id),
+        )
     }
 }
 

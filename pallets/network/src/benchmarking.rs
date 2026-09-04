@@ -33,7 +33,7 @@ use frame_support::{
     pallet_prelude::{DispatchError, Zero},
     traits::{EnsureOrigin, Get, OnInitialize, UnfilteredDispatchable},
     weights::{Weight, WeightMeter},
-    Callable,
+    BoundedBTreeMap, BoundedBTreeSet, Callable,
 };
 use frame_system::{limits::BlockWeights, pallet_prelude::BlockNumberFor, RawOrigin};
 pub use pallet::*;
@@ -59,6 +59,10 @@ const DEFAULT_DELEGATE_STAKE_TO_BE_ADDED: u128 = 100e+18 as u128;
 const DEFAULT_DEPOSIT_AMOUNT: u128 = 1000e+18 as u128;
 const DEFAULT_VALIDATOR_REWARD_RATE: u128 = 50_000_000_000_000_000; // 5%
 const ALICE_EXPECTED_BALANCE: u128 = 1000000000000000000000000; // 1,000,000
+const BENCHMARK_ACCOUNT_FUNDING_BUFFER: u128 = 10_000_000_000_000;
+const BENCHMARK_REGISTRATION_COST_BUFFER: u128 = 1_000;
+const BENCHMARK_TRANSFER_SURPLUS: u128 = 500;
+const PRIOR_OVERWATCH_SIGNAL_REVISION: u64 = 41;
 pub type BalanceOf<T> = <T as Config>::Currency;
 type TreasuryPallet<T> = pallet_treasury::Pallet<T, ()>;
 
@@ -102,7 +106,8 @@ fn funded_account<T: Config>(name: &'static str, index: u32) -> T::AccountId {
     let caller: T::AccountId = account(name, index, SEED);
     // Give the account half of the maximum value of the `Balance` type.
     // Otherwise some transfers will fail with an overflow error.
-    let deposit_amount: u128 = MinSubnetMinStake::<T>::get() + 10000000000000;
+    let deposit_amount =
+        MinSubnetMinStake::<T>::get().saturating_add(BENCHMARK_ACCOUNT_FUNDING_BUFFER);
     T::Currency::deposit_creating(&caller, deposit_amount.try_into().ok().expect("REASON"));
     caller
 }
@@ -112,12 +117,16 @@ fn funded_initializer<T: Config>(name: &'static str, index: u32) -> T::AccountId
     // Give the account half of the maximum value of the `Balance` type.
     // Otherwise some transfers will fail with an overflow error.
     let block_number = get_current_block_as_u32::<T>();
-    let cost = Network::<T>::get_current_registration_cost(block_number) + 1000;
+    let cost = Network::<T>::get_current_registration_cost(block_number)
+        .saturating_add(BENCHMARK_REGISTRATION_COST_BUFFER);
     let alice = get_alice::<T>();
     assert_ok!(T::Currency::transfer(
         &alice, // alice
         &caller.clone(),
-        (cost + 500).try_into().ok().expect("REASON"),
+        cost.saturating_add(BENCHMARK_TRANSFER_SURPLUS)
+            .try_into()
+            .ok()
+            .expect("REASON"),
         ExistenceRequirement::KeepAlive,
     ));
 
@@ -607,7 +616,6 @@ fn build_activated_subnet<T: Config>(
         let current_subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
         assert!(Network::<T>::do_activate_subnet_node(
             &mut WeightMeter::new(),
-            validator_id,
             subnet_id,
             SubnetState::Active,
             queued_node,
@@ -924,14 +932,15 @@ pub fn default_registration_subnet_data<T: Config>(
 }
 
 pub fn insert_overwatch_node<T: Config>(validator_id: u32, hotkey_n: u32) -> u32 {
+    ensure_validator::<T>(validator_id);
+    OverwatchValidatorWhitelist::<T>::insert(validator_id, ());
     let hotkey = get_account::<T>("overwatch_node", hotkey_n);
 
     TotalOverwatchNodeUids::<T>::mutate(|n: &mut u32| *n += 1);
     let current_uid = TotalOverwatchNodeUids::<T>::get();
+    TotalOverwatchNodes::<T>::mutate(|n: &mut u32| *n = n.saturating_add(1));
 
-    let overwatch_node = OverwatchNode { id: current_uid };
-
-    OverwatchNodes::<T>::insert(current_uid, overwatch_node);
+    OverwatchNodes::<T>::insert(current_uid, ());
     OverwatchNodeIdHotkey::<T>::insert(current_uid, hotkey.clone());
     OverwatchNodeValidatorId::<T>::insert(current_uid, validator_id);
     ValidatorOverwatchNodeId::<T>::insert(validator_id, current_uid);
@@ -952,7 +961,11 @@ pub fn submit_overwatch_reveal<T: Config>(
     node_id: u32,
     weight: u128,
 ) {
-    OverwatchReveals::<T>::insert((overwatch_epoch, subnet_id, node_id), weight);
+    OverwatchReveals::<T>::mutate(overwatch_epoch, node_id, |reveals| {
+        reveals
+            .try_insert(subnet_id, weight)
+            .expect("benchmark reveal row fits its runtime bound");
+    });
 }
 
 fn benchmark_overwatch_settlement_snapshot<T: Config>(
@@ -962,17 +975,7 @@ fn benchmark_overwatch_settlement_snapshot<T: Config>(
 ) -> OverwatchEpochSettlementSnapshot<T> {
     let nodes = overwatch_nodes
         .iter()
-        .map(|&(node_id, stake)| {
-            let validator_id = OverwatchNodeValidatorId::<T>::get(node_id)
-                .expect("snapshotted benchmark node must have a validator identity");
-            (
-                node_id,
-                OverwatchNodeSettlementSnapshot {
-                    validator_id,
-                    stake,
-                },
-            )
-        })
+        .map(|&(node_id, stake)| (node_id, OverwatchNodeSettlementSnapshot { stake }))
         .collect::<BTreeMap<_, _>>()
         .try_into()
         .expect("benchmark settlement node map fits its runtime bound");
@@ -985,6 +988,82 @@ fn benchmark_overwatch_settlement_snapshot<T: Config>(
         reward_budget,
         nodes,
     }
+}
+
+/// Seed the maximum latest-only signal value that a subsequent finalization must overwrite.
+fn seed_max_prior_overwatch_signal<T: Config>(source_epoch: u32) {
+    let max_nodes = T::MaxOverwatchNodesUpperBound::get();
+    let max_subnets = T::MaxPhysicalSubnetsUpperBound::get();
+    assert_eq!(max_nodes, MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN);
+    assert_eq!(max_subnets, MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN);
+
+    let percentage_factor = Network::<T>::percentage_factor_as_u128();
+    let base_stake = OverwatchMinStakeBalance::<T>::get();
+    let subnet_ids = (1..=max_subnets).collect::<Vec<_>>();
+    let nodes = (1..=max_nodes)
+        .map(|node_id| {
+            let reveals: BoundedBTreeMap<u32, u128, T::MaxPhysicalSubnetsUpperBound> = subnet_ids
+                .iter()
+                .copied()
+                .map(|subnet_id| {
+                    let raw_weight = percentage_factor
+                        .saturating_sub(node_id as u128)
+                        .saturating_sub(subnet_id as u128)
+                        .max(1);
+                    (subnet_id, raw_weight)
+                })
+                .collect::<BTreeMap<_, _>>()
+                .try_into()
+                .expect("maximum prior signal reveal row fits its runtime bound");
+            let stake = base_stake
+                .checked_mul(node_id as u128)
+                .expect("maximum prior signal stake fits u128");
+            (
+                node_id,
+                LatestOverwatchNodeSignalInput::<T> { stake, reveals },
+            )
+        })
+        .collect::<BTreeMap<_, _>>()
+        .try_into()
+        .expect("maximum prior signal node map fits its runtime bound");
+    let retained_inputs = LatestFinalizedOverwatchSignalInput::<T> {
+        source_epoch,
+        stake_weight_factor: DefaultOverwatchStakeWeightFactor::get(),
+        nodes,
+    };
+    let derived = Network::<T>::derive_overwatch_signal(&retained_inputs)
+        .expect("maximum prior signal inputs remain bounded");
+    LastFinalizedOverwatchEpoch::<T>::put(source_epoch);
+    LatestFinalizedOverwatchSignalInputs::<T>::put(retained_inputs);
+    LatestEffectiveOverwatchSignal::<T>::put(EffectiveOverwatchSignal::<T> {
+        source_epoch,
+        valid: true,
+        subnet_weights: derived.subnet_weights,
+    });
+    LatestOverwatchSignalRevision::<T>::put(PRIOR_OVERWATCH_SIGNAL_REVISION);
+}
+
+/// Fill the effective cache independently of the live subnet count. Removed subnets can leave
+/// all 17 raw keys in the latest finalized signal until the next successful finalization.
+fn seed_max_effective_overwatch_cache<T: Config>(
+    source_epoch: u32,
+    mut subnet_weights: BTreeMap<u32, u128>,
+) {
+    let max_subnets = T::MaxPhysicalSubnetsUpperBound::get();
+    let raw_weight = Network::<T>::percentage_factor_as_u128();
+    let mut candidate = u32::MAX;
+    while subnet_weights.len() < max_subnets as usize {
+        subnet_weights.entry(candidate).or_insert(raw_weight);
+        candidate = candidate.saturating_sub(1);
+    }
+    assert_eq!(subnet_weights.len(), max_subnets as usize);
+    LatestEffectiveOverwatchSignal::<T>::put(EffectiveOverwatchSignal::<T> {
+        source_epoch,
+        valid: true,
+        subnet_weights: subnet_weights
+            .try_into()
+            .expect("maximum effective cache fits its runtime bound"),
+    });
 }
 
 /// Seed a closed Overwatch epoch with an exact, reachable reveal cardinality.
@@ -1057,6 +1136,7 @@ fn prepare_overwatch_reward_benchmark<T: Config>(
     let mut reveal_pairs = BTreeSet::new();
     let mut revealing_node_ids = BTreeSet::new();
     let mut revealed_subnet_ids = BTreeSet::new();
+    let mut subnet_revealer_counts = BTreeMap::<u32, u32>::new();
     for record_index in 0..reveal_records {
         let node_index = record_index % revealing_nodes;
         let subnet_index =
@@ -1070,6 +1150,10 @@ fn prepare_overwatch_reward_benchmark<T: Config>(
         );
         revealing_node_ids.insert(node_id);
         revealed_subnet_ids.insert(subnet_id);
+        subnet_revealer_counts
+            .entry(subnet_id)
+            .and_modify(|count| *count = count.saturating_add(1))
+            .or_insert(1);
         submit_overwatch_reveal::<T>(
             overwatch_epoch,
             subnet_id,
@@ -1087,21 +1171,15 @@ fn prepare_overwatch_reward_benchmark<T: Config>(
     // pending snapshot and reveal prefix describe the closed epoch precisely.
     ActiveOverwatchRevealStats::<T>::put(OverwatchRevealStats::<T> {
         records: reveal_records,
-        revealing_nodes: revealing_node_ids
+        subnet_revealer_counts: subnet_revealer_counts
             .try_into()
-            .expect("reward benchmark revealing-node count fits its runtime bound"),
-        revealed_subnets: revealed_subnet_ids
-            .try_into()
-            .expect("reward benchmark subnet count fits its runtime bound"),
+            .expect("reward benchmark subnet-count map fits its runtime bound"),
     });
     let reveal_stats = ActiveOverwatchRevealStats::<T>::take();
     let epoch_length_multiplier = ActiveOverwatchEpochLengthMultiplier::<T>::get();
     PendingOverwatchSettlement::<T>::put(PendingOverwatchSettlementData {
         epoch: overwatch_epoch,
-        epoch_length_multiplier,
         reveal_records: reveal_stats.records,
-        revealing_nodes: reveal_stats.revealing_nodes.len() as u32,
-        revealed_subnets: reveal_stats.revealed_subnets.len() as u32,
     });
     OverwatchEpochSettlementSnapshots::<T>::insert(
         overwatch_epoch,
@@ -1112,6 +1190,7 @@ fn prepare_overwatch_reward_benchmark<T: Config>(
         ),
     );
     CurrentOverwatchEpoch::<T>::put(overwatch_epoch.saturating_add(1));
+    seed_max_prior_overwatch_signal::<T>(overwatch_epoch.saturating_sub(1));
 
     (overwatch_epoch, overwatch_nodes, subnet_ids)
 }
@@ -1128,6 +1207,10 @@ fn assert_overwatch_reward_benchmark_result<T: Config>(
     assert_eq!(
         LastFinalizedOverwatchEpoch::<T>::get(),
         Some(overwatch_epoch)
+    );
+    assert_eq!(
+        LatestOverwatchSignalRevision::<T>::get(),
+        PRIOR_OVERWATCH_SIGNAL_REVISION.saturating_add(1)
     );
 
     let percentage_factor = Network::<T>::percentage_factor_as_u128();
@@ -1465,6 +1548,184 @@ fn max_fill_overwatch_node_index<T: Config>(overwatch_node_id: u32) {
     OverwatchNodeIndex::<T>::insert(overwatch_node_id, index);
 }
 
+/// Seed every bounded lifecycle surface touched by owner and collective Overwatch removal.
+///
+/// The target is the unique maximum-stake participant and submits a different raw weight from
+/// the rest of the 64-node by 17-subnet cohort. Removing it therefore forces a full globally
+/// normalized effective-signal recomputation in addition to current and pending row cleanup.
+/// `sole_pending` also forces explicit empty-epoch finalization after the shared removal.
+fn seed_max_overwatch_removal_lifecycle<T: Config>(
+    target_node_id: u32,
+    sole_pending: bool,
+) -> (u32, u32, u64) {
+    let max_nodes = T::MaxOverwatchNodesUpperBound::get();
+    let max_subnets = T::MaxPhysicalSubnetsUpperBound::get();
+    assert_eq!(max_nodes, MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN);
+    assert_eq!(max_subnets, MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN);
+
+    let source_epoch = 0u32;
+    let pending_epoch = 1u32;
+    let active_epoch = 2u32;
+    let initial_revision = 41u64;
+    let percentage_factor = Network::<T>::percentage_factor_as_u128();
+    let base_stake = OverwatchMinStakeBalance::<T>::get();
+    let subnet_ids = (1..=max_subnets).collect::<Vec<_>>();
+
+    let mut snapshot_nodes = BTreeMap::new();
+    let mut retained_nodes = BTreeMap::new();
+    let mut total_live_stake = 0u128;
+    for node_id in 1..=max_nodes {
+        if node_id != target_node_id {
+            let validator_id = node_id;
+            let (_coldkey, hotkey) = ensure_validator::<T>(validator_id);
+            OverwatchValidatorWhitelist::<T>::insert(validator_id, ());
+            OverwatchNodes::<T>::insert(node_id, ());
+            OverwatchNodeIdHotkey::<T>::insert(node_id, hotkey);
+            OverwatchNodeValidatorId::<T>::insert(node_id, validator_id);
+            ValidatorOverwatchNodeId::<T>::insert(validator_id, node_id);
+        }
+
+        let raw_weight = if node_id == target_node_id {
+            percentage_factor
+        } else {
+            percentage_factor / 2
+        };
+        let reveals: BoundedBTreeMap<u32, u128, T::MaxPhysicalSubnetsUpperBound> = subnet_ids
+            .iter()
+            .copied()
+            .map(|subnet_id| (subnet_id, raw_weight))
+            .collect::<BTreeMap<_, _>>()
+            .try_into()
+            .expect("maximum removal reveal row fits its runtime bound");
+        let commits: BoundedBTreeMap<u32, T::Hash, T::MaxPhysicalSubnetsUpperBound> = subnet_ids
+            .iter()
+            .copied()
+            .map(|subnet_id| (subnet_id, T::Hashing::hash_of(&(node_id, subnet_id))))
+            .collect::<BTreeMap<_, _>>()
+            .try_into()
+            .expect("maximum removal commit row fits its runtime bound");
+        OverwatchCommits::<T>::insert(active_epoch, node_id, commits);
+        OverwatchReveals::<T>::insert(active_epoch, node_id, reveals.clone());
+
+        let stake_multiplier = if node_id == target_node_id {
+            max_nodes.saturating_add(1)
+        } else {
+            node_id
+        };
+        let stake = base_stake
+            .checked_mul(stake_multiplier as u128)
+            .expect("maximum removal stake fits u128");
+        OverwatchNodeStakeBalance::<T>::insert(node_id, stake);
+        total_live_stake = total_live_stake
+            .checked_add(stake)
+            .expect("maximum removal total stake fits u128");
+        if !sole_pending || node_id == target_node_id {
+            OverwatchReveals::<T>::insert(pending_epoch, node_id, reveals.clone());
+            snapshot_nodes.insert(node_id, OverwatchNodeSettlementSnapshot { stake });
+        }
+        retained_nodes.insert(
+            node_id,
+            LatestOverwatchNodeSignalInput::<T> { stake, reveals },
+        );
+    }
+
+    CurrentOverwatchEpoch::<T>::put(active_epoch);
+    TotalOverwatchNodeUids::<T>::set(max_nodes);
+    TotalOverwatchNodes::<T>::set(max_nodes);
+    TotalOverwatchNodeStakeBalance::<T>::set(total_live_stake);
+    ActiveOverwatchRevealStats::<T>::put(OverwatchRevealStats::<T> {
+        records: max_nodes.saturating_mul(max_subnets),
+        subnet_revealer_counts: subnet_ids
+            .iter()
+            .copied()
+            .map(|subnet_id| (subnet_id, max_nodes))
+            .collect::<BTreeMap<_, _>>()
+            .try_into()
+            .expect("maximum removal subnet counts fit their runtime bound"),
+    });
+    PendingOverwatchSettlement::<T>::put(PendingOverwatchSettlementData {
+        epoch: pending_epoch,
+        reveal_records: if sole_pending {
+            max_subnets
+        } else {
+            max_nodes.saturating_mul(max_subnets)
+        },
+    });
+    OverwatchEpochSettlementSnapshots::<T>::insert(
+        pending_epoch,
+        OverwatchEpochSettlementSnapshot::<T> {
+            stake_weight_factor: DefaultOverwatchStakeWeightFactor::get(),
+            reward_budget: T::OverwatchEpochEmissions::get(),
+            nodes: snapshot_nodes
+                .try_into()
+                .expect("maximum removal settlement snapshot fits its runtime bound"),
+        },
+    );
+
+    let retained_inputs = LatestFinalizedOverwatchSignalInput::<T> {
+        source_epoch,
+        stake_weight_factor: DefaultOverwatchStakeWeightFactor::get(),
+        nodes: retained_nodes
+            .try_into()
+            .expect("maximum retained removal inputs fit their runtime bound"),
+    };
+    let derived = Network::<T>::derive_overwatch_signal(&retained_inputs)
+        .expect("maximum retained removal inputs derive a bounded signal");
+    LastFinalizedOverwatchEpoch::<T>::put(source_epoch);
+    LatestFinalizedOverwatchSignalInputs::<T>::put(retained_inputs);
+    LatestEffectiveOverwatchSignal::<T>::put(EffectiveOverwatchSignal::<T> {
+        source_epoch,
+        valid: true,
+        subnet_weights: derived.subnet_weights,
+    });
+    LatestOverwatchSignalRevision::<T>::put(initial_revision);
+
+    (active_epoch, pending_epoch, initial_revision)
+}
+
+fn assert_max_overwatch_removal_lifecycle<T: Config>(
+    target_node_id: u32,
+    active_epoch: u32,
+    pending_epoch: u32,
+    initial_revision: u64,
+    sole_pending: bool,
+) {
+    assert!(OverwatchCommits::<T>::get(active_epoch, target_node_id).is_empty());
+    assert!(OverwatchReveals::<T>::get(active_epoch, target_node_id).is_empty());
+    assert!(OverwatchReveals::<T>::get(pending_epoch, target_node_id).is_empty());
+    let retained = LatestFinalizedOverwatchSignalInputs::<T>::get()
+        .expect("valid latest inputs remain after removal");
+    assert!(!retained.nodes.contains_key(&target_node_id));
+    let derived = Network::<T>::derive_overwatch_signal(&retained)
+        .expect("purged retained inputs remain derivable");
+    let cache = LatestEffectiveOverwatchSignal::<T>::get()
+        .expect("effective cache remains available after recomputation");
+    assert!(cache.valid);
+    assert_eq!(cache.subnet_weights, derived.subnet_weights);
+    if sole_pending {
+        assert!(PendingOverwatchSettlement::<T>::get().is_none());
+        assert!(OverwatchEpochSettlementSnapshots::<T>::get(pending_epoch).is_none());
+        assert_eq!(retained.source_epoch, pending_epoch);
+        assert!(retained.nodes.is_empty());
+        assert_eq!(cache.source_epoch, pending_epoch);
+        assert!(cache.subnet_weights.is_empty());
+        assert_eq!(LastFinalizedOverwatchEpoch::<T>::get(), Some(pending_epoch));
+        assert_eq!(
+            LatestOverwatchSignalRevision::<T>::get(),
+            initial_revision.saturating_add(2)
+        );
+    } else {
+        assert!(!OverwatchEpochSettlementSnapshots::<T>::get(pending_epoch)
+            .expect("pending snapshot remains for the surviving cohort")
+            .nodes
+            .contains_key(&target_node_id));
+        assert_eq!(
+            LatestOverwatchSignalRevision::<T>::get(),
+            initial_revision.saturating_add(1)
+        );
+    }
+}
+
 pub fn insert_subnet_node<T: Config>(
     subnet_id: u32,
     node_id: u32,
@@ -1625,9 +1886,20 @@ fn seed_validator_owned_nodes<T: Config>(
     validator_subnet_nodes.insert(subnet_id, target_nodes);
 
     // Production permits at most one entry for each currently addressable subnet. Spread the
-    // remaining nodes over the maximum 16 non-target subnet keys while keeping the cumulative
+    // remaining nodes over every available non-target subnet key while keeping the cumulative
     // ownership invariant at exactly `n`.
-    let external_subnet_count = n.saturating_sub(1).min(16);
+    let external_subnet_count = n.saturating_sub(1).min(
+        T::MaxPhysicalSubnetsUpperBound::get()
+            .saturating_sub(1)
+            .max(1),
+    );
+    for external_subnet_index in 0..external_subnet_count {
+        let external_subnet_id = 20_000 + external_subnet_index;
+        SubnetsData::<T>::insert(
+            external_subnet_id,
+            new_subnet_data::<T>(external_subnet_id, SubnetState::Active, 0),
+        );
+    }
     for i in 0..n.saturating_sub(1) {
         let external_subnet_id = 20_000 + (i % external_subnet_count.max(1));
         validator_subnet_nodes
@@ -1767,10 +2039,8 @@ fn seed_remove_subnet_cleanup_state<T: Config>(
     active_nodes: u32,
     registered_nodes: u32,
     overwatch_nodes: u32,
-    surviving_owned_nodes: u32,
 ) {
     let mut subnet = SubnetsData::<T>::get(subnet_id).expect("benchmark subnet must exist");
-    let registered_lifecycle = subnet.state == SubnetState::Registered;
     SubnetName::<T>::remove(&subnet.name);
     SubnetRepo::<T>::remove(&subnet.repo);
     subnet.name = vec![41u8; T::MaxVectorLength::get() as usize];
@@ -1803,154 +2073,24 @@ fn seed_remove_subnet_cleanup_state<T: Config>(
         );
     }
 
-    let mut ownership_by_validator: BTreeMap<u32, BTreeMap<u32, BTreeSet<u32>>> = target_nodes
-        .iter()
-        .map(|(validator_id, _)| (*validator_id, ValidatorSubnetNodes::<T>::get(validator_id)))
-        .collect();
-    if registered_lifecycle {
-        assert!(
-            ownership_by_validator.len() as u32 <= T::MaxRegisteredNodesUpperBound::get(),
-            "Registered cleanup identities must remain within the whitelist bound"
-        );
-    } else {
-        assert_eq!(ownership_by_validator.len(), target_nodes.len());
-    }
-    let target_counts_by_validator = target_nodes.iter().fold(
-        BTreeMap::<u32, u32>::new(),
-        |mut counts, (validator_id, _)| {
-            counts
-                .entry(*validator_id)
-                .and_modify(|count| *count = count.saturating_add(1))
-                .or_insert(1);
-            counts
-        },
-    );
-    let affected_validator_capacities: Vec<(u32, u32)> = ownership_by_validator
-        .keys()
-        .map(|validator_id| {
-            let target_count = target_counts_by_validator
-                .get(validator_id)
-                .copied()
-                .unwrap_or(0);
-            (
-                *validator_id,
-                T::MaxValidatorNodesUpperBound::get().saturating_sub(target_count),
-            )
-        })
-        .collect();
-    let per_subnet_nodes =
-        T::MaxSubnetNodesUpperBound::get().saturating_add(T::MaxRegisteredNodesUpperBound::get());
-    let surviving_subnets = T::MaxPhysicalSubnetsUpperBound::get().saturating_sub(1);
-    assert!(
-        per_subnet_nodes > 0
-            && surviving_subnets > 0
-            && surviving_owned_nodes
-                <= affected_validator_capacities
-                    .iter()
-                    .map(|(_, capacity)| *capacity)
-                    .sum::<u32>()
-    );
-    assert!(surviving_owned_nodes <= per_subnet_nodes.saturating_mul(surviving_subnets));
-
-    // Make all `surviving_owned_nodes` belong to validators affected by this subnet removal. The
-    // aggregate fills each validator's survivor capacity before moving to the next validator.
-    // Independently fill each physical subnet to its active+registered capacity, assigning a
-    // globally unique (subnet,node) key to every owner. This is both capacity-valid and maximizes
-    // BTree depth per surviving entry.
-    let mut surviving_keys = BTreeSet::new();
-    let mut validator_index = 0usize;
-    let mut validator_survivors = 0u32;
-    for index in 0..surviving_owned_nodes {
-        while validator_index < affected_validator_capacities.len()
-            && validator_survivors >= affected_validator_capacities[validator_index].1
-        {
-            validator_index = validator_index.saturating_add(1);
-            validator_survivors = 0;
-        }
-        let validator_id = affected_validator_capacities[validator_index].0;
-        validator_survivors = validator_survivors.saturating_add(1);
-        let external_subnet_index = index / per_subnet_nodes;
-        let external_subnet_id = 40_000 + external_subnet_index;
-        let external_node_id = 50_000 + (index % per_subnet_nodes);
-        assert!(surviving_keys.insert((external_subnet_id, external_node_id)));
-        ownership_by_validator
-            .get_mut(&validator_id)
-            .expect("target validator must exist")
-            .entry(external_subnet_id)
-            .or_default()
-            .insert(external_node_id);
-    }
-
-    for (validator_id, ownership) in ownership_by_validator {
-        let mut weights = BTreeMap::new();
-        for (owned_subnet_id, node_ids) in &ownership {
-            for owned_node_id in node_ids {
-                weights.insert((*owned_subnet_id, *owned_node_id), 1u128);
-            }
-        }
-        assert!(weights.len() as u32 <= T::MaxValidatorNodesUpperBound::get());
-        TotalValidatorNodes::<T>::insert(validator_id, weights.len() as u32);
-        ValidatorSubnetNodes::<T>::insert(validator_id, ownership);
-        ValidatorNodeDelegateStakeWeights::<T>::insert(validator_id, weights);
-    }
-
-    TotalNodes::<T>::set(
-        active_nodes
-            .saturating_add(registered_nodes)
-            .saturating_add(surviving_owned_nodes),
-    );
-
     for overwatch_node_id in 1..=overwatch_nodes {
-        let make_peer = |subnet_key: u32| {
-            let mut bytes = vec![31u8; 128];
-            for (slot, byte) in bytes.iter_mut().zip(
-                overwatch_node_id
-                    .to_le_bytes()
-                    .into_iter()
-                    .chain(subnet_key.to_le_bytes()),
-            ) {
-                *slot = byte;
-            }
-            PeerId(bytes)
-        };
-        let target_peer = make_peer(subnet_id);
-        PeerIdOverwatchNodeId::<T>::insert(subnet_id, target_peer.clone(), overwatch_node_id);
-        let mut peer_ids = BTreeMap::from([(subnet_id, target_peer)]);
-        // Current runtime permits 17 physical subnet records. Keep the target plus all 16
-        // surviving keys so each global index decode, remove and rewrite is maximal.
-        for index in 0..16 {
-            let other_subnet_id = 80_000 + index;
-            peer_ids.insert(other_subnet_id, make_peer(other_subnet_id));
+        let mut bytes = vec![31u8; 128];
+        for (slot, byte) in bytes.iter_mut().zip(
+            overwatch_node_id
+                .to_le_bytes()
+                .into_iter()
+                .chain(subnet_id.to_le_bytes()),
+        ) {
+            *slot = byte;
         }
-        OverwatchNodeIndex::<T>::insert(overwatch_node_id, peer_ids);
+        PeerIdOverwatchNodeId::<T>::insert(subnet_id, PeerId(bytes), overwatch_node_id);
     }
     TotalOverwatchNodes::<T>::set(overwatch_nodes);
 }
 
-pub fn make_overwatch_qualified<T: Config>(validator_id: u32) {
+pub fn prepare_overwatch_validator<T: Config>(validator_id: u32) {
     let (_coldkey, _hotkey) = ensure_validator::<T>(validator_id);
-    OverwatchValidatorWhitelist::<T>::insert(validator_id, true);
-
-    // Maximum validator-identity reputation. Overwatch qualification does not depend on subnet
-    // node ownership.
-    ValidatorReputation::<T>::insert(
-        validator_id,
-        Reputation {
-            start_epoch: Some(0),
-            score: 1_000_000_000_000_000_000,
-            lifetime_node_count: 0,
-            total_active_nodes: 0,
-            total_increases: 999,
-            total_decreases: 0,
-            average_proposal_identity_support: 1_000_000_000_000_000_000,
-            identity_support_samples: 999,
-            last_validator_epoch: Some(0),
-            ow_score: 1_000_000_000_000_000_000,
-        },
-    );
-
-    let min_age = OverwatchMinAge::<T>::get();
-    increase_epochs::<T>(min_age);
+    OverwatchValidatorWhitelist::<T>::insert(validator_id, ());
     CurrentOverwatchEpoch::<T>::put(1);
     OverwatchEpochStartBlock::<T>::put(get_current_block_as_u32::<T>());
 }
@@ -1959,7 +2099,7 @@ fn register_benchmark_overwatch_node<T: Config>(
     validator_id: u32,
     stake_to_be_added: u128,
 ) -> (u32, T::AccountId) {
-    make_overwatch_qualified::<T>(validator_id);
+    prepare_overwatch_validator::<T>(validator_id);
     let coldkey = ValidatorColdkey::<T>::get(validator_id).unwrap();
     fund_account::<T>(
         &coldkey,
@@ -2570,7 +2710,6 @@ fn prepare_alternate_emission_step<T: Config>(
     policy.validator_delegate_stake_slash_threshold = percentage;
     policy.base_validator_delegate_stake_slash_percentage = percentage;
     policy.max_validator_delegate_stake_slash_amount = u128::MAX;
-    policy.validator_reputation_decrease_factor = percentage;
     policy.validator_absent_subnet_reputation_factor = percentage;
     policy.not_in_consensus_subnet_reputation_factor = percentage;
     policy.min_subnet_node_reputation = percentage;
@@ -2603,7 +2742,15 @@ fn prepare_alternate_emission_step<T: Config>(
         ElectedConsensusRound {
             validator_subnet_node_id,
             validator_id,
-            emergency: mode == AlternateEmissionMode::Emergency,
+            emergency: (mode == AlternateEmissionMode::Emergency).then(|| {
+                EmergencyConsensusSnapshot {
+                    subnet_node_ids: eligible_subnet_node_ids.clone(),
+                    reputation_factors: policy.reputation_factors,
+                    min_subnet_node_reputation: policy.min_subnet_node_reputation,
+                    min_weight_decrease_reputation_threshold: policy
+                        .min_weight_decrease_reputation_threshold,
+                }
+            }),
             eligible_subnet_node_ids: eligible_subnet_node_ids.clone(),
             eligible_validator_identity_ids: eligible_validator_identity_ids.clone(),
             validator_delegate_stake_balance: delegate_pool,
@@ -2805,7 +2952,7 @@ fn prepare_mixed_swap_benchmark<T: Config>(
     x: u32,
     dominant: MixedSwapBranch,
 ) -> MixedSwapBenchmarkContext {
-    assert!((3..=1_000).contains(&x));
+    assert!((MIN_MIXED_SWAP_BENCHMARK_DOMAIN..=MAX_SWAP_QUEUE_BENCHMARK_DOMAIN).contains(&x));
     assert!(x <= T::MaxSwapQueueLength::get());
 
     let mut validator_calls = 0u32;
@@ -3206,7 +3353,8 @@ mod benchmarks {
     #[benchmark]
     fn register_subnet() {
         let block_number = get_current_block_as_u32::<T>();
-        let cost = Network::<T>::get_current_registration_cost(block_number) + 1000;
+        let cost = Network::<T>::get_current_registration_cost(block_number)
+            .saturating_add(BENCHMARK_REGISTRATION_COST_BUFFER);
 
         let funded_initializer = funded_initializer::<T>("funded_initializer", 0);
 
@@ -3275,7 +3423,6 @@ mod benchmarks {
             active_nodes,
             registered_nodes,
             T::MaxOverwatchNodesUpperBound::get(),
-            9_216,
         );
         max_fill_remove_subnet_keyed_state::<T>(subnet_id, false);
 
@@ -3453,7 +3600,6 @@ mod benchmarks {
             max_subnet_nodes,
             max_registered_nodes,
             T::MaxOverwatchNodesUpperBound::get(),
-            9_216,
         );
         max_fill_remove_subnet_keyed_state::<T>(subnet_id, true);
         let current_epoch = Network::<T>::get_current_epoch_as_u32();
@@ -3762,7 +3908,8 @@ mod benchmarks {
     #[benchmark]
     fn owner_add_or_update_initial_validators() {
         let block_number = get_current_block_as_u32::<T>();
-        let cost = Network::<T>::get_current_registration_cost(block_number) + 1000;
+        let cost = Network::<T>::get_current_registration_cost(block_number)
+            .saturating_add(BENCHMARK_REGISTRATION_COST_BUFFER);
 
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let max_subnets = MaxSubnets::<T>::get();
@@ -3814,7 +3961,8 @@ mod benchmarks {
     #[benchmark]
     fn owner_remove_initial_validators() {
         let block_number = get_current_block_as_u32::<T>();
-        let cost = Network::<T>::get_current_registration_cost(block_number) + 1000;
+        let cost = Network::<T>::get_current_registration_cost(block_number)
+            .saturating_add(BENCHMARK_REGISTRATION_COST_BUFFER);
 
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let max_subnets = MaxSubnets::<T>::get();
@@ -5822,7 +5970,7 @@ mod benchmarks {
         Network::<T>::elect_validator(subnet_id, subnet_epoch, get_current_block_as_u32::<T>());
         let round = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
             .expect("emergency benchmark election must persist");
-        assert!(round.emergency);
+        assert!(round.emergency.is_some());
         let elected_node_id = round.validator_subnet_node_id;
         let hotkey = Network::<T>::get_subnet_node_associated_hotkey(subnet_id, elected_node_id)
             .expect("elected emergency node has a hotkey");
@@ -6223,7 +6371,7 @@ mod benchmarks {
     #[benchmark]
     fn register_overwatch_node() {
         let validator_id = 1;
-        make_overwatch_qualified::<T>(validator_id);
+        prepare_overwatch_validator::<T>(validator_id);
 
         let coldkey = ValidatorColdkey::<T>::get(validator_id).unwrap();
         fund_account::<T>(&coldkey, DEFAULT_SUBNET_NODE_STAKE + DEFAULT_DEPOSIT_AMOUNT);
@@ -6265,6 +6413,8 @@ mod benchmarks {
         let validator_id = OverwatchNodeValidatorId::<T>::get(id).unwrap();
         OverwatchNodeIdHotkey::<T>::insert(id, get_account::<T>("overwatch_override", 0));
         max_fill_overwatch_node_index::<T>(id);
+        let (active_epoch, pending_epoch, initial_revision) =
+            seed_max_overwatch_removal_lifecycle::<T>(id, false);
 
         // Sanity check
         assert_ne!(OverwatchNodes::<T>::try_get(id), Err(()));
@@ -6276,51 +6426,47 @@ mod benchmarks {
         assert_eq!(OverwatchNodeValidatorId::<T>::get(id), Some(validator_id));
         assert_eq!(ValidatorOverwatchNodeId::<T>::get(validator_id), None);
         assert!(!OverwatchNodeIdHotkey::<T>::contains_key(id));
+        assert!(!OverwatchValidatorWhitelist::<T>::contains_key(
+            validator_id
+        ));
+        assert_max_overwatch_removal_lifecycle::<T>(
+            id,
+            active_epoch,
+            pending_epoch,
+            initial_revision,
+            false,
+        );
     }
 
-    // #[benchmark]
-    // fn anyone_remove_overwatch_node() {
-    //     MinSubnetRegistrationEpochs::<T>::set(10000);
-    //     OverwatchEpochLengthMultiplier::<T>::set(2);
-    //     OverwatchMinRepScore::<T>::set(1000000000000000000);
-    //     OverwatchMinAvgAttestationRatio::<T>::set(1000000000000000000);
-    //     OverwatchMinAge::<T>::set(1000);
+    /// Compare the sole-pending-participant branch against the maximal pending-cohort branch.
+    /// Public removal weights use the component-wise maximum of both generated measurements.
+    #[benchmark(extra)]
+    fn remove_overwatch_node_last_pending() {
+        let (id, coldkey) = register_benchmark_overwatch_node::<T>(1, DEFAULT_SUBNET_NODE_STAKE);
+        let validator_id = OverwatchNodeValidatorId::<T>::get(id).unwrap();
+        OverwatchNodeIdHotkey::<T>::insert(id, get_account::<T>("overwatch_override", 0));
+        max_fill_overwatch_node_index::<T>(id);
+        let (active_epoch, pending_epoch, initial_revision) =
+            seed_max_overwatch_removal_lifecycle::<T>(id, true);
 
-    //     let hotkey = get_account::<T>("overwatch_node", 2);
-    //     let coldkey_n = 1;
-    //     let coldkey = get_account::<T>("overwatch_node", coldkey_n);
-    //     make_overwatch_qualified::<T>(coldkey_n);
+        #[extrinsic_call]
+        remove_overwatch_node(RawOrigin::Signed(coldkey.clone()), id);
 
-    //     assert_ok!(T::Currency::transfer(
-    //         &get_alice::<T>(), // alice
-    //         &coldkey.clone(),
-    //         (DEFAULT_SUBNET_NODE_STAKE + 500)
-    //             .try_into()
-    //             .ok()
-    //             .expect("REASON"),
-    //         ExistenceRequirement::KeepAlive,
-    //     ));
-
-    //     // increase
-    //     let multipler = OverwatchEpochLengthMultiplier::<T>::get();
-    //     increase_epochs::<T>(OverwatchEpochLengthMultiplier::<T>::get() + 1);
-
-    //     assert_ok!(Network::<T>::register_overwatch_node(
-    //         RawOrigin::Signed(coldkey.clone()).into(),
-    //         hotkey.clone(),
-    //         DEFAULT_SUBNET_NODE_STAKE
-    //     ));
-
-    //     // Sanity check
-    //     assert_ne!(OverwatchNodes::<T>::try_get(1), Err(()));
-
-    //     make_overwatch_unqualified::<T>(coldkey_n);
-
-    //     #[extrinsic_call]
-    //     anyone_remove_overwatch_node(RawOrigin::Signed(coldkey.clone()), 1);
-
-    //     assert_eq!(OverwatchNodes::<T>::try_get(1), Err(()));
-    // }
+        assert_eq!(OverwatchNodes::<T>::try_get(id), Err(()));
+        assert_eq!(OverwatchNodeValidatorId::<T>::get(id), Some(validator_id));
+        assert_eq!(ValidatorOverwatchNodeId::<T>::get(validator_id), None);
+        assert!(!OverwatchNodeIdHotkey::<T>::contains_key(id));
+        assert!(!OverwatchValidatorWhitelist::<T>::contains_key(
+            validator_id
+        ));
+        assert_max_overwatch_removal_lifecycle::<T>(
+            id,
+            active_epoch,
+            pending_epoch,
+            initial_revision,
+            true,
+        );
+    }
 
     #[benchmark]
     fn set_overwatch_node_peer_id() {
@@ -6377,7 +6523,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn commit_overwatch_subnet_weights(x: Linear<1, 17>) {
+    fn commit_overwatch_subnet_weights(x: Linear<1, { MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN }>) {
         let coldkey_n = 1;
 
         let end = 4;
@@ -6400,7 +6546,7 @@ mod benchmarks {
         // Resolve the builder's name indexes before replacing each subnet with maximum-sized
         // metadata, so every measured per-item existence proof decodes the largest permitted
         // subnet value.
-        make_overwatch_qualified::<T>(coldkey_n);
+        prepare_overwatch_validator::<T>(coldkey_n);
         for subnet_id in subnet_ids.iter().copied() {
             max_fill_benchmark_subnet_data::<T>(subnet_id);
         }
@@ -6435,17 +6581,34 @@ mod benchmarks {
         let overwatch_epoch = Network::<T>::get_current_overwatch_epoch_as_u32();
         set_block_to_overwatch_commit_block::<T>(overwatch_epoch);
 
+        // A validator can fill this bounded row over repeated calls. Seed the disjoint prefix so
+        // x=1 measures decoding and rewriting a 16-entry row, while every x finishes at the
+        // cumulative 17-subnet bound.
+        let existing_count = T::MaxPhysicalSubnetsUpperBound::get().saturating_sub(x);
+        let existing_commits: BoundedBTreeMap<u32, T::Hash, T::MaxPhysicalSubnetsUpperBound> = (0
+            ..existing_count)
+            .map(|offset| {
+                let subnet_id = u32::MAX.saturating_sub(offset);
+                assert!(!subnet_ids.contains(&subnet_id));
+                (subnet_id, T::Hashing::hash_of(&(id, subnet_id)))
+            })
+            .collect::<BTreeMap<_, _>>()
+            .try_into()
+            .expect("cumulative commit prefix fits the runtime bound");
+        OverwatchCommits::<T>::insert(overwatch_epoch, id, existing_commits);
+
         #[extrinsic_call]
         commit_overwatch_subnet_weights(RawOrigin::Signed(hotkey.clone()), id, commits);
 
+        let stored = OverwatchCommits::<T>::get(overwatch_epoch, id);
+        assert_eq!(stored.len() as u32, T::MaxPhysicalSubnetsUpperBound::get());
         for subnet_id in subnet_ids {
-            let stored = OverwatchCommits::<T>::get((overwatch_epoch, id, subnet_id)).unwrap();
-            assert_eq!(stored, commit_hash);
+            assert_eq!(stored.get(&subnet_id), Some(&commit_hash));
         }
     }
 
     #[benchmark]
-    fn reveal_overwatch_subnet_weights(x: Linear<1, 17>) {
+    fn reveal_overwatch_subnet_weights(x: Linear<1, { MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN }>) {
         // ENSURE EPOCH LENGTH IS BOAVE MAX LINEAR
         /// x: subnets
         // overwatch nodes
@@ -6465,7 +6628,7 @@ mod benchmarks {
             increase_epochs::<T>(10000);
         }
 
-        make_overwatch_qualified::<T>(coldkey_n);
+        prepare_overwatch_validator::<T>(coldkey_n);
 
         let coldkey = ValidatorColdkey::<T>::get(coldkey_n).unwrap();
         fund_account::<T>(&coldkey, DEFAULT_SUBNET_NODE_STAKE + DEFAULT_DEPOSIT_AMOUNT);
@@ -6518,32 +6681,21 @@ mod benchmarks {
             commits
         ));
 
-        // Every successful reveal mutates this aggregate. Seed the largest reachable pre-state so
-        // the measured write has the maximum encoded storage value, while leaving the individual
-        // reveal keys absent so all `x` calls take the new-reveal branch.
+        // Every successful reveal mutates one bounded row and the compact per-subnet aggregate.
+        // Seed the largest reachable pre-state while leaving this call's row entries absent.
         let max_revealing_nodes = T::MaxOverwatchNodesUpperBound::get() as usize;
         let max_revealed_subnets = T::MaxPhysicalSubnetsUpperBound::get() as usize;
-
-        // Model a complete node/subnet reveal matrix with exactly the `x` measured records
-        // absent. When every possible subnet is in this call, `id` has no pre-existing record and
-        // therefore cannot already be present in `revealing_nodes`; the call inserts it as the
-        // final bounded member. For smaller calls, the unmeasured subnet records keep `id` in the
-        // full pre-state set. This keeps the aggregate fixture reachable at every component value.
-        let inserts_final_revealer = x as usize == max_revealed_subnets;
-        let preexisting_revealer_count =
-            max_revealing_nodes.saturating_sub(inserts_final_revealer as usize);
-        let mut revealing_nodes = if inserts_final_revealer {
-            BTreeSet::new()
-        } else {
-            BTreeSet::from([id])
-        };
-        let mut candidate_node_id = 1u32;
-        while revealing_nodes.len() < preexisting_revealer_count {
-            if candidate_node_id != id {
-                revealing_nodes.insert(candidate_node_id);
-            }
-            candidate_node_id = candidate_node_id.saturating_add(1);
+        assert_eq!(id, 1);
+        for expected_node_id in 2..=max_revealing_nodes as u32 {
+            let validator_id = 10_000u32.saturating_add(expected_node_id);
+            let inserted_node_id = insert_overwatch_node::<T>(
+                validator_id,
+                max_revealing_nodes as u32 + expected_node_id,
+            );
+            assert_eq!(inserted_node_id, expected_node_id);
+            set_overwatch_stake::<T>(inserted_node_id, OverwatchMinStakeBalance::<T>::get());
         }
+        assert_eq!(TotalOverwatchNodes::<T>::get(), max_revealing_nodes as u32);
 
         let mut candidate_subnet_id = 1u32;
         while revealed_subnet_ids.len() < max_revealed_subnets {
@@ -6553,29 +6705,39 @@ mod benchmarks {
 
         let max_records = (max_revealing_nodes as u32).saturating_mul(max_revealed_subnets as u32);
         let mut preexisting_records = 0u32;
+        let mut subnet_revealer_counts = BTreeMap::<u32, u32>::new();
         for node_id in 1..=max_revealing_nodes as u32 {
+            let mut reveal_row = BTreeMap::<u32, u128>::new();
             for subnet_id in revealed_subnet_ids.iter().copied() {
                 if node_id == id && measured_subnet_ids.contains(&subnet_id) {
                     continue;
                 }
-                OverwatchReveals::<T>::insert((overwatch_epoch, subnet_id, node_id), weight);
+                reveal_row.insert(subnet_id, weight);
+                subnet_revealer_counts
+                    .entry(subnet_id)
+                    .and_modify(|count| *count = count.saturating_add(1))
+                    .or_insert(1);
                 preexisting_records = preexisting_records.saturating_add(1);
             }
+            let reveal_row: BoundedBTreeMap<u32, u128, T::MaxPhysicalSubnetsUpperBound> =
+                reveal_row
+                    .try_into()
+                    .expect("maximum benchmark reveal row fits its runtime bound");
+            OverwatchReveals::<T>::insert(overwatch_epoch, node_id, reveal_row);
         }
         assert_eq!(preexisting_records, max_records.saturating_sub(x));
-        // The extra IDs model nodes/subnets that revealed earlier and were subsequently removed;
-        // monotonic UID counters make every seeded key reachable even though only this call's
-        // active node and subnets need to remain live.
-        TotalOverwatchNodeUids::<T>::set(max_revealing_nodes as u32);
+        // Every seeded node remains a canonical, whitelisted active member. Extra subnet keys may
+        // be historical because subnet removal does not invalidate the bounded active reveal row.
+        assert_eq!(
+            TotalOverwatchNodeUids::<T>::get(),
+            max_revealing_nodes as u32
+        );
         TotalSubnetUids::<T>::set(max_revealed_subnets as u32);
         ActiveOverwatchRevealStats::<T>::put(OverwatchRevealStats::<T> {
             records: max_records.saturating_sub(x),
-            revealing_nodes: revealing_nodes
+            subnet_revealer_counts: subnet_revealer_counts
                 .try_into()
-                .expect("revealing-node fixture fits the runtime bound"),
-            revealed_subnets: revealed_subnet_ids
-                .try_into()
-                .expect("revealed-subnet fixture fits the runtime bound"),
+                .expect("subnet-count fixture fits the runtime bound"),
         });
 
         set_block_to_overwatch_reveal_block::<T>(overwatch_epoch);
@@ -6583,11 +6745,11 @@ mod benchmarks {
         #[extrinsic_call]
         reveal_overwatch_subnet_weights(RawOrigin::Signed(hotkey.clone()), id, reveals);
 
+        let revealed_row = OverwatchReveals::<T>::get(overwatch_epoch, id);
         for s in 0..x {
             let path: Vec<u8> = format!("subnet-name-{s}").into();
             let subnet_id = SubnetName::<T>::get::<Vec<u8>>(path.clone()).unwrap();
-            let revealed = OverwatchReveals::<T>::get((overwatch_epoch, subnet_id, id)).unwrap();
-            assert_eq!(revealed, weight);
+            assert_eq!(revealed_row.get(&subnet_id), Some(&weight));
         }
     }
 
@@ -6630,9 +6792,12 @@ mod benchmarks {
             )
             .expect("benchmark claim block fits u32");
         let seeded_ledger = prime_max_unbonding_ledger_for_merge::<T>(&coldkey, claim_block);
-        let seeded_entry = *seeded_ledger
-            .get(&claim_block)
-            .expect("target claim block is seeded");
+        let total_overwatch_unbonding_before =
+            seeded_ledger.values().fold(0u128, |total, entry| {
+                total
+                    .checked_add(entry.overwatch)
+                    .expect("benchmark Overwatch unbonding principal fits u128")
+            });
         let total_network_unbonding_before = TotalNetworkUnbondingBalance::<T>::get();
 
         #[extrinsic_call]
@@ -6648,12 +6813,14 @@ mod benchmarks {
         );
         let unbondings = StakeUnbondingLedger::<T>::get(&coldkey);
         assert_eq!(unbondings.len() as u32, T::MaxUnbondingsUpperBound::get());
+        let total_overwatch_unbonding_after = unbondings.values().fold(0u128, |total, entry| {
+            total
+                .checked_add(entry.overwatch)
+                .expect("benchmark Overwatch unbonding principal fits u128")
+        });
         assert_eq!(
-            unbondings.get(&claim_block),
-            Some(&UnbondingEntry {
-                network: seeded_entry.network,
-                overwatch: seeded_entry.overwatch + DEFAULT_SUBNET_NODE_STAKE,
-            })
+            total_overwatch_unbonding_after,
+            total_overwatch_unbonding_before + DEFAULT_SUBNET_NODE_STAKE,
         );
         assert_eq!(
             TotalNetworkUnbondingBalance::<T>::get(),
@@ -6722,7 +6889,6 @@ mod benchmarks {
             max_subnet_nodes,
             max_registered_nodes,
             T::MaxOverwatchNodesUpperBound::get(),
-            9_216,
         );
         max_fill_remove_subnet_keyed_state::<T>(subnet_id, true);
         let current_epoch = Network::<T>::get_current_epoch_as_u32();
@@ -6780,13 +6946,16 @@ mod benchmarks {
     #[benchmark]
     fn collective_remove_overwatch_node() {
         let (id, _coldkey) = register_benchmark_overwatch_node::<T>(1, DEFAULT_SUBNET_NODE_STAKE);
+        let validator_id = OverwatchNodeValidatorId::<T>::get(id).unwrap();
         OverwatchNodeIdHotkey::<T>::insert(id, get_account::<T>("overwatch_override", 0));
         max_fill_overwatch_node_index::<T>(id);
+        let (active_epoch, pending_epoch, initial_revision) =
+            seed_max_overwatch_removal_lifecycle::<T>(id, false);
 
         // Sanity check
         assert_ne!(OverwatchNodes::<T>::try_get(id), Err(()));
 
-        let origin = T::MajorityCollectiveOrigin::try_successful_origin()
+        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
             .expect("try_successful_origin failed");
 
         #[extrinsic_call]
@@ -6794,6 +6963,46 @@ mod benchmarks {
 
         assert_eq!(OverwatchNodes::<T>::try_get(id), Err(()));
         assert!(!OverwatchNodeIdHotkey::<T>::contains_key(id));
+        assert!(!OverwatchValidatorWhitelist::<T>::contains_key(
+            validator_id
+        ));
+        assert_max_overwatch_removal_lifecycle::<T>(
+            id,
+            active_epoch,
+            pending_epoch,
+            initial_revision,
+            false,
+        );
+    }
+
+    /// Collective-origin comparison for the shared last-pending-participant removal branch.
+    #[benchmark(extra)]
+    fn collective_remove_overwatch_node_last_pending() {
+        let (id, _coldkey) = register_benchmark_overwatch_node::<T>(1, DEFAULT_SUBNET_NODE_STAKE);
+        let validator_id = OverwatchNodeValidatorId::<T>::get(id).unwrap();
+        OverwatchNodeIdHotkey::<T>::insert(id, get_account::<T>("overwatch_override", 0));
+        max_fill_overwatch_node_index::<T>(id);
+        let (active_epoch, pending_epoch, initial_revision) =
+            seed_max_overwatch_removal_lifecycle::<T>(id, true);
+
+        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
+            .expect("try_successful_origin failed");
+
+        #[extrinsic_call]
+        collective_remove_overwatch_node(origin as T::RuntimeOrigin, id);
+
+        assert_eq!(OverwatchNodes::<T>::try_get(id), Err(()));
+        assert!(!OverwatchNodeIdHotkey::<T>::contains_key(id));
+        assert!(!OverwatchValidatorWhitelist::<T>::contains_key(
+            validator_id
+        ));
+        assert_max_overwatch_removal_lifecycle::<T>(
+            id,
+            active_epoch,
+            pending_epoch,
+            initial_revision,
+            true,
+        );
     }
 
     #[benchmark]
@@ -7256,34 +7465,6 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_reputation_increase_factor() {
-        let value = ValidatorReputationIncreaseFactor::<T>::get();
-        let new_value = value - 1;
-
-        let origin = T::MajorityCollectiveOrigin::try_successful_origin()
-            .expect("try_successful_origin failed");
-
-        #[extrinsic_call]
-        set_reputation_increase_factor(origin as T::RuntimeOrigin, new_value);
-
-        assert_eq!(ValidatorReputationIncreaseFactor::<T>::get(), new_value);
-    }
-
-    #[benchmark]
-    fn set_reputation_decrease_factor() {
-        let value = ValidatorReputationDecreaseFactor::<T>::get();
-        let new_value = value - 1;
-
-        let origin = T::MajorityCollectiveOrigin::try_successful_origin()
-            .expect("try_successful_origin failed");
-
-        #[extrinsic_call]
-        set_reputation_decrease_factor(origin as T::RuntimeOrigin, new_value);
-
-        assert_eq!(ValidatorReputationDecreaseFactor::<T>::get(), new_value);
-    }
-
-    #[benchmark]
     fn set_network_max_stake_balance() {
         let value = NetworkMaxStakeBalance::<T>::get();
         let new_value = value - 1;
@@ -7482,7 +7663,9 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_validator_node_delegate_stake_weights(x: Linear<1, 512>) {
+    fn set_validator_node_delegate_stake_weights(
+        x: Linear<1, { MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         NewRegistrationCostMultiplier::<T>::set(Network::<T>::percentage_factor_as_u128());
 
         let name: Vec<u8> = b"validator-weight-subnet".to_vec();
@@ -7502,6 +7685,15 @@ mod benchmarks {
         // may own nodes across every subnet, so spreading x entries over the configured subnet
         // count exercises the outer BTreeMap work omitted by a single-key fixture.
         let ownership_subnets = T::MaxPhysicalSubnetsUpperBound::get().max(1).min(x);
+        for offset in 0..ownership_subnets {
+            let owned_subnet_id = subnet_id.saturating_add(offset);
+            if !SubnetsData::<T>::contains_key(owned_subnet_id) {
+                SubnetsData::<T>::insert(
+                    owned_subnet_id,
+                    new_subnet_data::<T>(owned_subnet_id, SubnetState::Active, 0),
+                );
+            }
+        }
         let mut ownership = BTreeMap::<u32, BTreeSet<u32>>::new();
         for index in 0..x {
             let owned_subnet_id = subnet_id.saturating_add(index % ownership_subnets);
@@ -7663,48 +7855,6 @@ mod benchmarks {
         set_overwatch_commit_cutoff_percent(origin as T::RuntimeOrigin, new_value);
 
         assert_eq!(OverwatchCommitCutoffPercent::<T>::get(), new_value);
-    }
-
-    #[benchmark]
-    fn set_overwatch_min_rep_score() {
-        let value = OverwatchMinRepScore::<T>::get();
-        let new_value = value - 1;
-
-        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
-            .expect("try_successful_origin failed");
-
-        #[extrinsic_call]
-        set_overwatch_min_rep_score(origin as T::RuntimeOrigin, new_value);
-
-        assert_eq!(OverwatchMinRepScore::<T>::get(), new_value);
-    }
-
-    #[benchmark]
-    fn set_overwatch_min_avg_attestation_ratio() {
-        let value = OverwatchMinAvgAttestationRatio::<T>::get();
-        let new_value = value - 1;
-
-        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
-            .expect("try_successful_origin failed");
-
-        #[extrinsic_call]
-        set_overwatch_min_avg_attestation_ratio(origin as T::RuntimeOrigin, new_value);
-
-        assert_eq!(OverwatchMinAvgAttestationRatio::<T>::get(), new_value);
-    }
-
-    #[benchmark]
-    fn set_overwatch_min_age() {
-        let value = OverwatchMinAge::<T>::get();
-        let new_value = value - 1;
-
-        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
-            .expect("try_successful_origin failed");
-
-        #[extrinsic_call]
-        set_overwatch_min_age(origin as T::RuntimeOrigin, new_value);
-
-        assert_eq!(OverwatchMinAge::<T>::get(), new_value);
     }
 
     #[benchmark]
@@ -8143,6 +8293,7 @@ mod benchmarks {
     fn set_overwatch_validator_whitelist() {
         let validator_id = 1;
         ensure_validator::<T>(validator_id);
+        OverwatchValidatorWhitelist::<T>::insert(validator_id, ());
         let delegate_account = get_account::<T>("overwatch_whitelist_delegate", validator_id);
         ValidatorsData::<T>::mutate(validator_id, |validator| {
             validator.delegate_account = Some(DelegateAccount {
@@ -8155,9 +8306,11 @@ mod benchmarks {
             .expect("try_successful_origin failed");
 
         #[extrinsic_call]
-        set_overwatch_validator_whitelist(origin as T::RuntimeOrigin, validator_id, true);
+        set_overwatch_validator_whitelist(origin as T::RuntimeOrigin, validator_id, false);
 
-        assert!(OverwatchValidatorWhitelist::<T>::get(validator_id));
+        assert!(!OverwatchValidatorWhitelist::<T>::contains_key(
+            validator_id
+        ));
     }
 
     #[benchmark]
@@ -8240,8 +8393,8 @@ mod benchmarks {
         );
 
         if total_subnet_delegate_stake_shares == 0 {
-            delegate_stake_to_be_added_as_shares =
-                delegate_stake_to_be_added_as_shares.saturating_sub(1000);
+            delegate_stake_to_be_added_as_shares = delegate_stake_to_be_added_as_shares
+                .saturating_sub(Network::<T>::DELEGATE_POOL_MIN_LIQUIDITY);
         }
 
         frame_system::Pallet::<T>::set_block_number(u32_to_block::<T>(
@@ -8367,7 +8520,9 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn elect_validator(x: Linear<3, 512>) {
+    fn elect_validator(
+        x: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         // Regular election path with exactly `x` candidates and no emergency state.
         MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
         build_activated_subnet::<T>(
@@ -8410,23 +8565,23 @@ mod benchmarks {
             .unwrap()
             .validator_subnet_node_id;
         let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id).unwrap();
-        let reputation = ValidatorReputation::<T>::get(validator_id);
-        let election_epoch = Network::<T>::get_current_epoch_as_u32();
-        assert_eq!(reputation.start_epoch, Some(election_epoch));
-        assert_eq!(reputation.last_validator_epoch, Some(election_epoch));
         assert_eq!(
             ValidatorDelegateStakeSlashLockUntil::<T>::get(validator_id),
             election_block.saturating_add(T::EpochLength::get()),
         );
-        assert!(
-            !SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
-                .unwrap()
-                .emergency
-        );
+        assert!(SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
+            .unwrap()
+            .emergency
+            .is_none());
     }
 
     #[benchmark]
-    fn elect_validator_emergency(e: Linear<3, 64>) {
+    fn elect_validator_emergency(
+        e: Linear<
+            { MIN_CONSENSUS_VALIDATOR_IDENTITIES },
+            { MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN },
+        >,
+    ) {
         MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
@@ -8468,7 +8623,7 @@ mod benchmarks {
         }
 
         let round = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch).unwrap();
-        assert!(round.emergency);
+        assert!(round.emergency.is_some());
         assert_eq!(round.eligible_subnet_node_ids.len() as u32, e);
         assert!(EmergencySubnetNodeElectionData::<T>::contains_key(
             subnet_id
@@ -8476,7 +8631,13 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn elect_validator_expired(x: Linear<3, 512>, e: Linear<3, 64>) {
+    fn elect_validator_expired(
+        x: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
+        e: Linear<
+            { MIN_CONSENSUS_VALIDATOR_IDENTITIES },
+            { MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN },
+        >,
+    ) {
         MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
@@ -8518,7 +8679,7 @@ mod benchmarks {
         }
 
         let round = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch).unwrap();
-        assert!(!round.emergency);
+        assert!(round.emergency.is_none());
         assert_eq!(round.eligible_subnet_node_ids.len() as u32, x);
         assert!(!EmergencySubnetNodeElectionData::<T>::contains_key(
             subnet_id
@@ -8585,14 +8746,14 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn do_remove_subnet(a: Linear<1, 512>, r: Linear<1, 64>, o: Linear<1, 64>, s: Linear<1, 9216>) {
-        // a/r independently cover active and registered node prefixes; o covers the global
-        // OverwatchNodeIndex scan plus target-prefix removals; s is the aggregate surviving
-        // ownership/weight-map entries normalized for validators removed from this subnet.
-        // FRAME fits one component with the other dimensions at their maxima, so every sampled
-        // fixture respects the cumulative ownership bound. Runtime selectors clamp `a` and `s`
-        // independently to these generated domains; the full maximum represents one 512-active,
-        // 64-registered target plus 16 surviving 576-node subnet populations.
+    fn do_remove_subnet(
+        a: Linear<1, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
+        r: Linear<1, { MAX_REGISTERED_NODES_BENCHMARK_DOMAIN }>,
+        o: Linear<1, { MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN }>,
+    ) {
+        // a/r independently cover active and registered node prefixes. o covers the target
+        // PeerIdOverwatchNodeId prefix. Validator-wide and Overwatch-wide indexes are deliberately
+        // repaired later by the affected owner and are not scanned by this removal path.
         MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
         let fixture_active_nodes = a.max(MinSubnetNodes::<T>::get());
         build_activated_subnet::<T>(
@@ -8614,8 +8775,19 @@ mod benchmarks {
             DEFAULT_SUBNET_NODE_STAKE,
             false,
         );
-        seed_remove_subnet_cleanup_state::<T>(subnet_id, a, r, o, s);
+        seed_remove_subnet_cleanup_state::<T>(subnet_id, a, r, o);
         max_fill_remove_subnet_keyed_state::<T>(subnet_id, false);
+        let pending_active: BoundedBTreeSet<u32, T::MaxSubnetNodesUpperBound> = (1..=a)
+            .collect::<BTreeSet<_>>()
+            .try_into()
+            .expect("active removal markers fit the benchmark bound");
+        PendingActiveNodeRemovals::<T>::insert(subnet_id, pending_active);
+        let pending_registered: BoundedBTreeSet<u32, T::MaxRegisteredNodesUpperBound> =
+            (a.saturating_add(1)..=a.saturating_add(r))
+                .collect::<BTreeSet<_>>()
+                .try_into()
+                .expect("registered removal markers fit the benchmark bound");
+        PendingRegisteredNodeRemovals::<T>::insert(subnet_id, pending_registered);
         let current_epoch = Network::<T>::get_current_epoch_as_u32();
         let current_subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
         SubnetsData::<T>::mutate(subnet_id, |maybe_subnet| {
@@ -8631,6 +8803,14 @@ mod benchmarks {
         assert_eq!(TotalActiveSubnetNodes::<T>::get(subnet_id), a);
         assert_eq!(TotalSubnetNodes::<T>::get(subnet_id), a.saturating_add(r));
         assert_eq!(SubnetNodeQueue::<T>::get(subnet_id).len() as u32, r);
+        assert_eq!(
+            PendingActiveNodeRemovals::<T>::get(subnet_id).len() as u32,
+            a
+        );
+        assert_eq!(
+            PendingRegisteredNodeRemovals::<T>::get(subnet_id).len() as u32,
+            r
+        );
 
         #[block]
         {
@@ -8651,6 +8831,8 @@ mod benchmarks {
             fixture_active_nodes.saturating_add(r) as usize
         );
         assert_eq!(SubnetNodeIdHotkey::<T>::iter_prefix(subnet_id).count(), 0);
+        assert!(!PendingActiveNodeRemovals::<T>::contains_key(subnet_id));
+        assert!(!PendingRegisteredNodeRemovals::<T>::contains_key(subnet_id));
         assert_eq!(
             UniqueParamSubnetNodeId::<T>::iter_prefix(subnet_id).count(),
             0
@@ -8659,27 +8841,96 @@ mod benchmarks {
             PeerIdOverwatchNodeId::<T>::iter_prefix(subnet_id).count(),
             0
         );
-        assert!(
-            OverwatchNodeIndex::<T>::iter().all(|(_, peer_ids)| !peer_ids.contains_key(&subnet_id))
-        );
         assert!(ValidatorSubnetNodes::<T>::iter()
-            .all(|(_, node_map)| { !node_map.contains_key(&subnet_id) }));
+            .any(|(_, node_map)| node_map.contains_key(&subnet_id)));
+        assert_eq!(TotalNodes::<T>::get(), 0);
+    }
+
+    #[benchmark]
+    fn clean_validator_subnet_nodes() {
+        let n = MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN;
+        let validator_id = 1;
+        ensure_validator::<T>(validator_id);
+
+        let stale_subnet_id = 30_000;
+        SubnetsData::<T>::remove(stale_subnet_id);
+
+        // A validator can own nodes in every physical subnet. After one of those subnets is
+        // removed, lazy cleanup scans that stale key plus all surviving live keys and then checks
+        // every surviving node to recompute the validator's active-node count.
+        let live_node_count = n.saturating_sub(1);
+        let live_subnet_count = if live_node_count == 0 {
+            0
+        } else {
+            T::MaxPhysicalSubnetsUpperBound::get()
+                .saturating_sub(1)
+                .max(1)
+                .min(live_node_count)
+        };
+        let mut ownership = BTreeMap::<u32, BTreeSet<u32>>::new();
+        for live_subnet_index in 0..live_subnet_count {
+            let live_subnet_id = 20_000 + live_subnet_index;
+            SubnetsData::<T>::insert(
+                live_subnet_id,
+                new_subnet_data::<T>(live_subnet_id, SubnetState::Active, 0),
+            );
+            max_fill_benchmark_subnet_data::<T>(live_subnet_id);
+            ownership.insert(live_subnet_id, BTreeSet::new());
+        }
+
+        let mut allocations = BTreeMap::<(u32, u32), u128>::new();
+        for index in 0..live_node_count {
+            let live_subnet_id = 20_000 + (index % live_subnet_count.max(1));
+            let subnet_node_id = index.saturating_add(1);
+            ownership
+                .get_mut(&live_subnet_id)
+                .expect("live ownership subnet was seeded")
+                .insert(subnet_node_id);
+            allocations.insert((live_subnet_id, subnet_node_id), 1);
+
+            SubnetNodesData::<T>::insert(
+                live_subnet_id,
+                subnet_node_id,
+                SubnetNode::<T> {
+                    id: subnet_node_id,
+                    validator_id,
+                    peer_info: None,
+                    bootnode_peer_info: None,
+                    client_peer_info: None,
+                    classification: SubnetNodeClassification {
+                        node_class: SubnetNodeClass::Validator,
+                        start_epoch: 0,
+                    },
+                    unique: None,
+                    non_unique: None,
+                },
+            );
+            let _ = seed_common_remove_subnet_node_state::<T>(live_subnet_id, subnet_node_id, true);
+        }
+
+        let stale_node_id = 1_000_000;
+        ownership.insert(stale_subnet_id, BTreeSet::from([stale_node_id]));
+        ValidatorSubnetNodes::<T>::insert(validator_id, ownership);
+        TotalValidatorNodes::<T>::insert(validator_id, n);
+
+        allocations.insert((stale_subnet_id, stale_node_id), 1);
+        ValidatorNodeDelegateStakeWeights::<T>::insert(validator_id, allocations);
+
+        #[block]
+        {
+            Network::<T>::clean_validator_subnet_nodes(validator_id);
+        }
+
+        let expected_live_nodes = n.saturating_sub(1);
         assert_eq!(
-            ValidatorSubnetNodes::<T>::iter()
-                .map(|(_, node_map)| node_map
-                    .values()
-                    .map(|nodes| nodes.len() as u32)
-                    .sum::<u32>())
-                .sum::<u32>(),
-            s
+            TotalValidatorNodes::<T>::get(validator_id),
+            expected_live_nodes
         );
+        assert!(!ValidatorSubnetNodes::<T>::get(validator_id).contains_key(&stale_subnet_id));
         assert_eq!(
-            ValidatorNodeDelegateStakeWeights::<T>::iter()
-                .map(|(_, weights)| weights.len() as u32)
-                .sum::<u32>(),
-            s
+            ValidatorNodeDelegateStakeWeights::<T>::get(validator_id).len() as u32,
+            expected_live_nodes
         );
-        assert_eq!(TotalNodes::<T>::get(), s);
     }
 
     #[benchmark]
@@ -8772,7 +9023,10 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn remove_active_subnet_node_small(n: Linear<1, 512>, e: Linear<3, 64>) {
+    fn remove_active_subnet_node_small(
+        n: Linear<1, { MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN }>,
+        e: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT }>,
+    ) {
         // Reachable small-election envelope: every emergency validator is an existing electable
         // Validator node, so the maximum emergency cardinality is exactly e.
         let (subnet_id, subnet_node_id, validator_id, unique) =
@@ -8812,11 +9066,18 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn remove_active_subnet_node_large(n: Linear<1, 512>, e: Linear<64, 512>) {
+    fn remove_active_subnet_node_large(
+        n: Linear<1, { MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN }>,
+        e: Linear<{ ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         // Reachable large-election envelope: emergency membership is capped at 64 while the
         // election vector continues to grow to the 512-node protocol bound.
         let (subnet_id, subnet_node_id, validator_id, unique) =
-            seed_active_remove_subnet_node_state::<T>(n, e, 64);
+            seed_active_remove_subnet_node_state::<T>(
+                n,
+                e,
+                MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN,
+            );
 
         #[block]
         {
@@ -8852,7 +9113,10 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn remove_active_subnet_node_dispatch_small(n: Linear<1, 512>, e: Linear<3, 64>) {
+    fn remove_active_subnet_node_dispatch_small(
+        n: Linear<1, { MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN }>,
+        e: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT }>,
+    ) {
         let (subnet_id, subnet_node_id, validator_id, _) =
             seed_active_remove_subnet_node_state::<T>(n, e, e);
 
@@ -8877,9 +9141,15 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn remove_active_subnet_node_dispatch_large(n: Linear<1, 512>, e: Linear<64, 512>) {
-        let (subnet_id, subnet_node_id, validator_id, _) =
-            seed_active_remove_subnet_node_state::<T>(n, e, 64);
+    fn remove_active_subnet_node_dispatch_large(
+        n: Linear<1, { MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN }>,
+        e: Linear<{ ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
+    ) {
+        let (subnet_id, subnet_node_id, validator_id, _) = seed_active_remove_subnet_node_state::<T>(
+            n,
+            e,
+            MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN,
+        );
 
         #[block]
         {
@@ -8902,7 +9172,10 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn remove_registered_subnet_node(n: Linear<1, 512>, r: Linear<1, 64>) {
+    fn remove_registered_subnet_node(
+        n: Linear<1, { MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN }>,
+        r: Linear<1, { MAX_REGISTERED_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         // n = cumulative validator ownership and full delegate-weight map size
         // r = number of registered nodes in the subnet (for SubnetNodeQueue retain operation)
         let (subnet_id, remove_subnet_node_id, validator_id, unique) =
@@ -8939,7 +9212,10 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn remove_registered_subnet_node_dispatch(n: Linear<1, 512>, r: Linear<1, 64>) {
+    fn remove_registered_subnet_node_dispatch(
+        n: Linear<1, { MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN }>,
+        r: Linear<1, { MAX_REGISTERED_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         let (subnet_id, subnet_node_id, validator_id, _) =
             seed_registered_remove_subnet_node_state::<T>(n, r);
 
@@ -8990,7 +9266,7 @@ mod benchmarks {
     //             subnet_node_id,
     //             1, // attestation percentage
     //             T::MinAttestationPercentage::get(),
-    //             ValidatorReputationDecreaseFactor::<T>::get(),
+    //             0,
     //             0,
     //             Network::<T>::get_current_epoch_as_u32(),
     //         );
@@ -9044,7 +9320,6 @@ mod benchmarks {
         let mut weight_meter = WeightMeter::new();
         Network::<T>::do_activate_subnet_node(
             &mut weight_meter,
-            validator_id,
             subnet_id,
             SubnetState::Active,
             subnet_node,
@@ -9120,10 +9395,7 @@ mod benchmarks {
         TxPause::<T>::put(false);
         PendingOverwatchSettlement::<T>::put(PendingOverwatchSettlementData {
             epoch: u32::MAX,
-            epoch_length_multiplier: u32::MAX,
             reveal_records: 1_088,
-            revealing_nodes: T::MaxOverwatchNodesUpperBound::get(),
-            revealed_subnets: T::MaxPhysicalSubnetsUpperBound::get(),
         });
         OverwatchEpochStartBlock::<T>::put(u32::MAX);
         ActiveOverwatchEpochLengthMultiplier::<T>::put(u32::MAX);
@@ -9150,12 +9422,10 @@ mod benchmarks {
 
     #[benchmark]
     fn advance_overwatch_epoch() {
-        const MAX_BENCHMARK_OVERWATCH_NODES: u32 = 64;
-
         let multiplier = OverwatchEpochLengthMultiplier::<T>::get();
         let rollover_block = T::EpochLength::get().saturating_mul(multiplier);
         let max_revealing_nodes = T::MaxOverwatchNodesUpperBound::get();
-        assert_eq!(max_revealing_nodes, MAX_BENCHMARK_OVERWATCH_NODES);
+        assert_eq!(max_revealing_nodes, MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN);
         let max_revealed_subnets = T::MaxPhysicalSubnetsUpperBound::get();
         let max_records = max_revealing_nodes.saturating_mul(max_revealed_subnets);
         let percentage_factor = Network::<T>::percentage_factor_as_u128();
@@ -9189,17 +9459,37 @@ mod benchmarks {
         ActiveOverwatchEpochLengthMultiplier::<T>::put(multiplier);
         PendingOverwatchSettlement::<T>::kill();
         OverwatchEpochSettlementSnapshots::<T>::remove(0);
+        let maximum_subnet_ids = (1..=max_revealed_subnets).collect::<BTreeSet<_>>();
         ActiveOverwatchRevealStats::<T>::put(OverwatchRevealStats::<T> {
             records: max_records,
-            revealing_nodes: (1..=max_revealing_nodes)
-                .collect::<BTreeSet<_>>()
+            subnet_revealer_counts: maximum_subnet_ids
+                .iter()
+                .copied()
+                .map(|subnet_id| (subnet_id, max_revealing_nodes))
+                .collect::<BTreeMap<_, _>>()
                 .try_into()
-                .expect("maximum revealing-node fixture fits its type bound"),
-            revealed_subnets: (1..=max_revealed_subnets)
-                .collect::<BTreeSet<_>>()
-                .try_into()
-                .expect("maximum revealed-subnet fixture fits its type bound"),
+                .expect("maximum subnet-count fixture fits its type bound"),
         });
+        for (node_id, _, _) in &overwatch_nodes {
+            let reveals: BoundedBTreeMap<u32, u128, T::MaxPhysicalSubnetsUpperBound> =
+                maximum_subnet_ids
+                    .iter()
+                    .copied()
+                    .map(|subnet_id| (subnet_id, percentage_factor / 2))
+                    .collect::<BTreeMap<_, _>>()
+                    .try_into()
+                    .expect("maximum rollover reveal row fits its type bound");
+            let commits: BoundedBTreeMap<u32, T::Hash, T::MaxPhysicalSubnetsUpperBound> =
+                maximum_subnet_ids
+                    .iter()
+                    .copied()
+                    .map(|subnet_id| (subnet_id, T::Hashing::hash_of(&subnet_id)))
+                    .collect::<BTreeMap<_, _>>()
+                    .try_into()
+                    .expect("maximum rollover commit row fits its type bound");
+            OverwatchReveals::<T>::insert(0, node_id, reveals);
+            OverwatchCommits::<T>::insert(0, node_id, commits);
+        }
 
         #[block]
         {
@@ -9214,20 +9504,18 @@ mod benchmarks {
         assert_eq!(OverwatchEpochStartBlock::<T>::get(), rollover_block);
         let settlement = PendingOverwatchSettlement::<T>::get().unwrap();
         assert_eq!(settlement.reveal_records, max_records);
-        assert_eq!(settlement.revealing_nodes, max_revealing_nodes);
-        assert_eq!(settlement.revealed_subnets, max_revealed_subnets);
         let snapshot = OverwatchEpochSettlementSnapshots::<T>::get(0)
             .expect("rollover stores the completed epoch settlement snapshot");
         assert_eq!(snapshot.stake_weight_factor, stake_weight_factor);
         assert_eq!(snapshot.reward_budget, expected_reward_budget);
         assert_eq!(snapshot.nodes.len() as u32, max_revealing_nodes);
-        for (node_id, validator_id, stake) in overwatch_nodes {
+        for (node_id, _validator_id, stake) in overwatch_nodes {
             let node_snapshot = snapshot
                 .nodes
                 .get(&node_id)
                 .expect("every canonical Overwatch node is snapshotted");
-            assert_eq!(node_snapshot.validator_id, validator_id);
             assert_eq!(node_snapshot.stake, stake);
+            assert!(OverwatchCommits::<T>::get(0, node_id).is_empty());
         }
     }
 
@@ -9242,10 +9530,7 @@ mod benchmarks {
         ActiveOverwatchEpochLengthMultiplier::<T>::put(multiplier);
         PendingOverwatchSettlement::<T>::put(PendingOverwatchSettlementData {
             epoch: 0,
-            epoch_length_multiplier: multiplier,
             reveal_records: max_revealing_nodes.saturating_mul(max_revealed_subnets),
-            revealing_nodes: max_revealing_nodes,
-            revealed_subnets: max_revealed_subnets,
         });
 
         #[block]
@@ -9265,7 +9550,7 @@ mod benchmarks {
 
     // Informational purposes only
     #[benchmark]
-    fn handle_subnet_emission_weights(x: Linear<1, 17>) {
+    fn handle_subnet_emission_weights(x: Linear<1, { MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN }>) {
         NewRegistrationCostMultiplier::<T>::set(1000000000000000000);
         let end = MinSubnetNodes::<T>::get();
 
@@ -9288,6 +9573,7 @@ mod benchmarks {
         let finalized_overwatch_epoch = CurrentOverwatchEpoch::<T>::get();
         LastFinalizedOverwatchEpoch::<T>::put(finalized_overwatch_epoch);
         let max_historical_nodes = T::MaxSubnetNodesUpperBound::get();
+        let mut effective_subnet_weights = BTreeMap::new();
         for s in 0..x {
             let path: Vec<u8> = format!("subnet-name-{s}").into();
             let subnet_id = SubnetName::<T>::get::<Vec<u8>>(path).unwrap();
@@ -9297,7 +9583,7 @@ mod benchmarks {
                 ElectedConsensusRound {
                     validator_subnet_node_id: 1,
                     validator_id: SubnetNodeValidatorId::<T>::get(subnet_id, 1).unwrap_or_default(),
-                    emergency: false,
+                    emergency: None,
                     // The hot path uses `contains_key`, whose measured trie proof includes the
                     // complete external value. A prior round can retain all 512 historical IDs
                     // after those nodes leave the live subnet, so maximize both collections.
@@ -9312,11 +9598,7 @@ mod benchmarks {
                     ),
                 },
             );
-            OverwatchSubnetWeights::<T>::insert(
-                finalized_overwatch_epoch,
-                subnet_id,
-                Network::<T>::percentage_factor_as_u128(),
-            );
+            effective_subnet_weights.insert(subnet_id, Network::<T>::percentage_factor_as_u128());
             let magnitude = (s as i128 + 1).saturating_mul(1_000_000);
             SubnetNetFlow::<T>::insert(subnet_id, if s % 2 == 0 { -magnitude } else { magnitude });
             SubnetNetFlowSmoothedWeight::<T>::insert(
@@ -9326,6 +9608,10 @@ mod benchmarks {
                     .max(1),
             );
         }
+        seed_max_effective_overwatch_cache::<T>(
+            finalized_overwatch_epoch,
+            effective_subnet_weights,
+        );
 
         #[block]
         {
@@ -9340,6 +9626,7 @@ mod benchmarks {
     fn handle_subnet_emission_weights_empty() {
         let epoch = Network::<T>::get_current_epoch_as_u32();
         assert_eq!(SubnetsData::<T>::iter_keys().count(), 0);
+        seed_max_effective_overwatch_cache::<T>(CurrentOverwatchEpoch::<T>::get(), BTreeMap::new());
 
         #[block]
         {
@@ -9360,7 +9647,7 @@ mod benchmarks {
 
     // Informational purposes only
     #[benchmark]
-    fn execute_ready_swap_queue(q: Linear<1, 1000>) {
+    fn execute_ready_swap_queue(q: Linear<1, { MAX_SWAP_QUEUE_BENCHMARK_DOMAIN }>) {
         let mut queue: SwapQueueIds<T> = BoundedVec::new();
         for queue_id in 0..q {
             assert!(queue.try_push(queue_id).is_ok());
@@ -9374,18 +9661,27 @@ mod benchmarks {
         #[block]
         {
             let queue = Network::<T>::take_swap_queue(&mut weight_meter);
-            // Zero executions is the maximum surviving-tail copy and rewrite for a queue of q.
-            Network::<T>::finish_swap_queue(queue, 0, &mut weight_meter);
+            // Model the maximum retained rotation: every original ID was scanned, preserved, and
+            // appended behind the now-empty unscanned suffix.
+            let scanned = queue.len();
+            let mut rotated = SwapQueueIds::<T>::default();
+            for queue_id in queue.iter().copied() {
+                rotated
+                    .try_push(queue_id)
+                    .expect("rotated IDs are a subset of the bounded queue");
+            }
+            Network::<T>::finish_swap_queue(queue, scanned, rotated, &mut weight_meter);
         }
 
         assert_eq!(SwapQueueOrder::<T>::get().len() as u32, q);
+        assert!(SwapQueueOrder::<T>::get().iter().copied().eq(0..q));
         assert_eq!(SwapQueueCount::<T>::get(), q);
         assert_benchmark_queued_swap_principal::<T>();
     }
 
     // Informational purposes only
     #[benchmark]
-    fn execute_ready_swap_calls(x: Linear<1, 1000>) {
+    fn execute_ready_swap_calls(x: Linear<1, { MAX_SWAP_QUEUE_BENCHMARK_DOMAIN }>) {
         let block_number = get_current_block_as_u32::<T>();
         let balance = DEFAULT_DELEGATE_STAKE_TO_BE_ADDED;
         for queue_id in 0..x {
@@ -9448,7 +9744,7 @@ mod benchmarks {
 
     // Informational purposes only
     #[benchmark]
-    fn execute_ready_swap_subnet_calls(x: Linear<1, 1000>) {
+    fn execute_ready_swap_subnet_calls(x: Linear<1, { MAX_SWAP_QUEUE_BENCHMARK_DOMAIN }>) {
         let destination_count = x.min(T::MaxPhysicalSubnetsUpperBound::get());
         let mut subnet_ids = Vec::with_capacity(destination_count as usize);
         for destination in 0..destination_count {
@@ -9519,7 +9815,7 @@ mod benchmarks {
 
     // Informational purposes only
     #[benchmark]
-    fn execute_ready_swap_refunds(x: Linear<1, 1000>) {
+    fn execute_ready_swap_refunds(x: Linear<1, { MAX_SWAP_QUEUE_BENCHMARK_DOMAIN }>) {
         let block_number = get_current_block_as_u32::<T>();
         let balance = DEFAULT_DELEGATE_STAKE_TO_BE_ADDED;
         let max_unbondings = T::MaxUnbondingsUpperBound::get();
@@ -9608,7 +9904,9 @@ mod benchmarks {
     /// maximum-ledger refund. Together with the other two vertices this bounds every reachable
     /// affine composition of the three item branches for a fixed prefix length.
     #[benchmark]
-    fn execute_ready_swap_mixed_validator(x: Linear<3, 1000>) {
+    fn execute_ready_swap_mixed_validator(
+        x: Linear<{ MIN_MIXED_SWAP_BENCHMARK_DOMAIN }, { MAX_SWAP_QUEUE_BENCHMARK_DOMAIN }>,
+    ) {
         let context = prepare_mixed_swap_benchmark::<T>(x, MixedSwapBranch::Validator);
         let mut weight_meter = WeightMeter::new();
 
@@ -9629,7 +9927,9 @@ mod benchmarks {
     /// Mixed ready-prefix vertex with `x - 2` subnet calls plus one validator call and one
     /// maximum-ledger refund.
     #[benchmark]
-    fn execute_ready_swap_mixed_subnet(x: Linear<3, 1000>) {
+    fn execute_ready_swap_mixed_subnet(
+        x: Linear<{ MIN_MIXED_SWAP_BENCHMARK_DOMAIN }, { MAX_SWAP_QUEUE_BENCHMARK_DOMAIN }>,
+    ) {
         let context = prepare_mixed_swap_benchmark::<T>(x, MixedSwapBranch::Subnet);
         let mut weight_meter = WeightMeter::new();
 
@@ -9650,7 +9950,9 @@ mod benchmarks {
     /// Mixed ready-prefix vertex with `x - 2` maximum-ledger refunds plus one validator call and
     /// one subnet call.
     #[benchmark]
-    fn execute_ready_swap_mixed_refund(x: Linear<3, 1000>) {
+    fn execute_ready_swap_mixed_refund(
+        x: Linear<{ MIN_MIXED_SWAP_BENCHMARK_DOMAIN }, { MAX_SWAP_QUEUE_BENCHMARK_DOMAIN }>,
+    ) {
         let context = prepare_mixed_swap_benchmark::<T>(x, MixedSwapBranch::Refund);
         let mut weight_meter = WeightMeter::new();
 
@@ -9670,7 +9972,7 @@ mod benchmarks {
 
     // Informational purposes only
     #[benchmark]
-    fn do_epoch_preliminaries(x: Linear<0, 17>) {
+    fn do_epoch_preliminaries(x: Linear<0, { MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN }>) {
         assert!(x <= T::MaxPhysicalSubnetsUpperBound::get());
         let subnet_ids =
             seed_live_subnet_delegate_stake_cohort::<T>(x, |_| DEFAULT_DELEGATE_STAKE_TO_BE_ADDED);
@@ -9690,7 +9992,7 @@ mod benchmarks {
 
         #[block]
         {
-            // Any subnet may enter `try_do_remove_subnet`. Its four compact selectors are read
+            // Any subnet may enter `try_do_remove_subnet`. Its three compact selectors are read
             // before a cleanup reservation can be rejected, so model their per-subnet proof and
             // ref-time here. The zero inner limit makes every attempted removal `Deferred`, which
             // keeps the snapshotted subnet count intact and exercises the final capacity recheck
@@ -9699,7 +10001,6 @@ mod benchmarks {
                 let _ = TotalActiveSubnetNodes::<T>::get(subnet_id);
                 let _ = TotalSubnetNodes::<T>::get(subnet_id);
                 let _ = TotalOverwatchNodes::<T>::get();
-                let _ = TotalNodes::<T>::get();
             }
             Network::<T>::do_epoch_preliminaries(
                 &mut WeightMeter::with_limit(Weight::zero()),
@@ -9717,7 +10018,7 @@ mod benchmarks {
     // Make both cardinalities equal to `r` so the model covers their worst reachable growth rather
     // than charging the 64-node/17-subnet fixture used by the large-record region.
     #[benchmark]
-    fn calculate_overwatch_rewards_small(r: Linear<1, 17>) {
+    fn calculate_overwatch_rewards_small(r: Linear<1, { MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN }>) {
         let (overwatch_epoch, overwatch_nodes, subnet_ids) =
             prepare_overwatch_reward_benchmark::<T>(r, r, r);
 
@@ -9736,10 +10037,14 @@ mod benchmarks {
     // Once all 17 physical subnets can be represented, the next worst-case dimension is one new
     // revealer per record. This region keeps all 17 subnets present and grows revealers with `r`.
     #[benchmark]
-    fn calculate_overwatch_rewards_medium(r: Linear<17, 64>) {
-        const BENCHMARK_SUBNETS: u32 = 17;
+    fn calculate_overwatch_rewards_medium(
+        r: Linear<
+            { MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN },
+            { MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN },
+        >,
+    ) {
         let (overwatch_epoch, overwatch_nodes, subnet_ids) =
-            prepare_overwatch_reward_benchmark::<T>(r, r, BENCHMARK_SUBNETS);
+            prepare_overwatch_reward_benchmark::<T>(r, r, MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN);
 
         #[block]
         {
@@ -9756,13 +10061,16 @@ mod benchmarks {
     // Large settlements have saturated both independent bounded cardinalities. Additional records
     // fill the remaining unique node/subnet pairs, up to the reachable 64 * 17 matrix.
     #[benchmark]
-    fn calculate_overwatch_rewards(r: Linear<64, 1088>) {
-        const BENCHMARK_SUBNETS: u32 = 17;
-        const MAX_BENCHMARK_OVERWATCH_NODES: u32 = 64;
+    fn calculate_overwatch_rewards(
+        r: Linear<
+            { MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN },
+            { MAX_OVERWATCH_REVEAL_RECORDS_BENCHMARK_DOMAIN },
+        >,
+    ) {
         let (overwatch_epoch, overwatch_nodes, subnet_ids) = prepare_overwatch_reward_benchmark::<T>(
             r,
-            MAX_BENCHMARK_OVERWATCH_NODES,
-            BENCHMARK_SUBNETS,
+            MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN,
+            MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN,
         );
 
         #[block]
@@ -9779,7 +10087,9 @@ mod benchmarks {
 
     #[benchmark]
     fn calculate_overwatch_rewards_empty() {
-        let current_overwatch_epoch = Network::<T>::get_current_overwatch_epoch_as_u32();
+        let current_overwatch_epoch = 1u32;
+        CurrentOverwatchEpoch::<T>::put(current_overwatch_epoch);
+        seed_max_prior_overwatch_signal::<T>(current_overwatch_epoch.saturating_sub(1));
         let epoch_length_multiplier = ActiveOverwatchEpochLengthMultiplier::<T>::get();
         let stake_weight_factor = OverwatchStakeWeightFactor::<T>::get();
         let reward_budget = T::OverwatchEpochEmissions::get()
@@ -9787,10 +10097,7 @@ mod benchmarks {
             .expect("empty settlement reward budget fits u128");
         PendingOverwatchSettlement::<T>::put(PendingOverwatchSettlementData {
             epoch: current_overwatch_epoch,
-            epoch_length_multiplier,
             reveal_records: 0,
-            revealing_nodes: 0,
-            revealed_subnets: 0,
         });
         OverwatchEpochSettlementSnapshots::<T>::insert(
             current_overwatch_epoch,
@@ -9815,6 +10122,10 @@ mod benchmarks {
         assert_eq!(
             LastFinalizedOverwatchEpoch::<T>::get(),
             Some(current_overwatch_epoch)
+        );
+        assert_eq!(
+            LatestOverwatchSignalRevision::<T>::get(),
+            PRIOR_OVERWATCH_SIGNAL_REVISION.saturating_add(1)
         );
         assert_eq!(
             OverwatchNodeWeights::<T>::iter_prefix(current_overwatch_epoch).count(),
@@ -9876,13 +10187,68 @@ mod benchmarks {
         }
     }
 
+    /// Decode and deterministically materialize the active pending-removal set, then perform a
+    /// complete membership scan. This is conservative for cleanup's direct iteration and also
+    /// covers election/proposal filtering without coupling physical deletion to this selector.
+    /// Each deletion is charged independently by the generated active-removal model.
+    #[benchmark]
+    fn pending_active_removal_scan(a: Linear<1, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>) {
+        let subnet_id = 1;
+        let pending: BoundedBTreeSet<u32, T::MaxSubnetNodesUpperBound> = (1..=a)
+            .collect::<BTreeSet<_>>()
+            .try_into()
+            .expect("active pending-removal benchmark fits its configured bound");
+        PendingActiveNodeRemovals::<T>::insert(subnet_id, pending);
+
+        #[block]
+        {
+            let pending = PendingActiveNodeRemovals::<T>::get(subnet_id);
+            let pending_ids: BTreeSet<u32> = pending.iter().copied().collect();
+            let mut inspected = 0u32;
+            let eligible = (1..=a).find(|subnet_node_id| {
+                inspected = inspected.saturating_add(1);
+                !pending_ids.contains(subnet_node_id)
+            });
+            assert!(eligible.is_none());
+            assert_eq!(inspected, a);
+        }
+    }
+
+    /// Registered cleanup has its own smaller bounded set and therefore its own scan model. The
+    /// logical queue dequeue happens during settlement; this benchmark covers decode,
+    /// materialization, and a complete membership scan before independently metered deletion.
+    #[benchmark]
+    fn pending_registered_removal_scan(r: Linear<1, { MAX_REGISTERED_NODES_BENCHMARK_DOMAIN }>) {
+        let subnet_id = 1;
+        let pending: BoundedBTreeSet<u32, T::MaxRegisteredNodesUpperBound> = (1..=r)
+            .collect::<BTreeSet<_>>()
+            .try_into()
+            .expect("registered pending-removal benchmark fits its configured bound");
+        PendingRegisteredNodeRemovals::<T>::insert(subnet_id, pending);
+
+        #[block]
+        {
+            let pending = PendingRegisteredNodeRemovals::<T>::get(subnet_id);
+            let pending_ids: BTreeSet<u32> = pending.iter().copied().collect();
+            let mut inspected = 0u32;
+            let eligible = (1..=r).find(|subnet_node_id| {
+                inspected = inspected.saturating_add(1);
+                !pending_ids.contains(subnet_node_id)
+            });
+            assert!(eligible.is_none());
+            assert_eq!(inspected, r);
+        }
+    }
+
     /// Accepted historical settlement with every snapshotted node still live. Historical queue
     /// priority/removal is independently generated and added to this accepted component. Bounded
     /// active cleanup is composed after the hook selects its accepted/rejected/emergency branch,
     /// allowing every independent protocol maximum to remain reachable. Current election, queue
     /// activation, and burn maintenance likewise use separate components.
     #[benchmark]
-    fn emission_step(h: Linear<3, 512>) {
+    fn emission_step(
+        h: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         NewRegistrationCostMultiplier::<T>::set(1000000000000000000);
         MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
 
@@ -9966,15 +10332,6 @@ mod benchmarks {
             subnet_epoch,
             Network::<T>::get_current_block_as_u32(),
         );
-        let elected_subnet_node_id = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
-            .expect("benchmark election must persist")
-            .validator_subnet_node_id;
-        let elected_validator_id =
-            SubnetNodeValidatorId::<T>::get(subnet_id, elected_subnet_node_id)
-                .expect("elected node must retain its validator identity");
-        let starting_identity_support_samples =
-            ValidatorReputation::<T>::get(elected_validator_id).identity_support_samples;
-
         // Run consensus, submit proposal, attest
         run_subnet_consensus_step::<T>(subnet_id, None, None);
 
@@ -10062,26 +10419,19 @@ mod benchmarks {
             assert!(SubnetNodeReputation::<T>::get(subnet_id, _n)
                 .is_some_and(|reputation| reputation > accepted_starting_reputation));
         }
-        let validator_reputation = ValidatorReputation::<T>::get(elected_validator_id);
-        assert_eq!(
-            validator_reputation.identity_support_samples,
-            starting_identity_support_samples.saturating_add(1),
-        );
-        assert_eq!(
-            validator_reputation.average_proposal_identity_support,
-            Network::<T>::percentage_factor_as_u128(),
-        );
         assert_eq!(TotalActiveSubnetNodes::<T>::get(subnet_id), h);
         assert_eq!(TotalSubnetNodes::<T>::get(subnet_id), h);
         assert!(SubnetNodeQueue::<T>::get(subnet_id).is_empty());
     }
 
     /// Historical accepted consensus can move a maximum-payload queued node from the final vector
-    /// position to the front before removing another registered node. This component measures both
-    /// position scans, the priority rewrite, and a maximum-ownership registered-node cleanup in the
-    /// same reachable call.
+    /// position to the front before quarantining another registered node. This component measures
+    /// both position scans, the priority rewrite, the bounded pending-set update, and the logical
+    /// queue dequeue. Physical registered-node cleanup is independently metered after election.
     #[benchmark]
-    fn emission_step_accepted_queue_mutations(q: Linear<1, 64>) {
+    fn emission_step_accepted_queue_mutations(
+        q: Linear<1, { MAX_REGISTERED_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         let (subnet_id, prioritize_queue_node_id, remove_queue_node_id, consensus_submission_data) =
             prepare_accepted_queue_mutations::<T>(q, false);
 
@@ -10097,10 +10447,11 @@ mod benchmarks {
 
         let queue_after = SubnetNodeQueue::<T>::get(subnet_id);
         assert_eq!(queue_after.len() as u32, q.saturating_sub(1));
-        assert!(!RegisteredSubnetNodesData::<T>::contains_key(
+        assert!(RegisteredSubnetNodesData::<T>::contains_key(
             subnet_id,
             remove_queue_node_id,
         ));
+        assert!(PendingRegisteredNodeRemovals::<T>::get(subnet_id).contains(&remove_queue_node_id));
         if prioritize_queue_node_id != remove_queue_node_id {
             assert_eq!(queue_after.first().unwrap().id, prioritize_queue_node_id);
         }
@@ -10110,7 +10461,9 @@ mod benchmarks {
     /// position scan but maximizes survivor compaction in the registered-node retain pass. The hook
     /// takes the component-wise maximum because neither layout statically dominates the other.
     #[benchmark]
-    fn emission_step_accepted_queue_mutations_front(q: Linear<1, 64>) {
+    fn emission_step_accepted_queue_mutations_front(
+        q: Linear<1, { MAX_REGISTERED_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         let (subnet_id, prioritize_queue_node_id, remove_queue_node_id, consensus_submission_data) =
             prepare_accepted_queue_mutations::<T>(q, true);
 
@@ -10126,10 +10479,11 @@ mod benchmarks {
 
         let queue_after = SubnetNodeQueue::<T>::get(subnet_id);
         assert_eq!(queue_after.len() as u32, q.saturating_sub(1));
-        assert!(!RegisteredSubnetNodesData::<T>::contains_key(
+        assert!(RegisteredSubnetNodesData::<T>::contains_key(
             subnet_id,
             remove_queue_node_id,
         ));
+        assert!(PendingRegisteredNodeRemovals::<T>::get(subnet_id).contains(&remove_queue_node_id));
         if prioritize_queue_node_id != remove_queue_node_id {
             assert_eq!(queue_after.first().unwrap().id, prioritize_queue_node_id);
         }
@@ -10139,7 +10493,9 @@ mod benchmarks {
     /// main accepted `h` model already measures its included-node increase; this component measures
     /// the additional decrease and reputation-update event for all `h` nodes.
     #[benchmark]
-    fn emission_step_accepted_below_min_weight_reputation(h: Linear<3, 512>) {
+    fn emission_step_accepted_below_min_weight_reputation(
+        h: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
@@ -10189,7 +10545,9 @@ mod benchmarks {
     /// validator node remains a non-attestor. Therefore the reachable maximum is `512 - 3 = 509`,
     /// not `512 * (1 - 87.5%) = 64`.
     #[benchmark]
-    fn emission_step_accepted_non_attestor_reputation(a: Linear<1, 509>) {
+    fn emission_step_accepted_non_attestor_reputation(
+        a: Linear<1, { MAX_NON_ATTESTING_VALIDATORS_BENCHMARK_DOMAIN }>,
+    ) {
         MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
         let minimum_identity_attestors = Network::<T>::min_identity_attestors_for_ratio(
             Network::<T>::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
@@ -10319,7 +10677,7 @@ mod benchmarks {
     /// node can be activated without exceeding any configured node bound. Election is deliberately
     /// unavailable until the following subnet epoch and is composed separately in the hook.
     #[benchmark]
-    fn emission_step_queue(q: Linear<1, 64>) {
+    fn emission_step_queue(q: Linear<1, { MAX_REGISTERED_NODES_BENCHMARK_DOMAIN }>) {
         let max_nodes = T::MaxSubnetNodesUpperBound::get();
         assert!(q <= T::MaxRegisteredNodesUpperBound::get());
         assert!(q < max_nodes);
@@ -10373,13 +10731,16 @@ mod benchmarks {
 
         #[block]
         {
-            Network::<T>::emission_step(
-                &mut WeightMeter::new(),
-                Network::<T>::get_current_block_as_u32(),
-                current_epoch,
-                current_subnet_epoch,
+            // Measure the independently admitted maintenance envelope directly. Calling the
+            // whole emission step here makes this benchmark depend circularly on its currently
+            // checked-in weight and can cause maintenance to be skipped before regeneration.
+            let mut maintenance_meter = WeightMeter::new();
+            Network::<T>::handle_registration_queue(
+                &mut maintenance_meter,
                 subnet_id,
+                current_subnet_epoch,
             );
+            Network::<T>::update_burn_rate_for_epoch(&mut maintenance_meter, subnet_id);
         }
 
         assert_eq!(TotalActiveSubnetNodes::<T>::get(subnet_id), max_nodes);
@@ -10398,7 +10759,7 @@ mod benchmarks {
 
         #[block]
         {
-            Network::<T>::emission_step(
+            Network::<T>::emission_settlement_step(
                 &mut WeightMeter::new(),
                 Network::<T>::get_current_block_as_u32(),
                 context.current_epoch,
@@ -10432,16 +10793,17 @@ mod benchmarks {
 
     /// Strong rejection retains every eligible identity but omits one attestation, maximizing the
     /// accountable attestor prefix while remaining below the 100% snapshotted threshold. Every
-    /// attestor crosses the reputation boundary, while generated active-node cleanup is capped by
-    /// MaxConsensusNodeRemovalsPerSettlement. The reverse-ordered, coherent election slot makes each
-    /// bounded removal scan the largest reachable prefix.
+    /// penalized attestor crosses the reputation boundary and is written to the bounded active
+    /// quarantine set. Settlement deliberately stops before independently metered physical cleanup.
     #[benchmark]
-    fn emission_step_rejected(h: Linear<3, 512>) {
+    fn emission_step_rejected(
+        h: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         let context = prepare_alternate_emission_step::<T>(h, AlternateEmissionMode::Rejected);
 
         #[block]
         {
-            Network::<T>::emission_step(
+            Network::<T>::emission_settlement_step(
                 &mut WeightMeter::new(),
                 Network::<T>::get_current_block_as_u32(),
                 context.current_epoch,
@@ -10450,19 +10812,13 @@ mod benchmarks {
             );
         }
 
-        let removed_nodes = h
-            .saturating_sub(1)
-            .min(T::MaxConsensusNodeRemovalsPerSettlement::get());
-        for subnet_node_id in 1..=removed_nodes {
-            assert!(!SubnetNodeReputation::<T>::contains_key(
-                context.subnet_id,
-                subnet_node_id,
-            ));
-        }
-        if removed_nodes < h.saturating_sub(1) {
+        let pending = PendingActiveNodeRemovals::<T>::get(context.subnet_id);
+        assert_eq!(pending.len() as u32, h.saturating_sub(1));
+        for subnet_node_id in 1..h {
+            assert!(pending.contains(&subnet_node_id));
             assert!(SubnetNodeReputation::<T>::contains_key(
                 context.subnet_id,
-                removed_nodes.saturating_add(1),
+                subnet_node_id,
             ));
         }
         assert!(SubnetNodeReputation::<T>::contains_key(
@@ -10475,11 +10831,11 @@ mod benchmarks {
         ));
         assert_eq!(
             TotalActiveSubnetNodes::<T>::get(context.subnet_id),
-            context.historical_nodes.saturating_sub(removed_nodes),
+            context.historical_nodes,
         );
         assert_eq!(
             TotalSubnetNodes::<T>::get(context.subnet_id),
-            context.historical_nodes.saturating_sub(removed_nodes),
+            context.historical_nodes,
         );
         assert!(SubnetNodeQueue::<T>::get(context.subnet_id).is_empty());
     }
@@ -10487,12 +10843,14 @@ mod benchmarks {
     /// An accepted emergency round snapshots and scans all 64 emergency validators, completes the
     /// emergency lifecycle, and still settles up to 512 coherent historical/live reward nodes.
     #[benchmark]
-    fn emission_step_emergency(h: Linear<64, 512>) {
+    fn emission_step_emergency(
+        h: Linear<{ ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         let context = prepare_alternate_emission_step::<T>(h, AlternateEmissionMode::Emergency);
 
         #[block]
         {
-            Network::<T>::emission_step(
+            Network::<T>::emission_settlement_step(
                 &mut WeightMeter::new(),
                 Network::<T>::get_current_block_as_u32(),
                 context.current_epoch,
@@ -10508,23 +10866,24 @@ mod benchmarks {
             context.subnet_id,
             context.previous_subnet_epoch,
         ));
-        let removed_nodes = context
-            .historical_nodes
-            .min(T::MaxConsensusNodeRemovalsPerSettlement::get());
+        let pending = PendingActiveNodeRemovals::<T>::get(context.subnet_id);
+        assert_eq!(pending.len() as u32, context.historical_nodes);
         assert_eq!(
             TotalActiveSubnetNodes::<T>::get(context.subnet_id),
-            context.historical_nodes.saturating_sub(removed_nodes),
+            context.historical_nodes,
         );
         assert_eq!(
             TotalSubnetNodes::<T>::get(context.subnet_id),
-            context.historical_nodes.saturating_sub(removed_nodes),
+            context.historical_nodes,
         );
         assert!(SubnetNodeQueue::<T>::get(context.subnet_id).is_empty());
     }
 
     // Informational purposes only
     #[benchmark]
-    fn precheck_subnet_consensus_submission(x: Linear<3, 512>) {
+    fn precheck_subnet_consensus_submission(
+        x: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
+    ) {
         MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
@@ -10542,7 +10901,7 @@ mod benchmarks {
         let benchmark_round = ElectedConsensusRound {
             validator_subnet_node_id: 1,
             validator_id: SubnetNodeValidatorId::<T>::get(subnet_id, 1).unwrap_or_default(),
-            emergency: false,
+            emergency: None,
             eligible_subnet_node_ids: (1..=x).collect(),
             eligible_validator_identity_ids: (1..=x)
                 .filter_map(|node_id| {
@@ -10697,7 +11056,7 @@ mod benchmarks {
             ElectedConsensusRound {
                 validator_subnet_node_id,
                 validator_id,
-                emergency: false,
+                emergency: None,
                 eligible_subnet_node_ids: (1..=x).collect(),
                 eligible_validator_identity_ids: (1..=x)
                     .filter_map(|node_id| {
@@ -10740,7 +11099,7 @@ mod benchmarks {
     // Informational purposes only
     // x is capped by available subnet slots: EpochLength - DesignatedEpochSlots.
     #[benchmark]
-    fn calculate_subnet_weights(x: Linear<0, 17>) {
+    fn calculate_subnet_weights(x: Linear<0, { MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN }>) {
         // Activate subnets
         let end = MinSubnetNodes::<T>::get();
         NewRegistrationCostMultiplier::<T>::set(1000000000000000000);
@@ -10761,17 +11120,14 @@ mod benchmarks {
         let current_overwatch_epoch = Network::<T>::get_current_overwatch_epoch_as_u32();
         LastFinalizedOverwatchEpoch::<T>::put(current_overwatch_epoch);
         let max_historical_nodes = T::MaxSubnetNodesUpperBound::get();
+        let mut effective_subnet_weights = BTreeMap::new();
 
         // Simulate overwatch subnet weights
         for s in 0..x {
             let path: Vec<u8> = format!("subnet-name-{s}").into();
             let subnet_id = SubnetName::<T>::get::<Vec<u8>>(path.clone().into()).unwrap();
 
-            OverwatchSubnetWeights::<T>::insert(
-                current_overwatch_epoch,
-                subnet_id,
-                500000000000000000,
-            );
+            effective_subnet_weights.insert(subnet_id, 500000000000000000);
             let magnitude = (s as i128 + 1).saturating_mul(1_000_000);
             SubnetNetFlow::<T>::insert(subnet_id, if s % 2 == 0 { -magnitude } else { magnitude });
             SubnetNetFlowSmoothedWeight::<T>::insert(
@@ -10786,7 +11142,7 @@ mod benchmarks {
                 ElectedConsensusRound {
                     validator_subnet_node_id: 1,
                     validator_id: SubnetNodeValidatorId::<T>::get(subnet_id, 1).unwrap_or_default(),
-                    emergency: false,
+                    emergency: None,
                     eligible_subnet_node_ids: (1..=max_historical_nodes).collect(),
                     eligible_validator_identity_ids: (1..=max_historical_nodes)
                         .map(|node_id| (node_id, node_id))
@@ -10799,6 +11155,7 @@ mod benchmarks {
                 },
             );
         }
+        seed_max_effective_overwatch_cache::<T>(current_overwatch_epoch, effective_subnet_weights);
 
         #[block]
         {

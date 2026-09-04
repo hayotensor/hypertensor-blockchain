@@ -1,15 +1,20 @@
 use super::mock::*;
-use crate::tests::test_utils::queue_overwatch_settlement;
+use crate::tests::test_utils::{
+    insert_overwatch_node_v2, insert_subnet, make_commit, manual_insert_validator,
+    queue_overwatch_settlement, set_overwatch_epoch, set_overwatch_node_stake, test_percent,
+};
 use crate::{
-    ActiveOverwatchCommitCutoffPercent, ActiveOverwatchEpochLengthMultiplier, BaseSlashPercentage,
+    ActiveOverwatchCommitCutoffPercent, ActiveOverwatchEpochLengthMultiplier,
+    ActiveOverwatchRevealStats, BaseSlashPercentage,
     ConsensusValidatorIdentityAttestationPercentage, CurrentOverwatchEpoch,
-    InConsensusSubnetReputationFactor, LastFinalizedOverwatchEpoch,
-    NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
-    OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock, PendingOverwatchSettlement,
+    InConsensusSubnetReputationFactor, LastFinalizedOverwatchEpoch, LatestEffectiveOverwatchSignal,
+    LatestFinalizedOverwatchSignalInputs, NotInConsensusSubnetReputationFactor, OverwatchCommit,
+    OverwatchCommitCutoffPercent, OverwatchCommits, OverwatchEpochLengthMultiplier,
+    OverwatchEpochSettlementSnapshots, OverwatchEpochStartBlock, OverwatchNodeWeights,
+    OverwatchReveal, OverwatchReveals, OverwatchSubnetWeights, PendingOverwatchSettlement,
     SubnetElectedValidator, SubnetNodeElectionSlots,
     SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeValidatorId,
-    SubnetReputationFactorSchedules, SubnetReputationFactors, SubnetSlot, ValidatorReputation,
-    ValidatorReputationDecreaseFactor, ValidatorReputationIncreaseFactor,
+    SubnetReputationFactorSchedules, SubnetReputationFactors, SubnetSlot, SubnetState,
     NETWORK_OVERWATCH_SETTLEMENT_SLOT, NETWORK_SUBNET_EMISSION_SLOT,
 };
 use frame_support::{assert_ok, traits::OnInitialize};
@@ -72,72 +77,6 @@ fn can_propose_or_attest_saturates_next_epoch_boundary_at_u32_max() {
 }
 
 #[test]
-fn validator_election_records_first_and_last_election_epochs() {
-    new_test_ext().execute_with(|| {
-        let subnet_id = 1;
-        let subnet_node_id = 10;
-        let validator_id = 20;
-
-        SubnetNodeElectionSlots::<Test>::insert(subnet_id, vec![subnet_node_id]);
-        SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
-
-        let reputation = ValidatorReputation::<Test>::get(validator_id);
-        assert_eq!(reputation.start_epoch, None);
-        assert_eq!(reputation.last_validator_epoch, None);
-
-        // Epoch zero is a real election epoch, not an "unset" sentinel.
-        Network::elect_validator(subnet_id, 0, 0);
-        assert_eq!(
-            SubnetElectedValidator::<Test>::get(subnet_id, 0)
-                .map(|round| round.validator_subnet_node_id),
-            Some(subnet_node_id)
-        );
-        let reputation = ValidatorReputation::<Test>::get(validator_id);
-        assert_eq!(reputation.start_epoch, Some(0));
-        assert_eq!(reputation.last_validator_epoch, Some(0));
-
-        // Repeating the same election is idempotent.
-        Network::elect_validator(subnet_id, 0, 0);
-        let reputation = ValidatorReputation::<Test>::get(validator_id);
-        assert_eq!(reputation.start_epoch, Some(0));
-        assert_eq!(reputation.last_validator_epoch, Some(0));
-
-        Network::elect_validator(subnet_id, 1, EpochLength::get());
-        assert_eq!(
-            SubnetElectedValidator::<Test>::get(subnet_id, 1)
-                .map(|round| round.validator_subnet_node_id),
-            Some(subnet_node_id)
-        );
-        let reputation = ValidatorReputation::<Test>::get(validator_id);
-        assert_eq!(reputation.start_epoch, Some(0));
-        assert_eq!(reputation.last_validator_epoch, Some(1));
-    });
-}
-
-#[test]
-fn validator_election_metadata_uses_the_general_chain_epoch() {
-    new_test_ext().execute_with(|| {
-        let subnet_id = 2;
-        let subnet_node_id = 11;
-        let validator_id = 21;
-        let target_subnet_epoch = 42;
-        let election_epoch = 5;
-        let election_block = election_epoch * EpochLength::get() + DesignatedEpochSlots::get();
-
-        SubnetNodeElectionSlots::<Test>::insert(subnet_id, vec![subnet_node_id]);
-        SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
-
-        // Internal callers supply both the target subnet epoch and the election block. Reputation
-        // age is a general-chain concept, so its metadata must be derived from the latter.
-        Network::elect_validator(subnet_id, target_subnet_epoch, election_block);
-
-        let reputation = ValidatorReputation::<Test>::get(validator_id);
-        assert_eq!(reputation.start_epoch, Some(election_epoch));
-        assert_eq!(reputation.last_validator_epoch, Some(election_epoch));
-    });
-}
-
-#[test]
 fn validator_election_snapshots_policy_against_later_governance_changes() {
     new_test_ext().execute_with(|| {
         let subnet_id = 1;
@@ -155,8 +94,6 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
             validator_absent_decrease: Network::percent_div(6, 100),
             validator_non_consensus_decrease: Network::percent_div(7, 100),
         };
-        let elected_validator_reputation_increase = Network::percent_div(8, 100);
-        let elected_validator_reputation_decrease = Network::percent_div(9, 100);
         let elected_subnet_reputation_increase = Network::percent_div(10, 100);
         let elected_subnet_reputation_decrease = Network::percent_div(11, 100);
         let elected_min_weight_threshold = Network::percent_div(12, 100);
@@ -167,8 +104,6 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
         SubnetReputationFactorSchedules::<Test>::mutate(subnet_id, |schedule| {
             schedule.current = elected_reputation_factors;
         });
-        ValidatorReputationIncreaseFactor::<Test>::put(elected_validator_reputation_increase);
-        ValidatorReputationDecreaseFactor::<Test>::put(elected_validator_reputation_decrease);
         InConsensusSubnetReputationFactor::<Test>::put(elected_subnet_reputation_increase);
         NotInConsensusSubnetReputationFactor::<Test>::put(elected_subnet_reputation_decrease);
         SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::insert(
@@ -189,8 +124,6 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
                 validator_non_consensus_decrease: Network::percent_div(27, 100),
             };
         });
-        ValidatorReputationIncreaseFactor::<Test>::put(Network::percent_div(28, 100));
-        ValidatorReputationDecreaseFactor::<Test>::put(Network::percent_div(29, 100));
         InConsensusSubnetReputationFactor::<Test>::put(Network::percent_div(30, 100));
         NotInConsensusSubnetReputationFactor::<Test>::put(Network::percent_div(31, 100));
         SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::insert(
@@ -206,14 +139,6 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
             elected_supermajority
         );
         assert_eq!(round.policy.reputation_factors, elected_reputation_factors);
-        assert_eq!(
-            round.policy.validator_reputation_increase_factor,
-            elected_validator_reputation_increase
-        );
-        assert_eq!(
-            round.policy.validator_reputation_decrease_factor,
-            elected_validator_reputation_decrease
-        );
         assert_eq!(
             round.policy.in_consensus_subnet_reputation_factor,
             elected_subnet_reputation_increase
@@ -312,7 +237,6 @@ fn test_collective_overwatch_config_is_snapshotted_at_next_epoch() {
         );
         let settlement = PendingOverwatchSettlement::<Test>::get().unwrap();
         assert_eq!(settlement.epoch, 0);
-        assert_eq!(settlement.epoch_length_multiplier, old_multiplier);
         assert_eq!(
             network_events().last(),
             Some(&crate::Event::OverwatchEpochStarted {
@@ -345,7 +269,6 @@ fn test_collective_overwatch_config_is_snapshotted_at_next_epoch() {
         assert_eq!(CurrentOverwatchEpoch::<Test>::get(), 2);
         let settlement = PendingOverwatchSettlement::<Test>::get().unwrap();
         assert_eq!(settlement.epoch, 1);
-        assert_eq!(settlement.epoch_length_multiplier, next_multiplier);
     });
 }
 
@@ -437,6 +360,220 @@ fn test_overwatch_settlement_waits_for_reserved_slot_one() {
         Network::on_initialize(next_settlement_block);
         assert!(PendingOverwatchSettlement::<Test>::get().is_none());
         assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), Some(7));
+    });
+}
+
+#[test]
+fn partial_reveal_close_snapshots_only_revealed_records_and_participants() {
+    new_test_ext().execute_with(|| {
+        OverwatchEpochLengthMultiplier::<Test>::put(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::put(1);
+        set_overwatch_epoch(3);
+
+        let epoch = CurrentOverwatchEpoch::<Test>::get();
+        let revealed_subnet_id = 1;
+        let commit_only_subnet_id = 2;
+        insert_subnet(revealed_subnet_id, SubnetState::Active, 0);
+        insert_subnet(commit_only_subnet_id, SubnetState::Active, 0);
+
+        manual_insert_validator(1, 101, 201);
+        manual_insert_validator(2, 102, 202);
+        let revealing_node_id = insert_overwatch_node_v2(1);
+        let commit_only_node_id = insert_overwatch_node_v2(2);
+        set_overwatch_node_stake(revealing_node_id, 100);
+        set_overwatch_node_stake(commit_only_node_id, 200);
+
+        let revealed_weight = test_percent(3, 5);
+        let revealed_salt = b"partial-reveal".to_vec();
+        let unrevealed_salt = b"unrevealed-subnet".to_vec();
+        let commit_only_salt = b"commit-only-node".to_vec();
+        assert_ok!(Network::perform_commit_overwatch_subnet_weights(
+            revealing_node_id,
+            vec![
+                OverwatchCommit {
+                    subnet_id: revealed_subnet_id,
+                    weight: make_commit(revealed_weight, revealed_salt.clone()),
+                },
+                OverwatchCommit {
+                    subnet_id: commit_only_subnet_id,
+                    weight: make_commit(test_percent(1, 4), unrevealed_salt),
+                },
+            ],
+        ));
+        assert_ok!(Network::perform_commit_overwatch_subnet_weights(
+            commit_only_node_id,
+            vec![OverwatchCommit {
+                subnet_id: revealed_subnet_id,
+                weight: make_commit(test_percent(1, 2), commit_only_salt),
+            }],
+        ));
+        assert_ok!(Network::perform_reveal_overwatch_subnet_weights(
+            revealing_node_id,
+            vec![OverwatchReveal {
+                subnet_id: revealed_subnet_id,
+                weight: revealed_weight,
+                salt: revealed_salt.try_into().unwrap(),
+            }],
+        ));
+
+        assert_eq!(ActiveOverwatchRevealStats::<Test>::get().records, 1);
+        let close_block = OverwatchEpochStartBlock::<Test>::get() + EpochLength::get();
+        System::set_block_number(close_block);
+        Network::advance_overwatch_epoch(close_block);
+
+        let pending = PendingOverwatchSettlement::<Test>::get()
+            .expect("a successful close must publish a pending settlement");
+        assert_eq!(pending.epoch, epoch);
+        assert_eq!(pending.reveal_records, 1);
+        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(epoch)
+            .expect("a successful close must publish its participant snapshot");
+        assert_eq!(snapshot.nodes.len(), 1);
+        assert_eq!(snapshot.nodes.get(&revealing_node_id).unwrap().stake, 100);
+        assert!(!snapshot.nodes.contains_key(&commit_only_node_id));
+        assert!(OverwatchCommits::<Test>::get(epoch, revealing_node_id).is_empty());
+        assert!(OverwatchCommits::<Test>::get(epoch, commit_only_node_id).is_empty());
+        assert_eq!(
+            OverwatchReveals::<Test>::get(epoch, revealing_node_id).get(&revealed_subnet_id),
+            Some(&revealed_weight)
+        );
+        assert!(OverwatchReveals::<Test>::get(epoch, commit_only_node_id).is_empty());
+        assert_eq!(ActiveOverwatchRevealStats::<Test>::get().records, 0);
+
+        Network::calculate_overwatch_rewards();
+
+        assert!(PendingOverwatchSettlement::<Test>::get().is_none());
+        assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), Some(epoch));
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(epoch, revealed_subnet_id),
+            Some(revealed_weight)
+        );
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(epoch, commit_only_subnet_id),
+            None
+        );
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(epoch, revealing_node_id),
+            Some(Network::percentage_factor_as_u128())
+        );
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(epoch, commit_only_node_id),
+            None
+        );
+        assert!(OverwatchReveals::<Test>::get(epoch, revealing_node_id).is_empty());
+
+        let retained = LatestFinalizedOverwatchSignalInputs::<Test>::get()
+            .expect("finalization must retain the latest reproducible inputs");
+        assert_eq!(retained.source_epoch, epoch);
+        assert_eq!(retained.nodes.len(), 1);
+        assert_eq!(
+            retained
+                .nodes
+                .get(&revealing_node_id)
+                .unwrap()
+                .reveals
+                .get(&revealed_subnet_id),
+            Some(&revealed_weight)
+        );
+        assert!(!retained.nodes.contains_key(&commit_only_node_id));
+        let effective = LatestEffectiveOverwatchSignal::<Test>::get().unwrap();
+        assert!(effective.valid);
+        assert_eq!(effective.source_epoch, epoch);
+        assert_eq!(
+            effective.subnet_weights.get(&revealed_subnet_id),
+            Some(&revealed_weight)
+        );
+    });
+}
+
+#[test]
+fn pending_settlement_blocks_rollover_without_consuming_active_round_state() {
+    new_test_ext().execute_with(|| {
+        OverwatchEpochLengthMultiplier::<Test>::put(1);
+        ActiveOverwatchEpochLengthMultiplier::<Test>::put(1);
+        set_overwatch_epoch(5);
+
+        let active_epoch = CurrentOverwatchEpoch::<Test>::get();
+        let subnet_id = 1;
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+        manual_insert_validator(1, 101, 201);
+        let node_id = insert_overwatch_node_v2(1);
+        set_overwatch_node_stake(node_id, 100);
+
+        let weight = test_percent(2, 5);
+        let salt = b"retryable-rollover".to_vec();
+        assert_ok!(Network::perform_commit_overwatch_subnet_weights(
+            node_id,
+            vec![OverwatchCommit {
+                subnet_id,
+                weight: make_commit(weight, salt.clone()),
+            }],
+        ));
+        assert_ok!(Network::perform_reveal_overwatch_subnet_weights(
+            node_id,
+            vec![OverwatchReveal {
+                subnet_id,
+                weight,
+                salt: salt.try_into().unwrap(),
+            }],
+        ));
+
+        queue_overwatch_settlement(active_epoch - 1);
+        let pending_before = PendingOverwatchSettlement::<Test>::get().unwrap();
+        let commits_before = OverwatchCommits::<Test>::get(active_epoch, node_id);
+        let reveals_before = OverwatchReveals::<Test>::get(active_epoch, node_id);
+        let stats_before = ActiveOverwatchRevealStats::<Test>::get();
+        let start_before = OverwatchEpochStartBlock::<Test>::get();
+        let close_block = start_before + EpochLength::get();
+
+        System::set_block_number(close_block);
+        Network::advance_overwatch_epoch(close_block);
+
+        assert_eq!(CurrentOverwatchEpoch::<Test>::get(), active_epoch);
+        assert_eq!(OverwatchEpochStartBlock::<Test>::get(), start_before);
+        assert_eq!(
+            PendingOverwatchSettlement::<Test>::get(),
+            Some(pending_before)
+        );
+        assert_eq!(
+            OverwatchCommits::<Test>::get(active_epoch, node_id),
+            commits_before
+        );
+        assert_eq!(
+            OverwatchReveals::<Test>::get(active_epoch, node_id),
+            reveals_before
+        );
+        assert_eq!(ActiveOverwatchRevealStats::<Test>::get(), stats_before);
+        assert!(!OverwatchEpochSettlementSnapshots::<Test>::contains_key(
+            active_epoch
+        ));
+
+        // Once the older settlement is consumed, retrying the exact same boundary closes the
+        // untouched active round and preserves its reveal for finalization.
+        Network::calculate_overwatch_rewards();
+        assert_eq!(
+            LastFinalizedOverwatchEpoch::<Test>::get(),
+            Some(active_epoch - 1)
+        );
+        Network::advance_overwatch_epoch(close_block);
+
+        let retried_pending = PendingOverwatchSettlement::<Test>::get().unwrap();
+        assert_eq!(retried_pending.epoch, active_epoch);
+        assert_eq!(retried_pending.reveal_records, 1);
+        assert!(OverwatchCommits::<Test>::get(active_epoch, node_id).is_empty());
+        assert_eq!(
+            OverwatchReveals::<Test>::get(active_epoch, node_id).get(&subnet_id),
+            Some(&weight)
+        );
+
+        Network::calculate_overwatch_rewards();
+        assert_eq!(
+            LastFinalizedOverwatchEpoch::<Test>::get(),
+            Some(active_epoch)
+        );
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(active_epoch, subnet_id),
+            Some(weight)
+        );
     });
 }
 

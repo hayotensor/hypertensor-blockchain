@@ -20,9 +20,12 @@ use sp_core::U256;
 use sp_runtime::ArithmeticError;
 
 impl<T: Config> Pallet<T> {
-    /// Min liquidity/shares in any pool
-    /// Used to mint dead shares on first deposit
-    pub const MIN_LIQUIDITY: u128 = 1000;
+    /// Dead shares minted on the first delegate-pool deposit to make donation attacks uneconomic.
+    pub const DELEGATE_POOL_MIN_LIQUIDITY: u128 = 1_000;
+
+    /// Immutable 10:1 virtual share/balance offset used by delegate-pool accounting.
+    pub const DELEGATE_POOL_VIRTUAL_SHARES: u128 = 10;
+    pub const DELEGATE_POOL_VIRTUAL_BALANCE: u128 = 1;
 
     #[frame_support::transactional]
     pub fn add_balance_to_unbonding_ledger(
@@ -226,8 +229,10 @@ impl<T: Config> Pallet<T> {
         }
 
         let balance = U256::from(balance);
-        let total_shares = U256::from(total_shares) + U256::from(10_u128.pow(1));
-        let total_balance = U256::from(total_balance) + U256::from(1);
+        let total_shares =
+            U256::from(total_shares) + U256::from(Self::DELEGATE_POOL_VIRTUAL_SHARES);
+        let total_balance =
+            U256::from(total_balance) + U256::from(Self::DELEGATE_POOL_VIRTUAL_BALANCE);
 
         Self::checked_mul_div(balance, total_shares, total_balance)
             .and_then(|res| res.try_into().ok())
@@ -248,8 +253,10 @@ impl<T: Config> Pallet<T> {
         }
 
         let shares = U256::from(shares);
-        let total_balance = U256::from(total_balance) + U256::from(1);
-        let total_shares = U256::from(total_shares) + U256::from(10_u128.pow(1));
+        let total_balance =
+            U256::from(total_balance) + U256::from(Self::DELEGATE_POOL_VIRTUAL_BALANCE);
+        let total_shares =
+            U256::from(total_shares) + U256::from(Self::DELEGATE_POOL_VIRTUAL_SHARES);
 
         Self::checked_mul_div(shares, total_balance, total_shares)
             .and_then(|res| res.try_into().ok())

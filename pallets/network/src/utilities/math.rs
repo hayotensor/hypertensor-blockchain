@@ -19,10 +19,13 @@ use libm::{exp, pow, round};
 use sp_core::U256;
 
 impl<T: Config> Pallet<T> {
-    // 1e18 as 1.0
-    pub const PERCENTAGE_FACTOR: U256 = U256([0xde0b6b3a7640000, 0x0, 0x0, 0x0]);
-    // 0.5e18 as 0.5
-    pub const HALF_PERCENT: U256 = U256([0x06f05b59d3b20000, 0x0, 0x0, 0x0]);
+    /// Q18 scale used by every stored percentage, reputation, and normalized weight.
+    pub const PERCENTAGE_FACTOR_U128: u128 = crate::PERCENTAGE_FACTOR_U128;
+    pub const PERCENTAGE_FACTOR_F64: f64 = Self::PERCENTAGE_FACTOR_U128 as f64;
+    pub const PERCENTAGE_FACTOR: U256 = U256([Self::PERCENTAGE_FACTOR_U128 as u64, 0, 0, 0]);
+    pub const HALF_PERCENT: U256 = U256([(Self::PERCENTAGE_FACTOR_U128 / 2) as u64, 0, 0, 0]);
+    const DECIMAL_RADIX_F64: f64 = 10.0;
+    const LINEAR_CURVE_POWER: f64 = 1.0;
 
     /// `x` is value
     /// `y` is percentage
@@ -68,12 +71,12 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn percentage_factor_as_u128() -> u128 {
-        1_000_000_000_000_000_000
+        Self::PERCENTAGE_FACTOR_U128
     }
 
     /// Get percentage as f64 (full 1e18 with decimals)
     pub fn percentage_factor_as_f64() -> f64 {
-        1_000_000_000_000_000_000.0
+        Self::PERCENTAGE_FACTOR_F64
     }
 
     /// Get percentage in decimal format that uses `PERCENTAGE_FACTOR` as f64
@@ -83,7 +86,7 @@ impl<T: Config> Pallet<T> {
 
     /// Get decimal f64 1.0 converted to u128 1e18
     pub fn get_f64_as_percentage(v: f64) -> u128 {
-        (v * 1_000_000_000_000_000_000.0) as u128
+        (v * Self::percentage_factor_as_f64()) as u128
     }
 
     pub fn pow(x: f64, exp: f64) -> f64 {
@@ -240,7 +243,7 @@ impl<T: Config> Pallet<T> {
     /// # Returns
     /// The rounded floating-point number.
     fn round_f64(value: f64, decimal_places: f64) -> f64 {
-        let factor = pow(10.0f64, decimal_places);
+        let factor = pow(Self::DECIMAL_RADIX_F64, decimal_places);
         round(value * factor) / factor
     }
 
@@ -257,7 +260,11 @@ impl<T: Config> Pallet<T> {
     /// - `y` in the range `[min, max]` corresponding to the concave-down decreasing curve.
     pub fn concave_down_decreasing(x: f64, min: f64, max: f64, power: f64) -> f64 {
         // Ensure power is positive to avoid undefined behavior
-        let p = if power <= 0.0 { 1.0 } else { power };
+        let p = if power <= 0.0 {
+            Self::LINEAR_CURVE_POWER
+        } else {
+            power
+        };
 
         // Compute concave-down decreasing curve
         let curve = 1.0 - pow(x, p);

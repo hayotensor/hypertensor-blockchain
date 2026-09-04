@@ -65,13 +65,11 @@ The normal flow at a subnet's slot is:
 An elected node for the new subnet epoch is then responsible for submitting that epoch's consensus
 proposal.
 
-Validator identity election metadata is updated when step 4 successfully stores an election.
-Outcome-dependent reputation and proposal-identity-support statistics are updated only if that
-round receives an allocation and reaches settlement at the following subnet slot; a missing
-proposal follows step 1, while a submitted proposal follows steps 2 and 3. Consequently, an
-allocated settlement in epoch `E` evaluates epoch `E - 1`, while the stored first and last
-validator-election epochs continue to identify the general-chain epochs in which those elections
-occurred.
+A successful step 4 stores the epoch-keyed elected node, candidate set, and round policy snapshots.
+Outcome-dependent subnet and node reputation updates occur only if that round receives an
+allocation and reaches settlement at the following subnet slot; a missing proposal follows step
+1, while a submitted proposal follows steps 2 and 3. Consequently, an allocated settlement in
+epoch `E` evaluates epoch `E - 1`.
 
 Consensus eligibility and reward eligibility are separate. An active, live subnet attempts an
 election at its slot even when it has no emission allocation; a valid effective candidate set can
@@ -132,6 +130,13 @@ monotonic ID and anchored start block. Its length and commit cutoff are fixed fo
 by `ActiveOverwatchEpochLengthMultiplier` and `ActiveOverwatchCommitCutoffPercent`. The active
 length is the active multiplier times the general epoch length.
 
+A registered validator identity may register an Overwatch node only after a 2/3 collective vote
+places it on the whitelist. Registration also enforces a live Overwatch epoch, the member cap, the
+minimum stake, and one active Overwatch node per validator. A 2/3 attempt to clear the whitelist
+while its node remains active fails atomically; the validator owner or a 4/5 collective vote can
+instead structurally remove the node, which also clears the whitelist and requires a fresh vote
+before re-registration.
+
 Collective updates write `OverwatchEpochLengthMultiplier` and
 `OverwatchCommitCutoffPercent` as configuration for the next Overwatch epoch. They do not extend,
 shorten, or change the phase of the active round. At normal rollover, the pallet snapshots the
@@ -139,10 +144,10 @@ latest configured values into the active fields and advances the epoch ID and an
 
 When an Overwatch epoch closes, the pallet queues a compact settlement header and a separate
 epoch-keyed snapshot. The snapshot freezes the stake-weight exponent, exact interval reward
-budget, and each revealing node's canonical validator relationship and raw stake. Only the active
-validator-to-Overwatch-node relation at close is included, and an epoch with no eligible revealers
-stores an explicit empty snapshot. The snapshot is assembled completely before rollover changes
-any epoch state; if bounded construction fails, the old epoch remains active and unchanged.
+budget, and each active revealing node's raw stake. Only nodes with the canonical active
+validator-to-Overwatch-node relation at close are included, and an epoch with no revealers stores
+an explicit empty snapshot. The snapshot is assembled completely before rollover changes any epoch
+state; if bounded construction fails, the old epoch remains active and unchanged.
 
 Rollover is aligned with general epoch slot zero and settlement runs in reserved slot one, normally
 the following block. If global transaction pause skips a boundary, the active Overwatch clock is
@@ -150,21 +155,26 @@ frozen by shifting its anchored start block by the pause duration. Nodes therefo
 commit or reveal time that remained when pause began. Any shifted end is then rounded forward to
 the next slot-zero boundary, keeping Overwatch work away from subnet slots.
 
-A delayed settlement uses only its matching close-time snapshot: it never falls back to live node
-membership, stake, or exponent. A missing snapshot leaves the pending header queued. Removal or
-replacement after close does not invalidate a snapshotted revealer or redirect its reward; any
-reward is credited to the historical Overwatch node ID. Successful finalization consumes the
-header and snapshot exactly once. Explicitly empty epochs are still marked finalized, which
-distinguishes a processed epoch with no subnet score from an epoch that has not been processed.
-Consumers use `LastFinalizedOverwatchEpoch` rather than deriving
-`CurrentOverwatchEpoch - 1`.
+A delayed settlement uses its matching close-time snapshot and reveal rows: it never falls back to
+live stake or a live exponent. A missing snapshot leaves the pending header queued. Removing an
+Overwatch node purges its active-round commits and reveals and, if an epoch is pending, removes its
+pending reveal row and snapshot entry before scoring. The node is therefore treated as if it never
+participated in either unsettled round and cannot receive a pending reward. If removal empties the
+pending snapshot, the epoch finalizes explicitly empty. Successful finalization consumes the
+header and snapshot exactly once. `LastFinalizedOverwatchEpoch` distinguishes a processed empty
+epoch from one that has not been processed.
 
 `OverwatchEpochEmissions` is the budget for one general blockchain epoch. A completed Overwatch
 epoch spanning `M` general epochs therefore snapshots the exact saturating product
-`M * OverwatchEpochEmissions` at close and distributes no more than that captured budget. Its
-finalized subnet weights remain the latest available Overwatch signal and are reused by each
-general emission calculation until a later Overwatch epoch is finalized. A subnet missing a score
-in an otherwise finalized Overwatch epoch uses the configured default Overwatch subnet weight.
+`M * OverwatchEpochEmissions` at close and distributes no more than that captured budget.
+Finalization preserves immutable epoch-keyed subnet weights and node scores for history, while also
+publishing a separate latest effective signal and its reproducible close-time inputs. Future
+general emission allocations consume only that effective signal. Removing a node recomputes it
+from the retained raw inputs without the node; already-written `FinalSubnetEmissionWeights`,
+historical Overwatch outputs, and credited rewards do not change. If the retained inputs are
+missing or inconsistent, the effective signal becomes invalid and every subnet uses the configured
+default Overwatch weight until a later finalization publishes a valid replacement. Historical
+weights are never used as a fallback.
 
 ## Becoming Electable
 
@@ -467,14 +477,13 @@ If the canonical score sum is zero but consensus is reached, the proposer reward
 
 ## Reputation Updates
 
-Settlement of allocated rounds also drives subnet, validator-identity, and node reputation.
+Settlement of allocated rounds also drives subnet and node reputation.
 
 When consensus succeeds, proposal contents affect reputation scores only if the proposal is
 identity-verified. At or above the snapshotted identity-supermajority threshold:
 
 - subnet reputation can increase when its existing minimum-node precondition is met, scaled by the
   distinct-identity support ratio rather than stake support;
-- the elected proposer's validator-identity reputation can receive its configured increase;
 - `included_increase` can increase the reputation of nodes present in the score vector;
 - `absent_decrease` can decrease nodes omitted from that vector and reset an omitted Included
   node's consecutive-inclusion count;
@@ -505,7 +514,6 @@ classification progression remains disabled.
 When consensus fails:
 
 - subnet reputation decreases only below the strong-rejection identity threshold;
-- the proposer's validator identity reputation decreases only below that same identity threshold;
 - the elected proposer loses node reputation only when distinct validator-identity support is
   strictly below the round's snapshotted strong-rejection threshold;
 - every attesting node, including the proposer's automatic attestation, loses node reputation only
@@ -513,7 +521,7 @@ When consensus fails:
   strong-rejection threshold;
 - nodes that fall below the minimum reputation can be removed.
 
-All four submitted-proposal decreases use the same identity shortfall:
+All submitted-proposal reputation decreases use the same identity shortfall:
 
 ```text
 identity_shortfall =
@@ -526,16 +534,6 @@ stake support therefore causes no reputation loss when identity support is at or
 round's snapshotted strong-rejection threshold, although its existing proposer economic penalties
 still apply. Several owner-controlled factors are resolved for the evaluated subnet epoch so later
 parameter changes do not rewrite the round.
-
-Every allocated submitted proposal that reaches settlement also records its
-distinct-validator-identity support in the elected validator identity's
-`average_proposal_identity_support`. `identity_support_samples` counts the settled allocated
-elections represented by that average, including accepted, rejected, and reputation-score-neutral
-submitted proposals. The bounded sample count and arithmetic mean freeze together if the count
-ever reaches `u32::MAX`, so the stored denominator cannot diverge from the average. The score
-counters remain narrower: `total_increases` counts identity-verified accepted proposals with a
-nonzero configured increase factor, and `total_decreases` counts strongly identity-rejected
-proposals with a nonzero effective decrease factor.
 
 ## Penalties and Slashing
 
@@ -550,8 +548,7 @@ shortfall = 1 - actual_ratio / required_ratio
 ```
 
 The selected failure ratio and threshold drive the direct-stake penalty only. Submitted-proposal
-node, validator-identity, and subnet reputation losses instead use the distinct-identity
-strong-rejection curve.
+node and subnet reputation losses instead use the distinct-identity strong-rejection curve.
 
 The minimum eligible identity-set size is a separate rejection condition, but it does not create
 an artificial ratio shortfall. If every identity in an undersized eligible set attests and the
@@ -574,10 +571,10 @@ attesting node is not slashed merely for attesting to the proposal.
 
 The same snapshotted configurable threshold also gates all submitted-proposal reputation decreases
 based solely on distinct validator-identity support rather than stake-weighted support. This
-includes the proposer validator identity, subnet, proposer node, and supporting attestors. The
-proposal-time validator snapshot fixes the eligible identity denominator. Each validator identity
-with one or more attesting nodes contributes exactly one supporter, and the proposer contributes
-one through its automatic attestation.
+includes the subnet, proposer node, and supporting attestors. The proposal-time validator snapshot
+fixes the eligible identity denominator. Each validator identity with one or more attesting nodes
+contributes exactly one supporter, and the proposer contributes one through its automatic
+attestation.
 
 The proposer-role decrease uses the subnet's snapshotted `validator_non_consensus_decrease` as its
 maximum loss factor. The supporter decrease uses the separately snapshotted
@@ -643,19 +640,18 @@ until the round's settlement slot, `election_block + EpochLength`. Incoming dele
 transfers of pool shares remain available because neither removes value from the slashable pool.
 Overlapping elected rounds extend the lock to the latest settlement block.
 
-Only a strongly identity-rejected submitted proposal decreases the proposer validator identity,
-the subnet, the proposer node under `validator_non_consensus_decrease`, and each recorded attestor
-under `non_consensus_attestor_decrease`. All use the identity-support curve above. The proposer is
+Only a strongly identity-rejected submitted proposal decreases the subnet, the proposer node under
+`validator_non_consensus_decrease`, and each recorded attestor under
+`non_consensus_attestor_decrease`. All use the identity-support curve above. The proposer is
 included among attestors through automatic attestation. Attestors receive no attestor-specific
 economic slash. If a node's reputation falls below the subnet's minimum, it can be removed from
 the active subnet and election set.
 
 If no proposal is submitted for an allocated elected round when it reaches settlement, the pallet
-treats the attestation rate as 0% for both economic formulas. It records a zero
-`average_proposal_identity_support` sample, but does not apply the submitted-proposal
-validator-identity or strong-rejection reputation curves. The objective
-`validator_absent_decrease` and `ValidatorAbsentSubnetReputationFactor` penalties apply exactly
-once. There is no proposal content, attestor set, or successful consensus data to reward.
+treats the attestation rate as 0% for both economic formulas. It does not apply the
+submitted-proposal strong-rejection reputation curves. The objective `validator_absent_decrease`
+and `ValidatorAbsentSubnetReputationFactor` penalties apply exactly once. There is no proposal
+content, attestor set, or successful consensus data to reward.
 
 ## Queue Decisions
 

@@ -9,7 +9,7 @@ import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
 import {
   batchTransferBalanceFromSudoManual,
   createAndFinalizeBlock,
-  qualifyOverwatchValidatorForDevnet,
+  whitelistOverwatchValidatorForDevnet,
   registerOverwatchNode,
   registerValidator,
   removeOverwatchNode,
@@ -69,13 +69,13 @@ describe("Overwatch validator registration lifecycle", () => {
     )) as Option<any>;
     expect(validatorIdOption.isSome).to.equal(true);
     validatorId = validatorIdOption.unwrap().toString();
-    await qualifyOverwatchValidatorForDevnet(api, validatorId, provider);
+    await whitelistOverwatchValidatorForDevnet(api, validatorId, provider);
     minStake = BigInt(
       (await api.query.network.overwatchMinStakeBalance()).toString(),
     );
   });
 
-  it("clears the active reverse lookup on removal and permits re-registration", async () => {
+  it("clears approval on owner removal and requires a fresh whitelist vote", async () => {
     await registerOverwatchNode(overwatchContract, minStake, provider, true);
 
     const [firstExists, firstNodeIdValue] =
@@ -114,6 +114,11 @@ describe("Overwatch validator registration lifecycle", () => {
       await overwatchContract.validatorOverwatchNodeId(validatorId);
     expect(existsAfterRemoval).to.equal(false);
     expect(nodeIdAfterRemoval.toString()).to.equal("0");
+    const whitelistAfterRemoval =
+      (await api.query.network.overwatchValidatorWhitelist(
+        validatorId,
+      )) as Option<any>;
+    expect(whitelistAfterRemoval.isNone).to.equal(true);
 
     let removedNodeViewRejected = false;
     try {
@@ -131,13 +136,23 @@ describe("Overwatch validator registration lifecycle", () => {
     }
     expect(removedHotkeyViewRejected).to.equal(true);
 
+    let unapprovedRegistrationRejected = false;
+    try {
+      await overwatchContract.registerOverwatchNode.staticCall(minStake);
+    } catch {
+      unapprovedRegistrationRejected = true;
+    }
+    expect(unapprovedRegistrationRejected).to.equal(true);
+
+    await whitelistOverwatchValidatorForDevnet(api, validatorId, provider);
     await registerOverwatchNode(overwatchContract, minStake, provider, true);
     const [secondExists, secondNodeIdValue] =
       await overwatchContract.validatorOverwatchNodeId(validatorId);
     expect(secondExists).to.equal(true);
-    expect(BigInt(secondNodeIdValue.toString())).to.be.greaterThan(
-      BigInt(firstNodeIdValue.toString()),
-    );
+    expect(
+      BigInt(secondNodeIdValue.toString()) >
+        BigInt(firstNodeIdValue.toString()),
+    ).to.equal(true);
 
     const secondPalletReverse =
       (await api.query.network.validatorOverwatchNodeId(

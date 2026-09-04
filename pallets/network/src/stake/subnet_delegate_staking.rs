@@ -141,7 +141,7 @@ impl<T: Config> Pallet<T> {
         // Compute every principal-bearing write before changing storage. A queued swap must not
         // report a complete credit if any destination balance or share counter would saturate.
         let minimum_liquidity = if total_subnet_delegated_stake_shares == 0 {
-            Self::MIN_LIQUIDITY
+            Self::DELEGATE_POOL_MIN_LIQUIDITY
         } else {
             0
         };
@@ -426,7 +426,7 @@ impl<T: Config> Pallet<T> {
             || TotalSubnetDelegateStakeShares::<T>::get(subnet_id) == 0
         {
             TotalSubnetDelegateStakeShares::<T>::mutate(subnet_id, |mut n| {
-                n.saturating_accrue(Self::MIN_LIQUIDITY)
+                n.saturating_accrue(Self::DELEGATE_POOL_MIN_LIQUIDITY)
             });
         };
 

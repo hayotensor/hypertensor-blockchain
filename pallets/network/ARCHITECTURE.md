@@ -8,8 +8,8 @@ peer-to-peer topology.
 flowchart TB
     B[(Blockchain)] --- P[Network pallet]
 
-    O[Overwatch nodes] -->|register, stake, and commit/reveal subnet weights| P
-    P -->|reputation and rewards| O
+    O[Collective-whitelisted Overwatch nodes] -->|register, stake, and commit/reveal subnet weights| P
+    P -->|rewards| O
 
     V[Validator identities]
     D[Delegators] -->|delegate stake| P
@@ -39,5 +39,7 @@ Each subnet receives an assigned slot that defines its local epoch boundary. At 
 pallet can settle an allocated exact prior round even if the subnet has since been paused. If the
 subnet is `Active`, it attempts a new proposer election once consensus-eligible and stores one when
 the effective candidate set is valid and nonempty, then processes its registration queue and
-updates its node burn rate. Overwatch nodes run a separate commit-reveal process; finalized
-overwatch subnet weights are one input to subnet emission weighting.
+updates its node burn rate. Collective-whitelisted Overwatch nodes run a separate commit-reveal
+process. Finalization publishes a latest effective Overwatch signal for future subnet-emission
+weighting; node removal recomputes that signal without the removed node, while historical outputs
+and allocations already written remain unchanged.

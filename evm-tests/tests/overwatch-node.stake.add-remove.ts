@@ -10,7 +10,7 @@ import {
   addToOverwatchStake,
   batchTransferBalanceFromSudoManual,
   createAndFinalizeBlock,
-  qualifyOverwatchValidatorForDevnet,
+  whitelistOverwatchValidatorForDevnet,
   registerOverwatchNode,
   registerValidator,
   removeOverwatchStake,
@@ -70,7 +70,7 @@ describe("Overwatch node-ID stake calls", () => {
     )) as Option<any>;
     expect(validatorIdOption.isSome).to.equal(true);
     const validatorId = validatorIdOption.unwrap().toString();
-    await qualifyOverwatchValidatorForDevnet(api, validatorId, provider);
+    await whitelistOverwatchValidatorForDevnet(api, validatorId, provider);
 
     minStake = BigInt(
       (await api.query.network.overwatchMinStakeBalance()).toString(),

@@ -18,6 +18,17 @@ use super::*;
 use frame_support::pallet_prelude::DispatchError;
 
 impl<T: Config> Pallet<T> {
+    /// Return only peer IDs attached to subnets that still exist.
+    ///
+    /// Removed-subnet entries are pruned from storage on the node's next peer update; filtering
+    /// here keeps the interim lazy-cleanup state out of RPC responses.
+    pub fn live_overwatch_node_peer_ids(overwatch_node_id: u32) -> BTreeMap<u32, PeerId> {
+        OverwatchNodeIndex::<T>::get(overwatch_node_id)
+            .into_iter()
+            .filter(|(subnet_id, _)| SubnetsData::<T>::contains_key(subnet_id))
+            .collect()
+    }
+
     /// Return whether `peer_id` is available to this Overwatch node in `subnet_id`.
     ///
     /// Subnet-node peer maps are consulted solely to preserve subnet-wide peer-ID uniqueness. No
@@ -80,13 +91,6 @@ impl<T: Config> Pallet<T> {
         };
 
         Ok((validator_id, hotkey))
-    }
-
-    pub fn is_overwatch_node_keys_owner(overwatch_node_id: u32, key: T::AccountId) -> bool {
-        match Self::get_overwatch_associated_coldkey_and_hotkey(overwatch_node_id) {
-            Ok((coldkey, hotkey)) => key == hotkey || key == coldkey,
-            Err(_) => false,
-        }
     }
 
     pub fn get_overwatch_associated_coldkey_and_hotkey(

@@ -119,21 +119,6 @@ fn rpc_identity<T: Config>(value: IdentityData<T>) -> rpc::IdentityInfo {
     }
 }
 
-fn rpc_validator_reputation(value: Reputation) -> rpc::ValidatorReputationInfo {
-    rpc::ValidatorReputationInfo {
-        start_epoch: value.start_epoch,
-        score: value.score.into(),
-        lifetime_node_count: value.lifetime_node_count,
-        total_active_nodes: value.total_active_nodes,
-        total_increases: value.total_increases,
-        total_decreases: value.total_decreases,
-        average_proposal_identity_support: value.average_proposal_identity_support.into(),
-        identity_support_samples: value.identity_support_samples,
-        last_validator_epoch: value.last_validator_epoch,
-        overwatch_score: value.ow_score.into(),
-    }
-}
-
 fn rpc_consensus_policy(value: ConsensusPolicySnapshot) -> rpc::ConsensusPolicyInfo {
     rpc::ConsensusPolicyInfo {
         min_attestation_percentage: value.min_attestation_percentage.into(),
@@ -155,8 +140,6 @@ fn rpc_consensus_policy(value: ConsensusPolicySnapshot) -> rpc::ConsensusPolicyI
         max_validator_delegate_stake_slash_amount: value
             .max_validator_delegate_stake_slash_amount
             .into(),
-        validator_reputation_increase_factor: value.validator_reputation_increase_factor.into(),
-        validator_reputation_decrease_factor: value.validator_reputation_decrease_factor.into(),
         validator_absent_subnet_reputation_factor: value
             .validator_absent_subnet_reputation_factor
             .into(),
@@ -416,7 +399,6 @@ impl<T: Config> Pallet<T> {
                     rate: delegate.rate.into(),
                 }),
             identity: validator.identity.map(rpc_identity::<T>),
-            reputation: rpc_validator_reputation(ValidatorReputation::<T>::get(validator_id)),
             delegate_pool_shares: ValidatorDelegateStakeShares::<T>::get(validator_id).into(),
             delegate_pool_balance: ValidatorDelegateStakeBalance::<T>::get(validator_id).into(),
             delegate_pool_slash_lock_until: ValidatorDelegateStakeSlashLockUntil::<T>::get(
@@ -648,7 +630,7 @@ impl<T: Config> Pallet<T> {
             } else {
                 rpc::ConsensusRoundStatus::Elected
             },
-            election_source: if round.emergency {
+            election_source: if round.emergency.is_some() {
                 rpc::ConsensusElectionSource::Emergency
             } else {
                 rpc::ConsensusElectionSource::Regular
@@ -748,14 +730,13 @@ impl<T: Config> Pallet<T> {
             validator_id,
             coldkey,
             hotkey,
-            peer_ids: OverwatchNodeIndex::<T>::get(overwatch_node_id)
+            peer_ids: Self::live_overwatch_node_peer_ids(overwatch_node_id)
                 .into_iter()
                 .map(|(subnet_id, peer_id)| rpc::OverwatchPeerInfo {
                     subnet_id,
                     peer_id: rpc_bytes(peer_id.0),
                 })
                 .collect(),
-            reputation: rpc_validator_reputation(ValidatorReputation::<T>::get(validator_id)),
             stake_balance: OverwatchNodeStakeBalance::<T>::get(overwatch_node_id).into(),
         })
     }
@@ -767,5 +748,42 @@ impl<T: Config> Pallet<T> {
             .filter_map(Self::rpc_get_overwatch_node_info)
             .collect();
         page_sorted(items, request, |item| item.overwatch_node_id)
+    }
+
+    pub fn rpc_get_effective_overwatch_signal_meta() -> rpc::EffectiveOverwatchSignalMeta {
+        let signal = LatestEffectiveOverwatchSignal::<T>::get();
+        rpc::EffectiveOverwatchSignalMeta {
+            exists: signal.is_some(),
+            source_epoch: signal.as_ref().map_or(0, |signal| signal.source_epoch),
+            revision: LatestOverwatchSignalRevision::<T>::get(),
+            valid: signal.is_some_and(|signal| signal.valid),
+        }
+    }
+
+    pub fn rpc_get_effective_overwatch_subnet_weight(
+        subnet_id: u32,
+    ) -> rpc::EffectiveOverwatchSubnetWeight {
+        let signal = LatestEffectiveOverwatchSignal::<T>::get();
+        let raw_weight = signal
+            .as_ref()
+            .and_then(|signal| signal.subnet_weights.get(&subnet_id).copied());
+        let default_weight = DefaultOverwatchSubnetWeight::<T>::get();
+        let overwatch_weight_factor = OverwatchWeightFactor::<T>::get();
+        let resolved_weight = if signal.as_ref().is_some_and(|signal| signal.valid) {
+            raw_weight
+                .map(|weight| {
+                    Self::percent_mul(weight, overwatch_weight_factor)
+                        .min(Self::PERCENTAGE_FACTOR_U128)
+                })
+                .unwrap_or(default_weight)
+        } else {
+            default_weight
+        };
+
+        rpc::EffectiveOverwatchSubnetWeight {
+            raw_weight_exists: raw_weight.is_some(),
+            raw_weight: raw_weight.unwrap_or_default().into(),
+            resolved_weight: resolved_weight.into(),
+        }
     }
 }

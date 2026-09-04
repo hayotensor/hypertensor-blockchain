@@ -17,7 +17,13 @@ use crate::*;
 use frame_support::pallet_prelude::DispatchResultWithPostInfo;
 use frame_support::pallet_prelude::Pays;
 use frame_support::pallet_prelude::Weight;
-use libm::{exp, fmax, fmin};
+
+const MIN_VALIDATOR_REWARD_MULTIPLIER: f64 = 0.0;
+const MAX_REWARD_MULTIPLIER: f64 = 1.0;
+const NO_SNAPSHOTTED_VALIDATOR_DELEGATE_STAKE: u128 = 0;
+const DISABLED_VALIDATOR_DELEGATE_SLASH_THRESHOLD: u128 = 0;
+const DISABLED_VALIDATOR_DELEGATE_SLASH_PERCENTAGE: u128 = 0;
+const DISABLED_VALIDATOR_DELEGATE_SLASH_MAXIMUM: u128 = 0;
 
 impl<T: Config> Pallet<T> {
     pub(crate) fn canonicalize_consensus_data_entries(
@@ -56,15 +62,17 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         subnet_epoch: u32,
         data: Vec<SubnetNodeConsensusData>,
+        pending_ids: &BTreeSet<u32>,
     ) -> Result<(Vec<SubnetNodeConsensusData>, u128), Error<T>> {
         let filtered_data = data
             .into_iter()
             .filter(|entry| {
-                SubnetNodesData::<T>::try_get(subnet_id, entry.subnet_node_id)
-                    .map(|subnet_node| {
-                        subnet_node.has_classification(&SubnetNodeClass::Included, subnet_epoch)
-                    })
-                    .unwrap_or(false)
+                !pending_ids.contains(&entry.subnet_node_id)
+                    && SubnetNodesData::<T>::try_get(subnet_id, entry.subnet_node_id)
+                        .map(|subnet_node| {
+                            subnet_node.has_classification(&SubnetNodeClass::Included, subnet_epoch)
+                        })
+                        .unwrap_or(false)
             })
             .collect();
 
@@ -82,7 +90,8 @@ impl<T: Config> Pallet<T> {
         subnet_epoch: u32,
         validator_ids: &[u32],
     ) -> Result<ConsensusAttestorWeightSnapshot, Error<T>> {
-        let policy = match SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch) {
+        let elected_round = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch);
+        let policy = match elected_round.as_ref() {
             Some(round) => round.policy,
             None => {
                 #[cfg(test)]
@@ -98,8 +107,23 @@ impl<T: Config> Pallet<T> {
         let mut validator_nodes: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
 
         for subnet_node_id in validator_ids {
-            let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, *subnet_node_id)
-                .ok_or(Error::<T>::InvalidSubnetNodeId)?;
+            let validator_id = if let Some(round) = elected_round.as_ref() {
+                round
+                    .eligible_validator_identity_ids
+                    .get(subnet_node_id)
+                    .copied()
+                    .ok_or(Error::<T>::InvalidSubnetNodeId)?
+            } else {
+                #[cfg(test)]
+                {
+                    SubnetNodeValidatorId::<T>::get(subnet_id, *subnet_node_id)
+                        .ok_or(Error::<T>::InvalidSubnetNodeId)?
+                }
+                #[cfg(not(test))]
+                {
+                    return Err(Error::<T>::NoElectedValidator);
+                }
+            };
             validator_nodes
                 .entry(validator_id)
                 .or_default()
@@ -255,13 +279,6 @@ impl<T: Config> Pallet<T> {
         args: Option<ValidatorArgs<T>>,
         attest_data: Option<ValidatorArgs<T>>,
     ) -> DispatchResultWithPostInfo {
-        // `propose_attestation` has a fixed, worst-case benchmark. Bound the caller-controlled
-        // vector before any per-entry storage lookup so that benchmark remains an upper bound.
-        ensure!(
-            data.len() as u32 <= T::MaxSubnetNodesUpperBound::get(),
-            Error::<T>::MaxSubnetNodes
-        );
-
         // The validator is elected for the next blockchain epoch where rewards will be distributed.
         // Each subnet epoch overlaps with the blockchains epochs, and can submit consensus data for epoch
         // 2 on subnet epoch 1 (if after slot) or 2 (if before slot).
@@ -284,6 +301,27 @@ impl<T: Config> Pallet<T> {
         // derived from storage, then the signed hotkey must own that exact node.
         Self::ensure_hotkey_owns_subnet_node(subnet_id, validator_subnet_node_id, &hotkey)?;
 
+        // Snapshot both bounded quarantine sets once. Score, reward, quorum, and weight filtering
+        // below must all observe the same pending-removal view.
+        let pending_ids = Self::pending_subnet_node_removal_ids(subnet_id);
+
+        // A quarantined elected validator may only use this authenticated call to finish its own
+        // cleanup. It must not create a proposal or receive the fee waiver for normal consensus
+        // work.
+        if pending_ids.contains(&validator_subnet_node_id) {
+            let _ = Self::finalize_pending_subnet_node_removal(subnet_id, validator_subnet_node_id);
+            return Ok(Pays::Yes.into());
+        }
+
+        // `propose_attestation` has a fixed, worst-case benchmark. Bound the caller-controlled
+        // vector before any per-entry storage lookup. Authentication and pending cleanup must run
+        // first so malformed proposal contents cannot keep an authenticated quarantined proposer
+        // alive.
+        ensure!(
+            data.len() as u32 <= T::MaxSubnetNodesUpperBound::get(),
+            Error::<T>::MaxSubnetNodes
+        );
+
         // - Note: we don't check stake balance here. It's up to subnets to come to a consensus
         // to remove nodes that are not meeting the subnet's requirements. Stake balance only matters
         // on the node registration.
@@ -300,8 +338,12 @@ impl<T: Config> Pallet<T> {
 
         // Remove queue classified entries, collapse duplicate node IDs to the lowest score,
         // and ensure the canonical score sum does not overflow.
-        let (data, _) =
-            Self::canonicalize_consensus_data_for_submission(subnet_id, subnet_epoch, data)?;
+        let (data, _) = Self::canonicalize_consensus_data_for_submission(
+            subnet_id,
+            subnet_epoch,
+            data,
+            &pending_ids,
+        )?;
 
         let block: u32 = Self::get_current_block_as_u32();
         let attests: BTreeMap<u32, AttestEntry<T>> = BTreeMap::from([(
@@ -327,6 +369,7 @@ impl<T: Config> Pallet<T> {
             subnet_epoch,
         )
         .iter()
+        .filter(|subnet_node| !pending_ids.contains(&subnet_node.id))
         .map(ConsensusSubnetNode::from)
         .collect();
 
@@ -335,19 +378,48 @@ impl<T: Config> Pallet<T> {
         //
         // These are the nodes that can attest to the consensus data
         //
-        // We store `validator_ids` in `ConsensusData<T>` because the emergency validator set can be different from
-        // the regular validator set and we need to know who to count as attestors officially. And we use the
-        // call of this function as the official point of time of which nodes can attest on this epoch.
-        //
-        // This is in case the owner "suedo-forks" or pauses the subnet after the validator has submitted their data.
-        let (validator_ids, emergency_active) =
-            Self::effective_consensus_validator_ids(subnet_id, subnet_epoch);
-        let emergency_snapshot = if emergency_active {
-            EmergencySubnetNodeElectionData::<T>::get(subnet_id)
-                .map(|data| Self::emergency_consensus_snapshot(&data, validator_ids.clone()))
-        } else {
-            None
-        };
+        // The elected round is the immutable source of membership and validator identity. Proposal
+        // may only subtract nodes that are currently quarantined; it must not re-resolve a live
+        // regular or emergency set and silently change the round being attested.
+        let validator_ids: Vec<u32> = elected_round
+            .eligible_subnet_node_ids
+            .iter()
+            .copied()
+            .filter(|subnet_node_id| !pending_ids.contains(subnet_node_id))
+            .collect();
+        let validator_identity_ids = validator_ids
+            .iter()
+            .map(|subnet_node_id| {
+                elected_round
+                    .eligible_validator_identity_ids
+                    .get(subnet_node_id)
+                    .copied()
+                    .map(|validator_id| (*subnet_node_id, validator_id))
+                    .ok_or(Error::<T>::InvalidSubnetNodeId)
+            })
+            .collect::<Result<BTreeMap<_, _>, _>>()?;
+        let emergency_snapshot = elected_round.emergency.as_ref().map(|snapshot| {
+            let mut filtered_snapshot = snapshot.clone();
+            filtered_snapshot
+                .subnet_node_ids
+                .retain(|subnet_node_id| validator_identity_ids.contains_key(subnet_node_id));
+            filtered_snapshot
+        });
+
+        // Quarantined registrations are logically absent from the queue. Ignore stale requests
+        // naming them even if an inconsistent queue copy still contains the physical record.
+        if prioritize_queue_node_id
+            .map(|subnet_node_id| pending_ids.contains(&subnet_node_id))
+            .unwrap_or(false)
+        {
+            prioritize_queue_node_id = None;
+        }
+        if remove_queue_node_id
+            .map(|subnet_node_id| pending_ids.contains(&subnet_node_id))
+            .unwrap_or(false)
+        {
+            remove_queue_node_id = None;
+        }
 
         if emergency_snapshot.is_some()
             && (prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some())
@@ -355,14 +427,6 @@ impl<T: Config> Pallet<T> {
             return Err(Error::<T>::EmergencyQueueMutationNotAllowed.into());
         }
 
-        let validator_identity_ids = validator_ids
-            .iter()
-            .map(|subnet_node_id| {
-                SubnetNodeValidatorId::<T>::get(subnet_id, *subnet_node_id)
-                    .map(|validator_id| (*subnet_node_id, validator_id))
-                    .ok_or(Error::<T>::InvalidSubnetNodeId)
-            })
-            .collect::<Result<BTreeMap<_, _>, _>>()?;
         let attestor_weight_snapshot =
             Self::snapshot_consensus_attestor_weights(subnet_id, subnet_epoch, &validator_ids)?;
 
@@ -476,6 +540,12 @@ impl<T: Config> Pallet<T> {
 
         let subnet_node = Self::ensure_hotkey_owns_subnet_node(subnet_id, subnet_node_id, &hotkey)?;
 
+        // Pending nodes can authenticate this call only to complete their own removal. They do not
+        // attest, write opaque attestation data, emit an attestation event, or receive a fee waiver.
+        if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+            return Ok(Pays::Yes.into());
+        }
+
         // --- Ensure node classified to attest
         ensure!(
             subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch),
@@ -584,8 +654,8 @@ impl<T: Config> Pallet<T> {
             Self::get_percent_as_f64(progress),
             Self::get_percent_as_f64(policy.validator_reward_midpoint),
             policy.validator_reward_k as f64,
-            0.0,
-            1.0,
+            MIN_VALIDATOR_REWARD_MULTIPLIER,
+            MAX_REWARD_MULTIPLIER,
         ))
         .clamp(0, Self::percentage_factor_as_u128())
 
@@ -615,7 +685,7 @@ impl<T: Config> Pallet<T> {
         Self::get_f64_as_percentage(Self::concave_down_decreasing(
             Self::get_percent_as_f64(progress),
             Self::get_percent_as_f64(policy.attestor_min_reward_factor),
-            1.0,
+            MAX_REWARD_MULTIPLIER,
             policy.attestor_reward_exponent as f64,
         ))
         .clamp(0, Self::percentage_factor_as_u128())
@@ -652,8 +722,6 @@ impl<T: Config> Pallet<T> {
     /// * `subnet_node_id` - Subnet node ID
     /// * `attestation_percentage` - The selected consensus-failure ratio used for economics
     /// * `min_attestation_percentage` - The selected consensus-failure threshold
-    /// * `identity_attestation_percentage` - Distinct-validator-identity proposal support
-    /// * `coldkey_reputation_decrease_factor`: `ValidatorReputationDecreaseFactor`
     /// * `validator_non_consensus_reputation_factor`: Resolved subnet node factor for this epoch
     /// * `identity_reputation_shortfall`: Precomputed distinct-identity rejection severity
     pub fn slash_validator(
@@ -661,10 +729,7 @@ impl<T: Config> Pallet<T> {
         subnet_node_id: u32,
         attestation_percentage: u128,
         min_attestation_percentage: u128,
-        identity_attestation_percentage: u128,
-        coldkey_reputation_decrease_factor: u128,
-        min_validator_reputation: u128,
-        electable_nodes: u32,
+        min_subnet_node_reputation: u128,
         validator_non_consensus_reputation_factor: u128,
         identity_reputation_shortfall: Option<u128>,
     ) -> Weight {
@@ -673,10 +738,7 @@ impl<T: Config> Pallet<T> {
             subnet_node_id,
             attestation_percentage,
             min_attestation_percentage,
-            identity_attestation_percentage,
-            coldkey_reputation_decrease_factor,
-            min_validator_reputation,
-            electable_nodes,
+            min_subnet_node_reputation,
             validator_non_consensus_reputation_factor,
             identity_reputation_shortfall,
             BaseSlashPercentage::<T>::get(),
@@ -689,10 +751,7 @@ impl<T: Config> Pallet<T> {
         subnet_node_id: u32,
         attestation_percentage: u128,
         min_attestation_percentage: u128,
-        identity_attestation_percentage: u128,
-        coldkey_reputation_decrease_factor: u128,
-        min_validator_reputation: u128,
-        electable_nodes: u32,
+        min_subnet_node_reputation: u128,
         validator_non_consensus_reputation_factor: u128,
         identity_reputation_shortfall: Option<u128>,
         base_slash_percentage: u128,
@@ -703,19 +762,16 @@ impl<T: Config> Pallet<T> {
             subnet_node_id,
             attestation_percentage,
             min_attestation_percentage,
-            identity_attestation_percentage,
-            coldkey_reputation_decrease_factor,
-            min_validator_reputation,
-            electable_nodes,
+            min_subnet_node_reputation,
             validator_non_consensus_reputation_factor,
             identity_reputation_shortfall,
             base_slash_percentage,
             max_slash_amount,
             attestation_percentage,
-            0,
-            0,
-            0,
-            0,
+            NO_SNAPSHOTTED_VALIDATOR_DELEGATE_STAKE,
+            DISABLED_VALIDATOR_DELEGATE_SLASH_THRESHOLD,
+            DISABLED_VALIDATOR_DELEGATE_SLASH_PERCENTAGE,
+            DISABLED_VALIDATOR_DELEGATE_SLASH_MAXIMUM,
         )
     }
 
@@ -729,10 +785,7 @@ impl<T: Config> Pallet<T> {
         subnet_node_id: u32,
         attestation_percentage: u128,
         min_attestation_percentage: u128,
-        identity_attestation_percentage: u128,
-        coldkey_reputation_decrease_factor: u128,
-        min_validator_reputation: u128,
-        electable_nodes: u32,
+        min_subnet_node_reputation: u128,
         validator_non_consensus_reputation_factor: u128,
         identity_reputation_shortfall: Option<u128>,
         base_slash_percentage: u128,
@@ -754,7 +807,7 @@ impl<T: Config> Pallet<T> {
             });
         let economic_consensus_failed = attestation_percentage < min_attestation_percentage;
 
-        let validator_id = if economic_consensus_failed {
+        let validator_exists = if economic_consensus_failed {
             let (validator_id, _, _, slash_weight) = Self::apply_validator_economic_slashes(
                 subnet_id,
                 subnet_node_id,
@@ -769,24 +822,15 @@ impl<T: Config> Pallet<T> {
                 max_validator_delegate_stake_slash_amount,
             );
             weight = weight.saturating_add(slash_weight);
-            validator_id
-        } else {
-            // Identity reputation and its support statistics are independent from economic
-            // consensus, so resolve the validator even when the economic ratio passed.
+            validator_id.is_some()
+        } else if proposer_node_reputation_shortfall.is_some() {
+            // Preserve the canonical validator-node relationship check that gates quarantine in
+            // the economic-failure branch.
             weight = weight.saturating_add(db_weight.reads(1));
-            SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
+            SubnetNodeValidatorId::<T>::contains_key(subnet_id, subnet_node_id)
+        } else {
+            false
         };
-
-        if let Some(validator_id) = validator_id {
-            Self::decrease_validator_reputation(
-                validator_id,
-                identity_attestation_percentage,
-                identity_reputation_shortfall,
-                coldkey_reputation_decrease_factor,
-            );
-            // ValidatorReputation::contains_key + get + insert.
-            weight = weight.saturating_add(db_weight.reads_writes(2, 1));
-        }
 
         let reputation = if let Some(identity_shortfall) = proposer_node_reputation_shortfall {
             weight = weight.saturating_add(db_weight.reads(1));
@@ -807,16 +851,16 @@ impl<T: Config> Pallet<T> {
             None
         };
 
-        // Remove validator if below min node reputation. Callers that need the proposer to receive
-        // a subsequent attestor-role decrease pass a zero minimum and perform the final check later.
-        if let (Some(validator_id), Some(reputation)) = (validator_id, reputation) {
-            if reputation < min_validator_reputation {
-                weight = weight.saturating_add(db_weight.reads(1));
-                let n = TotalValidatorNodes::<T>::get(validator_id).clamp(1, 512);
-
-                Self::remove_active_subnet_node(subnet_id, subnet_node_id);
-                weight = weight
-                    .saturating_add(Self::active_subnet_node_removal_weight(n, electable_nodes));
+        // Quarantine a validator-class subnet node below the minimum reputation. Physical
+        // deletion is reserved for an assigned subnet slot with spare hook weight or an
+        // authenticated node-specific call.
+        // Callers that need the proposer to receive a subsequent attestor-role decrease pass a
+        // zero minimum and perform the final check later.
+        if let (true, Some(reputation)) = (validator_exists, reputation) {
+            if reputation < min_subnet_node_reputation {
+                let (pending_weight, _) =
+                    Self::persist_pending_active_node_removal(subnet_id, subnet_node_id);
+                weight = weight.saturating_add(pending_weight);
             }
         }
 
@@ -850,8 +894,6 @@ impl<T: Config> Pallet<T> {
             weight = weight.saturating_add(db_weight.reads(1));
             let amount = Self::get_slash_amount_with_policy(
                 account_subnet_stake,
-                node_attestation_percentage,
-                node_slash_threshold,
                 attestation_delta,
                 base_slash_percentage,
                 max_slash_amount,
@@ -965,16 +1007,9 @@ impl<T: Config> Pallet<T> {
             .min(max_validator_delegate_stake_slash_amount)
     }
 
-    pub fn get_slash_amount(
-        account_subnet_stake: u128,
-        attestation_percentage: u128,
-        min_attestation_percentage: u128,
-        attestation_delta: u128,
-    ) -> u128 {
+    pub fn get_slash_amount(account_subnet_stake: u128, attestation_delta: u128) -> u128 {
         Self::get_slash_amount_with_policy(
             account_subnet_stake,
-            attestation_percentage,
-            min_attestation_percentage,
             attestation_delta,
             BaseSlashPercentage::<T>::get(),
             MaxSlashAmount::<T>::get(),
@@ -983,8 +1018,6 @@ impl<T: Config> Pallet<T> {
 
     pub fn get_slash_amount_with_policy(
         account_subnet_stake: u128,
-        attestation_percentage: u128,
-        min_attestation_percentage: u128,
         attestation_delta: u128,
         base_slash_percentage: u128,
         max_slash_amount: u128,

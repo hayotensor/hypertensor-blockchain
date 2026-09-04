@@ -10,21 +10,17 @@ impl<T: Config> Pallet<T> {
         commit_weights: Vec<OverwatchCommit<T::Hash>>,
     ) -> DispatchResultWithPostInfo {
         ensure!(
-            commit_weights.len() as u32 <= MaxSubnets::<T>::get().saturating_add(1),
+            commit_weights.len() as u32
+                <= MaxSubnets::<T>::get().saturating_add(SUBNET_ROTATION_ALLOWANCE),
             Error::<T>::MaxSubnets
         );
         let hotkey: T::AccountId = ensure_signed(origin)?;
 
         // Resolve active ownership and authentication from the same canonical validator identity.
-        let (validator_id, overwatch_hotkey) =
+        let (_, overwatch_hotkey) =
             Self::get_active_overwatch_validator_id_and_hotkey(overwatch_node_id)?;
 
         ensure!(overwatch_hotkey == hotkey, Error::<T>::NotKeyOwner);
-
-        ensure!(
-            OverwatchValidatorWhitelist::<T>::get(validator_id),
-            Error::<T>::ValidatorNotOverwatchWhitelisted
-        );
 
         // --- Check if we are in commit period
         ensure!(
@@ -51,35 +47,22 @@ impl<T: Config> Pallet<T> {
         ensure!(!commit_weights.is_empty(), Error::<T>::CommitsEmpty);
 
         let overwatch_epoch = Self::get_current_overwatch_epoch_as_u32();
+        let mut row = OverwatchCommits::<T>::get(overwatch_epoch, overwatch_node_id);
 
+        // Validate and stage the complete cumulative row before its single storage write. This
+        // prevents both prefix writes on failure and repeated-call subnet churn beyond the bound.
         for commit in commit_weights {
-            Self::do_commit_subnet_weight(overwatch_node_id, commit, overwatch_epoch)
-                .map_err(|e| e)?;
+            ensure!(
+                !row.contains_key(&commit.subnet_id),
+                Error::<T>::AlreadyCommitted
+            );
+            row.try_insert(commit.subnet_id, commit.weight)
+                .map_err(|_| Error::<T>::MaxSubnets)?;
         }
 
+        OverwatchCommits::<T>::insert(overwatch_epoch, overwatch_node_id, row);
+
         Ok(Pays::No.into())
-    }
-
-    pub fn do_commit_subnet_weight(
-        overwatch_node_id: u32,
-        commit: OverwatchCommit<T::Hash>,
-        overwatch_epoch: u32,
-    ) -> DispatchResult {
-        ensure!(
-            !OverwatchCommits::<T>::contains_key((
-                overwatch_epoch,
-                overwatch_node_id,
-                commit.subnet_id
-            )),
-            Error::<T>::AlreadyCommitted
-        );
-
-        OverwatchCommits::<T>::insert(
-            (overwatch_epoch, overwatch_node_id, commit.subnet_id),
-            commit.weight,
-        );
-
-        Ok(())
     }
 
     pub fn do_reveal_overwatch_subnet_weights(
@@ -88,20 +71,16 @@ impl<T: Config> Pallet<T> {
         reveals: Vec<OverwatchReveal<T>>,
     ) -> DispatchResultWithPostInfo {
         ensure!(
-            reveals.len() as u32 <= MaxSubnets::<T>::get().saturating_add(1),
+            reveals.len() as u32
+                <= MaxSubnets::<T>::get().saturating_add(SUBNET_ROTATION_ALLOWANCE),
             Error::<T>::MaxSubnets
         );
         let hotkey: T::AccountId = ensure_signed(origin)?;
 
-        let (validator_id, overwatch_hotkey) =
+        let (_, overwatch_hotkey) =
             Self::get_active_overwatch_validator_id_and_hotkey(overwatch_node_id)?;
 
         ensure!(overwatch_hotkey == hotkey, Error::<T>::NotKeyOwner);
-
-        ensure!(
-            OverwatchValidatorWhitelist::<T>::get(validator_id),
-            Error::<T>::ValidatorNotOverwatchWhitelisted
-        );
 
         // --- Check if we are in reveal period
         ensure!(
@@ -116,10 +95,13 @@ impl<T: Config> Pallet<T> {
         overwatch_node_id: u32,
         reveals: Vec<OverwatchReveal<T>>,
     ) -> DispatchResultWithPostInfo {
+        ensure!(!reveals.is_empty(), Error::<T>::RevealsEmpty);
+
         let overwatch_epoch = Self::get_current_overwatch_epoch_as_u32();
         let percentage_factor = Self::percentage_factor_as_u128();
         let mut staged_reveals = BTreeMap::<u32, u128>::new();
-        let mut new_reveal_subnets = BTreeSet::<u32>::new();
+        let commits = OverwatchCommits::<T>::get(overwatch_epoch, overwatch_node_id);
+        let mut reveal_row = OverwatchReveals::<T>::get(overwatch_epoch, overwatch_node_id);
 
         // Validate the complete batch before writing either the reveal map or its cardinality
         // index. The dispatchable may contain several reveals, so returning from the middle of the
@@ -129,54 +111,49 @@ impl<T: Config> Pallet<T> {
             let weight = reveal.weight;
             ensure!(weight <= percentage_factor, Error::<T>::InvalidWeight);
             let salt = reveal.salt;
-            let Some(commit_hash) =
-                OverwatchCommits::<T>::get((overwatch_epoch, overwatch_node_id, subnet_id))
-            else {
+            let Some(commit_hash) = commits.get(&subnet_id) else {
                 return Err(Error::<T>::NoCommitFound.into());
             };
 
             // Reconstruct hash from reveal
             let actual_hash = T::Hashing::hash_of(&(weight, salt.clone()));
 
-            ensure!(actual_hash == commit_hash, Error::<T>::RevealMismatch);
+            ensure!(actual_hash == *commit_hash, Error::<T>::RevealMismatch);
 
-            let reveal_key = (overwatch_epoch, subnet_id, overwatch_node_id);
-            if !OverwatchReveals::<T>::contains_key(reveal_key) {
-                // A duplicate subnet in this batch is still only one unique epoch/node/subnet
-                // record. `staged_reveals` preserves the prior last-write-wins behavior.
-                new_reveal_subnets.insert(subnet_id);
-            }
             staged_reveals.insert(subnet_id, weight);
         }
 
-        if !new_reveal_subnets.is_empty() {
-            let mut stats = ActiveOverwatchRevealStats::<T>::get();
-            stats
-                .revealing_nodes
-                .try_insert(overwatch_node_id)
-                .map_err(|_| Error::<T>::MaxOverwatchRevealNodes)?;
-
-            for subnet_id in &new_reveal_subnets {
-                stats
-                    .revealed_subnets
-                    .try_insert(*subnet_id)
-                    .map_err(|_| Error::<T>::MaxOverwatchRevealSubnets)?;
+        let mut stats = ActiveOverwatchRevealStats::<T>::get();
+        let mut new_records = 0u32;
+        for (subnet_id, weight) in staged_reveals {
+            if !reveal_row.contains_key(&subnet_id) {
+                new_records = new_records.saturating_add(1);
+                match stats.subnet_revealer_counts.get_mut(&subnet_id) {
+                    Some(count) => *count = count.saturating_add(1),
+                    None => {
+                        stats
+                            .subnet_revealer_counts
+                            .try_insert(subnet_id, 1)
+                            .map_err(|_| Error::<T>::MaxOverwatchRevealSubnets)?;
+                    }
+                }
             }
+            reveal_row
+                .try_insert(subnet_id, weight)
+                .map_err(|_| Error::<T>::MaxSubnets)?;
+        }
 
+        if new_records != 0 {
             let max_records = T::MaxOverwatchNodesUpperBound::get()
                 .saturating_mul(T::MaxPhysicalSubnetsUpperBound::get());
-            let updated_records = stats
+            stats.records = stats
                 .records
-                .checked_add(new_reveal_subnets.len() as u32)
+                .checked_add(new_records)
                 .filter(|records| *records <= max_records)
                 .ok_or(Error::<T>::MaxOverwatchRevealRecords)?;
-            stats.records = updated_records;
             ActiveOverwatchRevealStats::<T>::put(stats);
         }
-
-        for (subnet_id, weight) in staged_reveals {
-            OverwatchReveals::<T>::insert((overwatch_epoch, subnet_id, overwatch_node_id), weight);
-        }
+        OverwatchReveals::<T>::insert(overwatch_epoch, overwatch_node_id, reveal_row);
 
         Ok(Pays::No.into())
     }

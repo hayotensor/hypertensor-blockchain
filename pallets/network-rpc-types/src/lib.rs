@@ -22,8 +22,8 @@ pub const MAX_PAGE_SIZE: u32 = 100;
 /// A SCALE-native `u128` that is represented as a decimal string in JSON.
 ///
 /// JSON numbers cannot safely represent all values used for balances, shares, percentages, and
-/// reputation. Deserialization intentionally accepts only a string so the contract cannot become
-/// dependent on a client's numeric precision.
+/// other fixed-point values. Deserialization intentionally accepts only a string so the contract
+/// cannot become dependent on a client's numeric precision.
 #[derive(
     Default,
     Copy,
@@ -462,23 +462,6 @@ pub struct DelegateAccountInfo<AccountId> {
 }
 
 #[derive(
-    Default, Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo, Serialize, Deserialize,
-)]
-#[serde(rename_all = "camelCase")]
-pub struct ValidatorReputationInfo {
-    pub start_epoch: Option<u32>,
-    pub score: RpcU128,
-    pub lifetime_node_count: u32,
-    pub total_active_nodes: u32,
-    pub total_increases: u32,
-    pub total_decreases: u32,
-    pub average_proposal_identity_support: RpcU128,
-    pub identity_support_samples: u32,
-    pub last_validator_epoch: Option<u32>,
-    pub overwatch_score: RpcU128,
-}
-
-#[derive(
     Default, Copy, Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo, Serialize, Deserialize,
 )]
 #[serde(rename_all = "camelCase")]
@@ -499,7 +482,6 @@ pub struct ValidatorInfo<AccountId> {
     pub last_delegate_reward_rate_update: u32,
     pub delegate_account: Option<DelegateAccountInfo<AccountId>>,
     pub identity: Option<IdentityInfo>,
-    pub reputation: ValidatorReputationInfo,
     pub delegate_pool_shares: RpcU128,
     pub delegate_pool_balance: RpcU128,
     pub delegate_pool_slash_lock_until: u32,
@@ -535,8 +517,34 @@ pub struct OverwatchNodeInfo<AccountId> {
     pub coldkey: AccountId,
     pub hotkey: AccountId,
     pub peer_ids: Vec<OverwatchPeerInfo>,
-    pub reputation: ValidatorReputationInfo,
     pub stake_balance: RpcU128,
+}
+
+/// Metadata for the latest effective Overwatch signal used by future emissions.
+#[derive(
+    Default, Copy, Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo, Serialize, Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectiveOverwatchSignalMeta {
+    pub exists: bool,
+    pub source_epoch: u32,
+    pub revision: u64,
+    pub valid: bool,
+}
+
+/// Latest effective Overwatch weight for one subnet.
+///
+/// `raw_weight_exists` distinguishes a stored zero from a missing entry. `resolved_weight` applies
+/// the Overwatch factor to a valid raw entry, capped at Q18, or uses the protocol default when the
+/// effective signal is absent, invalid, or has no entry for the requested subnet.
+#[derive(
+    Default, Copy, Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo, Serialize, Deserialize,
+)]
+#[serde(rename_all = "camelCase")]
+pub struct EffectiveOverwatchSubnetWeight {
+    pub raw_weight_exists: bool,
+    pub raw_weight: RpcU128,
+    pub resolved_weight: RpcU128,
 }
 
 // Consensus wire types.
@@ -579,8 +587,6 @@ pub struct ConsensusPolicyInfo {
     pub validator_delegate_stake_slash_threshold: RpcU128,
     pub base_validator_delegate_stake_slash_percentage: RpcU128,
     pub max_validator_delegate_stake_slash_amount: RpcU128,
-    pub validator_reputation_increase_factor: RpcU128,
-    pub validator_reputation_decrease_factor: RpcU128,
     pub validator_absent_subnet_reputation_factor: RpcU128,
     pub in_consensus_subnet_reputation_factor: RpcU128,
     pub not_in_consensus_subnet_reputation_factor: RpcU128,
@@ -728,6 +734,15 @@ pub type OverwatchNodesPage<AccountId> = Page<OverwatchNodeInfo<AccountId>, u32>
 mod tests {
     use super::*;
 
+    fn assert_json_keys<T: serde::Serialize>(value: &T, expected_keys: &[&str]) {
+        let value = serde_json::to_value(value).expect("serializes");
+        let object = value.as_object().expect("serializes as a JSON object");
+        assert_eq!(object.len(), expected_keys.len());
+        for key in expected_keys {
+            assert!(object.contains_key(*key), "missing JSON field {key}");
+        }
+    }
+
     #[test]
     fn rpc_u128_is_a_decimal_json_string_and_round_trips_scale() {
         let value = RpcU128(u128::MAX);
@@ -797,6 +812,107 @@ mod tests {
             serde_json::to_value(NetworkQueryError::SubnetNotFound { subnet_id: 5 })
                 .expect("serializes"),
             serde_json::json!({ "type": "subnetNotFound", "details": { "subnetId": 5 } })
+        );
+    }
+
+    #[test]
+    fn effective_overwatch_weight_json_preserves_raw_zero_presence() {
+        assert_eq!(
+            serde_json::to_value(EffectiveOverwatchSubnetWeight {
+                raw_weight_exists: true,
+                raw_weight: RpcU128(0),
+                resolved_weight: RpcU128(0),
+            })
+            .expect("serializes"),
+            serde_json::json!({
+                "rawWeightExists": true,
+                "rawWeight": "0",
+                "resolvedWeight": "0"
+            })
+        );
+    }
+
+    #[test]
+    fn validator_overwatch_and_policy_json_omit_deleted_eligibility_tracking() {
+        assert_json_keys(
+            &ValidatorInfo::<u64> {
+                id: 1,
+                coldkey: 2,
+                hotkey: 3,
+                delegate_reward_rate: RpcU128(4),
+                last_delegate_reward_rate_update: 5,
+                delegate_account: None,
+                identity: None,
+                delegate_pool_shares: RpcU128(6),
+                delegate_pool_balance: RpcU128(7),
+                delegate_pool_slash_lock_until: 8,
+                last_node_allocation_update: None,
+            },
+            &[
+                "id",
+                "coldkey",
+                "hotkey",
+                "delegateRewardRate",
+                "lastDelegateRewardRateUpdate",
+                "delegateAccount",
+                "identity",
+                "delegatePoolShares",
+                "delegatePoolBalance",
+                "delegatePoolSlashLockUntil",
+                "lastNodeAllocationUpdate",
+            ],
+        );
+
+        assert_json_keys(
+            &OverwatchNodeInfo::<u64> {
+                overwatch_node_id: 1,
+                validator_id: 2,
+                coldkey: 3,
+                hotkey: 4,
+                peer_ids: Vec::new(),
+                stake_balance: RpcU128(5),
+            },
+            &[
+                "overwatchNodeId",
+                "validatorId",
+                "coldkey",
+                "hotkey",
+                "peerIds",
+                "stakeBalance",
+            ],
+        );
+
+        assert_json_keys(
+            &ConsensusPolicyInfo::default(),
+            &[
+                "minAttestationPercentage",
+                "superMajorityAttestationRatio",
+                "baseValidatorReward",
+                "subnetOwnerPercentage",
+                "validatorRewardK",
+                "validatorRewardMidpoint",
+                "attestorRewardExponent",
+                "attestorMinRewardFactor",
+                "baseSlashPercentage",
+                "maxSlashAmount",
+                "validatorDelegateStakeSlashThreshold",
+                "baseValidatorDelegateStakeSlashPercentage",
+                "maxValidatorDelegateStakeSlashAmount",
+                "validatorAbsentSubnetReputationFactor",
+                "inConsensusSubnetReputationFactor",
+                "notInConsensusSubnetReputationFactor",
+                "minSubnetNodes",
+                "validatorIdentityAttestationPercentage",
+                "minSubnetNodeReputation",
+                "minWeightDecreaseReputationThreshold",
+                "subnetDelegateStakeRewardsPercentage",
+                "consensusValidatorNodeCountDecay",
+                "consensusValidatorStakeWeightPower",
+                "idleClassificationEpochs",
+                "includedClassificationEpochs",
+                "queueImmunityEpochs",
+                "reputationFactors",
+            ],
         );
     }
 }

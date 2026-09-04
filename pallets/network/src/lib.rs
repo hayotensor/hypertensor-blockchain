@@ -112,16 +112,84 @@ pub const NETWORK_SUBNET_EMISSION_SLOT: u32 = NETWORK_OVERWATCH_SETTLEMENT_SLOT 
 /// Number of general epoch slots reserved before subnet-specific work begins.
 pub const NETWORK_DESIGNATED_EPOCH_SLOTS: u32 = NETWORK_SUBNET_EMISSION_SLOT + 1;
 
+/// Temporary physical subnet admitted while rotation selects and removes the weakest subnet.
+pub const SUBNET_ROTATION_ALLOWANCE: u32 = 1;
+
+/// Fixed-point scale used for all Q18 percentages and normalized weights.
+pub const PERCENTAGE_FACTOR_U128: u128 = 1_000_000_000_000_000_000;
+
+/// Governance ceiling for the subnet owner's share of emissions.
+pub const MAX_SUBNET_OWNER_PERCENTAGE: u128 = PERCENTAGE_FACTOR_U128 / 2;
+
+/// Permanent lower bound for the governance-configurable delegate deposit.
+pub const MIN_DELEGATE_STAKE_DEPOSIT_LOWER_BOUND: u128 = 1_000;
+
+/// Permanent lower bound for Overwatch stake-weight dampening.
+pub const MIN_OVERWATCH_STAKE_WEIGHT_FACTOR: u128 = PERCENTAGE_FACTOR_U128.saturating_mul(9) / 10;
+
+/// Churn cadence must be nonzero because it is used as a modulo divisor.
+pub const MIN_CHURN_LIMIT_MULTIPLIER: u32 = 1;
+
+/// Every Overwatch phase must contain at least this many blocks.
+pub const MIN_OVERWATCH_PHASE_BLOCKS: u32 = 1;
+
+/// Owner parameter changes take effect on the next subnet epoch.
+pub const OWNER_PARAMETER_ACTIVATION_DELAY_EPOCHS: u32 = 1;
+
+/// Each initial validator allowance must admit at least one registration.
+pub const MIN_INITIAL_VALIDATOR_REGISTRATIONS: u32 = 1;
+
+/// Smallest validator-identity set that can participate in ordinary consensus.
+pub const MIN_CONSENSUS_VALIDATOR_IDENTITIES: u32 = 3;
+
+/// Reputation-factor changes must have a nonzero owner cooldown.
+pub const MIN_OWNER_FACTOR_COOLDOWN_EPOCHS: u32 = 1;
+
 /// Largest physical-subnet cardinality covered by the generated benchmark domains and weights.
 ///
 /// Changing this value requires updating the corresponding benchmark component ranges and
 /// regenerating the pallet weights.
 pub const MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN: u32 = 17;
 
+/// Largest active-subnet cardinality covered by the generated benchmark weights.
+pub const MAX_SUBNET_NODES_BENCHMARK_DOMAIN: u32 = 512;
+
+/// Largest validator-wide node cardinality covered by the generated benchmark weights.
+pub const MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN: u32 = 512;
+
+/// Largest accepted-round set that can remain outside the minimum attesting identity set.
+pub const MAX_NON_ATTESTING_VALIDATORS_BENCHMARK_DOMAIN: u32 =
+    MAX_SUBNET_NODES_BENCHMARK_DOMAIN - MIN_CONSENSUS_VALIDATOR_IDENTITIES;
+
+/// Largest registered-node cardinality covered by the generated benchmark weights.
+pub const MAX_REGISTERED_NODES_BENCHMARK_DOMAIN: u32 = 64;
+
+/// Largest emergency-validator cardinality covered by the generated benchmark weights.
+pub const MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN: u32 = 64;
+
+/// Largest Overwatch committee cardinality covered by the generated benchmark weights.
+pub const MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN: u32 = 64;
+
+/// Shared endpoint of the small and large active-node-removal benchmark models.
+///
+/// This is a fitted-model boundary, not a runtime policy setting. Changing it requires
+/// regenerating both active-node-removal models.
+pub const ACTIVE_REMOVAL_ELECTION_MODEL_SPLIT: u32 = MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN;
+
+/// Largest swap queue/call cardinality covered by the generated benchmark weights.
+pub const MAX_SWAP_QUEUE_BENCHMARK_DOMAIN: u32 = 1_000;
+
+/// Smallest mixed-branch swap prefix covered by the generated benchmark weights.
+pub const MIN_MIXED_SWAP_BENCHMARK_DOMAIN: u32 = 3;
+
+/// Largest reachable Overwatch reveal-record matrix covered by generated benchmark weights.
+pub const MAX_OVERWATCH_REVEAL_RECORDS_BENCHMARK_DOMAIN: u32 =
+    MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN * MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN;
+
 /// Return the largest physical-subnet bound supported by an epoch layout and the generated
 /// benchmark domains.
 ///
-/// The bound includes the temporary `MaxSubnets + 1` subnet used during rotation.
+/// The bound includes the temporary [`SUBNET_ROTATION_ALLOWANCE`] used during rotation.
 pub const fn physical_subnet_upper_bound(epoch_length: u32) -> u32 {
     let available_slots = epoch_length.saturating_sub(NETWORK_DESIGNATED_EPOCH_SLOTS);
     if available_slots < MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN {
@@ -131,9 +199,6 @@ pub const fn physical_subnet_upper_bound(epoch_length: u32) -> u32 {
     }
 }
 
-// mod rewards;
-// mod rewards_v4;
-
 // All pallet logic is defined in its own module and must be annotated by the `pallet` attribute.
 #[frame_support::pallet]
 pub mod pallet {
@@ -142,7 +207,6 @@ pub mod pallet {
     use frame_support::pallet_prelude::*;
     use frame_support::RuntimeDebugNoBound;
     use frame_system::pallet_prelude::*;
-    use sp_std::vec;
     use sp_std::vec::Vec;
 
     #[pallet::pallet]
@@ -258,10 +322,6 @@ pub mod pallet {
         #[pallet::constant]
         type MaxSubnetNodesUpperBound: Get<u32>;
 
-        /// Maximum consensus nodes that settlement may remove in one subnet epoch.
-        #[pallet::constant]
-        type MaxConsensusNodeRemovalsPerSettlement: Get<u32>;
-
         /// Hard cumulative ceiling on all subnet nodes owned by one validator identity.
         ///
         /// Besides limiting protocol concentration, this bounds validator-wide storage values and
@@ -272,6 +332,10 @@ pub mod pallet {
         /// Runtime ceiling for the governance-configurable Overwatch committee size.
         #[pallet::constant]
         type MaxOverwatchNodesUpperBound: Get<u32>;
+
+        /// Runtime ceiling for the governance-configurable Overwatch commit-phase cutoff.
+        #[pallet::constant]
+        type MaxOverwatchCommitCutoffPercent: Get<u128>;
 
         /// Epoch slots (see `on_initialize`)
         #[pallet::constant]
@@ -352,6 +416,11 @@ pub mod pallet {
         SubnetNodeRemoved {
             subnet_id: u32,
             subnet_node_id: u32,
+        },
+        SubnetNodesPendingRemoval {
+            subnet_id: u32,
+            active_subnet_node_ids: BoundedVec<u32, T::MaxSubnetNodesUpperBound>,
+            registered_subnet_node_ids: BoundedVec<u32, T::MaxRegisteredNodesUpperBound>,
         },
         SubnetNodeUpdateDelegateRewardRate {
             subnet_id: u32,
@@ -511,8 +580,6 @@ pub mod pallet {
             base_percentage: u128,
             max_amount: u128,
         },
-        SetValidatorReputationIncreaseFactor(u128),
-        SetValidatorReputationDecreaseFactor(u128),
         SetNetworkMinStakeBalance(u128),
         SetNetworkMaxStakeBalance(u128),
         SetMinActiveNodeStakeEpochs(u32),
@@ -560,9 +627,6 @@ pub mod pallet {
         SetMaxOverwatchNodes(u32),
         SetOverwatchEpochLengthMultiplier(u32),
         SetOverwatchCommitCutoffPercent(u128),
-        SetOverwatchMinRepScore(u128),
-        SetOverwatchMinAvgAttestationRatio(u128),
-        SetOverwatchMinAge(u32),
         SetOverwatchMinStakeBalance(u128),
         SetTxPause(),
         SetTxUnpause(),
@@ -621,6 +685,12 @@ pub mod pallet {
         OverwatchEpochFinalized {
             epoch: u32,
             node_rewards: Vec<(u32, u128)>,
+        },
+        /// The latest-only Overwatch signal used by future emission allocations changed.
+        EffectiveOverwatchSignalUpdated {
+            source_epoch: u32,
+            revision: u64,
+            valid: bool,
         },
         SubnetReputationUpdate {
             subnet_id: u32,
@@ -1163,14 +1233,14 @@ pub mod pallet {
         RevealMismatch,
         /// Commits vector is empty
         CommitsEmpty,
+        /// Reveals vector is empty
+        RevealsEmpty,
         /// Already committed on this epoch and subnet ID
         AlreadyCommitted,
         /// Invalid subnet weight, must be below percentage factor 1e18
         InvalidWeight,
         /// Maximum overwatch nodes reached
         MaxOverwatchNodes,
-        /// The active Overwatch epoch already contains the maximum number of distinct revealers.
-        MaxOverwatchRevealNodes,
         /// The active Overwatch epoch already contains the maximum number of distinct subnets.
         MaxOverwatchRevealSubnets,
         /// The active Overwatch epoch already contains the maximum number of unique reveal records.
@@ -1189,8 +1259,6 @@ pub mod pallet {
         NotCommitPeriod,
         /// Not in the reveal period of the epoch
         NotRevealPeriod,
-        /// Validator identity does not meet the Overwatch reputation requirements.
-        ValidatorNotOverwatchQualified,
         /// Overwatch node ID doesn't exist
         InvalidOverwatchNodeId,
         /// Validator already owns an active Overwatch node
@@ -1203,6 +1271,8 @@ pub mod pallet {
         SwapCallNotFound,
         /// Validator identity is not authorized to operate an Overwatch node.
         ValidatorNotOverwatchWhitelisted,
+        /// Whitelist approval cannot be revoked while the validator owns an active node.
+        ActiveOverwatchNodeCannotBeUnwhitelisted,
         MultiaddrInvalidVarint,
         MultiaddrInvalidProtocol,
         MultiaddrInvalidAddress,
@@ -2092,8 +2162,6 @@ pub mod pallet {
         pub validator_delegate_stake_slash_threshold: u128,
         pub base_validator_delegate_stake_slash_percentage: u128,
         pub max_validator_delegate_stake_slash_amount: u128,
-        pub validator_reputation_increase_factor: u128,
-        pub validator_reputation_decrease_factor: u128,
         pub validator_absent_subnet_reputation_factor: u128,
         pub in_consensus_subnet_reputation_factor: u128,
         pub not_in_consensus_subnet_reputation_factor: u128,
@@ -2115,7 +2183,7 @@ pub mod pallet {
     pub struct ElectedConsensusRound {
         pub validator_subnet_node_id: u32,
         pub validator_id: u32,
-        pub emergency: bool,
+        pub emergency: Option<EmergencyConsensusSnapshot>,
         pub eligible_subnet_node_ids: Vec<u32>,
         pub eligible_validator_identity_ids: BTreeMap<u32, u32>,
         pub validator_delegate_stake_balance: u128,
@@ -2395,7 +2463,7 @@ pub mod pallet {
 
     /// A closed Overwatch epoch waiting to be finalized.
     ///
-    /// This compact header records cardinalities used for hook weight selection. Immutable
+    /// This compact header records cardinalities used for hook weight selection. Close-time
     /// membership and economic inputs live in the separately keyed settlement snapshot.
     #[derive(
         Encode,
@@ -2411,13 +2479,10 @@ pub mod pallet {
     )]
     pub struct PendingOverwatchSettlementData {
         pub epoch: u32,
-        pub epoch_length_multiplier: u32,
         pub reveal_records: u32,
-        pub revealing_nodes: u32,
-        pub revealed_subnets: u32,
     }
 
-    /// Immutable close-time data for one Overwatch node participating in settlement.
+    /// Close-time economic data for one Overwatch node participating in settlement.
     #[derive(
         Default,
         Encode,
@@ -2432,15 +2497,16 @@ pub mod pallet {
         scale_info::TypeInfo,
     )]
     pub struct OverwatchNodeSettlementSnapshot {
-        pub validator_id: u32,
         pub stake: u128,
     }
 
-    /// Immutable economic and membership inputs captured when an Overwatch epoch closes.
+    /// Economic and membership inputs captured when an Overwatch epoch closes.
     ///
     /// This remains separate from [`PendingOverwatchSettlementData`] so the pending header stays
-    /// compact enough for hook weight selection. An empty `nodes` map is a valid snapshot and
-    /// distinguishes a closed epoch with no eligible revealers from a missing snapshot.
+    /// compact enough for hook weight selection. Stake, factor, and budget values remain fixed;
+    /// structural node removal may only delete that node's entry before finalization. An empty
+    /// `nodes` map is a valid snapshot and distinguishes a closed epoch with no revealers from a
+    /// missing snapshot.
     #[derive(Encode, Decode, RuntimeDebugNoBound, scale_info::TypeInfo)]
     #[scale_info(skip_type_params(T))]
     pub struct OverwatchEpochSettlementSnapshot<T: Config> {
@@ -2482,23 +2548,20 @@ pub mod pallet {
 
     /// Cardinalities accumulated while an Overwatch epoch is accepting reveals.
     ///
-    /// The sets make the participant and subnet counts independent from the number of reveal
-    /// records. At rollover only their lengths are copied into the compact pending header, so hook
-    /// weight selection does not decode the separate bounded node snapshot.
+    /// Reveal rows identify participating nodes directly. Per-subnet counts retain only the
+    /// bounded information needed to update the global record count when a node is removed.
     #[derive(Encode, Decode, RuntimeDebugNoBound, scale_info::TypeInfo)]
     #[scale_info(skip_type_params(T))]
     pub struct OverwatchRevealStats<T: Config> {
         pub records: u32,
-        pub revealing_nodes: BoundedBTreeSet<u32, T::MaxOverwatchNodesUpperBound>,
-        pub revealed_subnets: BoundedBTreeSet<u32, T::MaxPhysicalSubnetsUpperBound>,
+        pub subnet_revealer_counts: BoundedBTreeMap<u32, u32, T::MaxPhysicalSubnetsUpperBound>,
     }
 
     impl<T: Config> Default for OverwatchRevealStats<T> {
         fn default() -> Self {
             Self {
                 records: 0,
-                revealing_nodes: BoundedBTreeSet::new(),
-                revealed_subnets: BoundedBTreeSet::new(),
+                subnet_revealer_counts: BoundedBTreeMap::new(),
             }
         }
     }
@@ -2507,8 +2570,7 @@ pub mod pallet {
         fn clone(&self) -> Self {
             Self {
                 records: self.records,
-                revealing_nodes: self.revealing_nodes.clone(),
-                revealed_subnets: self.revealed_subnets.clone(),
+                subnet_revealer_counts: self.subnet_revealer_counts.clone(),
             }
         }
     }
@@ -2516,47 +2578,102 @@ pub mod pallet {
     impl<T: Config> PartialEq for OverwatchRevealStats<T> {
         fn eq(&self, other: &Self) -> bool {
             self.records == other.records
-                && self.revealing_nodes == other.revealing_nodes
-                && self.revealed_subnets == other.revealed_subnets
+                && self.subnet_revealer_counts == other.subnet_revealer_counts
         }
     }
 
     impl<T: Config> Eq for OverwatchRevealStats<T> {}
 
-    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, scale_info::TypeInfo)]
-    pub struct OverwatchNodeInfo<AccountId> {
-        pub overwatch_node_id: u32,
-        pub hotkey: Option<AccountId>,
-        pub peer_ids: BTreeMap<u32, PeerId>,
-        pub reputation: Reputation,
-        pub account_overwatch_stake: u128,
+    /// Close-time node inputs retained for the latest effective Overwatch signal.
+    /// Structural removal may purge a node before this signal is superseded.
+    #[derive(Encode, Decode, RuntimeDebugNoBound, scale_info::TypeInfo)]
+    #[scale_info(skip_type_params(T))]
+    pub struct LatestOverwatchNodeSignalInput<T: Config> {
+        pub stake: u128,
+        pub reveals: BoundedBTreeMap<u32, u128, T::MaxPhysicalSubnetsUpperBound>,
     }
 
-    impl<AccountId> core::fmt::Debug for OverwatchNodeInfo<AccountId> {
-        fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            fmt.debug_struct("OverwatchNodeInfo")
-                .field("overwatch_node_id", &self.overwatch_node_id)
-                .field("hotkey", &self.hotkey.as_ref().map(|_| "<opaque>"))
-                .field("peer_ids", &self.peer_ids)
-                .field("reputation", &self.reputation)
-                .field("account_overwatch_stake", &self.account_overwatch_stake)
-                .finish()
+    impl<T: Config> Clone for LatestOverwatchNodeSignalInput<T> {
+        fn clone(&self) -> Self {
+            Self {
+                stake: self.stake,
+                reveals: self.reveals.clone(),
+            }
         }
     }
 
-    #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, PartialOrd, Ord, scale_info::TypeInfo,
-    )]
-    pub struct OverwatchNode {
-        pub id: u32,
+    impl<T: Config> PartialEq for LatestOverwatchNodeSignalInput<T> {
+        fn eq(&self, other: &Self) -> bool {
+            self.stake == other.stake && self.reveals == other.reveals
+        }
     }
 
-    impl core::fmt::Debug for OverwatchNode {
-        fn fmt(&self, fmt: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-            fmt.debug_struct("OverwatchNode")
-                .field("id", &self.id)
-                .finish()
+    impl<T: Config> Eq for LatestOverwatchNodeSignalInput<T> {}
+
+    /// Reproducible close-time input retained for the latest effective Overwatch signal.
+    /// Its node map is purge-only between finalizations.
+    #[derive(Encode, Decode, RuntimeDebugNoBound, scale_info::TypeInfo)]
+    #[scale_info(skip_type_params(T))]
+    pub struct LatestFinalizedOverwatchSignalInput<T: Config> {
+        pub source_epoch: u32,
+        pub stake_weight_factor: u128,
+        pub nodes:
+            BoundedBTreeMap<u32, LatestOverwatchNodeSignalInput<T>, T::MaxOverwatchNodesUpperBound>,
+    }
+
+    impl<T: Config> Clone for LatestFinalizedOverwatchSignalInput<T> {
+        fn clone(&self) -> Self {
+            Self {
+                source_epoch: self.source_epoch,
+                stake_weight_factor: self.stake_weight_factor,
+                nodes: self.nodes.clone(),
+            }
         }
+    }
+
+    impl<T: Config> PartialEq for LatestFinalizedOverwatchSignalInput<T> {
+        fn eq(&self, other: &Self) -> bool {
+            self.source_epoch == other.source_epoch
+                && self.stake_weight_factor == other.stake_weight_factor
+                && self.nodes == other.nodes
+        }
+    }
+
+    impl<T: Config> Eq for LatestFinalizedOverwatchSignalInput<T> {}
+
+    /// Latest-only raw Overwatch subnet weights used by future emission allocations.
+    #[derive(Encode, Decode, RuntimeDebugNoBound, scale_info::TypeInfo)]
+    #[scale_info(skip_type_params(T))]
+    pub struct EffectiveOverwatchSignal<T: Config> {
+        pub source_epoch: u32,
+        pub valid: bool,
+        pub subnet_weights: BoundedBTreeMap<u32, u128, T::MaxPhysicalSubnetsUpperBound>,
+    }
+
+    impl<T: Config> Clone for EffectiveOverwatchSignal<T> {
+        fn clone(&self) -> Self {
+            Self {
+                source_epoch: self.source_epoch,
+                valid: self.valid,
+                subnet_weights: self.subnet_weights.clone(),
+            }
+        }
+    }
+
+    impl<T: Config> PartialEq for EffectiveOverwatchSignal<T> {
+        fn eq(&self, other: &Self) -> bool {
+            self.source_epoch == other.source_epoch
+                && self.valid == other.valid
+                && self.subnet_weights == other.subnet_weights
+        }
+    }
+
+    impl<T: Config> Eq for EffectiveOverwatchSignal<T> {}
+
+    /// Deterministic outputs derived from retained close-time inputs.
+    pub(crate) struct DerivedOverwatchSignal<T: Config> {
+        pub subnet_weights: BoundedBTreeMap<u32, u128, T::MaxPhysicalSubnetsUpperBound>,
+        pub node_scores: BTreeMap<u32, u128>,
     }
 
     #[derive(
@@ -2595,48 +2712,9 @@ pub mod pallet {
         pub salt: OverwatchRevealSalt<T>,
     }
 
-    #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
-    )]
-    pub struct Reputation {
-        /// General-chain epoch when one of the validator's subnet nodes was first elected, or
-        /// `None` if the validator has never been elected.
-        pub start_epoch: Option<u32>,
-
-        /// Current reputation weight.
-        pub score: u128,
-
-        /// Track total nodes under a coldkey ever, this can only increase.
-        pub lifetime_node_count: u32,
-
-        /// Track total nodes under a coldkey.
-        pub total_active_nodes: u32,
-
-        /// Number of identity-verified accepted proposals with a nonzero configured increase factor.
-        pub total_increases: u32,
-
-        /// Number of strongly identity-rejected proposals with a nonzero effective decrease factor.
-        pub total_decreases: u32,
-
-        /// Average distinct-validator-identity support received by this validator's proposals.
-        pub average_proposal_identity_support: u128,
-
-        /// Number of settled elections represented by `average_proposal_identity_support`,
-        /// saturated at `u32::MAX`.
-        pub identity_support_samples: u32,
-
-        /// General-chain epoch when one of the validator's subnet nodes was most recently elected,
-        /// or `None` if the validator has never been elected.
-        pub last_validator_epoch: Option<u32>,
-
-        /// Current overwatch node reputation weight.
-        pub ow_score: u128,
-    }
-
     struct WeightAccumulator<T: Config> {
         total_reads: u64,
         total_writes: u64,
-        computational_ops: u64,
         _phantom: core::marker::PhantomData<T>,
     }
 
@@ -2645,13 +2723,8 @@ pub mod pallet {
             Self {
                 total_reads: 0,
                 total_writes: 0,
-                computational_ops: 0,
                 _phantom: Default::default(),
             }
-        }
-
-        fn add_computational_weight(&mut self, ops: u64) {
-            self.computational_ops += ops;
         }
 
         fn add_clear_prefix(&mut self, removed_count: u32) {
@@ -2672,21 +2745,10 @@ pub mod pallet {
             self.total_writes += 1;
         }
 
-        fn add_reads(&mut self, count: u64) {
-            self.total_reads += count;
-        }
-
-        fn add_writes(&mut self, count: u64) {
-            self.total_writes += count;
-        }
-
         fn finalize(self) -> Weight {
             let mut weight = Weight::zero();
             weight = weight.saturating_add(T::DbWeight::get().reads(self.total_reads));
             weight = weight.saturating_add(T::DbWeight::get().writes(self.total_writes));
-            // Add computational overhead
-            weight = weight
-                .saturating_add(Weight::from_parts(1000, 0).saturating_mul(self.computational_ops));
             weight
         }
     }
@@ -2758,12 +2820,12 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - SubnetNodeReputation
     #[pallet::type_value]
-    pub fn DefaultPercentageFactorU128() -> u128 {
-        1_000_000_000_000_000_000
+    pub fn DefaultPercentageFactorU128<T: Config>() -> u128 {
+        Pallet::<T>::PERCENTAGE_FACTOR_U128
     }
     #[pallet::type_value]
-    pub fn DefaultHalfPercentageFactorU128() -> u128 {
-        500_000_000_000_000_000
+    pub fn DefaultHalfPercentageFactorU128<T: Config>() -> u128 {
+        Pallet::<T>::PERCENTAGE_FACTOR_U128 / 2
     }
     /// This type value is referenced in:
     /// - HotkeyOwner
@@ -2858,7 +2920,7 @@ pub mod pallet {
     /// - MinDelegateStakeDeposit
     #[pallet::type_value]
     pub fn DefaultMinDelegateStakeDeposit() -> u128 {
-        1000
+        MIN_DELEGATE_STAKE_DEPOSIT_LOWER_BOUND
     }
     /// This type value is referenced in:
     /// - SubnetDelegateStakeRewardsPercentage
@@ -2958,7 +3020,7 @@ pub mod pallet {
     }
     #[pallet::type_value]
     pub fn DefaultSubnetOwnerFactorCooldownEpochs() -> u32 {
-        1
+        MIN_OWNER_FACTOR_COOLDOWN_EPOCHS
     }
     /// This type value is referenced in:
     /// - MinSubnetNodes
@@ -2994,7 +3056,7 @@ pub mod pallet {
         let available_slots = T::EpochLength::get().saturating_sub(T::DesignatedEpochSlots::get());
         T::MaxPhysicalSubnetsUpperBound::get()
             .min(available_slots)
-            .saturating_sub(1)
+            .saturating_sub(SUBNET_ROTATION_ALLOWANCE)
     }
     /// This type value is referenced in:
     /// - MaxBootnodes
@@ -3023,7 +3085,7 @@ pub mod pallet {
     }
     #[pallet::type_value]
     pub fn DefaultChurnLimitMultiplier() -> u32 {
-        1
+        MIN_CHURN_LIMIT_MULTIPLIER
     }
     /// This type value is referenced in:
     /// - MinChurnLimit
@@ -3041,7 +3103,7 @@ pub mod pallet {
     }
     #[pallet::type_value]
     pub fn DefaultMinChurnLimitMultiplier() -> u32 {
-        1
+        MIN_CHURN_LIMIT_MULTIPLIER
     }
     #[pallet::type_value]
     pub fn DefaultMaxChurnLimitMultiplier<T: Config>() -> u32 {
@@ -3226,20 +3288,6 @@ pub mod pallet {
         // One global epoch between explicit validator allocation updates.
         1
     }
-    /// This type value is referenced in:
-    /// - ValidatorReputationIncreaseFactor
-    #[pallet::type_value]
-    pub fn DefaultValidatorReputationIncreaseFactor() -> u128 {
-        // 0.5
-        500000000000000
-    }
-    /// This type value is referenced in:
-    /// - ValidatorReputationDecreaseFactor
-    #[pallet::type_value]
-    pub fn DefaultValidatorReputationDecreaseFactor() -> u128 {
-        // 50%
-        500000000000000000
-    }
     #[pallet::type_value]
     pub fn DefaultMinSubnetNodeReputation() -> u128 {
         // 10%
@@ -3356,23 +3404,6 @@ pub mod pallet {
         2
     }
     /// This type value is referenced in:
-    /// - ColdkeyReputation
-    #[pallet::type_value]
-    pub fn DefaultColdkeyReputation() -> Reputation {
-        return Reputation {
-            start_epoch: None,
-            score: 500_000_000_000_000_000, // 0.5 / 50%
-            lifetime_node_count: 0,
-            total_active_nodes: 0,
-            total_increases: 0,
-            total_decreases: 0,
-            average_proposal_identity_support: 0,
-            identity_support_samples: 0,
-            last_validator_epoch: None,
-            ow_score: 500_000_000_000_000, // 0.5 / 50%
-        };
-    }
-    /// This type value is referenced in:
     /// - MaxOverwatchNodes
     #[pallet::type_value]
     pub fn DefaultMaxOverwatchNodes() -> u32 {
@@ -3395,34 +3426,13 @@ pub mod pallet {
     /// - OverwatchStakeWeightFactor
     #[pallet::type_value]
     pub fn DefaultOverwatchStakeWeightFactor() -> u128 {
-        900000000000000000
+        MIN_OVERWATCH_STAKE_WEIGHT_FACTOR
     }
     /// This type value is referenced in:
     /// - OverwatchMinStakeBalance
     #[pallet::type_value]
     pub fn DefaultOverwatchMinStakeBalance() -> u128 {
         100e+18 as u128
-    }
-    /// This type value is referenced in:
-    /// - OverwatchMinRepScore
-    #[pallet::type_value]
-    pub fn DefaultOverwatchMinRepScore() -> u128 {
-        // 75%
-        750000000000000000
-    }
-    /// This type value is referenced in:
-    /// - OverwatchMinAvgAttestationRatio
-    #[pallet::type_value]
-    pub fn DefaultOverwatchMinAvgAttestationRatio() -> u128 {
-        // 72%
-        720000000000000000
-    }
-    /// This type value is referenced in:
-    /// - OverwatchMinAge
-    #[pallet::type_value]
-    pub fn DefaultOverwatchMinAge<T: Config>() -> u32 {
-        // ~3 months, expressed in general blockchain epochs.
-        T::EpochsPerYear::get() / 4
     }
     /// This type value is referenced in:
     /// - DelegateStakeWeightFactor
@@ -4337,6 +4347,21 @@ pub mod pallet {
         DefaultSubnetNode<T>,
     >;
 
+    /// Logically quarantined active nodes awaiting metered physical cleanup.
+    #[pallet::storage]
+    pub type PendingActiveNodeRemovals<T: Config> =
+        StorageMap<_, Identity, u32, BoundedBTreeSet<u32, T::MaxSubnetNodesUpperBound>, ValueQuery>;
+
+    /// Logically quarantined registered nodes awaiting metered physical cleanup.
+    #[pallet::storage]
+    pub type PendingRegisteredNodeRemovals<T: Config> = StorageMap<
+        _,
+        Identity,
+        u32,
+        BoundedBTreeSet<u32, T::MaxRegisteredNodesUpperBound>,
+        ValueQuery,
+    >;
+
     #[pallet::storage]
     pub type SubnetNodeQueue<T: Config> =
         StorageMap<_, Identity, u32, Vec<SubnetNode<T>>, ValueQuery>;
@@ -4417,7 +4442,7 @@ pub mod pallet {
     /// A whitelist of all validator IDs that can start one overwatch node
     #[pallet::storage]
     pub type OverwatchValidatorWhitelist<T: Config> =
-        StorageMap<_, Blake2_128Concat, u32, bool, ValueQuery, DefaultBoolFalse>;
+        StorageMap<_, Blake2_128Concat, u32, (), OptionQuery>;
 
     /// Validator-wide subnet-node ownership. Production registration keeps the cumulative number
     /// of nested node IDs at or below `T::MaxValidatorNodesUpperBound`.
@@ -4555,10 +4580,6 @@ pub mod pallet {
         u32, // validator id
         OptionQuery,
     >;
-
-    #[pallet::storage]
-    pub type ValidatorReputation<T: Config> =
-        StorageMap<_, Blake2_128Concat, u32, Reputation, ValueQuery, DefaultColdkeyReputation>;
 
     /// An node itselves stake per subnet
     #[pallet::storage] // account--> subnet_id --> u128
@@ -4810,7 +4831,7 @@ pub mod pallet {
 
     #[pallet::storage]
     pub type SubnetReputation<T> =
-        StorageMap<_, Identity, u32, u128, ValueQuery, DefaultPercentageFactorU128>;
+        StorageMap<_, Identity, u32, u128, ValueQuery, DefaultPercentageFactorU128<T>>;
 
     #[pallet::storage]
     pub type MinSubnetReputation<T> = StorageValue<_, u128, ValueQuery, DefaultMinSubnetReputation>;
@@ -4840,20 +4861,6 @@ pub mod pallet {
     #[pallet::storage]
     pub type InConsensusSubnetReputationFactor<T> =
         StorageValue<_, u128, ValueQuery, DefaultInConsensusSubnetReputationFactor>;
-
-    // Validator Reputation (used for Overwatch Nodes)
-
-    /// Weight used to increase a proposer validator identity's reputation after an
-    /// identity-supermajority endorsement.
-    #[pallet::storage]
-    pub type ValidatorReputationIncreaseFactor<T> =
-        StorageValue<_, u128, ValueQuery, DefaultValidatorReputationIncreaseFactor>;
-
-    /// Maximum weight used to decrease a proposer validator identity's reputation after a
-    /// strong rejection by distinct validator identities.
-    #[pallet::storage]
-    pub type ValidatorReputationDecreaseFactor<T> =
-        StorageValue<_, u128, ValueQuery, DefaultValidatorReputationDecreaseFactor>;
 
     //
     // Staking
@@ -4974,8 +4981,8 @@ pub mod pallet {
     #[pallet::storage]
     pub type TotalOverwatchNodeUids<T> = StorageValue<_, u32, ValueQuery, DefaultZeroU32>;
 
-    /// Active Overwatch epoch multiplier relative to `T::EpochLength`.
-    /// Collective updates take effect immediately.
+    /// Configured Overwatch epoch multiplier relative to `T::EpochLength`.
+    /// Collective updates are adopted by `ActiveOverwatchEpochLengthMultiplier` at rollover.
     #[pallet::storage]
     pub type OverwatchEpochLengthMultiplier<T> =
         StorageValue<_, u32, ValueQuery, DefaultOverwatchEpochLengthMultiplier>;
@@ -5019,11 +5026,12 @@ pub mod pallet {
     pub type PendingOverwatchSettlement<T> =
         StorageValue<_, PendingOverwatchSettlementData, OptionQuery>;
 
-    /// Immutable close-time settlement inputs keyed by the closed Overwatch epoch.
+    /// Close-time settlement inputs keyed by the closed Overwatch epoch.
     ///
     /// Exactly one entry is created alongside each pending settlement and both are consumed by
-    /// successful finalization. Keeping this as one bounded value prevents partially assembled
-    /// node snapshots from becoming visible.
+    /// successful finalization. Structural node removal may delete the node's pending entry;
+    /// otherwise the captured inputs stay fixed. Keeping this as one bounded value prevents
+    /// partially assembled node snapshots from becoming visible.
     #[pallet::storage]
     pub type OverwatchEpochSettlementSnapshots<T: Config> =
         StorageMap<_, Identity, u32, OverwatchEpochSettlementSnapshot<T>, OptionQuery>;
@@ -5037,9 +5045,9 @@ pub mod pallet {
     #[pallet::storage]
     pub type LastFinalizedOverwatchEpoch<T> = StorageValue<_, u32, OptionQuery>;
 
-    // Overwatch Node ID => OverwatchNode
+    // Active Overwatch node IDs. All node metadata lives in canonical indexes below.
     #[pallet::storage]
-    pub type OverwatchNodes<T: Config> = StorageMap<_, Identity, u32, OverwatchNode, OptionQuery>;
+    pub type OverwatchNodes<T: Config> = StorageMap<_, Identity, u32, (), OptionQuery>;
 
     /// Mapping overwatch node ID to hotkey
     /// Overwatch node ID => Hotkey
@@ -5072,34 +5080,32 @@ pub mod pallet {
     >;
 
     #[pallet::storage]
-    pub type OverwatchCommits<T: Config> = StorageNMap<
+    pub type OverwatchCommits<T: Config> = StorageDoubleMap<
         _,
-        (
-            NMapKey<Identity, u32>, // Monotonic Overwatch epoch ID
-            NMapKey<Identity, u32>, // Overwatch ID
-            NMapKey<Identity, u32>, // Subnet ID
-        ),
-        T::Hash, // Commit
-        OptionQuery,
+        Identity,
+        u32, // Monotonic Overwatch epoch ID
+        Identity,
+        u32, // Overwatch ID
+        BoundedBTreeMap<u32, T::Hash, T::MaxPhysicalSubnetsUpperBound>,
+        ValueQuery,
     >;
 
     #[pallet::storage]
-    pub type OverwatchReveals<T> = StorageNMap<
+    pub type OverwatchReveals<T: Config> = StorageDoubleMap<
         _,
-        (
-            NMapKey<Identity, u32>, // Monotonic Overwatch epoch ID
-            NMapKey<Identity, u32>, // Subnet ID
-            NMapKey<Identity, u32>, // Overwatch ID
-        ),
-        u128, // Reveal
-        OptionQuery,
+        Identity,
+        u32, // Monotonic Overwatch epoch ID
+        Identity,
+        u32, // Overwatch ID
+        BoundedBTreeMap<u32, u128, T::MaxPhysicalSubnetsUpperBound>,
+        ValueQuery,
     >;
 
-    /// The percentage factor applied to the final overwatch weights for its impact on economic weights (dstake weight and node weight)
-    /// Example: `weight = overwatch_weight * factor`
+    /// Percentage factor applied to a valid latest-effective raw subnet weight during future
+    /// emission allocation. Historical finalized weights remain unchanged.
     #[pallet::storage]
     pub type OverwatchWeightFactor<T> =
-        StorageValue<_, u128, ValueQuery, DefaultHalfPercentageFactorU128>;
+        StorageValue<_, u128, ValueQuery, DefaultHalfPercentageFactorU128<T>>;
 
     #[pallet::storage]
     pub type OverwatchStakeWeightFactor<T> =
@@ -5130,23 +5136,20 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    //
-    // Overwatch reputation conditional requirements
-    //
-
-    /// The minimum validator-identity reputation score.
+    /// Reproducible close-time inputs retained for the latest effective Overwatch signal.
+    /// Approved removal may purge a node without rewriting finalized history.
     #[pallet::storage]
-    pub type OverwatchMinRepScore<T> =
-        StorageValue<_, u128, ValueQuery, DefaultOverwatchMinRepScore>;
+    pub type LatestFinalizedOverwatchSignalInputs<T: Config> =
+        StorageValue<_, LatestFinalizedOverwatchSignalInput<T>, OptionQuery>;
 
-    /// The minimum average distinct-validator-identity support for the validator's proposals.
+    /// Latest-only raw Overwatch signal consumed by future emission allocations.
     #[pallet::storage]
-    pub type OverwatchMinAvgAttestationRatio<T> =
-        StorageValue<_, u128, ValueQuery, DefaultOverwatchMinAvgAttestationRatio>;
+    pub type LatestEffectiveOverwatchSignal<T: Config> =
+        StorageValue<_, EffectiveOverwatchSignal<T>, OptionQuery>;
 
-    /// The minimum validator reputation age in general blockchain epochs.
+    /// Authoritative monotonic revision for the latest effective Overwatch signal.
     #[pallet::storage]
-    pub type OverwatchMinAge<T> = StorageValue<_, u32, ValueQuery, DefaultOverwatchMinAge<T>>;
+    pub type LatestOverwatchSignalRevision<T> = StorageValue<_, u64, ValueQuery, DefaultZeroU64>;
 
     /// This never gets deleted to always allow for removing stake
     #[pallet::storage]
@@ -5203,11 +5206,17 @@ pub mod pallet {
         DestinationCreditOverflow,
     }
 
-    /// Internal execution result for one mature queued swap.
-    ///
-    /// Only `Credited` and `Refunded` are terminal: `Deferred` must leave the escrow item intact.
+    /// Internal disposition of one queue item inspected by the bounded executor.
     #[derive(Clone, Copy, PartialEq, Eq, RuntimeDebug)]
     pub(crate) enum SwapExecutionOutcome {
+        Completed,
+        NotReady,
+        RefundBlocked,
+        PermanentFailure,
+    }
+
+    /// Terminal settlement details used to emit the corresponding queue event.
+    pub(crate) enum CompletedSwapOutcome {
         Credited {
             balance: u128,
             shares: u128,
@@ -5216,7 +5225,6 @@ pub mod pallet {
             balance: u128,
             reason: SwapRefundReason,
         },
-        Deferred,
     }
 
     #[derive(Encode, Decode, Clone, PartialEq, Eq, TypeInfo)]
@@ -5856,7 +5864,11 @@ pub mod pallet {
         /// * `subnet_node_id` - Subnet node ID of activator.
         ///
         #[pallet::call_index(7)]
-        #[pallet::weight(T::WeightInfo::activate_subnet())]
+        #[pallet::weight(
+            T::WeightInfo::activate_subnet().saturating_add(
+                Pallet::<T>::pending_node_removal_marker_clear_weight()
+            )
+        )]
         pub fn activate_subnet(origin: OriginFor<T>, subnet_id: u32) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
 
@@ -5889,7 +5901,7 @@ pub mod pallet {
         #[pallet::weight(
             T::WeightInfo::owner_deactivate_subnet().saturating_add(
                 T::WeightInfo::do_remove_registered_subnet_initial_validator_cleanup()
-            )
+            ).saturating_add(Pallet::<T>::pending_node_removal_marker_clear_weight())
         )]
         pub fn owner_deactivate_subnet(origin: OriginFor<T>, subnet_id: u32) -> DispatchResult {
             Self::is_paused()?;
@@ -6234,7 +6246,10 @@ pub mod pallet {
         // ===========================================
 
         #[pallet::call_index(44)]
-        #[pallet::weight(T::WeightInfo::register_subnet_node())]
+        #[pallet::weight(
+            T::WeightInfo::register_subnet_node()
+                .saturating_add(T::WeightInfo::clean_validator_subnet_nodes())
+        )]
         pub fn register_subnet_node(
             origin: OriginFor<T>,
             validator_id: u32,
@@ -6290,7 +6305,11 @@ pub mod pallet {
         ///
         /// This is an extra security feature to allow for unique hotkeys for each subnet
         #[pallet::call_index(45)]
-        #[pallet::weight(T::WeightInfo::update_node_hotkey())]
+        #[pallet::weight(
+            T::WeightInfo::update_node_hotkey().saturating_add(
+                Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
+            )
+        )]
         pub fn update_node_hotkey(
             origin: OriginFor<T>,
             subnet_id: u32,
@@ -6305,6 +6324,10 @@ pub mod pallet {
 
             ensure!(coldkey == node_coldkey, Error::<T>::InvalidValidator);
 
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+                return Ok(());
+            }
+
             if let Some(new_hotkey) = new_hotkey {
                 SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, new_hotkey);
             } else {
@@ -6315,7 +6338,11 @@ pub mod pallet {
         }
 
         #[pallet::call_index(46)]
-        #[pallet::weight(T::WeightInfo::update_node_peer_info())]
+        #[pallet::weight(
+            T::WeightInfo::update_node_peer_info().saturating_add(
+                Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
+            )
+        )]
         pub fn update_node_peer_info(
             origin: OriginFor<T>,
             subnet_id: u32,
@@ -6331,11 +6358,19 @@ pub mod pallet {
 
             ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+                return Ok(());
+            }
+
             Self::do_update_node_peer_info(subnet_id, subnet_node_id, new_peer_info)
         }
 
         #[pallet::call_index(47)]
-        #[pallet::weight(T::WeightInfo::update_node_bootnode_peer_info())]
+        #[pallet::weight(
+            T::WeightInfo::update_node_bootnode_peer_info().saturating_add(
+                Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
+            )
+        )]
         pub fn update_node_bootnode_peer_info(
             origin: OriginFor<T>,
             subnet_id: u32,
@@ -6351,11 +6386,19 @@ pub mod pallet {
 
             ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+                return Ok(());
+            }
+
             Self::do_update_node_bootnode_peer_info(subnet_id, subnet_node_id, new_peer_info)
         }
 
         #[pallet::call_index(48)]
-        #[pallet::weight(T::WeightInfo::update_node_client_peer_info())]
+        #[pallet::weight(
+            T::WeightInfo::update_node_client_peer_info().saturating_add(
+                Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
+            )
+        )]
         pub fn update_node_client_peer_info(
             origin: OriginFor<T>,
             subnet_id: u32,
@@ -6371,11 +6414,19 @@ pub mod pallet {
 
             ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+                return Ok(());
+            }
+
             Self::do_update_node_client_peer_info(subnet_id, subnet_node_id, new_peer_info)
         }
 
         #[pallet::call_index(49)]
-        #[pallet::weight(T::WeightInfo::update_node_unique())]
+        #[pallet::weight(
+            T::WeightInfo::update_node_unique().saturating_add(
+                Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
+            )
+        )]
         pub fn update_node_unique(
             origin: OriginFor<T>,
             subnet_id: u32,
@@ -6391,11 +6442,19 @@ pub mod pallet {
 
             ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+                return Ok(());
+            }
+
             Self::do_update_node_unique(subnet_id, subnet_node_id, unique)
         }
 
         #[pallet::call_index(50)]
-        #[pallet::weight(T::WeightInfo::update_node_non_unique())]
+        #[pallet::weight(
+            T::WeightInfo::update_node_non_unique().saturating_add(
+                Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
+            )
+        )]
         pub fn update_node_non_unique(
             origin: OriginFor<T>,
             subnet_id: u32,
@@ -6411,6 +6470,10 @@ pub mod pallet {
 
             ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+                return Ok(());
+            }
+
             Self::do_update_node_non_unique(subnet_id, subnet_node_id, non_unique)
         }
 
@@ -6420,7 +6483,14 @@ pub mod pallet {
         #[pallet::weight(
             T::WeightInfo::remove_subnet_node().saturating_add(
                 Pallet::<T>::remove_subnet_node_branch_weight(*subnet_id, *subnet_node_id)
-            )
+            ).saturating_add(T::WeightInfo::clean_validator_subnet_nodes())
+                .saturating_add(Pallet::<T>::pending_node_removal_marker_clear_weight())
+                .saturating_add(
+                    Pallet::<T>::pending_node_cleanup_dispatch_weight(
+                        *subnet_id,
+                        *subnet_node_id,
+                    )
+                )
         )]
         pub fn remove_subnet_node(
             origin: OriginFor<T>,
@@ -6439,15 +6509,26 @@ pub mod pallet {
                 Error::<T>::NotKeyOwner
             );
 
-            // Check if validator
-            let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
-            let is_chosen_validator: bool =
-                Self::is_chosen_validator(subnet_id, subnet_node_id, subnet_epoch);
-            ensure!(
-                !is_chosen_validator,
-                Error::<T>::ElectedValidatorCannotRemove
-            );
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+                Self::clean_validator_subnet_nodes(validator_id);
+                return Ok(());
+            }
 
+            if Self::subnet_exists(subnet_id) {
+                // Elected validators cannot leave a live subnet mid-round. A removed subnet has
+                // no live consensus role, so its retained ownership index can be cleaned below.
+                let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+                let is_chosen_validator: bool =
+                    Self::is_chosen_validator(subnet_id, subnet_node_id, subnet_epoch);
+                ensure!(
+                    !is_chosen_validator,
+                    Error::<T>::ElectedValidatorCannotRemove
+                );
+            }
+
+            // Whole-subnet removal leaves this validator's forward indexes intact. Repair only
+            // this owner's bounded state when they next remove one of their own nodes.
+            Self::clean_validator_subnet_nodes(validator_id);
             Self::do_remove_subnet_node_v2(subnet_id, subnet_node_id)
         }
 
@@ -6460,31 +6541,59 @@ pub mod pallet {
         // ==============================================
 
         #[pallet::call_index(52)]
-        #[pallet::weight(T::WeightInfo::add_node_stake())]
+        #[pallet::weight(
+            T::WeightInfo::add_node_stake().saturating_add(
+                Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
+            )
+        )]
         pub fn add_node_stake(
             origin: OriginFor<T>,
             subnet_id: u32,
             subnet_node_id: u32,
             stake_to_be_added: u128,
         ) -> DispatchResult {
-            ensure_signed(origin.clone())?;
-
             Self::is_paused()?;
+
+            // Keep the ordinary staking path's existing single ownership lookup. Only perform
+            // the wrapper-level authentication when logical quarantine requires cleanup.
+            if Self::has_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+                let coldkey = ensure_signed(origin.clone())?;
+                let node_coldkey =
+                    Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+                ensure!(coldkey == node_coldkey, Error::<T>::NotKeyOwner);
+
+                Self::perform_remove_subnet_node(subnet_id, subnet_node_id);
+                return Ok(());
+            }
 
             Self::do_add_node_stake(origin.clone(), subnet_id, subnet_node_id, stake_to_be_added)
         }
 
         #[pallet::call_index(53)]
-        #[pallet::weight(T::WeightInfo::remove_node_stake())]
+        #[pallet::weight(
+            T::WeightInfo::remove_node_stake().saturating_add(
+                Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
+            )
+        )]
         pub fn remove_node_stake(
             origin: OriginFor<T>,
             subnet_id: u32,
             subnet_node_id: u32,
             stake_to_be_removed: u128,
         ) -> DispatchResult {
-            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
-
             Self::is_paused()?;
+
+            // A pending call authenticates before cleanup and intentionally leaves the retained
+            // stake untouched. A later call follows the ordinary withdrawal path.
+            if Self::has_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+                let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+                let node_coldkey =
+                    Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+                ensure!(coldkey == node_coldkey, Error::<T>::NotKeyOwner);
+
+                Self::perform_remove_subnet_node(subnet_id, subnet_node_id);
+                return Ok(());
+            }
 
             Self::do_remove_node_stake(
                 origin.clone(),
@@ -6915,9 +7024,11 @@ pub mod pallet {
         /// Returns Ok(Pays::No.into()) on success
         ///
         #[pallet::call_index(69)]
-        #[pallet::weight(T::WeightInfo::propose_attestation().max(
-            T::WeightInfo::propose_attestation_emergency()
-        ))]
+        #[pallet::weight(
+            T::WeightInfo::propose_attestation()
+                .max(T::WeightInfo::propose_attestation_emergency())
+                .saturating_add(Pallet::<T>::maximum_pending_active_cleanup_dispatch_weight())
+        )]
         pub fn propose_attestation(
             origin: OriginFor<T>,
             subnet_id: u32,
@@ -6943,7 +7054,11 @@ pub mod pallet {
         }
 
         #[pallet::call_index(70)]
-        #[pallet::weight(T::WeightInfo::attest())]
+        #[pallet::weight(
+            T::WeightInfo::attest().saturating_add(
+                Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
+            )
+        )]
         pub fn attest(
             origin: OriginFor<T>,
             subnet_id: u32,
@@ -6991,7 +7106,7 @@ pub mod pallet {
             overwatch_node_id: u32,
             new_hotkey: Option<T::AccountId>,
         ) -> DispatchResult {
-            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+            ensure_signed(origin.clone())?;
 
             Self::is_paused()?;
 
@@ -7050,7 +7165,7 @@ pub mod pallet {
         pub fn commit_overwatch_subnet_weights(
             origin: OriginFor<T>,
             overwatch_node_id: u32,
-            mut commit_weights: Vec<OverwatchCommit<T::Hash>>,
+            commit_weights: Vec<OverwatchCommit<T::Hash>>,
         ) -> DispatchResultWithPostInfo {
             Self::is_paused()?;
             Self::do_commit_overwatch_subnet_weights(origin, overwatch_node_id, commit_weights)
@@ -7106,7 +7221,7 @@ pub mod pallet {
             overwatch_node_id: u32,
             stake_to_be_added: u128,
         ) -> DispatchResult {
-            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+            ensure_signed(origin.clone())?;
 
             Self::is_paused()?;
 
@@ -7120,14 +7235,11 @@ pub mod pallet {
             overwatch_node_id: u32,
             stake_to_be_removed: u128,
         ) -> DispatchResult {
-            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
+            ensure_signed(origin.clone())?;
 
             Self::is_paused()?;
 
-            let is_overwatch_node: bool = match OverwatchNodes::<T>::try_get(overwatch_node_id) {
-                Ok(_) => true,
-                Err(()) => false,
-            };
+            let is_overwatch_node = OverwatchNodes::<T>::contains_key(overwatch_node_id);
 
             Self::do_remove_overwatch_node_stake(
                 origin,
@@ -7172,7 +7284,7 @@ pub mod pallet {
         #[pallet::weight(
             T::WeightInfo::collective_remove_subnet().saturating_add(
                 T::WeightInfo::do_remove_registered_subnet_initial_validator_cleanup()
-            )
+            ).saturating_add(Pallet::<T>::pending_node_removal_marker_clear_weight())
         )]
         pub fn collective_remove_subnet(
             origin: OriginFor<T>,
@@ -7186,7 +7298,7 @@ pub mod pallet {
         #[pallet::weight(
             T::WeightInfo::collective_remove_subnet_node().saturating_add(
                 Pallet::<T>::remove_subnet_node_branch_weight(*subnet_id, *subnet_node_id)
-            )
+            ).saturating_add(Pallet::<T>::pending_node_removal_marker_clear_weight())
         )]
         pub fn collective_remove_subnet_node(
             origin: OriginFor<T>,
@@ -7476,20 +7588,6 @@ pub mod pallet {
             Self::do_set_max_slash_amount(value)
         }
 
-        #[pallet::call_index(115)]
-        #[pallet::weight(T::WeightInfo::set_reputation_increase_factor())]
-        pub fn set_reputation_increase_factor(origin: OriginFor<T>, value: u128) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_reputation_increase_factor(value)
-        }
-
-        #[pallet::call_index(116)]
-        #[pallet::weight(T::WeightInfo::set_reputation_decrease_factor())]
-        pub fn set_reputation_decrease_factor(origin: OriginFor<T>, value: u128) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_reputation_decrease_factor(value)
-        }
-
         #[pallet::call_index(117)]
         #[pallet::weight(T::WeightInfo::set_network_max_stake_balance())]
         pub fn set_network_max_stake_balance(origin: OriginFor<T>, value: u128) -> DispatchResult {
@@ -7567,30 +7665,6 @@ pub mod pallet {
         ) -> DispatchResult {
             T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
             Self::do_set_overwatch_commit_cutoff_percent(value)
-        }
-
-        #[pallet::call_index(128)]
-        #[pallet::weight(T::WeightInfo::set_overwatch_min_rep_score())]
-        pub fn set_overwatch_min_rep_score(origin: OriginFor<T>, value: u128) -> DispatchResult {
-            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_overwatch_min_rep_score(value)
-        }
-
-        #[pallet::call_index(129)]
-        #[pallet::weight(T::WeightInfo::set_overwatch_min_avg_attestation_ratio())]
-        pub fn set_overwatch_min_avg_attestation_ratio(
-            origin: OriginFor<T>,
-            value: u128,
-        ) -> DispatchResult {
-            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_overwatch_min_avg_attestation_ratio(value)
-        }
-
-        #[pallet::call_index(130)]
-        #[pallet::weight(T::WeightInfo::set_overwatch_min_age())]
-        pub fn set_overwatch_min_age(origin: OriginFor<T>, value: u32) -> DispatchResult {
-            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_overwatch_min_age(value)
         }
 
         #[pallet::call_index(131)]
@@ -8215,7 +8289,8 @@ pub mod pallet {
             // See `do_epoch_preliminaries` to learn how subnets are removed if
             // maximum subnets is exceeded
             ensure!(
-                Self::get_total_subnets() < MaxSubnets::<T>::get().saturating_add(1),
+                Self::get_total_subnets()
+                    < MaxSubnets::<T>::get().saturating_add(SUBNET_ROTATION_ALLOWANCE),
                 Error::<T>::MaxSubnets
             );
 
@@ -8528,9 +8603,9 @@ pub mod pallet {
             subnet_id: u32,
             reason: SubnetRemovalReason,
         ) -> SubnetRemovalOutcome {
-            // These scalar counters bound every variable collection touched by cleanup without
+            // These scalar counters bound every subnet-keyed prefix cleared by cleanup without
             // decoding any of those collections before weight is reserved.
-            let selector_weight = T::DbWeight::get().reads(4);
+            let selector_weight = T::DbWeight::get().reads(3);
             if !weight_meter.can_consume(selector_weight) {
                 return SubnetRemovalOutcome::Deferred;
             }
@@ -8539,27 +8614,18 @@ pub mod pallet {
             let active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
             let target_nodes = TotalSubnetNodes::<T>::get(subnet_id);
             let overwatch_nodes = TotalOverwatchNodes::<T>::get();
-            let network_nodes = TotalNodes::<T>::get();
 
             let a = active_nodes.clamp(1, T::MaxSubnetNodesUpperBound::get());
-            let r = target_nodes.saturating_sub(active_nodes).clamp(1, 64);
-            let o = overwatch_nodes.clamp(1, 64);
-            let max_surviving_nodes = T::MaxPhysicalSubnetsUpperBound::get()
-                .saturating_sub(1)
-                .saturating_mul(
-                    T::MaxSubnetNodesUpperBound::get()
-                        .saturating_add(T::MaxRegisteredNodesUpperBound::get()),
-                )
-                .min(9_216)
-                .max(1);
-            let s = network_nodes
-                .saturating_sub(target_nodes)
-                .clamp(1, max_surviving_nodes);
-            let step_weight = T::WeightInfo::do_remove_subnet(a, r, o, s)
+            let r = target_nodes
+                .saturating_sub(active_nodes)
+                .clamp(1, T::MaxRegisteredNodesUpperBound::get());
+            let o = overwatch_nodes.clamp(1, T::MaxOverwatchNodesUpperBound::get());
+            let step_weight = T::WeightInfo::do_remove_subnet(a, r, o)
                 .saturating_add(
                     T::WeightInfo::do_remove_registered_subnet_initial_validator_cleanup(),
                 )
-                .saturating_add(T::WeightInfo::do_remove_subnet_emergency_cleanup());
+                .saturating_add(T::WeightInfo::do_remove_subnet_emergency_cleanup())
+                .saturating_add(Self::pending_node_removal_marker_clear_weight());
 
             if !weight_meter.can_consume(step_weight) {
                 return SubnetRemovalOutcome::Deferred;
@@ -8572,11 +8638,12 @@ pub mod pallet {
             SubnetRemovalOutcome::Removed
         }
 
-        /// Remove a subnet and clean up all associated storage
+        /// Remove a subnet and clean up its subnet-keyed storage.
         ///
-        /// This function permanently removes a subnet from the network, cleaning up all configuration,
-        /// node data, and associated storage. This is called when a subnet fails to meet activation
-        /// requirements or is explicitly removed by governance.
+        /// This function permanently removes a subnet from the network. Subnet-keyed records are
+        /// removed immediately with bounded prefix clears. Validator and Overwatch forward indexes
+        /// are repaired lazily by their owner on the next relevant node operation, avoiding global
+        /// scans in the removal path.
         ///
         /// # Arguments
         ///
@@ -8717,6 +8784,14 @@ pub mod pallet {
         ///   - Delegate stakers must call `remove_account_delegate_stake()` to reclaim stake
         ///   - Important: No rewards will be earned after subnet removal
         ///   - Users should monitor for subnet removals and unstake promptly
+        ///
+        /// ## Owner-Local Forward Indexes (Lazily Repaired)
+        ///
+        /// - `ValidatorSubnetNodes`, `TotalValidatorNodes`, and validator allocation weights are
+        ///   repaired when that validator next registers or manually removes one of their nodes.
+        /// - `OverwatchNodeIndex` is repaired when that Overwatch node next updates a peer ID.
+        /// - Their subnet-keyed reverse indexes are removed immediately above, so retained forward
+        ///   entries cannot participate in live subnet logic.
         ///
         /// - **Account Mappings**: Some account-related storage persists
         ///   - `HotkeyOwner` - Hotkey ownership records
@@ -8887,7 +8962,7 @@ pub mod pallet {
         /// # Notes
         ///
         /// - Removal is **permanent** and **immediate** (no grace period)
-        /// - Subnet ID can be reused after sufficient time
+        /// - Removed subnet IDs are not reused
         /// - Epoch slot is freed for assignment to new subnets
         /// - Historical consensus data is preserved for analysis
         /// - Total subnet count is decremented; active/paused removals also decrement the active count
@@ -8986,9 +9061,7 @@ pub mod pallet {
             TotalSubnets::<T>::mutate(|total| *total = total.saturating_sub(1));
             weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
 
-            // We have removed all of the data required to assist in blockchain logic
-            // `clean_subnet_nodes` cleans up non-required data
-            // let _ = Self::clean_subnet_nodes(subnet_id);
+            // Clear the remaining subnet-keyed node and reverse-index state.
             weight = weight.saturating_add(Self::clean_subnet_nodes(subnet_id));
 
             Self::deposit_event(Event::SubnetDeactivated {
@@ -8999,78 +9072,14 @@ pub mod pallet {
             weight
         }
 
-        // Only called from `do_remove_subnet`
-        // If we call this anywhere else, must include a way to ensure subnet exists
-        // Note that `HotkeySubnetId` is removed when
-        // the node stake balance hits 0, plus `ValidatorSubnetNodes` is filtered.
-        // `ValidatorSubnetNodes` is filtered on each node registration as well via
-        // `clean_coldkey_subnet_nodes`
+        /// Clear storage whose first key is the removed subnet ID.
+        ///
+        /// Validator-wide ownership/allocation maps and Overwatch-wide peer maps are deliberately
+        /// not scanned here. Validator cleanup runs when that validator next registers or
+        /// self-removes a node. `SubnetNodeValidatorId` and node stake remain so owners can
+        /// withdraw stake after subnet removal.
         pub fn clean_subnet_nodes(subnet_id: u32) -> Weight {
             let mut weight_acc = WeightAccumulator::<T>::new();
-
-            let active_nodes: Vec<SubnetNode<T>> = SubnetNodesData::<T>::iter_prefix(subnet_id)
-                .map(|(_, subnet_node)| subnet_node)
-                .collect();
-            weight_acc.add_reads(active_nodes.len() as u64);
-
-            let registered_nodes: Vec<SubnetNode<T>> =
-                RegisteredSubnetNodesData::<T>::iter_prefix(subnet_id)
-                    .map(|(_, subnet_node)| subnet_node)
-                    .collect();
-            weight_acc.add_reads(registered_nodes.len() as u64);
-
-            let mut active_node_counts_by_validator: BTreeMap<u32, u32> = BTreeMap::new();
-            let mut node_counts_by_validator: BTreeMap<u32, u32> = BTreeMap::new();
-            let mut validators_to_clean: BTreeSet<u32> = BTreeSet::new();
-
-            for subnet_node in &active_nodes {
-                validators_to_clean.insert(subnet_node.validator_id);
-                active_node_counts_by_validator
-                    .entry(subnet_node.validator_id)
-                    .and_modify(|count| *count = count.saturating_add(1))
-                    .or_insert(1);
-                node_counts_by_validator
-                    .entry(subnet_node.validator_id)
-                    .and_modify(|count| *count = count.saturating_add(1))
-                    .or_insert(1);
-            }
-
-            for subnet_node in &registered_nodes {
-                validators_to_clean.insert(subnet_node.validator_id);
-                node_counts_by_validator
-                    .entry(subnet_node.validator_id)
-                    .and_modify(|count| *count = count.saturating_add(1))
-                    .or_insert(1);
-            }
-
-            for (validator_id, removed_active_nodes) in active_node_counts_by_validator {
-                ValidatorReputation::<T>::mutate(validator_id, |reputation| {
-                    reputation.total_active_nodes = reputation
-                        .total_active_nodes
-                        .saturating_sub(removed_active_nodes);
-                });
-                weight_acc.add_mutate();
-            }
-
-            for validator_id in validators_to_clean {
-                ValidatorSubnetNodes::<T>::mutate(validator_id, |node_map| {
-                    node_map.remove(&subnet_id);
-                });
-                weight_acc.add_mutate();
-
-                let removed_nodes = node_counts_by_validator
-                    .get(&validator_id)
-                    .copied()
-                    .unwrap_or(0);
-                TotalValidatorNodes::<T>::mutate(validator_id, |count| {
-                    *count = count.saturating_sub(removed_nodes)
-                });
-                weight_acc.add_mutate();
-
-                Self::normalize_validator_node_delegate_stake_weights(validator_id);
-                weight_acc.add_reads(2);
-                weight_acc.add_writes(1);
-            }
 
             let removed_subnet_nodes_data =
                 SubnetNodesData::<T>::clear_prefix(subnet_id, u32::MAX, None);
@@ -9135,30 +9144,6 @@ pub mod pallet {
                 PeerIdOverwatchNodeId::<T>::clear_prefix(subnet_id, u32::MAX, None);
             weight_acc.add_clear_prefix(peer_id_overwatch_node_id_removed.unique);
 
-            let mut overwatch_index_reads = 0u64;
-            let overwatch_nodes_to_clean: Vec<u32> = OverwatchNodeIndex::<T>::iter()
-                .filter_map(|(overwatch_node_id, peer_ids)| {
-                    overwatch_index_reads = overwatch_index_reads.saturating_add(1);
-                    if peer_ids.contains_key(&subnet_id) {
-                        Some(overwatch_node_id)
-                    } else {
-                        None
-                    }
-                })
-                .collect();
-            weight_acc.add_reads(overwatch_index_reads);
-
-            for overwatch_node_id in overwatch_nodes_to_clean {
-                let mut peer_ids = OverwatchNodeIndex::<T>::take(overwatch_node_id);
-                weight_acc.add_take();
-
-                peer_ids.remove(&subnet_id);
-                if !peer_ids.is_empty() {
-                    OverwatchNodeIndex::<T>::insert(overwatch_node_id, peer_ids);
-                    weight_acc.add_writes(1);
-                }
-            }
-
             let node_slot_index_removed =
                 NodeSlotIndex::<T>::clear_prefix(subnet_id, u32::MAX, None);
             weight_acc.add_clear_prefix(node_slot_index_removed.unique);
@@ -9166,22 +9151,14 @@ pub mod pallet {
             let electable_nodes = SubnetNodeElectionSlots::<T>::take(subnet_id).len() as u32;
             weight_acc.add_take();
 
-            // Vec size impacts weight, add extra based on length
-            let vec_len = electable_nodes as u64;
-            if vec_len > 1 {
-                // Add extra computational weight for processing larger vectors
-                weight_acc.add_computational_weight(vec_len * 1000);
-            }
-
-            let queue = SubnetNodeQueue::<T>::take(subnet_id).len() as u32;
+            let _ = SubnetNodeQueue::<T>::take(subnet_id);
             weight_acc.add_take();
 
-            // Vec size impacts weight, add extra based on length
-            let vec_len = queue as u64;
-            if vec_len > 1 {
-                // Add extra computational weight for processing larger vectors
-                weight_acc.add_computational_weight(vec_len * 1000);
-            }
+            PendingActiveNodeRemovals::<T>::remove(subnet_id);
+            weight_acc.add_remove();
+
+            PendingRegisteredNodeRemovals::<T>::remove(subnet_id);
+            weight_acc.add_remove();
 
             TotalSubnetElectableNodes::<T>::remove(subnet_id);
             weight_acc.add_remove();
@@ -9342,9 +9319,11 @@ pub mod pallet {
                 Error::<T>::MaxQueuedNodes
             );
 
-            // Keep every validator-wide ownership/allocation value protocol-bounded without
-            // decoding the nested ownership map before the dispatch weight is charged. Node and
-            // whole-subnet removal maintain this counter eagerly.
+            // Whole-subnet removal leaves validator-wide indexes for owner-local cleanup so it
+            // never scans every affected validator from `on_initialize`.
+            Self::clean_validator_subnet_nodes(validator_id);
+
+            // Keep every validator-wide ownership/allocation value protocol-bounded.
             let validator_node_count = TotalValidatorNodes::<T>::get(validator_id);
             ensure!(
                 validator_node_count < T::MaxValidatorNodesUpperBound::get(),
@@ -9558,7 +9537,6 @@ pub mod pallet {
                 });
 
                 Self::perform_activate_subnet_node_v2(
-                    validator_id,
                     subnet_id,
                     subnet.state,
                     subnet_node,
@@ -9593,7 +9571,6 @@ pub mod pallet {
         }
 
         pub fn perform_activate_subnet_node_v2(
-            validator_id: u32,
             subnet_id: u32,
             subnet_state: SubnetState,
             mut subnet_node: SubnetNode<T>,
@@ -9610,7 +9587,6 @@ pub mod pallet {
             ensure!(
                 Self::do_activate_subnet_node(
                     &mut WeightMeter::new(),
-                    validator_id,
                     subnet_id,
                     subnet_state,
                     subnet_node,
@@ -9627,7 +9603,7 @@ pub mod pallet {
         ///
         /// This function handles the logic for moving a node from the `RegisteredSubnetNodesData`
         /// storage to the `SubnetNodesData` storage, effectively making it an active participant
-        /// in the subnet. It updates various counters and reputation metrics.
+        /// in the subnet. It updates the active-node counters.
         ///
         /// # Logic
         ///
@@ -9639,7 +9615,7 @@ pub mod pallet {
         ///    - Sets the node class to `Idle` initially.
         ///    - If the subnet is in the `Registered` state and not queued, it attempts to promote
         ///      the node to `Validator` class and insert it into an election slot.
-        /// 5. **Counters**: Updates `TotalActiveSubnetNodes`, `TotalActiveNodes`, and `ColdkeyReputation`.
+        /// 5. **Counters**: Updates `TotalActiveSubnetNodes` and `TotalActiveNodes`.
         /// 6. **Event**: Deposits a `SubnetNodeActivated` event.
         ///
         /// # Parameters
@@ -9658,7 +9634,6 @@ pub mod pallet {
         /// * `bool` - `true` if activation was successful, `false` otherwise.
         pub fn do_activate_subnet_node(
             weight_meter: &mut WeightMeter,
-            validator_id: u32,
             subnet_id: u32,
             subnet_state: SubnetState,
             mut subnet_node: SubnetNode<T>,
@@ -9678,11 +9653,27 @@ pub mod pallet {
                 return false;
             }
 
-            // Total reads: 5, Total writes: 5
-            // Reads/Writes: RegisteredSubnetNodesData(take), TotalActiveSubnetNodes(mutate), TotalActiveNodes(mutate), ColdkeyReputation(mutate)
+            // Logical quarantine is sufficient to prevent activation even when physical cleanup
+            // did not fit in this subnet's slot. The queue settlement path normally dequeues the
+            // node immediately; this guard keeps the invariant explicit for every caller.
+            if queue {
+                let pending_lookup_weight = db_weight
+                    .reads(1)
+                    .saturating_add(Self::pending_subnet_node_removal_proof_weight());
+                if !weight_meter.can_consume(pending_lookup_weight) {
+                    return false;
+                }
+                weight_meter.consume(pending_lookup_weight);
+                if PendingRegisteredNodeRemovals::<T>::get(subnet_id).contains(&subnet_node.id) {
+                    return false;
+                }
+            }
+
+            // Total reads: 4, Total writes: 4
+            // Reads/Writes: RegisteredSubnetNodesData(take), TotalActiveSubnetNodes(mutate), TotalActiveNodes(mutate)
             // Writes: SubnetNodesData(insert)
             // Reads: (get)
-            if !weight_meter.can_consume(db_weight.reads_writes(5, 5)) {
+            if !weight_meter.can_consume(db_weight.reads_writes(4, 4)) {
                 return false;
             }
 
@@ -9693,7 +9684,7 @@ pub mod pallet {
             }
 
             // Consume the necessary weight
-            weight_meter.consume(db_weight.reads_writes(5, 5));
+            weight_meter.consume(db_weight.reads_writes(4, 4));
 
             // Try to take the RegisteredSubnetNodesData
             RegisteredSubnetNodesData::<T>::take(subnet_id, subnet_node.id);
@@ -9729,11 +9720,6 @@ pub mod pallet {
             // Increase total active nodes
             TotalActiveNodes::<T>::mutate(|n: &mut u32| *n += 1);
 
-            ValidatorReputation::<T>::mutate(validator_id, |rep| {
-                rep.lifetime_node_count = rep.lifetime_node_count.saturating_add(1);
-                rep.total_active_nodes = rep.total_active_nodes.saturating_add(1);
-            });
-
             Self::deposit_event(Event::SubnetNodeActivated {
                 subnet_id: subnet_id,
                 subnet_node_id: subnet_node.id,
@@ -9746,7 +9732,7 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn integrity_test() {
-            let percentage_factor = DefaultPercentageFactorU128::get();
+            let percentage_factor = DefaultPercentageFactorU128::<T>::get();
 
             assert_eq!(
                 T::DesignatedEpochSlots::get(),
@@ -9772,7 +9758,7 @@ pub mod pallet {
                 "maximum hooks weight must be non-zero and no greater than the maximum block weight"
             );
             assert!(
-                T::MinAttestationPercentage::get() > percentage_factor / 2
+                T::MinAttestationPercentage::get() > DefaultHalfPercentageFactorU128::<T>::get()
                     && T::MinAttestationPercentage::get() <= percentage_factor,
                 "minimum attestation percentage must be greater than 50% and at most 100%"
             );
@@ -9781,6 +9767,11 @@ pub mod pallet {
                     >= T::MinAttestationPercentage::get()
                     && T::SuperMajorityAttestationRatio::get() <= percentage_factor,
                 "super-majority ratio must be at least the minimum attestation percentage and at most 100%"
+            );
+            assert!(
+                DefaultSubnetOwnerPercentage::get() <= MAX_SUBNET_OWNER_PERCENTAGE
+                    && MAX_SUBNET_OWNER_PERCENTAGE <= percentage_factor,
+                "default and maximum subnet-owner percentages must be ordered and no greater than 100%"
             );
             assert!(
                 Self::min_identity_attestors_for_ratio(
@@ -9801,6 +9792,17 @@ pub mod pallet {
             assert!(
                 DefaultMaxChurnLimit::get() <= T::MaxChurnLimitUpperBound::get(),
                 "default max churn limit must not exceed the runtime upper bound"
+            );
+            assert!(
+                DefaultMinChurnLimitMultiplier::get() >= MIN_CHURN_LIMIT_MULTIPLIER
+                    && DefaultChurnLimitMultiplier::get() >= DefaultMinChurnLimitMultiplier::get()
+                    && DefaultMinChurnLimitMultiplier::get()
+                        < DefaultMaxChurnLimitMultiplier::<T>::get(),
+                "churn multipliers must be nonzero and have an ordered default range"
+            );
+            assert!(
+                DefaultMinDelegateStakeDeposit::get() >= MIN_DELEGATE_STAKE_DEPOSIT_LOWER_BOUND,
+                "default delegate deposit must satisfy its permanent lower bound"
             );
             assert!(
                 DefaultMaxMaxRegisteredNodes::get() <= T::MaxRegisteredNodesUpperBound::get(),
@@ -9831,24 +9833,85 @@ pub mod pallet {
                 "node-count upper bounds must not exceed the subnet-node upper bound"
             );
             assert!(
-                T::MaxConsensusNodeRemovalsPerSettlement::get() > 0
-                    && T::MaxConsensusNodeRemovalsPerSettlement::get() <= 4
-                    && T::MaxConsensusNodeRemovalsPerSettlement::get()
-                        <= T::MaxSubnetNodesUpperBound::get(),
-                "consensus settlement removal bound must be non-zero, no greater than four, and not exceed the subnet-node upper bound"
-            );
-            assert!(
                 T::MaxOverwatchNodesUpperBound::get() > 0
-                    && T::MaxSubnetNodesUpperBound::get() <= 512
-                    && T::MaxValidatorNodesUpperBound::get() <= 512
-                    && T::MaxRegisteredNodesUpperBound::get() <= 64
-                    && T::MaxEmergencySubnetNodesUpperBound::get() <= 64
-                    && T::MaxOverwatchNodesUpperBound::get() <= 64,
+                    && T::MaxValidatorNodesUpperBound::get() > 0
+                    && T::MaxSubnetNodesUpperBound::get()
+                        <= MAX_SUBNET_NODES_BENCHMARK_DOMAIN
+                    && T::MaxValidatorNodesUpperBound::get()
+                        <= MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN
+                    && T::MaxRegisteredNodesUpperBound::get()
+                        <= MAX_REGISTERED_NODES_BENCHMARK_DOMAIN
+                    && T::MaxEmergencySubnetNodesUpperBound::get()
+                        <= MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN
+                    && T::MaxOverwatchNodesUpperBound::get()
+                        <= MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN,
                 "runtime node-count bounds must be non-zero where required and remain inside the generated benchmark domains"
+            );
+
+            // Reward settlement and election are the two mandatory subnet-slot priorities. The
+            // configured hook budget must always admit both at their reachable maximum before
+            // optional physical cleanup or maintenance is considered.
+            let max_h = T::MaxSubnetNodesUpperBound::get();
+            let max_q = T::MaxRegisteredNodesUpperBound::get();
+            let minimum_strong_identity_attestors = Self::min_identity_attestors_for_ratio(
+                Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
+                T::SuperMajorityAttestationRatio::get(),
+            );
+            let max_non_attestors = max_h.saturating_sub(minimum_strong_identity_attestors);
+            let accepted_settlement_weight = T::WeightInfo::emission_step(max_h)
+                .saturating_add(
+                    T::WeightInfo::emission_step_accepted_queue_mutations(max_q).max(
+                        T::WeightInfo::emission_step_accepted_queue_mutations_front(max_q),
+                    ),
+                )
+                .saturating_add(
+                    T::WeightInfo::emission_step_accepted_below_min_weight_reputation(max_h),
+                )
+                .saturating_add(
+                    T::WeightInfo::emission_step_accepted_non_attestor_reputation(
+                        max_non_attestors,
+                    ),
+                );
+            let max_settlement_weight = accepted_settlement_weight
+                .max(T::WeightInfo::emission_step_rejected(max_h))
+                .max(T::WeightInfo::emission_step_emergency(max_h))
+                .max(T::WeightInfo::emission_step_missing())
+                .saturating_add(
+                    T::DbWeight::get()
+                        .reads_writes(3, 3)
+                        .saturating_add(Self::pending_subnet_node_removal_proof_weight()),
+                );
+            let max_e = T::MaxEmergencySubnetNodesUpperBound::get();
+            let max_election_weight = T::WeightInfo::elect_validator(max_h)
+                .max(T::WeightInfo::elect_validator_emergency(max_e))
+                .max(T::WeightInfo::elect_validator_expired(max_h, max_e));
+            let mandatory_slot_weight = T::WeightInfo::on_initialize_base()
+                .saturating_add(T::WeightInfo::advance_overwatch_epoch_noop())
+                .saturating_add(T::WeightInfo::emission_slot_selector())
+                .saturating_add(T::WeightInfo::emission_step_selectors())
+                .saturating_add(max_settlement_weight)
+                .saturating_add(T::DbWeight::get().reads(2))
+                .saturating_add(max_election_weight);
+            assert!(
+                mandatory_slot_weight.all_lte(T::MaximumHooksWeight::get()),
+                "maximum reward settlement and election must fit the configured hook budget"
             );
             assert!(
                 DefaultMaxOverwatchNodes::get() <= T::MaxOverwatchNodesUpperBound::get(),
                 "default max Overwatch nodes must not exceed the runtime upper bound"
+            );
+            assert!(
+                Self::is_usable_overwatch_commit_cutoff_percent(
+                    DefaultOverwatchCommitCutoffPercent::get(),
+                ) && Self::is_usable_overwatch_commit_cutoff_percent(
+                    T::MaxOverwatchCommitCutoffPercent::get(),
+                ),
+                "Overwatch cutoff bounds must leave at least one commit and one reveal block"
+            );
+            assert!(
+                DefaultOverwatchStakeWeightFactor::get() >= MIN_OVERWATCH_STAKE_WEIGHT_FACTOR
+                    && DefaultOverwatchStakeWeightFactor::get() <= percentage_factor,
+                "default Overwatch stake-weight factor must remain inside its policy bounds"
             );
             assert!(
                 T::MaxPhysicalSubnetsUpperBound::get() > 0
@@ -9862,29 +9925,46 @@ pub mod pallet {
                 "physical subnet bound must not exceed the subnet slots available in each epoch"
             );
             assert!(
-                T::MaxSwapQueueLength::get() <= 1_000
-                    && T::MaxSwapCallsPerBlockUpperBound::get() <= 1_000,
+                T::MaxSwapQueueLength::get() <= MAX_SWAP_QUEUE_BENCHMARK_DOMAIN
+                    && T::MaxSwapCallsPerBlockUpperBound::get() <= MAX_SWAP_QUEUE_BENCHMARK_DOMAIN,
                 "runtime swap bounds must remain inside the generated benchmark domains"
+            );
+            assert!(
+                T::MaxOverwatchNodesUpperBound::get()
+                    .saturating_mul(T::MaxPhysicalSubnetsUpperBound::get())
+                    <= MAX_OVERWATCH_REVEAL_RECORDS_BENCHMARK_DOMAIN,
+                "runtime Overwatch reveal matrix must remain inside the generated benchmark domain"
             );
         }
 
-        /// Run block functions
+        /// Run the network's scheduled work for the current block.
         ///
         /// # Flow
         ///
-        /// At the start of each epoch
+        /// 1. Start the hook.
+        ///    1. Create a meter limited by `MaximumHooksWeight`.
+        ///    2. Stop immediately when the network is paused.
+        ///    3. Advance the Overwatch epoch when its rollover is due.
         ///
-        /// 1. At `NETWORK_EPOCH_PRELIMINARIES_SLOT`, close an elapsed Overwatch epoch and queue
-        ///    its immutable settlement snapshot
-        /// 2. At that same slot, run epoch preliminaries (removing or penalizing subnets)
-        /// 3. At `NETWORK_OVERWATCH_SETTLEMENT_SLOT`, finalize a previously queued Overwatch epoch
-        /// 4. At `NETWORK_SUBNET_EMISSION_SLOT`, calculate subnet emissions using the last
-        ///    finalized Overwatch weights
-        /// 5. At later assigned slots, handle subnet work
-        ///		* Distribute rewards
-        /// 	* Elect validator
+        /// 2. Run the one scheduled branch for this epoch slot.
+        ///    1. At `NETWORK_EPOCH_PRELIMINARIES_SLOT`:
+        ///       1. Freeze an elapsed Overwatch epoch for later settlement.
+        ///       2. Run subnet epoch preliminaries, including subnet penalties or removals.
+        ///    2. At `NETWORK_OVERWATCH_SETTLEMENT_SLOT`:
+        ///       1. Settle the previously frozen Overwatch epoch when its complete weight fits.
+        ///    3. At `NETWORK_SUBNET_EMISSION_SLOT`:
+        ///       1. Calculate subnet emission allocations from the latest effective Overwatch
+        ///          signal, or configured defaults when that signal is missing or invalid.
+        ///    4. At a subnet's assigned slot:
+        ///       1. Settle the previous subnet round and distribute its rewards. Reserve the complete
+        ///          settlement first; if it cannot fit, stop before doing lower-priority subnet work.
+        ///       2. Elect the validator for the new subnet round, excluding nodes pending removal.
+        ///       3. Use only the remaining weight to physically remove pending active nodes, then
+        ///          pending registered nodes. Anything that does not fit remains pending for retry.
+        ///       4. Run registration-queue and burn-rate maintenance last when weight remains.
         ///
-        /// * Execute swap queue calls on all blocks with block weight remaining
+        /// 3. After the scheduled branch, execute ready stake-swap queue entries with any remaining
+        ///    hook weight.
         ///
         /// # Arguments
         ///
@@ -9973,16 +10053,24 @@ pub mod pallet {
                 // grow both cardinalities through 17, then grow revealers through 64, then fill
                 // the remaining 64-by-17 record matrix. At shared endpoints take the
                 // componentwise maximum because independently fitted models may cross there.
-                let reveal_records = settlement.reveal_records.min(1_088);
-                let step_weight = match reveal_records {
-                    0 => T::WeightInfo::calculate_overwatch_rewards_empty(),
-                    1..=16 => T::WeightInfo::calculate_overwatch_rewards_small(reveal_records),
-                    17 => T::WeightInfo::calculate_overwatch_rewards_small(17)
-                        .max(T::WeightInfo::calculate_overwatch_rewards_medium(17)),
-                    18..=63 => T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records),
-                    64 => T::WeightInfo::calculate_overwatch_rewards_medium(64)
-                        .max(T::WeightInfo::calculate_overwatch_rewards(64)),
-                    _ => T::WeightInfo::calculate_overwatch_rewards(reveal_records),
+                let max_runtime_reveal_records = T::MaxOverwatchNodesUpperBound::get()
+                    .saturating_mul(T::MaxPhysicalSubnetsUpperBound::get());
+                let reveal_records = settlement.reveal_records.min(max_runtime_reveal_records);
+                let step_weight = if reveal_records == 0 {
+                    T::WeightInfo::calculate_overwatch_rewards_empty()
+                } else if reveal_records < MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN {
+                    T::WeightInfo::calculate_overwatch_rewards_small(reveal_records)
+                } else if reveal_records == MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN {
+                    T::WeightInfo::calculate_overwatch_rewards_small(reveal_records).max(
+                        T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records),
+                    )
+                } else if reveal_records < MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN {
+                    T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records)
+                } else if reveal_records == MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN {
+                    T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records)
+                        .max(T::WeightInfo::calculate_overwatch_rewards(reveal_records))
+                } else {
+                    T::WeightInfo::calculate_overwatch_rewards(reveal_records)
                 };
                 if weight_meter.can_consume(step_weight) {
                     Self::calculate_overwatch_rewards();
@@ -10038,31 +10126,15 @@ pub mod pallet {
                         })
                         .unwrap_or(0)
                         .min(T::MaxSubnetNodesUpperBound::get());
-                    let current_election_items = Self::elect_validator_weight_component(subnet_id);
                     let total_nodes = TotalSubnetNodes::<T>::get(subnet_id);
                     let active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
                     let queued_nodes = total_nodes
                         .saturating_sub(active_nodes)
                         .min(T::MaxRegisteredNodesUpperBound::get());
                     // Historical settlement may combine full accepted-reward work with maximum
-                    // queue mutations, while every accepted/rejected/emergency branch shares the
-                    // bounded active-node cleanup budget. Those independent dimensions use
-                    // separately generated reachable fixtures so the envelope does not rely on
-                    // an impossible Cartesian pallet state.
-                    let accepted_h = historical_items.max(3);
-                    let max_validator_nodes = T::MaxValidatorNodesUpperBound::get();
-                    let max_electable_nodes = T::MaxSubnetNodesUpperBound::get();
-                    let active_removal_weight = T::WeightInfo::subnet_node_validator_id_selector()
-                        // The generated removal model already proves `TotalValidatorNodes`; this
-                        // additional read accounts for selecting its n component without adding a
-                        // duplicate proof-size estimate.
-                        .saturating_add(db_weight.reads(1))
-                        .saturating_add(Self::active_subnet_node_removal_weight(
-                            max_validator_nodes,
-                            max_electable_nodes,
-                        ));
-                    let active_removals =
-                        T::MaxConsensusNodeRemovalsPerSettlement::get().min(accepted_h) as u64;
+                    // queue mutations. Physical removal is no longer part of settlement: the
+                    // reward envelope only reserves bounded quarantine-marker writes.
+                    let accepted_h = historical_items.max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES);
                     // A single validator identity may own many historical nodes. The reachable
                     // maximum non-attestor count is therefore the historical node count minus the
                     // fewest node attestations needed to represent a strong minimum identity set,
@@ -10094,48 +10166,52 @@ pub mod pallet {
                         )
                         .saturating_add(non_attestor_reputation_weight);
 
-                    // A stored successful/rejected proposal always snapshots at least the three-
-                    // identity validator minimum. Below that boundary only the missing-submission
-                    // branch is protocol-reachable; avoid charging a fabricated h=3 settlement on
-                    // every empty epoch.
-                    let settlement_weight = if historical_items < 3 {
+                    // Zero historical items identifies the missing-submission branch. Pending
+                    // filtering can leave a real elected/proposed round with only one or two
+                    // eligible nodes, so every nonzero snapshot must still reserve a complete
+                    // accepted/rejected settlement at the generated minimum domain.
+                    let settlement_branch_weight = if historical_items == 0 {
                         T::WeightInfo::emission_step_missing()
                     } else {
                         accepted_weight
-                            .max(T::WeightInfo::emission_step_rejected(historical_items))
-                            .max(T::WeightInfo::emission_step_emergency(
-                                historical_items.clamp(64, T::MaxSubnetNodesUpperBound::get()),
-                            ))
-                            // Every quorum branch shares the same settlement-wide removal budget.
-                            // Compose the maximum-ownership cleanup after selecting the heaviest
-                            // accepted/rejected/emergency model so no winning branch can shed its
-                            // separately bounded removal reserve.
-                            .saturating_add(active_removal_weight.saturating_mul(active_removals))
+                            .max(T::WeightInfo::emission_step_rejected(accepted_h))
+                            .max(T::WeightInfo::emission_step_emergency(accepted_h.clamp(
+                                MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN,
+                                T::MaxSubnetNodesUpperBound::get(),
+                            )))
                     };
-                    // `emission_step` reads the compact candidate counter once before admitting
-                    // election. Emergency cardinality is not decoded before admission, so reserve
-                    // the maximum complete reachable election branch at its protocol bound.
-                    let max_emergency = T::MaxEmergencySubnetNodesUpperBound::get();
-                    let election_weight = T::WeightInfo::elect_validator(current_election_items)
-                        .max(T::WeightInfo::elect_validator_emergency(max_emergency))
-                        .max(T::WeightInfo::elect_validator_expired(
-                            current_election_items,
-                            max_emergency,
-                        ));
-                    let queue_weight = T::WeightInfo::emission_step_queue(queued_nodes.max(1));
-                    let step_weight = settlement_weight
-                        .saturating_add(election_weight)
-                        .saturating_add(queue_weight);
-                    if weight_meter.can_consume(step_weight) {
-                        Self::emission_step(
-                            &mut WeightMeter::with_limit(step_weight),
-                            block,
-                            current_epoch,
-                            subnet_epoch,
-                            subnet_id,
-                        );
-                        weight_meter.consume(step_weight);
+                    // The accepted payout maximum and the full threshold-crossing marker maximum
+                    // are mutually exclusive. Reserve the bounded marker writes and event proof
+                    // independently so either branch fits without coupling cleanup to settlement.
+                    let pending_marker_weight = db_weight
+                        .reads_writes(3, 3)
+                        .saturating_add(Self::pending_subnet_node_removal_proof_weight());
+                    let settlement_weight =
+                        settlement_branch_weight.saturating_add(pending_marker_weight);
+
+                    // Settlement is mandatory for an assigned subnet slot. If its complete core
+                    // cannot fit, do not let lower-priority election or maintenance consume the
+                    // remaining block budget.
+                    if !weight_meter.can_consume(settlement_weight) {
+                        return weight_meter.consumed();
                     }
+                    Self::emission_settlement_step(
+                        &mut WeightMeter::with_limit(settlement_weight),
+                        block,
+                        current_epoch,
+                        subnet_epoch,
+                        subnet_id,
+                    );
+                    weight_meter.consume(settlement_weight);
+
+                    // Election, pending cleanup, registration, and burn maintenance each admit
+                    // themselves against the genuinely remaining outer meter, in that order.
+                    Self::emission_operational_step(
+                        &mut weight_meter,
+                        block,
+                        subnet_epoch,
+                        subnet_id,
+                    );
                 }
             }
 
@@ -10147,7 +10223,9 @@ pub mod pallet {
             }
             weight_meter.consume(swap_selector_weight);
             let max_swap_executions = MaxSwapQueueCallsPerBlock::<T>::get();
-            let queued_swap_count = SwapQueueCount::<T>::get().min(1_000);
+            let queued_swap_count = SwapQueueCount::<T>::get()
+                .min(T::MaxSwapQueueLength::get())
+                .min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
             if queued_swap_count > 0 {
                 let queue_weight = T::WeightInfo::execute_ready_swap_queue(queued_swap_count);
                 if weight_meter.can_consume(queue_weight) {
@@ -10164,11 +10242,12 @@ pub mod pallet {
                     };
                     let base_ready_prefix_weight = |calls: u32| {
                         let homogeneous = homogeneous_item_weight(calls);
-                        if calls < 2 {
+                        if calls < MIN_MIXED_SWAP_BENCHMARK_DOMAIN.saturating_sub(1) {
                             return homogeneous;
                         }
 
-                        let mixed_component = calls.saturating_add(1).min(1_000);
+                        let mixed_component =
+                            calls.saturating_add(1).min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
                         let mut mixed =
                             T::WeightInfo::execute_ready_swap_mixed_validator(mixed_component)
                                 .max(T::WeightInfo::execute_ready_swap_mixed_subnet(
@@ -10177,7 +10256,7 @@ pub mod pallet {
                                 .max(T::WeightInfo::execute_ready_swap_mixed_refund(
                                     mixed_component,
                                 ));
-                        if calls == 1_000 {
+                        if calls == MAX_SWAP_QUEUE_BENCHMARK_DOMAIN {
                             mixed = mixed.saturating_add(homogeneous_item_weight(1));
                         }
                         homogeneous.max(mixed)
@@ -10188,7 +10267,10 @@ pub mod pallet {
                     };
 
                     let mut low = 0u32;
-                    let mut high = max_swap_executions.min(queued_swap_count).min(1_000);
+                    let mut high = max_swap_executions
+                        .min(T::MaxSwapCallsPerBlockUpperBound::get())
+                        .min(queued_swap_count)
+                        .min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
                     while low < high {
                         let candidate = low.saturating_add(high).saturating_add(1) / 2;
                         let candidate_weight =
@@ -10212,7 +10294,7 @@ pub mod pallet {
             }
 
             // for EVM tests (Weights in on_initialize change the block weight/gas)
-            // Weight::from_parts(0, 0)
+            // Weight::zero()
 
             weight_meter.consumed()
         }
@@ -10220,39 +10302,54 @@ pub mod pallet {
         fn on_finalize(block_number: BlockNumberFor<T>) {}
 
         fn on_idle(block_number: BlockNumberFor<T>, remaining_weight: Weight) -> Weight {
-            return Weight::from_parts(0, 0);
+            Weight::zero()
         }
     }
 
     impl<T: Config> Pallet<T> {
         // Execute multiple calls at once (for block hooks)
         pub fn execute_ready_swap_calls(block_number: u32, weight_meter: &mut WeightMeter) {
-            let max_executions = MaxSwapQueueCallsPerBlock::<T>::get().min(1_000);
+            let max_executions = MaxSwapQueueCallsPerBlock::<T>::get()
+                .min(T::MaxSwapCallsPerBlockUpperBound::get())
+                .min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
             weight_meter.consume(T::WeightInfo::execute_ready_swap_selectors());
             Self::execute_ready_swap_calls_with_limit(block_number, max_executions, weight_meter);
         }
 
         pub(crate) fn execute_ready_swap_calls_with_limit(
             block_number: u32,
-            max_executions: u32,
+            max_attempts: u32,
             weight_meter: &mut WeightMeter,
         ) {
-            // Decode/take the queue once, process a prefix by index, drain once, then write the
-            // surviving tail once. This is O(x + q), rather than repeatedly decoding and
-            // remove(0)-shifting the entire vector for every executed item.
+            // Decode/take the queue once and inspect only original queue positions. Rotated IDs
+            // are collected separately so no blocked item can be retried during this invocation.
             let queue = Self::take_swap_queue(weight_meter);
-            let mut executed = 0usize;
-            let execution_limit = (max_executions as usize).min(queue.len());
+            let mut scanned = 0usize;
+            let attempt_limit = (max_attempts as usize).min(queue.len());
+            let mut rotated = SwapQueueIds::<T>::default();
 
-            while executed < execution_limit {
-                let queue_id = queue[executed];
-                if !Self::execute_ready_swap_call_item(queue_id, block_number, weight_meter) {
-                    break;
+            while scanned < attempt_limit {
+                let queue_id = queue[scanned];
+                match Self::execute_ready_swap_call_item(queue_id, block_number, weight_meter) {
+                    SwapExecutionOutcome::Completed => {
+                        // A terminal item (or a stale order ID) is omitted from the rebuild.
+                        scanned += 1;
+                    }
+                    SwapExecutionOutcome::NotReady => {
+                        // Preserve this item and the remaining FIFO suffix in place.
+                        break;
+                    }
+                    SwapExecutionOutcome::RefundBlocked
+                    | SwapExecutionOutcome::PermanentFailure => {
+                        rotated
+                            .try_push(queue_id)
+                            .expect("rotated IDs are a subset of the bounded queue");
+                        scanned += 1;
+                    }
                 }
-                executed += 1;
             }
 
-            Self::finish_swap_queue(queue, executed, weight_meter);
+            Self::finish_swap_queue(queue, scanned, rotated, weight_meter);
         }
 
         pub(crate) fn take_swap_queue(weight_meter: &mut WeightMeter) -> SwapQueueIds<T> {
@@ -10262,17 +10359,19 @@ pub mod pallet {
 
         pub(crate) fn finish_swap_queue(
             queue: SwapQueueIds<T>,
-            executed: usize,
+            scanned: usize,
+            rotated: SwapQueueIds<T>,
             weight_meter: &mut WeightMeter,
         ) {
-            // split_off copies the surviving tail once. Its worst case is executed=0, which is
-            // what the independent q benchmark uses.
-            let split_index = executed.min(queue.len());
+            // Rebuild exactly once as the untouched suffix followed by retained blocked items.
+            // Both inputs came from the original bounded queue, so their retained union fits.
+            let split_index = scanned.min(queue.len());
             let mut queue = queue.into_inner();
-            let remaining_queue: SwapQueueIds<T> = queue
-                .split_off(split_index)
+            let mut remaining_queue = queue.split_off(split_index);
+            remaining_queue.extend(rotated);
+            let remaining_queue: SwapQueueIds<T> = remaining_queue
                 .try_into()
-                .expect("split tail remains within the original queue bound");
+                .expect("rebuilt queue retains at most the original bounded queue");
             let remaining = remaining_queue.len() as u32;
             if !remaining_queue.is_empty() {
                 SwapQueueOrder::<T>::put(remaining_queue);
@@ -10286,36 +10385,39 @@ pub mod pallet {
             queue_id: u32,
             block_number: u32,
             weight_meter: &mut WeightMeter,
-        ) -> bool {
+        ) -> SwapExecutionOutcome {
             weight_meter.consume(T::DbWeight::get().reads(1));
             let Some(item) = SwapCallQueue::<T>::get(queue_id) else {
-                return false;
+                // The order entry is stale. Prune it without touching principal accounting.
+                return SwapExecutionOutcome::Completed;
             };
 
             let blocks_passed = block_number.saturating_sub(item.queued_at_block);
             if blocks_passed < item.execute_after_blocks {
-                return false;
+                return SwapExecutionOutcome::NotReady;
             }
 
             weight_meter.consume(T::DbWeight::get().reads(1));
             let Some(remaining_queued_principal) =
                 TotalQueuedSwapPrincipal::<T>::get().checked_sub(item.call.get_queue_balance())
             else {
-                return false;
+                // Do not touch either side of the escrow if aggregate accounting is corrupt.
+                return SwapExecutionOutcome::PermanentFailure;
             };
 
-            let outcome = Self::execute_swap_call_internal(&item.call, block_number, weight_meter);
-            if outcome == SwapExecutionOutcome::Deferred {
-                return false;
-            }
+            let completed =
+                match Self::execute_swap_call_internal(&item.call, block_number, weight_meter) {
+                    Ok(completed) => completed,
+                    Err(outcome) => return outcome,
+                };
 
+            // Principal and the map item are deleted only after exact destination credit or refund.
             TotalQueuedSwapPrincipal::<T>::put(remaining_queued_principal);
             SwapCallQueue::<T>::remove(queue_id);
             weight_meter.consume(T::DbWeight::get().writes(2));
 
-            match outcome {
-                SwapExecutionOutcome::Deferred => unreachable!("handled above"),
-                SwapExecutionOutcome::Credited { balance, shares } => {
+            match completed {
+                CompletedSwapOutcome::Credited { balance, shares } => {
                     Self::deposit_event(Event::SwapCallCredited {
                         id: queue_id,
                         account_id: item.call.get_queue_account().clone(),
@@ -10323,7 +10425,7 @@ pub mod pallet {
                         shares,
                     });
                 }
-                SwapExecutionOutcome::Refunded { balance, reason } => {
+                CompletedSwapOutcome::Refunded { balance, reason } => {
                     Self::deposit_event(Event::SwapCallRefunded {
                         id: queue_id,
                         account_id: item.call.get_queue_account().clone(),
@@ -10332,14 +10434,14 @@ pub mod pallet {
                     });
                 }
             }
-            true
+            SwapExecutionOutcome::Completed
         }
 
         pub(crate) fn execute_swap_call_internal(
             queued_call: &QueuedSwapCall<T::AccountId>,
             block_number: u32,
             weight_meter: &mut WeightMeter,
-        ) -> SwapExecutionOutcome {
+        ) -> Result<CompletedSwapOutcome, SwapExecutionOutcome> {
             match queued_call {
                 QueuedSwapCall::SwapToSubnetDelegateStake {
                     account_id,
@@ -10347,25 +10449,24 @@ pub mod pallet {
                     balance,
                 } => {
                     if !SubnetsData::<T>::contains_key(to_subnet_id) {
-                        return if Self::refund_queued_swap_to_unbonding_ledger(
+                        return match Self::refund_queued_swap_to_unbonding_ledger(
                             account_id,
                             *balance,
                             block_number,
                             weight_meter,
                         ) {
-                            SwapExecutionOutcome::Refunded {
+                            SwapExecutionOutcome::Completed => Ok(CompletedSwapOutcome::Refunded {
                                 balance: *balance,
                                 reason: SwapRefundReason::DestinationMissing,
-                            }
-                        } else {
-                            SwapExecutionOutcome::Deferred
+                            }),
+                            outcome => Err(outcome),
                         };
                     }
 
                     let credit_weight = T::WeightInfo::handle_increase_account_delegate_stake();
                     let refund_weight = T::WeightInfo::claim_unbondings();
                     if !weight_meter.can_consume(credit_weight.saturating_add(refund_weight)) {
-                        return SwapExecutionOutcome::Deferred;
+                        return Err(SwapExecutionOutcome::NotReady);
                     }
                     weight_meter.consume(credit_weight);
                     match Self::handle_increase_account_delegate_stake(
@@ -10376,10 +10477,10 @@ pub mod pallet {
                         Ok((credited_balance, shares)) => {
                             debug_assert_eq!(credited_balance, *balance);
                             debug_assert!(shares > 0);
-                            return SwapExecutionOutcome::Credited {
+                            return Ok(CompletedSwapOutcome::Credited {
                                 balance: credited_balance,
                                 shares,
-                            };
+                            });
                         }
                         Err(error) => {
                             let reason = if error
@@ -10389,18 +10490,19 @@ pub mod pallet {
                             } else {
                                 SwapRefundReason::DestinationCreditOverflow
                             };
-                            return if Self::refund_queued_swap_to_unbonding_ledger(
+                            return match Self::refund_queued_swap_to_unbonding_ledger(
                                 account_id,
                                 *balance,
                                 block_number,
                                 weight_meter,
                             ) {
-                                SwapExecutionOutcome::Refunded {
-                                    balance: *balance,
-                                    reason,
+                                SwapExecutionOutcome::Completed => {
+                                    Ok(CompletedSwapOutcome::Refunded {
+                                        balance: *balance,
+                                        reason,
+                                    })
                                 }
-                            } else {
-                                SwapExecutionOutcome::Deferred
+                                outcome => Err(outcome),
                             };
                         }
                     }
@@ -10411,18 +10513,17 @@ pub mod pallet {
                     balance,
                 } => {
                     if !ValidatorsData::<T>::contains_key(to_validator_id) {
-                        return if Self::refund_queued_swap_to_unbonding_ledger(
+                        return match Self::refund_queued_swap_to_unbonding_ledger(
                             account_id,
                             *balance,
                             block_number,
                             weight_meter,
                         ) {
-                            SwapExecutionOutcome::Refunded {
+                            SwapExecutionOutcome::Completed => Ok(CompletedSwapOutcome::Refunded {
                                 balance: *balance,
                                 reason: SwapRefundReason::DestinationMissing,
-                            }
-                        } else {
-                            SwapExecutionOutcome::Deferred
+                            }),
+                            outcome => Err(outcome),
                         };
                     }
 
@@ -10430,7 +10531,7 @@ pub mod pallet {
                         T::WeightInfo::handle_increase_account_validator_delegate_stake();
                     let refund_weight = T::WeightInfo::claim_unbondings();
                     if !weight_meter.can_consume(credit_weight.saturating_add(refund_weight)) {
-                        return SwapExecutionOutcome::Deferred;
+                        return Err(SwapExecutionOutcome::NotReady);
                     }
                     weight_meter.consume(credit_weight);
                     match Self::handle_increase_account_validator_delegate_stake(
@@ -10441,10 +10542,10 @@ pub mod pallet {
                         Ok((credited_balance, shares)) => {
                             debug_assert_eq!(credited_balance, *balance);
                             debug_assert!(shares > 0);
-                            return SwapExecutionOutcome::Credited {
+                            return Ok(CompletedSwapOutcome::Credited {
                                 balance: credited_balance,
                                 shares,
-                            };
+                            });
                         }
                         Err(error) => {
                             let reason = if error
@@ -10454,18 +10555,19 @@ pub mod pallet {
                             } else {
                                 SwapRefundReason::DestinationCreditOverflow
                             };
-                            return if Self::refund_queued_swap_to_unbonding_ledger(
+                            return match Self::refund_queued_swap_to_unbonding_ledger(
                                 account_id,
                                 *balance,
                                 block_number,
                                 weight_meter,
                             ) {
-                                SwapExecutionOutcome::Refunded {
-                                    balance: *balance,
-                                    reason,
+                                SwapExecutionOutcome::Completed => {
+                                    Ok(CompletedSwapOutcome::Refunded {
+                                        balance: *balance,
+                                        reason,
+                                    })
                                 }
-                            } else {
-                                SwapExecutionOutcome::Deferred
+                                outcome => Err(outcome),
                             };
                         }
                     }
@@ -10478,33 +10580,33 @@ pub mod pallet {
             balance: u128,
             block_number: u32,
             weight_meter: &mut WeightMeter,
-        ) -> bool {
+        ) -> SwapExecutionOutcome {
             let refund_weight = T::WeightInfo::claim_unbondings();
             if !weight_meter.can_consume(refund_weight) {
-                return false;
+                return SwapExecutionOutcome::NotReady;
             }
             // Charge the complete bounded refund attempt even when checked arithmetic or the
-            // ledger-capacity check defers the item after performing its storage reads.
+            // ledger-capacity check retains the item after performing its storage reads.
             weight_meter.consume(refund_weight);
 
             let Some(cooldown_blocks) =
                 DelegateStakeCooldownEpochs::<T>::get().checked_mul(T::EpochLength::get())
             else {
-                return false;
+                return SwapExecutionOutcome::PermanentFailure;
             };
             let Some(claim_block) = block_number.checked_add(cooldown_blocks) else {
-                return false;
+                return SwapExecutionOutcome::PermanentFailure;
             };
             let max_unbondings = MaxUnbondings::<T>::get();
             let Some(total_network_unbonding_balance) =
                 TotalNetworkUnbondingBalance::<T>::get().checked_add(balance)
             else {
-                return false;
+                return SwapExecutionOutcome::PermanentFailure;
             };
 
             // Hook execution must stay bounded by this benchmark. Do not implicitly claim an
-            // arbitrary number of matured entries here; a full ledger pauses this queue item until
-            // the account explicitly claims, unless the refund can merge into an existing block.
+            // arbitrary number of matured entries here; a full ledger blocks this refund until
+            // the account explicitly claims, unless it can merge into the exact claim block.
             if StakeUnbondingLedger::<T>::try_mutate(account_id, |ledger| -> Result<(), ()> {
                 if let Some(entry) = ledger.get_mut(&claim_block) {
                     entry.network = entry.network.checked_add(balance).ok_or(())?;
@@ -10524,10 +10626,10 @@ pub mod pallet {
             })
             .is_err()
             {
-                return false;
+                return SwapExecutionOutcome::RefundBlocked;
             }
             TotalNetworkUnbondingBalance::<T>::put(total_network_unbonding_balance);
-            true
+            SwapExecutionOutcome::Completed
         }
     }
 
@@ -10544,18 +10646,12 @@ pub mod pallet {
             // [TESTING: LOCAL]
             // MinSubnetRegistrationEpochs::<T>::set(0);
             // OverwatchEpochLengthMultiplier::<T>::set(2);
-            // OverwatchMinRepScore::<T>::set(0);
-            // OverwatchMinAvgAttestationRatio::<T>::set(0);
-            // OverwatchMinAge::<T>::set(0);
 
             // // [TESTING: BENCHMARKING && EVM TESTS]
             // // Enable subnets to register right when conditions are met
             // MinSubnetRegistrationEpochs::<T>::set(0);
             // // Enable testing overwatch nodes on each epoch
             // OverwatchEpochLengthMultiplier::<T>::set(1);
-            // OverwatchMinRepScore::<T>::set(0);
-            // OverwatchMinAvgAttestationRatio::<T>::set(0);
-            // OverwatchMinAge::<T>::set(0);
             // DelegateStakeCooldownEpochs::<T>::set(0);
             // NodeDelegateStakeCooldownEpochs::<T>::put(0);
             // StakeCooldownEpochs::<T>::put(0);
@@ -10569,9 +10665,6 @@ pub mod pallet {
             // // Enable subnets to register right when conditions are met
             // MinSubnetRegistrationEpochs::<T>::set(0);
             // OverwatchEpochLengthMultiplier::<T>::set(1);
-            // OverwatchMinRepScore::<T>::set(0);
-            // OverwatchMinAvgAttestationRatio::<T>::set(0);
-            // OverwatchMinAge::<T>::set(0);
             // DelegateStakeCooldownEpochs::<T>::set(0);
             // NodeDelegateStakeCooldownEpochs::<T>::put(0);
             // StakeCooldownEpochs::<T>::put(0);
@@ -10585,9 +10678,6 @@ pub mod pallet {
             // Enable subnets to register right when conditions are met
             // MinSubnetRegistrationEpochs::<T>::set(0);
             // OverwatchEpochLengthMultiplier::<T>::set(1);
-            // OverwatchMinRepScore::<T>::set(0);
-            // OverwatchMinAvgAttestationRatio::<T>::set(0);
-            // OverwatchMinAge::<T>::set(0);
             // DelegateStakeCooldownEpochs::<T>::set(1);
             // NodeDelegateStakeCooldownEpochs::<T>::put(1);
             // StakeCooldownEpochs::<T>::put(1);
@@ -10847,11 +10937,6 @@ pub mod pallet {
             //     });
 
             //     TotalDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(delegate_stake_amount));
-
-            //     ColdkeyReputation::<T>::mutate(&account_id.clone(), |rep| {
-            //         rep.lifetime_node_count = rep.lifetime_node_count.saturating_add(1);
-            //         rep.total_active_nodes = rep.total_active_nodes.saturating_add(1);
-            //     });
 
             //     let current_count = NodeRegistrationsThisEpoch::<T>::get(subnet_id);
             //     NodeRegistrationsThisEpoch::<T>::insert(subnet_id, current_count.saturating_add(1));

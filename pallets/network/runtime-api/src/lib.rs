@@ -20,10 +20,11 @@
 #![cfg_attr(not(feature = "std"), no_std)]
 use fp_account::AccountId20;
 use network_rpc_types::{
-    ConsensusRoundInfo, NetworkQueryError, OverwatchNodeInfo, OverwatchNodesPage, PageRequest,
-    SubnetBootnodes, SubnetEpochStatus, SubnetInfo, SubnetNodeCursor, SubnetNodeInfo,
-    SubnetNodesPage, SubnetValidatorNodesPage, SubnetsPage, ValidatorInfo,
-    ValidatorNodeAllocationsPage, ValidatorNodeStakesPage, ValidatorNodesPage,
+    ConsensusRoundInfo, EffectiveOverwatchSignalMeta, EffectiveOverwatchSubnetWeight,
+    NetworkQueryError, OverwatchNodeInfo, OverwatchNodesPage, PageRequest, SubnetBootnodes,
+    SubnetEpochStatus, SubnetInfo, SubnetNodeCursor, SubnetNodeInfo, SubnetNodesPage,
+    SubnetValidatorNodesPage, SubnetsPage, ValidatorInfo, ValidatorNodeAllocationsPage,
+    ValidatorNodeStakesPage, ValidatorNodesPage,
 };
 
 sp_api::decl_runtime_apis! {
@@ -69,5 +70,8 @@ sp_api::decl_runtime_apis! {
       -> Option<OverwatchNodeInfo<AccountId20>>;
     fn get_overwatch_nodes(request: PageRequest<u32>)
       -> Result<OverwatchNodesPage<AccountId20>, NetworkQueryError>;
+    fn get_effective_overwatch_signal_meta() -> EffectiveOverwatchSignalMeta;
+    fn get_effective_overwatch_subnet_weight(subnet_id: u32)
+      -> EffectiveOverwatchSubnetWeight;
   }
 }

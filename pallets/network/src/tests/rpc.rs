@@ -511,11 +511,11 @@ fn test_get_validators_and_attestors() {
 }
 
 #[test]
-fn test_get_all_overwatch_nodes_info() {
+fn test_get_overwatch_nodes_page() {
     new_test_ext().execute_with(|| {
-        let overwatch_nodes_info = Network::get_all_overwatch_nodes_info();
-
-        // assert!(overwatch_nodes_info.len() == 12, "Should have overwatch nodes");
+        let page = Network::rpc_get_overwatch_nodes(PageRequest::default()).unwrap();
+        assert!(page.items.is_empty());
+        assert!(page.next_cursor.is_none());
     })
 }
 
@@ -704,7 +704,7 @@ fn effective_validator_rpc_ignores_pending_emergency_set() {
         SubnetElectedValidator::<Test>::remove(subnet_id, subnet_epoch);
         Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
         let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
-        assert!(!round.emergency);
+        assert!(round.emergency.is_none());
         assert!(!EmergencySubnetNodeElectionData::<Test>::contains_key(
             subnet_id
         ));
@@ -845,7 +845,50 @@ fn subnet_pages_are_bounded_and_resume_after_cursor() {
 fn stale_overwatch_validator_mapping_is_not_rpc_membership() {
     new_test_ext().execute_with(|| {
         OverwatchNodeValidatorId::<Test>::insert(77, 1);
-        assert!(Network::get_overwatch_node_info(77).is_none());
         assert!(Network::rpc_get_overwatch_node_info(77).is_none());
+    });
+}
+
+#[test]
+fn effective_overwatch_rpc_views_preserve_zero_and_default_semantics() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 7;
+        let default_weight = test_percent(1, 10);
+        crate::DefaultOverwatchSubnetWeight::<Test>::set(default_weight);
+        crate::OverwatchWeightFactor::<Test>::set(test_percent(1, 2));
+        let mut raw_weights = frame_support::BoundedBTreeMap::new();
+        raw_weights.try_insert(subnet_id, 0).unwrap();
+        crate::LatestEffectiveOverwatchSignal::<Test>::put(
+            crate::EffectiveOverwatchSignal::<Test> {
+                source_epoch: 12,
+                valid: true,
+                subnet_weights: raw_weights,
+            },
+        );
+        crate::LatestOverwatchSignalRevision::<Test>::put(4);
+
+        let meta = Network::rpc_get_effective_overwatch_signal_meta();
+        assert!(meta.exists);
+        assert!(meta.valid);
+        assert_eq!(meta.source_epoch, 12);
+        assert_eq!(meta.revision, 4);
+
+        let explicit_zero = Network::rpc_get_effective_overwatch_subnet_weight(subnet_id);
+        assert!(explicit_zero.raw_weight_exists);
+        assert_eq!(explicit_zero.raw_weight.0, 0);
+        assert_eq!(explicit_zero.resolved_weight.0, 0);
+
+        let missing = Network::rpc_get_effective_overwatch_subnet_weight(subnet_id + 1);
+        assert!(!missing.raw_weight_exists);
+        assert_eq!(missing.raw_weight.0, 0);
+        assert_eq!(missing.resolved_weight.0, default_weight);
+
+        crate::LatestEffectiveOverwatchSignal::<Test>::mutate(|signal| {
+            signal.as_mut().unwrap().valid = false;
+        });
+        let invalid = Network::rpc_get_effective_overwatch_subnet_weight(subnet_id);
+        assert!(invalid.raw_weight_exists);
+        assert_eq!(invalid.raw_weight.0, 0);
+        assert_eq!(invalid.resolved_weight.0, default_weight);
     });
 }

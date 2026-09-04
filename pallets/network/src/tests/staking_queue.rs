@@ -1028,61 +1028,61 @@ fn test_execute_ready_swap_calls() {
 }
 
 #[test]
-fn test_queued_principal_underflow_defers_before_destination_credit() {
+fn test_queued_principal_underflow_rotates_and_allows_trailing_credit() {
     new_test_ext().execute_with(|| {
-        const QUEUED_BALANCE: u128 = 1_000;
+        const VALIDATOR_ID: u32 = 71;
+        const BLOCKED_BALANCE: u128 = 1_000;
+        const TRAILING_BALANCE: u128 = 100;
 
-        let subnet_name: Vec<u8> = "queued-principal-underflow-credit".into();
-        build_activated_subnet(
-            subnet_name.clone(),
-            0,
-            4,
-            10_000_000_000_000_000_000_000,
-            MinSubnetMinStake::<Test>::get(),
-        );
-        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
-        let staker = account(970);
-        let queue_id = NextSwapQueueId::<Test>::get();
+        manual_insert_validator(VALIDATOR_ID, 970, 971);
+        let blocked_staker = account(972);
+        let trailing_staker = account(973);
+        let blocked_queue_id = NextSwapQueueId::<Test>::get();
         assert_ok!(Network::queue_swap(
-            staker.clone(),
-            QueuedSwapCall::SwapToSubnetDelegateStake {
-                account_id: staker.clone(),
-                to_subnet_id: subnet_id,
-                balance: QUEUED_BALANCE,
+            blocked_staker.clone(),
+            QueuedSwapCall::SwapToValidatorDelegateStake {
+                account_id: blocked_staker.clone(),
+                to_validator_id: VALIDATOR_ID,
+                balance: BLOCKED_BALANCE,
             },
         ));
-        let queued_item = SwapCallQueue::<Test>::get(queue_id).unwrap();
-        let queue_order = SwapQueueOrder::<Test>::get();
-        let destination_account_shares =
-            AccountSubnetDelegateStakeShares::<Test>::get(&staker, subnet_id);
-        let destination_pool_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-        let destination_pool_shares = TotalSubnetDelegateStakeShares::<Test>::get(subnet_id);
-        let event_count = System::events().len();
+        let trailing_queue_id = NextSwapQueueId::<Test>::get();
+        assert_ok!(Network::queue_swap(
+            trailing_staker.clone(),
+            QueuedSwapCall::SwapToValidatorDelegateStake {
+                account_id: trailing_staker.clone(),
+                to_validator_id: VALIDATOR_ID,
+                balance: TRAILING_BALANCE,
+            },
+        ));
+        let blocked_item = SwapCallQueue::<Test>::get(blocked_queue_id).unwrap();
 
-        TotalQueuedSwapPrincipal::<Test>::set(QUEUED_BALANCE - 1);
-        let execution_block = queued_item
+        // The corrupted total cannot cover the head, but it can cover the trailing item.
+        TotalQueuedSwapPrincipal::<Test>::set(TRAILING_BALANCE);
+        let execution_block = blocked_item
             .queued_at_block
-            .saturating_add(queued_item.execute_after_blocks);
+            .saturating_add(blocked_item.execute_after_blocks);
         System::set_block_number(execution_block);
-        Network::execute_ready_swap_calls(execution_block, &mut WeightMeter::new());
+        Network::execute_ready_swap_calls_with_limit(execution_block, 2, &mut WeightMeter::new());
 
-        assert_eq!(SwapCallQueue::<Test>::get(queue_id), Some(queued_item));
-        assert_eq!(SwapQueueOrder::<Test>::get(), queue_order);
+        assert_eq!(
+            SwapCallQueue::<Test>::get(blocked_queue_id),
+            Some(blocked_item)
+        );
+        assert!(SwapCallQueue::<Test>::get(trailing_queue_id).is_none());
+        assert_eq!(
+            SwapQueueOrder::<Test>::get().as_slice(),
+            &[blocked_queue_id]
+        );
         assert_eq!(SwapQueueCount::<Test>::get(), 1);
-        assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), QUEUED_BALANCE - 1);
+        assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), 0);
         assert_eq!(
-            AccountSubnetDelegateStakeShares::<Test>::get(&staker, subnet_id),
-            destination_account_shares
+            AccountValidatorDelegateStakeShares::<Test>::get(&blocked_staker, VALIDATOR_ID),
+            0
         );
-        assert_eq!(
-            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
-            destination_pool_balance
+        assert!(
+            AccountValidatorDelegateStakeShares::<Test>::get(&trailing_staker, VALIDATOR_ID) > 0
         );
-        assert_eq!(
-            TotalSubnetDelegateStakeShares::<Test>::get(subnet_id),
-            destination_pool_shares
-        );
-        assert_eq!(System::events().len(), event_count);
     });
 }
 
@@ -1119,6 +1119,161 @@ fn test_queued_principal_underflow_defers_before_refund() {
         assert!(StakeUnbondingLedger::<Test>::get(&staker).is_empty());
         assert_eq!(TotalNetworkUnbondingBalance::<Test>::get(), 0);
         assert_eq!(System::events().len(), event_count);
+    });
+}
+
+#[test]
+fn test_immature_head_stops_without_reordering_ready_tail() {
+    new_test_ext().execute_with(|| {
+        const VALIDATOR_ID: u32 = 72;
+        const QUEUED_BALANCE: u128 = 1_000;
+
+        manual_insert_validator(VALIDATOR_ID, 974, 975);
+        let head_staker = account(976);
+        let tail_staker = account(977);
+        let head_id = NextSwapQueueId::<Test>::get();
+        assert_ok!(Network::queue_swap(
+            head_staker.clone(),
+            QueuedSwapCall::SwapToValidatorDelegateStake {
+                account_id: head_staker.clone(),
+                to_validator_id: VALIDATOR_ID,
+                balance: QUEUED_BALANCE,
+            },
+        ));
+        let tail_id = NextSwapQueueId::<Test>::get();
+        assert_ok!(Network::queue_swap(
+            tail_staker.clone(),
+            QueuedSwapCall::SwapToValidatorDelegateStake {
+                account_id: tail_staker.clone(),
+                to_validator_id: VALIDATOR_ID,
+                balance: QUEUED_BALANCE,
+            },
+        ));
+        SwapCallQueue::<Test>::mutate(tail_id, |maybe_item| {
+            maybe_item.as_mut().unwrap().execute_after_blocks = 0;
+        });
+
+        let head_item = SwapCallQueue::<Test>::get(head_id).unwrap();
+        let tail_item = SwapCallQueue::<Test>::get(tail_id).unwrap();
+        let block = System::block_number();
+        Network::execute_ready_swap_calls_with_limit(block, 2, &mut WeightMeter::new());
+
+        assert_eq!(SwapCallQueue::<Test>::get(head_id), Some(head_item));
+        assert_eq!(SwapCallQueue::<Test>::get(tail_id), Some(tail_item));
+        assert_eq!(
+            SwapQueueOrder::<Test>::get().as_slice(),
+            &[head_id, tail_id]
+        );
+        assert_eq!(SwapQueueCount::<Test>::get(), 2);
+        assert_eq!(
+            TotalQueuedSwapPrincipal::<Test>::get(),
+            QUEUED_BALANCE.saturating_mul(2)
+        );
+        assert_queued_swap_principal_invariant();
+        assert_eq!(
+            AccountValidatorDelegateStakeShares::<Test>::get(&tail_staker, VALIDATOR_ID),
+            0
+        );
+    });
+}
+
+#[test]
+fn test_stale_queue_id_is_dropped_and_ready_tail_progresses() {
+    new_test_ext().execute_with(|| {
+        const VALIDATOR_ID: u32 = 73;
+        const QUEUED_BALANCE: u128 = 1_000;
+
+        manual_insert_validator(VALIDATOR_ID, 978, 979);
+        let stale_staker = account(980);
+        let valid_staker = account(981);
+        let stale_id = NextSwapQueueId::<Test>::get();
+        assert_ok!(Network::queue_swap(
+            stale_staker.clone(),
+            QueuedSwapCall::SwapToValidatorDelegateStake {
+                account_id: stale_staker.clone(),
+                to_validator_id: VALIDATOR_ID,
+                balance: QUEUED_BALANCE,
+            },
+        ));
+        let valid_id = NextSwapQueueId::<Test>::get();
+        assert_ok!(Network::queue_swap(
+            valid_staker.clone(),
+            QueuedSwapCall::SwapToValidatorDelegateStake {
+                account_id: valid_staker.clone(),
+                to_validator_id: VALIDATOR_ID,
+                balance: QUEUED_BALANCE,
+            },
+        ));
+
+        // Simulate an order/map inconsistency while keeping principal accounting tied to the map.
+        SwapCallQueue::<Test>::remove(stale_id);
+        TotalQueuedSwapPrincipal::<Test>::set(QUEUED_BALANCE);
+        assert_queued_swap_principal_invariant();
+
+        let execution_block = System::block_number()
+            .saturating_add(EpochLength::get())
+            .saturating_add(1);
+        System::set_block_number(execution_block);
+        Network::execute_ready_swap_calls_with_limit(execution_block, 2, &mut WeightMeter::new());
+
+        assert!(SwapCallQueue::<Test>::get(valid_id).is_none());
+        assert!(SwapQueueOrder::<Test>::get().is_empty());
+        assert_eq!(SwapQueueCount::<Test>::get(), 0);
+        assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), 0);
+        assert_queued_swap_principal_invariant();
+        assert_eq!(
+            AccountValidatorDelegateStakeShares::<Test>::get(&stale_staker, VALIDATOR_ID),
+            0
+        );
+        assert!(AccountValidatorDelegateStakeShares::<Test>::get(&valid_staker, VALIDATOR_ID) > 0);
+    });
+}
+
+#[test]
+fn test_zero_unbonding_capacity_rotates_refund_and_allows_ready_tail() {
+    new_test_ext().execute_with(|| {
+        const VALIDATOR_ID: u32 = 74;
+        const QUEUED_BALANCE: u128 = 1_000;
+
+        manual_insert_validator(VALIDATOR_ID, 982, 983);
+        MaxUnbondings::<Test>::set(0);
+        let blocked_staker = account(984);
+        let valid_staker = account(985);
+        let blocked_id = NextSwapQueueId::<Test>::get();
+        assert_ok!(Network::queue_swap(
+            blocked_staker.clone(),
+            QueuedSwapCall::SwapToSubnetDelegateStake {
+                account_id: blocked_staker.clone(),
+                to_subnet_id: u32::MAX,
+                balance: QUEUED_BALANCE,
+            },
+        ));
+        let valid_id = NextSwapQueueId::<Test>::get();
+        assert_ok!(Network::queue_swap(
+            valid_staker.clone(),
+            QueuedSwapCall::SwapToValidatorDelegateStake {
+                account_id: valid_staker.clone(),
+                to_validator_id: VALIDATOR_ID,
+                balance: QUEUED_BALANCE,
+            },
+        ));
+        let blocked_item = SwapCallQueue::<Test>::get(blocked_id).unwrap();
+
+        let execution_block = System::block_number()
+            .saturating_add(EpochLength::get())
+            .saturating_add(1);
+        System::set_block_number(execution_block);
+        Network::execute_ready_swap_calls_with_limit(execution_block, 2, &mut WeightMeter::new());
+
+        assert_eq!(SwapCallQueue::<Test>::get(blocked_id), Some(blocked_item));
+        assert!(SwapCallQueue::<Test>::get(valid_id).is_none());
+        assert_eq!(SwapQueueOrder::<Test>::get().as_slice(), &[blocked_id]);
+        assert_eq!(SwapQueueCount::<Test>::get(), 1);
+        assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), QUEUED_BALANCE);
+        assert_queued_swap_principal_invariant();
+        assert!(StakeUnbondingLedger::<Test>::get(&blocked_staker).is_empty());
+        assert_eq!(TotalNetworkUnbondingBalance::<Test>::get(), 0);
+        assert!(AccountValidatorDelegateStakeShares::<Test>::get(&valid_staker, VALIDATOR_ID) > 0);
     });
 }
 
@@ -1410,7 +1565,7 @@ fn test_execute_ready_swap_refunds_zero_share_validator_without_mutating_destina
 }
 
 #[test]
-fn test_full_unbonding_ledger_defers_complete_fifo_item_then_retries() {
+fn test_refund_blocked_head_rotates_then_trailing_swap_and_exact_refund_complete() {
     new_test_ext().execute_with(|| {
         const VALIDATOR_ID: u32 = 1;
         const QUEUED_BALANCE: u128 = 1_000;
@@ -1464,25 +1619,23 @@ fn test_full_unbonding_ledger_defers_complete_fifo_item_then_retries() {
         TotalNetworkUnbondingBalance::<Test>::set(full_ledger_total);
 
         let blocked_item = SwapCallQueue::<Test>::get(blocked_queue_id).unwrap();
-        let trailing_item = SwapCallQueue::<Test>::get(trailing_queue_id).unwrap();
-        let queue_before = SwapQueueOrder::<Test>::get();
         assert_eq!(
             TotalQueuedSwapPrincipal::<Test>::get(),
             QUEUED_BALANCE.saturating_mul(2)
         );
         assert_queued_swap_principal_invariant();
 
-        Network::execute_ready_swap_calls(execution_block, &mut WeightMeter::new());
+        Network::execute_ready_swap_calls_with_limit(execution_block, 1, &mut WeightMeter::new());
 
         assert_eq!(
             SwapCallQueue::<Test>::get(blocked_queue_id),
-            Some(blocked_item)
+            Some(blocked_item.clone())
         );
+        assert!(SwapCallQueue::<Test>::contains_key(trailing_queue_id));
         assert_eq!(
-            SwapCallQueue::<Test>::get(trailing_queue_id),
-            Some(trailing_item.clone())
+            SwapQueueOrder::<Test>::get().as_slice(),
+            &[trailing_queue_id, blocked_queue_id]
         );
-        assert_eq!(SwapQueueOrder::<Test>::get(), queue_before);
         assert_eq!(SwapQueueCount::<Test>::get(), 2);
         assert_eq!(
             StakeUnbondingLedger::<Test>::get(&blocked_staker),
@@ -1502,6 +1655,24 @@ fn test_full_unbonding_ledger_defers_complete_fifo_item_then_retries() {
             0
         );
 
+        Network::execute_ready_swap_calls_with_limit(execution_block, 1, &mut WeightMeter::new());
+
+        assert_eq!(
+            SwapCallQueue::<Test>::get(blocked_queue_id),
+            Some(blocked_item)
+        );
+        assert!(SwapCallQueue::<Test>::get(trailing_queue_id).is_none());
+        assert_eq!(
+            SwapQueueOrder::<Test>::get().as_slice(),
+            &[blocked_queue_id]
+        );
+        assert_eq!(SwapQueueCount::<Test>::get(), 1);
+        assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), QUEUED_BALANCE);
+        assert_queued_swap_principal_invariant();
+        assert!(
+            AccountValidatorDelegateStakeShares::<Test>::get(&trailing_staker, VALIDATOR_ID) > 0
+        );
+
         let freed_claim_block = claim_block.saturating_add(1);
         let freed_balance = full_ledger.remove(&freed_claim_block).unwrap();
         StakeUnbondingLedger::<Test>::insert(&blocked_staker, full_ledger);
@@ -1510,16 +1681,9 @@ fn test_full_unbonding_ledger_defers_complete_fifo_item_then_retries() {
         Network::execute_ready_swap_calls_with_limit(execution_block, 1, &mut WeightMeter::new());
 
         assert!(SwapCallQueue::<Test>::get(blocked_queue_id).is_none());
-        assert_eq!(
-            SwapCallQueue::<Test>::get(trailing_queue_id),
-            Some(trailing_item)
-        );
-        assert_eq!(
-            SwapQueueOrder::<Test>::get().as_slice(),
-            &[trailing_queue_id]
-        );
-        assert_eq!(SwapQueueCount::<Test>::get(), 1);
-        assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), QUEUED_BALANCE);
+        assert!(SwapQueueOrder::<Test>::get().is_empty());
+        assert_eq!(SwapQueueCount::<Test>::get(), 0);
+        assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), 0);
         assert_queued_swap_principal_invariant();
         assert_eq!(
             StakeUnbondingLedger::<Test>::get(&blocked_staker).get(&claim_block),
@@ -1531,21 +1695,6 @@ fn test_full_unbonding_ledger_defers_complete_fifo_item_then_retries() {
         assert_eq!(
             TotalNetworkUnbondingBalance::<Test>::get(),
             full_ledger_total - freed_balance.network + QUEUED_BALANCE
-        );
-        assert_eq!(
-            AccountValidatorDelegateStakeShares::<Test>::get(&trailing_staker, VALIDATOR_ID),
-            0
-        );
-
-        Network::execute_ready_swap_calls_with_limit(execution_block, 1, &mut WeightMeter::new());
-
-        assert!(SwapCallQueue::<Test>::get(trailing_queue_id).is_none());
-        assert!(SwapQueueOrder::<Test>::get().is_empty());
-        assert_eq!(SwapQueueCount::<Test>::get(), 0);
-        assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), 0);
-        assert_queued_swap_principal_invariant();
-        assert!(
-            AccountValidatorDelegateStakeShares::<Test>::get(&trailing_staker, VALIDATOR_ID) > 0
         );
         assert!(network_events().iter().any(|event| {
             matches!(
@@ -1574,6 +1723,224 @@ fn test_full_unbonding_ledger_defers_complete_fifo_item_then_retries() {
                     && *shares > 0
             )
         }));
+    });
+}
+
+#[test]
+fn test_all_refund_blocked_items_are_attempted_once_per_invocation() {
+    new_test_ext().execute_with(|| {
+        const VALIDATOR_ID: u32 = 75;
+        const QUEUED_BALANCE: u128 = 1_000;
+        const POOL_SHARES: u128 = 100;
+        const POOL_BALANCE: u128 = 100;
+
+        let staker = account(914);
+        manual_insert_validator(VALIDATOR_ID, 916, 917);
+        // Make the second item consume the destination-credit path before its refund blocks.
+        // The first item goes directly to the blocked refund path, giving each ID a distinct
+        // observable attempt weight without changing production instrumentation.
+        AccountValidatorDelegateStakeShares::<Test>::insert(&staker, VALIDATOR_ID, u128::MAX);
+        ValidatorDelegateStakeShares::<Test>::insert(VALIDATOR_ID, POOL_SHARES);
+        ValidatorDelegateStakeBalance::<Test>::insert(VALIDATOR_ID, POOL_BALANCE);
+        TotalValidatorDelegateStakeBalance::<Test>::set(POOL_BALANCE);
+        assert!(Network::convert_to_shares(QUEUED_BALANCE, POOL_SHARES, POOL_BALANCE) > 0);
+
+        let first_id = NextSwapQueueId::<Test>::get();
+        assert_ok!(Network::queue_swap(
+            staker.clone(),
+            QueuedSwapCall::SwapToSubnetDelegateStake {
+                account_id: staker.clone(),
+                to_subnet_id: u32::MAX,
+                balance: QUEUED_BALANCE,
+            },
+        ));
+        let second_id = NextSwapQueueId::<Test>::get();
+        assert_ok!(Network::queue_swap(
+            staker.clone(),
+            QueuedSwapCall::SwapToValidatorDelegateStake {
+                account_id: staker.clone(),
+                to_validator_id: VALIDATOR_ID,
+                balance: QUEUED_BALANCE,
+            },
+        ));
+
+        let execution_block = System::block_number()
+            .saturating_add(EpochLength::get())
+            .saturating_add(1);
+        System::set_block_number(execution_block);
+        let claim_block = execution_block.saturating_add(
+            DelegateStakeCooldownEpochs::<Test>::get().saturating_mul(EpochLength::get()),
+        );
+        let mut full_ledger = sp_std::collections::btree_map::BTreeMap::new();
+        for offset in 1..=MaxUnbondings::<Test>::get() {
+            full_ledger.insert(
+                claim_block.saturating_add(offset),
+                UnbondingEntry {
+                    network: offset as u128,
+                    overwatch: 0,
+                },
+            );
+        }
+        assert_eq!(full_ledger.len() as u32, MaxUnbondings::<Test>::get());
+        let full_ledger_total = full_ledger
+            .values()
+            .map(|entry| entry.network)
+            .fold(0u128, |total, balance| total.saturating_add(balance));
+        StakeUnbondingLedger::<Test>::insert(&staker, full_ledger.clone());
+        TotalNetworkUnbondingBalance::<Test>::set(full_ledger_total);
+
+        let mut queue_only_meter = WeightMeter::new();
+        Network::execute_ready_swap_calls_with_limit(execution_block, 0, &mut queue_only_meter);
+        assert_eq!(
+            SwapQueueOrder::<Test>::get().as_slice(),
+            &[first_id, second_id]
+        );
+
+        let mut direct_refund_meter = WeightMeter::new();
+        Network::execute_ready_swap_calls_with_limit(execution_block, 1, &mut direct_refund_meter);
+        assert_eq!(
+            SwapQueueOrder::<Test>::get().as_slice(),
+            &[second_id, first_id]
+        );
+
+        let mut credit_then_refund_meter = WeightMeter::new();
+        Network::execute_ready_swap_calls_with_limit(
+            execution_block,
+            1,
+            &mut credit_then_refund_meter,
+        );
+        assert_eq!(
+            SwapQueueOrder::<Test>::get().as_slice(),
+            &[first_id, second_id]
+        );
+        assert!(
+            credit_then_refund_meter.consumed().ref_time()
+                > direct_refund_meter.consumed().ref_time()
+        );
+
+        let mut exact_attempt_meter = WeightMeter::new();
+        Network::execute_ready_swap_calls_with_limit(execution_block, 2, &mut exact_attempt_meter);
+        assert_eq!(
+            SwapQueueOrder::<Test>::get().as_slice(),
+            &[first_id, second_id]
+        );
+        let direct_item_weight = direct_refund_meter
+            .consumed()
+            .saturating_sub(queue_only_meter.consumed());
+        let credit_then_refund_item_weight = credit_then_refund_meter
+            .consumed()
+            .saturating_sub(queue_only_meter.consumed());
+        assert_eq!(
+            exact_attempt_meter.consumed(),
+            queue_only_meter
+                .consumed()
+                .saturating_add(direct_item_weight)
+                .saturating_add(credit_then_refund_item_weight)
+        );
+
+        let mut excess_limit_meter = WeightMeter::new();
+        Network::execute_ready_swap_calls_with_limit(
+            execution_block,
+            u32::MAX,
+            &mut excess_limit_meter,
+        );
+        assert_eq!(
+            SwapQueueOrder::<Test>::get().as_slice(),
+            &[first_id, second_id]
+        );
+        assert_eq!(
+            excess_limit_meter.consumed(),
+            exact_attempt_meter.consumed()
+        );
+        assert_eq!(SwapQueueCount::<Test>::get(), 2);
+        assert_eq!(SwapCallQueue::<Test>::iter().count(), 2);
+        assert_eq!(
+            TotalQueuedSwapPrincipal::<Test>::get(),
+            QUEUED_BALANCE.saturating_mul(2)
+        );
+        assert_queued_swap_principal_invariant();
+        assert_eq!(StakeUnbondingLedger::<Test>::get(&staker), full_ledger);
+        assert_eq!(
+            TotalNetworkUnbondingBalance::<Test>::get(),
+            full_ledger_total
+        );
+        assert_eq!(
+            AccountValidatorDelegateStakeShares::<Test>::get(&staker, VALIDATOR_ID),
+            u128::MAX
+        );
+        assert_eq!(
+            ValidatorDelegateStakeShares::<Test>::get(VALIDATOR_ID),
+            POOL_SHARES
+        );
+        assert_eq!(
+            ValidatorDelegateStakeBalance::<Test>::get(VALIDATOR_ID),
+            POOL_BALANCE
+        );
+    });
+}
+
+#[test]
+fn test_full_unbonding_ledger_merges_refund_into_existing_claim_block() {
+    new_test_ext().execute_with(|| {
+        const QUEUED_BALANCE: u128 = 1_000;
+
+        let staker = account(915);
+        let queue_id = NextSwapQueueId::<Test>::get();
+        assert_ok!(Network::queue_swap(
+            staker.clone(),
+            QueuedSwapCall::SwapToSubnetDelegateStake {
+                account_id: staker.clone(),
+                to_subnet_id: u32::MAX,
+                balance: QUEUED_BALANCE,
+            },
+        ));
+        let execution_block = System::block_number()
+            .saturating_add(EpochLength::get())
+            .saturating_add(1);
+        System::set_block_number(execution_block);
+        let claim_block = execution_block.saturating_add(
+            DelegateStakeCooldownEpochs::<Test>::get().saturating_mul(EpochLength::get()),
+        );
+
+        assert!(MaxUnbondings::<Test>::get() > 0);
+        let mut full_ledger = sp_std::collections::btree_map::BTreeMap::new();
+        for offset in 0..MaxUnbondings::<Test>::get() {
+            full_ledger.insert(
+                claim_block.saturating_add(offset),
+                UnbondingEntry {
+                    network: offset as u128 + 1,
+                    overwatch: 0,
+                },
+            );
+        }
+        let original_claim_balance = full_ledger.get(&claim_block).unwrap().network;
+        let full_ledger_total = full_ledger
+            .values()
+            .map(|entry| entry.network)
+            .fold(0u128, |total, balance| total.saturating_add(balance));
+        StakeUnbondingLedger::<Test>::insert(&staker, full_ledger);
+        TotalNetworkUnbondingBalance::<Test>::set(full_ledger_total);
+
+        Network::execute_ready_swap_calls_with_limit(execution_block, 1, &mut WeightMeter::new());
+
+        assert!(SwapCallQueue::<Test>::get(queue_id).is_none());
+        assert!(SwapQueueOrder::<Test>::get().is_empty());
+        assert_eq!(SwapQueueCount::<Test>::get(), 0);
+        assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), 0);
+        assert_queued_swap_principal_invariant();
+        let ledger = StakeUnbondingLedger::<Test>::get(&staker);
+        assert_eq!(ledger.len() as u32, MaxUnbondings::<Test>::get());
+        assert_eq!(
+            ledger.get(&claim_block),
+            Some(&UnbondingEntry {
+                network: original_claim_balance + QUEUED_BALANCE,
+                overwatch: 0,
+            })
+        );
+        assert_eq!(
+            TotalNetworkUnbondingBalance::<Test>::get(),
+            full_ledger_total + QUEUED_BALANCE
+        );
     });
 }
 

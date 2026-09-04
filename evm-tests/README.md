@@ -16,9 +16,6 @@ Some tests have time constraints conditions, set the `build` function with seede
 fn build(&self) {
     MinSubnetRegistrationEpochs::<T>::set(0);
     OverwatchEpochLengthMultiplier::<T>::set(1);
-    OverwatchMinRepScore::<T>::set(0);
-    OverwatchMinAvgAttestationRatio::<T>::set(0);
-    OverwatchMinAge::<T>::set(0);
     DelegateStakeCooldownEpochs::<T>::set(0);
     NodeDelegateStakeCooldownEpochs::<T>::put(0);
     StakeCooldownEpochs::<T>::put(0);
@@ -91,6 +88,9 @@ test -- -g "testing register subnet-0xzmghoq5702"
 
 - Some tests require isolation due to subnet registration intervals.
 - These test suites only verify the precompiles call the functions and they do and store the data that is expected. For logic tests see the pallets directory.
+- The raw `overwatchCommits` and `overwatchReveals` views expose ephemeral protocol rows, not
+  history: commits are consumed at epoch close, reveals at settlement, and both disappear when a
+  participating node is structurally removed. The views revert when the requested row is absent.
 
 ## Todos
 

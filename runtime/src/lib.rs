@@ -723,9 +723,9 @@ parameter_types! {
     pub const NetworkMaxPhysicalSubnetsUpperBound: u32 =
         pallet_network::physical_subnet_upper_bound(BLOCKS_PER_EPOCH);
     pub const NetworkMaxSubnetNodesUpperBound: u32 = 512;
-    pub const NetworkMaxConsensusNodeRemovalsPerSettlement: u32 = 4;
     pub const NetworkMaxValidatorNodesUpperBound: u32 = 512;
     pub const NetworkMaxOverwatchNodesUpperBound: u32 = 64;
+    pub const NetworkMaxOverwatchCommitCutoffPercent: u128 = 950_000_000_000_000_000;
     pub const NetworkMaxBootnodesUpperBound: u32 = 256;
     pub const NetworkMaxSubnetBootnodeAccessUpperBound: u32 = 256;
     pub const NetworkMaxChurnLimitUpperBound: u32 = 64;
@@ -764,9 +764,9 @@ impl pallet_network::Config for Runtime {
     type InitialSubnetUid = NetworkInitialSubnetUid;
     type MaxPhysicalSubnetsUpperBound = NetworkMaxPhysicalSubnetsUpperBound;
     type MaxSubnetNodesUpperBound = NetworkMaxSubnetNodesUpperBound;
-    type MaxConsensusNodeRemovalsPerSettlement = NetworkMaxConsensusNodeRemovalsPerSettlement;
     type MaxValidatorNodesUpperBound = NetworkMaxValidatorNodesUpperBound;
     type MaxOverwatchNodesUpperBound = NetworkMaxOverwatchNodesUpperBound;
+    type MaxOverwatchCommitCutoffPercent = NetworkMaxOverwatchCommitCutoffPercent;
     type MaxBootnodesUpperBound = NetworkMaxBootnodesUpperBound;
     type MaxSubnetBootnodeAccessUpperBound = NetworkMaxSubnetBootnodeAccessUpperBound;
     type MaxChurnLimitUpperBound = NetworkMaxChurnLimitUpperBound;
@@ -1652,6 +1652,17 @@ impl_runtime_apis! {
             network_rpc_types::NetworkQueryError,
         > {
             Network::rpc_get_overwatch_nodes(request)
+        }
+
+        fn get_effective_overwatch_signal_meta(
+        ) -> network_rpc_types::EffectiveOverwatchSignalMeta {
+            Network::rpc_get_effective_overwatch_signal_meta()
+        }
+
+        fn get_effective_overwatch_subnet_weight(
+            subnet_id: u32,
+        ) -> network_rpc_types::EffectiveOverwatchSubnetWeight {
+            Network::rpc_get_effective_overwatch_subnet_weight(subnet_id)
         }
     }
 

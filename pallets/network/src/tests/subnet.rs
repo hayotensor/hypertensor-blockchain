@@ -43,9 +43,9 @@ use crate::{
     TotalNodes, TotalOverwatchNodeStakeBalance, TotalQueuedSwapPrincipal, TotalStake,
     TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeShares, TotalSubnetElectableNodes,
     TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalSubnets,
-    TotalValidatorDelegateStakeBalance, TotalValidatorIds, UniqueParamSubnetNodeId,
-    ValidatorColdkey, ValidatorNodeDelegateStakeWeights, ValidatorReputation, ValidatorSubnetNodes,
-    NETWORK_EPOCH_PRELIMINARIES_SLOT,
+    TotalValidatorDelegateStakeBalance, TotalValidatorIds, TotalValidatorNodes,
+    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorNodeDelegateStakeWeights,
+    ValidatorSubnetNodes, NETWORK_EPOCH_PRELIMINARIES_SLOT,
 };
 use crate::{Event, SubnetRemovalOutcome};
 use codec::{Decode, Encode};
@@ -471,6 +471,9 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
                 Network::percentage_factor_as_u128(),
             );
         });
+        TotalValidatorNodes::<Test>::mutate(active_validator_id, |count| {
+            *count = count.saturating_add(1)
+        });
         TotalSubnetNodes::<Test>::mutate(subnet_id, |count| *count = count.saturating_add(1));
         TotalNodes::<Test>::mutate(|count| *count = count.saturating_add(1));
         TotalSubnetNodeUids::<Test>::insert(subnet_id, queued_node_id);
@@ -607,7 +610,7 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
         let total_nodes_before = TotalNodes::<Test>::get();
         let total_electable_nodes_before = TotalElectableNodes::<Test>::get();
         let removed_electable_nodes = SubnetNodeElectionSlots::<Test>::get(subnet_id).len() as u32;
-        let validator_reputation_before = ValidatorReputation::<Test>::get(active_validator_id);
+        let total_validator_nodes_before = TotalValidatorNodes::<Test>::get(active_validator_id);
         let total_subnet_stake_before = TotalSubnetStake::<Test>::get(subnet_id);
 
         Network::do_remove_subnet(subnet_id, SubnetRemovalReason::Owner);
@@ -774,10 +777,12 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
         assert_eq!(TotalSubnetNodeUids::<Test>::get(subnet_id), 0);
         assert!(!PeerIdOverwatchNodeId::<Test>::contains_key(
             subnet_id,
-            overwatch_peer
+            overwatch_peer.clone()
         ));
+        // Subnet removal clears the subnet-keyed reverse lookup immediately. The owner-wide
+        // Overwatch index is cleaned lazily when that Overwatch node next updates its peer IDs.
         let overwatch_index = OverwatchNodeIndex::<Test>::get(overwatch_node_id);
-        assert!(!overwatch_index.contains_key(&subnet_id));
+        assert_eq!(overwatch_index.get(&subnet_id), Some(&overwatch_peer));
         assert!(overwatch_index.contains_key(&other_subnet_id));
 
         assert_eq!(
@@ -793,14 +798,34 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
             total_electable_nodes_before.saturating_sub(removed_electable_nodes)
         );
         assert_eq!(
-            ValidatorReputation::<Test>::get(active_validator_id).total_active_nodes,
-            validator_reputation_before
-                .total_active_nodes
-                .saturating_sub(1)
+            TotalValidatorNodes::<Test>::get(active_validator_id),
+            total_validator_nodes_before
         );
+        let stale_validator_nodes = ValidatorSubnetNodes::<Test>::get(active_validator_id);
+        let stale_removed_subnet_nodes = stale_validator_nodes
+            .get(&subnet_id)
+            .expect("validator cleanup is intentionally lazy");
+        assert!(stale_removed_subnet_nodes.contains(&active_node_id));
+        assert!(stale_removed_subnet_nodes.contains(&queued_node_id));
+        assert!(
+            ValidatorNodeDelegateStakeWeights::<Test>::get(active_validator_id)
+                .keys()
+                .any(|(stored_subnet_id, _)| *stored_subnet_id == subnet_id)
+        );
+
+        // Owner-wide validator indexes are cleaned on the next validator-owned update rather
+        // than by globally scanning every validator during subnet removal. Manual removal remains
+        // a valid cleanup trigger after the subnet's live state is gone.
+        assert_ok!(Network::remove_subnet_node(
+            RuntimeOrigin::signed(active_coldkey.clone()),
+            subnet_id,
+            active_node_id,
+        ));
+
         assert!(ValidatorSubnetNodes::<Test>::get(active_validator_id)
             .get(&subnet_id)
             .is_none());
+        assert_eq!(TotalValidatorNodes::<Test>::get(active_validator_id), 0);
         assert!(
             ValidatorNodeDelegateStakeWeights::<Test>::get(active_validator_id)
                 .keys()
@@ -3749,7 +3774,7 @@ fn test_try_do_remove_subnet_reports_deferred_and_removed_without_losing_count()
         // The selector fits, but the benchmarked removal reservation does not.
         let db_weight: frame_support::weights::RuntimeDbWeight =
             <Test as frame_system::Config>::DbWeight::get();
-        let selector_weight = db_weight.reads(4);
+        let selector_weight = db_weight.reads(3);
         let mut selector_only = WeightMeter::with_limit(selector_weight);
         assert_eq!(
             Network::try_do_remove_subnet(

@@ -128,7 +128,7 @@ fn test_on_initialize() {
         let overwatch_count = max_overwatch_nodes.min(min_subnet_nodes).max(1);
         let mut overwatch_node_ids = Vec::new();
         for validator_id in 1..=overwatch_count {
-            OverwatchValidatorWhitelist::<Test>::insert(validator_id, true);
+            OverwatchValidatorWhitelist::<Test>::insert(validator_id, ());
             let overwatch_node_id = insert_overwatch_node_v2(validator_id);
             set_overwatch_node_stake(overwatch_node_id, 100);
             assert_ne!(OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id), 0);
@@ -240,9 +240,8 @@ fn test_on_initialize() {
 
             let overwatch_stake_snapshot: BTreeMap<u32, u128> = if runs_overwatch_rewards {
                 let previous_overwatch_epoch = current_overwatch_epoch.saturating_sub(1);
-                if OverwatchReveals::<Test>::iter_prefix((previous_overwatch_epoch,))
-                    .next()
-                    .is_some()
+                if OverwatchReveals::<Test>::iter_prefix(previous_overwatch_epoch)
+                    .any(|(_, reveals)| !reveals.is_empty())
                 {
                     overwatch_node_ids
                         .iter()
@@ -386,13 +385,13 @@ fn test_on_initialize() {
                         for (idx, subnet_id) in subnet_ids.iter().enumerate() {
                             let (_, _, commit_hash) = get_commit(idx as u32);
                             assert_eq!(
-                                OverwatchCommits::<Test>::get((
+                                OverwatchCommits::<Test>::get(
                                     current_overwatch_epoch,
                                     overwatch_node_id,
-                                    *subnet_id,
-                                ))
-                                .unwrap(),
-                                commit_hash
+                                )
+                                .get(subnet_id)
+                                .copied(),
+                                Some(commit_hash)
                             );
                             commits_checked = true;
                         }
@@ -429,13 +428,13 @@ fn test_on_initialize() {
                         for (idx, subnet_id) in subnet_ids.iter().enumerate() {
                             let (weight, _, _) = get_commit(idx as u32);
                             assert_eq!(
-                                OverwatchReveals::<Test>::get((
+                                OverwatchReveals::<Test>::get(
                                     current_overwatch_epoch,
-                                    *subnet_id,
                                     overwatch_node_id,
-                                ))
-                                .unwrap(),
-                                weight
+                                )
+                                .get(subnet_id)
+                                .copied(),
+                                Some(weight)
                             );
                             reveals_checked = true;
                         }

@@ -433,12 +433,10 @@ where
         let subnet_id = try_u256_to_u32(subnet_id)?;
 
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let commit = pallet_network::OverwatchCommits::<R>::get((
-            overwatch_epoch,
-            overwatch_node_id,
-            subnet_id,
-        ))
-        .ok_or(revert("Peer ID overwatch node ID not found"))?;
+        let commit = pallet_network::OverwatchCommits::<R>::get(overwatch_epoch, overwatch_node_id)
+            .get(&subnet_id)
+            .copied()
+            .ok_or(revert("Overwatch commit not found"))?;
 
         let hash_bytes = commit.as_ref();
         let commit_as_h256 = H256::from_slice(hash_bytes);
@@ -459,12 +457,10 @@ where
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
 
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let reveal = pallet_network::OverwatchReveals::<R>::get((
-            overwatch_epoch,
-            subnet_id,
-            overwatch_node_id,
-        ))
-        .ok_or(revert("Peer ID overwatch node ID not found"))?;
+        let reveal = pallet_network::OverwatchReveals::<R>::get(overwatch_epoch, overwatch_node_id)
+            .get(&subnet_id)
+            .copied()
+            .ok_or(revert("Overwatch reveal not found"))?;
 
         let reveal_as_u256 = try_u128_to_u256(reveal)?;
 
@@ -511,37 +507,54 @@ where
         Ok(overwatch_node_weight)
     }
 
-    #[precompile::public("overwatchMinRepScore()")]
+    #[precompile::public("effectiveOverwatchSignalMeta()")]
     #[precompile::view]
-    fn overwatch_min_rep_score(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let value = pallet_network::OverwatchMinRepScore::<R>::get();
+    fn effective_overwatch_signal_meta(
+        handle: &mut impl PrecompileHandle,
+    ) -> EvmResult<(bool, U256, U256, bool)> {
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost().saturating_mul(2))?;
+        let signal = pallet_network::LatestEffectiveOverwatchSignal::<R>::get();
+        let revision = pallet_network::LatestOverwatchSignalRevision::<R>::get();
 
-        let value = try_u128_to_u256(value)?;
-
-        Ok(value)
+        Ok((
+            signal.is_some(),
+            U256::from(signal.as_ref().map_or(0, |signal| signal.source_epoch)),
+            U256::from(revision),
+            signal.is_some_and(|signal| signal.valid),
+        ))
     }
 
-    #[precompile::public("overwatchMinAvgAttestationRatio()")]
+    #[precompile::public("effectiveOverwatchSubnetWeight(uint256)")]
     #[precompile::view]
-    fn overwatch_min_avg_attestation_ratio(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let value = pallet_network::OverwatchMinAvgAttestationRatio::<R>::get();
+    fn effective_overwatch_subnet_weight(
+        handle: &mut impl PrecompileHandle,
+        subnet_id: U256,
+    ) -> EvmResult<(bool, U256, U256)> {
+        let subnet_id = try_u256_to_u32(subnet_id)?;
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost().saturating_mul(3))?;
 
-        let value = try_u128_to_u256(value)?;
+        let signal = pallet_network::LatestEffectiveOverwatchSignal::<R>::get();
+        let raw_weight = signal
+            .as_ref()
+            .and_then(|signal| signal.subnet_weights.get(&subnet_id).copied());
+        let default_weight = pallet_network::DefaultOverwatchSubnetWeight::<R>::get();
+        let overwatch_weight_factor = pallet_network::OverwatchWeightFactor::<R>::get();
+        let resolved_weight = if signal.as_ref().is_some_and(|signal| signal.valid) {
+            raw_weight
+                .map(|weight| {
+                    pallet_network::Pallet::<R>::percent_mul(weight, overwatch_weight_factor)
+                        .min(pallet_network::Pallet::<R>::PERCENTAGE_FACTOR_U128)
+                })
+                .unwrap_or(default_weight)
+        } else {
+            default_weight
+        };
 
-        Ok(value)
-    }
-
-    #[precompile::public("overwatchMinAge()")]
-    #[precompile::view]
-    fn overwatch_min_age(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let value = pallet_network::OverwatchMinAge::<R>::get();
-
-        let value = try_u32_to_u256(value)?;
-
-        Ok(value)
+        Ok((
+            raw_weight.is_some(),
+            try_u128_to_u256(raw_weight.unwrap_or_default())?,
+            try_u128_to_u256(resolved_weight)?,
+        ))
     }
 
     #[precompile::public("overwatchMinStakeBalance()")]

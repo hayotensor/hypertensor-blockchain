@@ -7,15 +7,15 @@ use crate::{
     MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     MinSubnetNodes, MultiaddrSubnetNodeId, NodeRegistrationInitialValidatorIds,
     NodeRewardRateUpdatePeriod, NodeSlotIndex, NodeSubnetStake, PeerIdSubnetNodeId, PeerInfo,
-    RegisteredSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName,
-    SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
-    SubnetNodeIdHotkey, SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetNodeReputation,
-    SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
-    SubnetRegistrationEpochs, SubnetState, TotalActiveNodes, TotalActiveSubnetNodes,
-    TotalActiveSubnets, TotalElectableNodes, TotalNodes, TotalStake, TotalSubnetElectableNodes,
-    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorIds,
-    TotalValidatorNodes, UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorIdHotkey,
-    ValidatorNodeDelegateStakeWeights, ValidatorReputation, ValidatorSubnetNodes,
+    PendingRegisteredNodeRemovals, RegisteredSubnetNodesData, SubnetElectedValidator,
+    SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification,
+    SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueue, SubnetNodeQueueEpochs,
+    SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
+    SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, SubnetsData,
+    TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes,
+    TotalStake, TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
+    TotalSubnetUids, TotalValidatorIds, TotalValidatorNodes, UniqueParamSubnetNodeId,
+    ValidatorColdkey, ValidatorIdHotkey, ValidatorNodeDelegateStakeWeights, ValidatorSubnetNodes,
 };
 use frame_support::traits::{Currency, ExistenceRequirement};
 use frame_support::weights::WeightMeter;
@@ -266,6 +266,93 @@ fn test_register_subnet_node_enforces_cumulative_validator_node_cap() {
         assert_eq!(
             PeerIdSubnetNodeId::<Test>::try_get(subnet_id, second_peer_id),
             Err(())
+        );
+    });
+}
+
+#[test]
+fn test_register_subnet_node_prunes_removed_subnet_ownership_before_cap_check() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "subnet-name".into();
+        let deposit_amount: u128 = 10000000000000000000000;
+        let stake_amount = MinSubnetMinStake::<Test>::get();
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
+        let max_subnets = MaxSubnets::<Test>::get();
+        let end = 4;
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
+        let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
+        let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
+        let burn_amount = Network::calculate_burn_amount(subnet_id);
+        let _ = Balances::deposit_creating(&coldkey, deposit_amount + burn_amount);
+
+        assert_ok!(Network::register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            50000000000,
+            None,
+            None,
+        ));
+
+        let validator_id = TotalValidatorIds::<Test>::get();
+        let validator_node_cap = <Test as crate::Config>::MaxValidatorNodesUpperBound::get();
+        let stale_subnet_id = subnet_id.saturating_add(1_000_000);
+        assert!(!SubnetsData::<Test>::contains_key(stale_subnet_id));
+
+        let stale_node_ids = (0..validator_node_cap)
+            .map(|offset| 1_000_000u32.saturating_add(offset))
+            .collect::<BTreeSet<_>>();
+        ValidatorSubnetNodes::<Test>::insert(
+            validator_id,
+            BTreeMap::from([(stale_subnet_id, stale_node_ids.clone())]),
+        );
+        TotalValidatorNodes::<Test>::insert(validator_id, validator_node_cap);
+        ValidatorNodeDelegateStakeWeights::<Test>::insert(
+            validator_id,
+            stale_node_ids
+                .into_iter()
+                .map(|subnet_node_id| ((stale_subnet_id, subnet_node_id), 1))
+                .collect::<BTreeMap<_, _>>(),
+        );
+        let next_subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id).saturating_add(1);
+        assert_ok!(Network::register_subnet_node(
+            RuntimeOrigin::signed(coldkey),
+            validator_id,
+            subnet_id,
+            None,
+            Some(PeerInfo::<Test> {
+                peer_id: peer_id.clone(),
+                multiaddr: None,
+            }),
+            None,
+            None,
+            stake_amount,
+            None,
+            None,
+            u128::MAX,
+        ));
+
+        let ownership = ValidatorSubnetNodes::<Test>::get(validator_id);
+        assert!(!ownership.contains_key(&stale_subnet_id));
+        assert_eq!(
+            ownership.get(&subnet_id),
+            Some(&BTreeSet::from([next_subnet_node_id]))
+        );
+        assert_eq!(TotalValidatorNodes::<Test>::get(validator_id), 1);
+        assert_eq!(
+            ValidatorNodeDelegateStakeWeights::<Test>::get(validator_id),
+            BTreeMap::from([(
+                (subnet_id, next_subnet_node_id),
+                Network::percentage_factor_as_u128(),
+            )])
+        );
+        assert_eq!(
+            PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id),
+            next_subnet_node_id
         );
     });
 }
@@ -1038,8 +1125,6 @@ fn test_activate_subnet_node_post_subnet_activation_v2() {
 
         let prev_total_active_subnet_nodes = TotalActiveSubnetNodes::<Test>::get(subnet_id);
         let prev_total_active_nodes = TotalActiveNodes::<Test>::get();
-        let prev_validator_reputation = ValidatorReputation::<Test>::get(validator_id);
-
         let queue_epochs = SubnetNodeQueueEpochs::<Test>::get(subnet_id);
 
         let epoch = Network::get_current_epoch_as_u32();
@@ -1079,14 +1164,6 @@ fn test_activate_subnet_node_post_subnet_activation_v2() {
             TotalActiveSubnetNodes::<Test>::get(subnet_id)
         );
         assert_eq!(prev_total_active_nodes + 1, TotalActiveNodes::<Test>::get());
-        assert_eq!(
-            prev_validator_reputation.lifetime_node_count + 1,
-            ValidatorReputation::<Test>::get(validator_id).lifetime_node_count
-        );
-        assert_eq!(
-            prev_validator_reputation.total_active_nodes + 1,
-            ValidatorReputation::<Test>::get(validator_id).total_active_nodes
-        );
     })
 }
 
@@ -1599,9 +1676,6 @@ fn test_remove_subnet_node_registered_v2() {
         let prev_total_subnet_electable_nodes = TotalSubnetElectableNodes::<Test>::get(subnet_id);
         let prev_total_electable_nodes = TotalElectableNodes::<Test>::get();
 
-        let rep = ValidatorReputation::<Test>::get(validator_id);
-        let rep_total_active_nodes = rep.total_active_nodes;
-
         assert_ok!(Network::remove_subnet_node(
             RuntimeOrigin::signed(coldkey.clone()),
             subnet_id,
@@ -1647,11 +1721,6 @@ fn test_remove_subnet_node_registered_v2() {
         assert_eq!(
             prev_slot_list_len - 1,
             SubnetNodeElectionSlots::<Test>::get(subnet_id).len()
-        );
-
-        assert_eq!(
-            rep_total_active_nodes - 1,
-            ValidatorReputation::<Test>::get(validator_id).total_active_nodes
         );
     })
 }
@@ -3252,6 +3321,18 @@ fn test_clean_validator_subnet_nodes() {
 
         // Insert seed data into storage
         ValidatorSubnetNodes::<Test>::insert(validator_id, subnet_nodes);
+        TotalValidatorNodes::<Test>::insert(validator_id, 4);
+        let percentage_factor = Network::percentage_factor_as_u128();
+        let quarter_weight = percentage_factor / 4;
+        ValidatorNodeDelegateStakeWeights::<Test>::insert(
+            validator_id,
+            BTreeMap::from([
+                ((1, 100), quarter_weight),
+                ((2, 200), quarter_weight),
+                ((3, 300), quarter_weight),
+                ((3, 301), quarter_weight),
+            ]),
+        );
 
         // Verify initial state
         let initial = ValidatorSubnetNodes::<Test>::get(validator_id);
@@ -3267,7 +3348,6 @@ fn test_clean_validator_subnet_nodes() {
 
         // Verify final state
         let final_state = ValidatorSubnetNodes::<Test>::get(validator_id);
-        log::error!("final_state {:?}", final_state);
 
         assert_eq!(final_state.len(), 2, "Invalid subnet 3 should be removed");
 
@@ -3287,6 +3367,103 @@ fn test_clean_validator_subnet_nodes() {
         );
         assert!(final_state.get(&2).unwrap().contains(&200));
         assert!(final_state.get(&3).is_none(), "Subnet 3 should be gone");
+        assert_eq!(TotalValidatorNodes::<Test>::get(validator_id), 2);
+        let final_weights = ValidatorNodeDelegateStakeWeights::<Test>::get(validator_id);
+        assert_eq!(final_weights.len(), 2);
+        assert_eq!(final_weights.get(&(1, 100)), Some(&(percentage_factor / 2)));
+        assert_eq!(final_weights.get(&(2, 200)), Some(&(percentage_factor / 2)));
+        assert!(!final_weights.contains_key(&(3, 300)));
+        assert!(!final_weights.contains_key(&(3, 301)));
+        assert_eq!(
+            final_weights.values().copied().sum::<u128>(),
+            percentage_factor
+        );
+
+        // Repeated cleanup is a no-op once every ownership subnet is live.
+        Network::clean_validator_subnet_nodes(validator_id);
+        assert_eq!(ValidatorSubnetNodes::<Test>::get(validator_id), final_state);
+        assert_eq!(TotalValidatorNodes::<Test>::get(validator_id), 2);
+        assert_eq!(
+            ValidatorNodeDelegateStakeWeights::<Test>::get(validator_id),
+            final_weights
+        );
+    })
+}
+
+#[test]
+fn test_remove_registered_node_after_lazy_cleanup_preserves_validator_active_count() {
+    new_test_ext().execute_with(|| {
+        let validator_id = 1;
+        let coldkey_n = 1;
+        let hotkey_n = 2;
+        let live_subnet_id = 1;
+        let stale_subnet_id = 99;
+
+        insert_subnet(live_subnet_id, SubnetState::Active, 0);
+        manual_insert_validator(validator_id, coldkey_n, hotkey_n);
+
+        insert_subnet_node(
+            validator_id,
+            live_subnet_id,
+            coldkey_n,
+            hotkey_n,
+            10,
+            SubnetNodeClass::Idle,
+            0,
+        );
+        let active_node_id = TotalSubnetNodeUids::<Test>::get(live_subnet_id);
+
+        insert_subnet_node(
+            validator_id,
+            live_subnet_id,
+            coldkey_n,
+            hotkey_n,
+            11,
+            SubnetNodeClass::Registered,
+            0,
+        );
+        let registered_node_id = TotalSubnetNodeUids::<Test>::get(live_subnet_id);
+
+        // Model a whole-subnet removal: the subnet itself and node data are gone, while the
+        // owner-local forward index remains until this validator next performs a manual action.
+        let stale_node_id = 100;
+        ValidatorSubnetNodes::<Test>::mutate(validator_id, |node_map| {
+            node_map.insert(stale_subnet_id, BTreeSet::from([stale_node_id]));
+        });
+        TotalValidatorNodes::<Test>::mutate(validator_id, |count| *count = count.saturating_add(1));
+        SubnetNodeValidatorId::<Test>::insert(stale_subnet_id, stale_node_id, validator_id);
+        let percentage_factor = Network::percentage_factor_as_u128();
+        ValidatorNodeDelegateStakeWeights::<Test>::insert(
+            validator_id,
+            BTreeMap::from([
+                ((live_subnet_id, active_node_id), percentage_factor / 4),
+                ((live_subnet_id, registered_node_id), percentage_factor / 4),
+                ((stale_subnet_id, stale_node_id), percentage_factor / 2),
+            ]),
+        );
+
+        assert!(!SubnetsData::<Test>::contains_key(stale_subnet_id));
+        assert_eq!(TotalValidatorNodes::<Test>::get(validator_id), 3);
+        assert_ok!(Network::remove_subnet_node(
+            RuntimeOrigin::signed(account(coldkey_n)),
+            live_subnet_id,
+            registered_node_id,
+        ));
+
+        assert!(!RegisteredSubnetNodesData::<Test>::contains_key(
+            live_subnet_id,
+            registered_node_id
+        ));
+        assert!(SubnetNodeQueue::<Test>::get(live_subnet_id).is_empty());
+        assert_eq!(
+            ValidatorSubnetNodes::<Test>::get(validator_id),
+            BTreeMap::from([(live_subnet_id, BTreeSet::from([active_node_id]))])
+        );
+        assert_eq!(TotalValidatorNodes::<Test>::get(validator_id), 1);
+        assert_eq!(
+            ValidatorNodeDelegateStakeWeights::<Test>::get(validator_id),
+            BTreeMap::from([((live_subnet_id, active_node_id), percentage_factor)])
+        );
     })
 }
 
@@ -4145,7 +4322,8 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             emergency: None,
         };
 
-        // Should work to remove a node
+        // Consensus removal quarantines and dequeues the node. Physical data remains until a
+        // later assigned-slot cleanup or an authenticated node-specific call.
         Network::handle_node_queue_consensus(
             &mut WeightMeter::new(),
             subnet_id,
@@ -4153,11 +4331,12 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             super_majority_threshold,
         );
 
-        assert!(!RegisteredSubnetNodesData::<Test>::contains_key(
+        assert!(RegisteredSubnetNodesData::<Test>::contains_key(
             subnet_id,
             queued_node_id
         ));
         assert!(SubnetNodeQueue::<Test>::get(subnet_id).is_empty());
+        assert!(PendingRegisteredNodeRemovals::<Test>::get(subnet_id).contains(&queued_node_id));
         assert_eq!(
             *network_events().last().unwrap(),
             Event::QueuedNodeRemoved {
@@ -4207,14 +4386,9 @@ fn test_do_activate_subnet_node_subnet_active_node_queued() {
         // Starting values
         let initial_active_subnet_nodes = TotalActiveSubnetNodes::<Test>::get(subnet_id);
         let initial_active_nodes = TotalActiveNodes::<Test>::get();
-        let coldkey_rep = ValidatorReputation::<Test>::get(validator_id);
-        let lifetime_node_count = coldkey_rep.lifetime_node_count;
-        let total_active_nodes = coldkey_rep.total_active_nodes;
-
         // Queue is true
         assert!(Network::do_activate_subnet_node(
             &mut WeightMeter::new(),
-            validator_id,
             subnet_id,
             SubnetState::Active,
             subnet_node,
@@ -4239,15 +4413,6 @@ fn test_do_activate_subnet_node_subnet_active_node_queued() {
             TotalActiveSubnetNodes::<Test>::get(subnet_id)
         );
         assert_eq!(initial_active_nodes + 1, TotalActiveNodes::<Test>::get());
-
-        assert_eq!(
-            lifetime_node_count + 1,
-            ValidatorReputation::<Test>::get(validator_id).lifetime_node_count
-        );
-        assert_eq!(
-            total_active_nodes + 1,
-            ValidatorReputation::<Test>::get(validator_id).total_active_nodes
-        );
     });
 }
 
@@ -4290,13 +4455,8 @@ fn test_do_activate_subnet_node_failures() {
         // Starting values
         let initial_active_subnet_nodes = TotalActiveSubnetNodes::<Test>::get(subnet_id);
         let initial_active_nodes = TotalActiveNodes::<Test>::get();
-        let coldkey_rep = ValidatorReputation::<Test>::get(validator_id);
-        let lifetime_node_count = coldkey_rep.lifetime_node_count;
-        let total_active_nodes = coldkey_rep.total_active_nodes;
-
         assert!(!Network::do_activate_subnet_node(
             &mut WeightMeter::new(),
-            validator_id,
             subnet_id,
             SubnetState::Registered,
             subnet_node.clone(),
@@ -4306,7 +4466,6 @@ fn test_do_activate_subnet_node_failures() {
 
         assert!(!Network::do_activate_subnet_node(
             &mut WeightMeter::new(),
-            validator_id,
             subnet_id,
             SubnetState::Active,
             subnet_node.clone(),
@@ -4316,7 +4475,6 @@ fn test_do_activate_subnet_node_failures() {
 
         assert!(!Network::do_activate_subnet_node(
             &mut WeightMeter::new(),
-            validator_id,
             subnet_id,
             SubnetState::Paused,
             subnet_node.clone(),
@@ -4326,7 +4484,6 @@ fn test_do_activate_subnet_node_failures() {
 
         assert!(!Network::do_activate_subnet_node(
             &mut WeightMeter::new(),
-            validator_id,
             subnet_id,
             SubnetState::Paused,
             subnet_node.clone(),
@@ -4346,15 +4503,6 @@ fn test_do_activate_subnet_node_failures() {
             TotalActiveSubnetNodes::<Test>::get(subnet_id)
         );
         assert_eq!(initial_active_nodes, TotalActiveNodes::<Test>::get());
-
-        assert_eq!(
-            lifetime_node_count,
-            ValidatorReputation::<Test>::get(validator_id).lifetime_node_count
-        );
-        assert_eq!(
-            total_active_nodes,
-            ValidatorReputation::<Test>::get(validator_id).total_active_nodes
-        );
     });
 }
 
@@ -4396,13 +4544,8 @@ fn test_do_activate_subnet_node_registered_subnet() {
         // Starting values
         let initial_active_subnet_nodes = TotalActiveSubnetNodes::<Test>::get(subnet_id);
         let initial_active_nodes = TotalActiveNodes::<Test>::get();
-        let coldkey_rep = ValidatorReputation::<Test>::get(validator_id);
-        let lifetime_node_count = coldkey_rep.lifetime_node_count;
-        let total_active_nodes = coldkey_rep.total_active_nodes;
-
         assert!(Network::do_activate_subnet_node(
             &mut WeightMeter::new(),
-            validator_id,
             subnet_id,
             SubnetState::Registered,
             subnet_node,
@@ -4427,15 +4570,6 @@ fn test_do_activate_subnet_node_registered_subnet() {
             TotalActiveSubnetNodes::<Test>::get(subnet_id)
         );
         assert_eq!(initial_active_nodes + 1, TotalActiveNodes::<Test>::get());
-
-        assert_eq!(
-            lifetime_node_count + 1,
-            ValidatorReputation::<Test>::get(validator_id).lifetime_node_count
-        );
-        assert_eq!(
-            total_active_nodes + 1,
-            ValidatorReputation::<Test>::get(validator_id).total_active_nodes
-        );
     });
 }
 
@@ -4467,10 +4601,7 @@ fn test_slash_validator() {
             SubnetNodeClass::Validator
         );
 
-        let validator_id = SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id).unwrap();
-
         let starting_node_rep = SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id);
-        let starting_ck_rep = ValidatorReputation::<Test>::get(validator_id).score;
 
         let starting_account_stake = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
         let starting_total_subnet_stake = TotalSubnetStake::<Test>::get(subnet_id);
@@ -4488,22 +4619,12 @@ fn test_slash_validator() {
             validator_non_consensus_reputation_factor,
             Some(proposer_identity_reputation_shortfall),
         );
-        let validator_reputation_decrease_factor = test_percent(1, 10);
-        let expected_validator_reputation = Network::decrease_rep(
-            starting_ck_rep,
-            validator_reputation_decrease_factor,
-            Some(proposer_identity_reputation_shortfall),
-        );
-
         Network::slash_validator(
             subnet_id,
             subnet_node_id,
             test_percent(1, 2),    // 50%
             test_percent(66, 100), // 66%
-            test_percent(1, 6),    // distinct-identity support
-            validator_reputation_decrease_factor,
-            test_percent(1, 10), // 10%
-            1,
+            test_percent(1, 10),   // minimum node reputation
             validator_non_consensus_reputation_factor,
             Some(proposer_identity_reputation_shortfall),
         );
@@ -4512,22 +4633,15 @@ fn test_slash_validator() {
             SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id),
             Some(expected_node_reputation)
         );
-        assert_eq!(
-            ValidatorReputation::<Test>::get(validator_id).score,
-            expected_validator_reputation
-        );
-
         assert!(starting_account_stake > NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id));
         assert!(starting_total_subnet_stake > TotalSubnetStake::<Test>::get(subnet_id));
         assert!(starting_total_stake > TotalStake::<Test>::get());
 
         // The explicit identity-reputation input remains effective even when the independent
-        // economic ratio passes. Economic stake remains unchanged, while both proposer-node and
-        // validator-identity reputation follow the identity shortfall.
+        // economic ratio passes. Economic stake remains unchanged while proposer-node reputation
+        // follows the identity shortfall.
         let node_reputation_after_economic_failure =
             SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id).unwrap();
-        let validator_reputation_after_economic_failure =
-            ValidatorReputation::<Test>::get(validator_id).score;
         let node_stake_after_economic_failure =
             NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
         let expected_identity_only_reputation = Network::decrease_rep(
@@ -4535,21 +4649,12 @@ fn test_slash_validator() {
             validator_non_consensus_reputation_factor,
             Some(proposer_identity_reputation_shortfall),
         );
-        let expected_identity_only_validator_reputation = Network::decrease_rep(
-            validator_reputation_after_economic_failure,
-            validator_reputation_decrease_factor,
-            Some(proposer_identity_reputation_shortfall),
-        );
-
         Network::slash_validator(
             subnet_id,
             subnet_node_id,
             test_percent(2, 3),
             test_percent(2, 3),
-            test_percent(1, 6),
-            validator_reputation_decrease_factor,
             test_percent(1, 10),
-            1,
             validator_non_consensus_reputation_factor,
             Some(proposer_identity_reputation_shortfall),
         );
@@ -4557,10 +4662,6 @@ fn test_slash_validator() {
         assert_eq!(
             SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id),
             Some(expected_identity_only_reputation)
-        );
-        assert_eq!(
-            ValidatorReputation::<Test>::get(validator_id).score,
-            expected_identity_only_validator_reputation
         );
         assert_eq!(
             NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
@@ -4595,8 +4696,6 @@ fn test_slash_validator() {
 // //         assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Validator);
 
 // //         let starting_node_rep = SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id);
-// //         let starting_ck_rep = ValidatorReputation::<Test>::get(validator_id).score;
-
 // //         let starting_account_stake = NodeSubnetStake::<Test>::get(hotkey, subnet_id);
 // //         let starting_total_subnet_stake = TotalSubnetStake::<Test>::get(subnet_id);
 // //         let starting_total_stake = TotalStake::<Test>::get();
@@ -4619,8 +4718,6 @@ fn test_slash_validator() {
 // //         );
 
 // //         assert!(starting_node_rep > SubnetNodeReputation::<Test>::get(subnet_id, subnet_node_id));
-// //         assert!(starting_ck_rep > ValidatorReputation::<Test>::get(validator_id).score);
-
 // //         assert!(starting_account_stake > NodeSubnetStake::<Test>::get(hotkey, subnet_id));
 // //         assert!(starting_total_subnet_stake > TotalSubnetStake::<Test>::get(subnet_id));
 // //         assert!(starting_total_stake > TotalStake::<Test>::get());

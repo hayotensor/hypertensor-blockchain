@@ -14,10 +14,11 @@ import {
   commitOverwatchSubnetWeights,
   createAndFinalizeBlock,
   getCurrentRegistrationCost,
-  qualifyOverwatchValidatorForDevnet,
+  whitelistOverwatchValidatorForDevnet,
   registerOverwatchNode,
   registerSubnet,
   registerValidator,
+  removeOverwatchNode,
   revealOverwatchSubnetWeights,
 } from "../src/network";
 import { getDevnetApi } from "../src/substrate";
@@ -31,6 +32,63 @@ import {
   SUBNET_CONTRACT_ABI,
   SUBNET_CONTRACT_ADDRESS,
 } from "../src/utils";
+
+function decodeRevertReason(error: unknown): string | undefined {
+  const pending: unknown[] = [error];
+  const visited = new Set<object>();
+
+  while (pending.length > 0) {
+    const candidate = pending.shift();
+    if (typeof candidate === "string") {
+      if (candidate.startsWith("0x08c379a0")) {
+        try {
+          const [reason] = ethers.AbiCoder.defaultAbiCoder().decode(
+            ["string"],
+            `0x${candidate.slice(10)}`,
+          );
+          return String(reason);
+        } catch {
+          // Keep searching nested provider errors for a decodable payload.
+        }
+      }
+      continue;
+    }
+    if (typeof candidate !== "object" || candidate === null) {
+      continue;
+    }
+    if (visited.has(candidate)) {
+      continue;
+    }
+    visited.add(candidate);
+
+    const errorObject = candidate as Record<string, unknown>;
+    if (typeof errorObject.reason === "string") {
+      return errorObject.reason;
+    }
+    for (const value of Object.values(errorObject)) {
+      pending.push(value);
+    }
+  }
+
+  return undefined;
+}
+
+async function expectRevertReason(
+  call: Promise<unknown>,
+  expectedReason: string,
+): Promise<void> {
+  let error: unknown;
+  try {
+    await call;
+  } catch (caught) {
+    error = caught;
+  }
+
+  expect(error, `expected call to revert with ${expectedReason}`).not.to.equal(
+    undefined,
+  );
+  expect(decodeRevertReason(error)).to.equal(expectedReason);
+}
 
 // Requires a manually-sealed local development chain.
 describe("Overwatch validator-hotkey commit and reveal", () => {
@@ -170,8 +228,8 @@ describe("Overwatch validator-hotkey commit and reveal", () => {
     subnetId1 = await registerTestSubnet();
     subnetId2 = await registerTestSubnet();
 
-    // Seed the validator-ID-keyed qualification fixture directly; no subnet node is created.
-    await qualifyOverwatchValidatorForDevnet(api, validatorId, provider);
+    // Whitelist the validator identity directly; no subnet node is created.
+    await whitelistOverwatchValidatorForDevnet(api, validatorId, provider);
     const overwatchMinStake = BigInt(
       (await api.query.network.overwatchMinStakeBalance()).toString(),
     );
@@ -214,13 +272,11 @@ describe("Overwatch validator-hotkey commit and reveal", () => {
       true,
     );
 
+    const palletCommits = (
+      await api.query.network.overwatchCommits(currentEpoch, overwatchNodeId)
+    ).toJSON() as Record<string, string>;
     for (const commit of commits) {
-      const palletCommit = (await api.query.network.overwatchCommits(
-        currentEpoch,
-        overwatchNodeId,
-        commit.subnetId,
-      )) as Option<any>;
-      expect(palletCommit.isSome).to.equal(true);
+      expect(palletCommits[commit.subnetId.toString()]).to.equal(commit.weight);
       expect(
         await overwatchHotkeyContract.overwatchCommits(
           currentEpoch,
@@ -239,7 +295,13 @@ describe("Overwatch validator-hotkey commit and reveal", () => {
       true,
     );
 
+    const palletReveals = (
+      await api.query.network.overwatchReveals(currentEpoch, overwatchNodeId)
+    ).toJSON() as Record<string, string | number>;
     for (const reveal of reveals) {
+      expect(palletReveals[reveal.subnetId.toString()]?.toString()).to.equal(
+        reveal.weight.toString(),
+      );
       expect(
         (
           await overwatchHotkeyContract.overwatchReveals(
@@ -250,5 +312,50 @@ describe("Overwatch validator-hotkey commit and reveal", () => {
         ).toString(),
       ).to.equal(reveal.weight.toString());
     }
+
+    await removeOverwatchNode(
+      overwatchColdkeyContract,
+      overwatchNodeId,
+      provider,
+      true,
+    );
+    expect(
+      Object.keys(
+        (
+          await api.query.network.overwatchCommits(
+            currentEpoch,
+            overwatchNodeId,
+          )
+        ).toJSON() as Record<string, string>,
+      ),
+    ).to.have.length(0);
+    expect(
+      Object.keys(
+        (
+          await api.query.network.overwatchReveals(
+            currentEpoch,
+            overwatchNodeId,
+          )
+        ).toJSON() as Record<string, string>,
+      ),
+    ).to.have.length(0);
+
+    await expectRevertReason(
+      overwatchHotkeyContract.overwatchCommits(
+        currentEpoch,
+        overwatchNodeId,
+        subnetId1,
+      ),
+      "Overwatch commit not found",
+    );
+
+    await expectRevertReason(
+      overwatchHotkeyContract.overwatchReveals(
+        currentEpoch,
+        subnetId1,
+        overwatchNodeId,
+      ),
+      "Overwatch reveal not found",
+    );
   });
 });

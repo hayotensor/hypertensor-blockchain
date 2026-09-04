@@ -68,6 +68,14 @@ validator and active or registered subnet-node information remain available.
 | `network_getSubnetEpochStatus` | `subnetId` | Current phase, timing, election, proposal, and validator-set status |
 | `network_getOverwatchNodeInfo` | `overwatchNodeId` | Active Overwatch member details or `null` |
 | `network_getOverwatchNodes` | `page` | Page of active Overwatch members |
+| `network_getEffectiveOverwatchSignalMeta` | none | Latest effective signal source epoch, revision, and validity |
+| `network_getEffectiveOverwatchSubnetWeight` | `subnetId` | Raw-entry presence/value and resolved weight used for future emissions |
+
+The effective Overwatch point lookup reports `rawWeightExists` separately so a stored zero is not
+confused with a missing entry. For a valid raw entry, `resolvedWeight` applies the current
+Overwatch factor and caps the result at Q18. It uses the protocol default directly when no valid
+signal or no raw entry exists. Historical epoch weights remain available through pallet storage
+and are not rewritten when active membership changes.
 
 `network_getSubnetValidatorNodes` means the current effective candidate set, not nodes that have
 attested. A pending or expired emergency set does not replace the regular set. An active emergency

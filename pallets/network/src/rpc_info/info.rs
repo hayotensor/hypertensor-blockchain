@@ -286,33 +286,4 @@ impl<T: Config> Pallet<T> {
 
         validator_id_stake
     }
-
-    pub fn get_overwatch_node_info(
-        overwatch_node_id: u32,
-    ) -> Option<OverwatchNodeInfo<T::AccountId>> {
-        // Only the canonical active validator-to-node relationship is RPC-visible. The
-        // historical node-to-validator entry may outlive removal for stake withdrawal.
-        let (validator_id, hotkey) =
-            Self::get_active_overwatch_validator_id_and_hotkey(overwatch_node_id).ok()?;
-
-        Some(OverwatchNodeInfo {
-            overwatch_node_id,
-            hotkey: Some(hotkey),
-            peer_ids: OverwatchNodeIndex::<T>::get(overwatch_node_id),
-            reputation: ValidatorReputation::<T>::get(validator_id),
-            account_overwatch_stake: OverwatchNodeStakeBalance::<T>::get(overwatch_node_id),
-        })
-    }
-
-    pub fn get_all_overwatch_nodes_info() -> Vec<OverwatchNodeInfo<T::AccountId>> {
-        let mut infos: Vec<OverwatchNodeInfo<T::AccountId>> = Vec::new();
-
-        for (overwatch_node_id, _) in OverwatchNodes::<T>::iter() {
-            if let Some(overwatch_node_info) = Self::get_overwatch_node_info(overwatch_node_id) {
-                infos.push(overwatch_node_info);
-            }
-        }
-
-        infos
-    }
 }

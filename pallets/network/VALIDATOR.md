@@ -27,7 +27,9 @@ During validator registration, the validator can also define initial delegation-
 
 Validators are responsible for the nodes they register. They should keep node networking information accurate, maintain enough node stake, and manage keys carefully so their subnet nodes can participate in consensus when those nodes are eligible or elected.
 
-A validator's operation of its nodes can affect node reputation, validator reputation, rewards, slashing, and whether those nodes continue progressing through subnet classifications. Validators should treat their identity as a long-lived operating role rather than a single machine or temporary account.
+A validator's operation of its nodes can affect node reputation, rewards, slashing, and whether
+those nodes continue progressing through subnet classifications. Validators should treat their
+identity as a long-lived operating role rather than a single machine or temporary account.
 
 ## Validator Features
 
@@ -35,7 +37,22 @@ A validator's operation of its nodes can affect node reputation, validator reput
 
 A validator identity is the root identity for a validator's subnet nodes. It is identified by a validator ID and associated with a coldkey, a hotkey, delegation settings, and optional identity information.
 
-The identity lets the network group a validator's owned nodes and related settings under one operator. This matters for ownership checks, delegated stake, reward policy, validator reputation, and node consensus weight allocation.
+The identity lets the network group a validator's owned nodes and related settings under one
+operator. This matters for ownership checks, delegated stake, reward policy, identity-deduplicated
+proposal support, and node consensus weight allocation.
+
+### Overwatch Membership
+
+A validator identity may own at most one active Overwatch node. Admission requires a 2/3
+collective whitelist vote plus the live-epoch, capacity, UID, balance, and minimum-stake checks.
+Validator reputation, validator age, prior consensus history, and ownership of subnet nodes are
+not admission conditions.
+
+The validator coldkey may remove its Overwatch node, and a 4/5 collective vote may remove it
+without the owner. Both paths use the same state transition: they remove active membership and
+unsettled submissions, clear the whitelist approval, and require a fresh 2/3 vote before the
+validator can register a replacement. Historical finalized weights and the node-to-validator
+record remain intact so finalized history stays immutable and residual principal can be withdrawn.
 
 ### Subnet Node Ownership
 
@@ -68,14 +85,13 @@ ratio reaches the round's snapshotted supermajority threshold, currently 87.5%; 
 
 Only an identity-verified accepted proposal can apply proposal-derived reputation-score and
 classification changes. This includes node `included_increase`, `absent_decrease`,
-`below_min_weight_decrease`, and `non_attestor_decrease`; the proposer validator identity's
-reputation increase; the subnet-reputation increase; and Included-to-Validator consecutive
-progression or reset based on score-vector presence. Identity deduplication controls the gate, but
-responsibility remains node-level. An omitted sibling can receive `absent_decrease`, while a
-low-scored or non-attesting Validator-class sibling can receive its corresponding consequence even
-if another node owned by the same validator attested. The subnet-reputation increase is scaled by
-identity support; the node and validator-identity factors are not increased for support above the
-gate.
+`below_min_weight_decrease`, and `non_attestor_decrease`; the subnet-reputation increase; and
+Included-to-Validator consecutive progression or reset based on score-vector presence. Identity
+deduplication controls the gate, but responsibility remains node-level. An omitted sibling can
+receive `absent_decrease`, while a low-scored or non-attesting Validator-class sibling can receive
+its corresponding consequence even if another node owned by the same validator attested. The
+subnet-reputation increase is scaled by identity support; node factors are not increased for
+support above the gate.
 
 An allocated accepted proposal below the identity-verification gate can still distribute rewards.
 Its score vector is simply neutral for reputation scores and Included-to-Validator classification.
@@ -94,10 +110,9 @@ validator-identity support is strictly below the round's snapshotted configurabl
 strong-rejection threshold, which defaults to one-third. The decrease scales linearly with the
 identity-support shortfall: it is zero at the threshold and reaches the configured maximum at 0%
 identity support. A failed proposal at or above the threshold does not apply this proposer-node
-decrease. The proposer validator identity and subnet use the same snapshotted identity gate and
-shortfall for their submitted-proposal reputation decreases. A stake-only rejection with identity
-support at or above the round's snapshotted strong-rejection threshold can still slash the
-proposer economically, but causes no submitted-proposal reputation loss.
+decrease. Subnet reputation uses the same snapshotted identity gate and shortfall. A stake-only
+rejection with identity support at or above the round's snapshotted strong-rejection threshold can
+still slash the proposer economically, but causes no submitted-proposal reputation loss.
 
 Under the same strong-rejection condition, every attesting node receives the separately configured
 supporter decrease. Each identity counts once even if several of its nodes attest, but all of those
@@ -108,23 +123,8 @@ supporter penalty affects node reputation only; attestors are not economically s
 attesting, while proposer direct-node-stake and delegate-pool slashing remain specific to the
 elected proposer. When an allocated missing-proposal round reaches settlement, it has no attestors
 to penalize and follows the separate absence and proposer-economic-penalty path. Specifically, it
-records a zero identity-support sample and applies the objective proposer-node and subnet absence
-factors exactly once; it does not apply the general validator-identity or submitted-proposal
-strong-rejection reputation decreases.
-
-The validator identity records the first and most recent general-chain election epochs when one of
-its subnet nodes is elected. These election timestamps are written immediately, including when the
-elected node never submits a proposal. For allocated elections that reach settlement,
-`average_proposal_identity_support` records the average distinct-identity support, and
-`identity_support_samples` records the number of settled allocated rounds represented. Submitted
-proposals contribute their actual identity ratio; missing proposals contribute zero. If the
-bounded counter ever reaches `u32::MAX`, both the count and average freeze together.
-`total_increases` counts identity-verified accepted proposals with a nonzero configured increase
-factor, while `total_decreases` counts proposals below the round's snapshotted strong-rejection
-threshold with a nonzero effective decrease factor. Reputation-score-neutral submitted rounds
-still update the support average without changing either score counter. The runtime's Overwatch
-minimum-average-attestation eligibility check reads this identity-support average. Settlement does
-not relabel the election as belonging to the later epoch.
+applies the objective proposer-node and subnet absence factors exactly once and does not apply the
+submitted-proposal strong-rejection reputation decreases.
 
 ### Key Management
 

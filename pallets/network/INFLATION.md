@@ -123,11 +123,21 @@ overwatch_interval_budget = saturating_mul(
 
 That budget is distributed by normalized Overwatch scores only when the interval has a nonzero
 total final score. At interval close, the pallet snapshots this exact budget together with the
-stake-weight exponent and each canonical revealing Overwatch node's validator relationship and raw
-stake. Delayed settlement uses only that same-epoch snapshot, never current membership, stake, or
-exponent. A missing snapshot leaves settlement pending. A node removed or replaced after close is
-still rewarded under its snapshotted historical Overwatch node ID, and successful settlement
-consumes both the pending header and snapshot exactly once.
+stake-weight exponent and each canonical revealing Overwatch node's raw stake. Delayed settlement
+uses that same-epoch snapshot and reveal rows, never current stake or exponent. A missing snapshot
+leaves settlement pending. Removing a node before settlement purges its pending reveal row and
+snapshot entry, so it receives no score or reward from that interval; if it was the last pending
+participant, the interval finalizes explicitly empty. Successful settlement consumes the pending
+header and snapshot exactly once. Removal after finalization does not reverse rewards already
+credited or rewrite historical score outputs.
+
+Finalization also publishes a latest-only effective Overwatch signal for future subnet-emission
+allocation. Removing a finalized participant recomputes that signal from the retained close-time
+stakes and reveals, because global stake normalization makes simple aggregate subtraction
+incorrect. If those retained inputs cannot be validated, allocation fails closed to the configured
+default Overwatch subnet weight rather than reading stale historical weights. An allocation already
+stored in `FinalSubnetEmissionWeights` remains final; the revised signal first affects the next
+slot-2 allocation that has not yet run.
 
 ## Issuance rules
 
