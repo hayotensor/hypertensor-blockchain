@@ -4,7 +4,7 @@ use crate::weights::WeightInfo;
 use crate::{
     AttestEntry, ConsensusPolicySnapshot, ConsensusSubmissionData, ConsensusSubnetNode,
     EmergencySubnetNodeElectionData, EmergencySubnetValidatorData, Error, Event, MinSubnetMinStake,
-    MinSubnetNodes, PendingActiveNodeRemovals, PendingRegisteredNodeRemovals,
+    MinSubnetNodes, NodeSubnetStake, PendingActiveNodeRemovals, PendingRegisteredNodeRemovals,
     RegisteredSubnetNodesData, RewardsData, SubnetConsensusAttestorWeights,
     SubnetConsensusSubmission, SubnetElectedValidator, SubnetName, SubnetNodeClass,
     SubnetNodeConsensusData, SubnetNodeElectionSlots, SubnetNodeReputation, SubnetNodeValidatorId,
@@ -259,6 +259,7 @@ fn accepted_queue_removal_quarantines_and_dequeues_before_physical_cleanup() {
         let accepted_submission = ConsensusSubmissionData::<Test> {
             policy: Default::default(),
             validator_subnet_node_id: 0,
+            validator_node_stake_balance: 0,
             validator_delegate_stake_balance: 0,
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
@@ -1311,6 +1312,7 @@ fn more_than_four_threshold_crossings_withhold_without_redistribution() {
         let submission = ConsensusSubmissionData::<Test> {
             policy,
             validator_subnet_node_id: total_nodes,
+            validator_node_stake_balance: NodeSubnetStake::<Test>::get(total_nodes, subnet_id),
             validator_delegate_stake_balance: 0,
             validator_epoch_progress: 0,
             validator_reward_factor: percentage_factor,
@@ -1371,7 +1373,8 @@ fn more_than_four_threshold_crossings_withhold_without_redistribution() {
         );
         assert_eq!(
             crate::TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
-            delegate_balance_before + rewards.delegate_stake_rewards
+            delegate_balance_before,
+            "an ownerless delegate pool must forfeit its allocation"
         );
 
         let reward_event = network_events()
@@ -1491,6 +1494,7 @@ fn pending_proposer_forfeits_every_node_related_allocation_without_redistributio
         let submission = ConsensusSubmissionData::<Test> {
             policy,
             validator_subnet_node_id: proposer_node_id,
+            validator_node_stake_balance: NodeSubnetStake::<Test>::get(proposer_node_id, subnet_id),
             validator_delegate_stake_balance: initial_validator_delegate_stake,
             validator_epoch_progress: 0,
             validator_reward_factor: percentage_factor,
@@ -1558,7 +1562,8 @@ fn pending_proposer_forfeits_every_node_related_allocation_without_redistributio
         );
         assert_eq!(
             crate::TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
-            subnet_delegate_stake_before + rewards.delegate_stake_rewards
+            subnet_delegate_stake_before,
+            "an ownerless delegate pool must forfeit its allocation"
         );
 
         let reward_event = network_events()

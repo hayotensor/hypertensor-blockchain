@@ -34,7 +34,6 @@ where
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     #[precompile::public("registerOverwatchNode(uint256)")]
-    #[precompile::payable]
     fn register_overwatch_node(
         handle: &mut impl PrecompileHandle,
         stake_to_be_added: U256,
@@ -213,7 +212,6 @@ where
     }
 
     #[precompile::public("addOverwatchStake(uint256,uint256)")]
-    #[precompile::payable]
     fn add_overwatch_node_stake(
         handle: &mut impl PrecompileHandle,
         overwatch_node_id: U256,

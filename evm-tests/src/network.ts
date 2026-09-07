@@ -456,9 +456,8 @@ export async function registerSubnet(
   minStake: string,
   maxStake: string,
   delegateStakePercentage: string,
-  initialValidators: any,
+  initialValidators: Array<{ validatorId: string | number; count: number }>,
   bootnodes: Array<{ peerId: string; multiaddr: Uint8Array }>,
-  fee: bigint,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
 ) {
@@ -473,7 +472,6 @@ export async function registerSubnet(
     delegateStakePercentage,
     initialValidators,
     bootnodes,
-    { value: fee },
   );
 
   if (manualSeal) {
@@ -524,33 +522,30 @@ export async function getMinSubnetDelegateStakeBalance(
 // ===========
 export async function registerSubnetNode(
   contract: Contract,
+  validatorId: string,
   subnetId: string,
   hotkey: string,
   peerInfo: { peerId: string; multiaddr: Uint8Array },
   bootnodePeerInfo: { peerId: string; multiaddr: Uint8Array },
   clientPeerInfo: { peerId: string; multiaddr: Uint8Array },
-  delegateRewardRate: string,
   stakeToBeAdded: bigint,
   unique: string,
   nonUnique: string,
-  delegateAccount: { accountId: string; rate: bigint },
   maxBurnAmount: string,
   provider?: JsonRpcProvider,
   manualSeal?: boolean,
 ) {
   const tx = await contract.registerSubnetNode(
+    validatorId,
     subnetId,
     hotkey,
     peerInfo,
     bootnodePeerInfo,
     clientPeerInfo,
-    delegateRewardRate,
     stakeToBeAdded,
     unique,
     nonUnique,
-    delegateAccount,
     maxBurnAmount,
-    { value: stakeToBeAdded },
   );
 
   if (manualSeal) {
@@ -567,16 +562,6 @@ export async function registerSubnetNode(
   }
 }
 
-export async function activateSubnetNode(
-  contract: Contract,
-  subnetId: string,
-  subnetNodeId: string,
-) {
-  const tx = await contract.activateSubnetNode(subnetId, subnetNodeId);
-
-  await tx.wait();
-}
-
 export async function removeSubnetNode(
   contract: Contract,
   subnetId: string,
@@ -587,28 +572,26 @@ export async function removeSubnetNode(
   await tx.wait();
 }
 
-export async function updateDelegateRewardRate(
+export async function updateValidatorDelegateRewardRate(
   contract: Contract,
-  subnetId: string,
-  subnetNodeId: string,
+  validatorId: string,
   value: string,
 ) {
-  const tx = await contract.updateDelegateRewardRate(
-    subnetId,
-    subnetNodeId,
+  const tx = await contract.updateValidatorDelegateRewardRate(
+    validatorId,
     value,
   );
 
   await tx.wait();
 }
 
-export async function updateUnique(
+export async function updateNodeUnique(
   contract: Contract,
   subnetId: string,
   subnetNodeId: string,
   value: string,
 ) {
-  const tx = await contract.updateUnique(subnetId, subnetNodeId, value);
+  const tx = await contract.updateNodeUnique(subnetId, subnetNodeId, value);
 
   await tx.wait();
 }
@@ -624,55 +607,48 @@ export async function updateNonUnique(
   await tx.wait();
 }
 
-export async function updateColdkey(
+export async function updateValidatorColdkey(
   contract: Contract,
-  hotkey: string,
+  validatorId: string,
   newColdkey: string,
 ) {
-  const tx = await contract.updateColdkey(hotkey, newColdkey);
+  const tx = await contract.updateValidatorColdkey(validatorId, newColdkey);
 
   await tx.wait();
 }
 
-export async function updateHotkey(
+export async function updateValidatorHotkey(
   contract: Contract,
-  oldHotkey: string,
+  validatorId: string,
   newHotkey: string,
 ) {
-  const tx = await contract.updateHotkey(oldHotkey, newHotkey);
+  const tx = await contract.updateValidatorHotkey(validatorId, newHotkey);
 
   await tx.wait();
 }
 
-export async function updatePeerInfo(
+export async function updateNodeHotkey(
+  contract: Contract,
+  subnetId: string,
+  subnetNodeId: string,
+  newHotkey: string,
+) {
+  const tx = await contract.updateNodeHotkey(
+    subnetId,
+    subnetNodeId,
+    newHotkey,
+  );
+
+  await tx.wait();
+}
+
+export async function updateNodePeerInfo(
   contract: Contract,
   subnetId: string,
   subnetNodeId: string,
   newPeerInfo: { peerId: string; multiaddr: Uint8Array },
 ) {
-  const tx = await contract.updatePeerInfo(subnetId, subnetNodeId, newPeerInfo);
-
-  await tx.wait();
-}
-
-export async function updateBootnode(
-  contract: Contract,
-  subnetId: string,
-  subnetNodeId: string,
-  newBootnode: string,
-) {
-  const tx = await contract.updateBootnode(subnetId, subnetNodeId, newBootnode);
-
-  await tx.wait();
-}
-
-export async function updateBootnodePeerInfo(
-  contract: Contract,
-  subnetId: string,
-  subnetNodeId: string,
-  newPeerInfo: { peerId: string; multiaddr: Uint8Array },
-) {
-  const tx = await contract.updateBootnodePeerInfo(
+  const tx = await contract.updateNodePeerInfo(
     subnetId,
     subnetNodeId,
     newPeerInfo,
@@ -681,13 +657,28 @@ export async function updateBootnodePeerInfo(
   await tx.wait();
 }
 
-export async function updateClientPeerInfo(
+export async function updateNodeBootnodePeerInfo(
   contract: Contract,
   subnetId: string,
   subnetNodeId: string,
   newPeerInfo: { peerId: string; multiaddr: Uint8Array },
 ) {
-  const tx = await contract.updateClientPeerInfo(
+  const tx = await contract.updateNodeBootnodePeerInfo(
+    subnetId,
+    subnetNodeId,
+    newPeerInfo,
+  );
+
+  await tx.wait();
+}
+
+export async function updateNodeClientPeerInfo(
+  contract: Contract,
+  subnetId: string,
+  subnetNodeId: string,
+  newPeerInfo: { peerId: string; multiaddr: Uint8Array },
+) {
+  const tx = await contract.updateNodeClientPeerInfo(
     subnetId,
     subnetNodeId,
     newPeerInfo,
@@ -699,9 +690,10 @@ export async function updateClientPeerInfo(
 // =====
 // Identities
 // =====
-export async function registerOrUpdateIdentity(
+export async function updateValidatorIdentity(
   contract: Contract,
-  hotkey: string,
+  validatorId: string,
+  hasIdentity: boolean,
   name: string,
   url: string,
   image: string,
@@ -713,8 +705,9 @@ export async function registerOrUpdateIdentity(
   description: string,
   misc: string,
 ) {
-  const tx = await contract.registerOrUpdateIdentity(
-    hotkey,
+  const tx = await contract.updateValidatorIdentity(
+    validatorId,
+    hasIdentity,
     name,
     url,
     image,
@@ -730,12 +723,6 @@ export async function registerOrUpdateIdentity(
   await tx.wait();
 }
 
-export async function removeIdentity(contract: Contract) {
-  const tx = await contract.removeIdentity();
-
-  await tx.wait();
-}
-
 // ==============
 // Subnet node stake
 // ==============
@@ -744,16 +731,9 @@ export async function addToStake(
   contract: Contract,
   subnetId: string,
   subnetNodeId: string,
-  hotkey: string,
   balance: bigint,
 ) {
-  const tx = await contract.addToStake(
-    subnetId,
-    subnetNodeId,
-    hotkey,
-    balance,
-    { value: balance },
-  );
+  const tx = await contract.addNodeStake(subnetId, subnetNodeId, balance);
 
   await tx.wait();
 }
@@ -761,14 +741,20 @@ export async function addToStake(
 export async function removeStake(
   contract: Contract,
   subnetId: string,
-  hotkey: string,
+  subnetNodeId: string,
   balance: bigint,
 ) {
-  const tx = await contract.removeStake(subnetId, hotkey, balance, {
-    value: balance,
-  });
+  const tx = await contract.removeNodeStake(subnetId, subnetNodeId, balance);
 
   await tx.wait();
+}
+
+export async function getNodeSubnetStake(
+  contract: Contract,
+  subnetId: string,
+  subnetNodeId: string,
+) {
+  return contract.nodeSubnetStake(subnetId, subnetNodeId);
 }
 
 export async function claimUnbondings(contract: Contract) {
@@ -784,11 +770,9 @@ export async function addToDelegateStake(
   contract: Contract,
   subnetId: string,
   balance: bigint,
-  fee: bigint,
+  minSharesOut: bigint,
 ) {
-  const tx = await contract.addToDelegateStake(subnetId, balance, {
-    value: fee,
-  });
+  const tx = await contract.addToDelegateStake(subnetId, balance, minSharesOut);
 
   await tx.wait();
 }
@@ -797,8 +781,13 @@ export async function removeDelegateStake(
   contract: Contract,
   subnetId: string,
   shares: bigint,
+  minBalanceOut: bigint,
 ) {
-  const tx = await contract.removeDelegateStake(subnetId, shares);
+  const tx = await contract.removeDelegateStake(
+    subnetId,
+    shares,
+    minBalanceOut,
+  );
 
   await tx.wait();
 }
@@ -808,8 +797,107 @@ export async function swapDelegateStake(
   fromSubnetId: string,
   toSubnetId: string,
   shares: bigint,
+  minBalanceOut: bigint,
+  minSharesOut: bigint,
+  executeBeforeBlock: bigint,
 ) {
-  const tx = await contract.swapDelegateStake(fromSubnetId, toSubnetId, shares);
+  const tx = await contract.swapDelegateStake(
+    fromSubnetId,
+    toSubnetId,
+    shares,
+    minBalanceOut,
+    minSharesOut,
+    executeBeforeBlock,
+  );
+
+  await tx.wait();
+}
+
+export async function addValidatorDelegateStake(
+  contract: Contract,
+  validatorId: string,
+  balance: bigint,
+  minSharesOut: bigint,
+) {
+  const tx = await contract.addValidatorDelegateStake(validatorId, balance, minSharesOut);
+
+  await tx.wait();
+}
+
+export async function removeValidatorDelegateStake(
+  contract: Contract,
+  validatorId: string,
+  shares: bigint,
+  minBalanceOut: bigint,
+) {
+  const tx = await contract.removeValidatorDelegateStake(
+    validatorId,
+    shares,
+    minBalanceOut,
+  );
+
+  await tx.wait();
+}
+
+export async function swapNodeDelegateStake(
+  contract: Contract,
+  fromValidatorId: string,
+  toValidatorId: string,
+  shares: bigint,
+  minBalanceOut: bigint,
+  minSharesOut: bigint,
+  executeBeforeBlock: bigint,
+) {
+  const tx = await contract.swapNodeDelegateStake(
+    fromValidatorId,
+    toValidatorId,
+    shares,
+    minBalanceOut,
+    minSharesOut,
+    executeBeforeBlock,
+  );
+
+  await tx.wait();
+}
+
+export async function transferFromValidatorToSubnet(
+  contract: Contract,
+  fromValidatorId: string,
+  toSubnetId: string,
+  shares: bigint,
+  minBalanceOut: bigint,
+  minSharesOut: bigint,
+  executeBeforeBlock: bigint,
+) {
+  const tx = await contract.transferFromValidatorToSubnet(
+    fromValidatorId,
+    toSubnetId,
+    shares,
+    minBalanceOut,
+    minSharesOut,
+    executeBeforeBlock,
+  );
+
+  await tx.wait();
+}
+
+export async function transferFromSubnetToValidator(
+  contract: Contract,
+  fromSubnetId: string,
+  toValidatorId: string,
+  shares: bigint,
+  minBalanceOut: bigint,
+  minSharesOut: bigint,
+  executeBeforeBlock: bigint,
+) {
+  const tx = await contract.transferFromSubnetToValidator(
+    fromSubnetId,
+    toValidatorId,
+    shares,
+    minBalanceOut,
+    minSharesOut,
+    executeBeforeBlock,
+  );
 
   await tx.wait();
 }
@@ -829,14 +917,18 @@ export async function updateSwapQueue(
   contract: Contract,
   id: string,
   callType: string,
+  toValidatorId: string,
   toSubnetId: string,
-  toSubnetNodeId: string,
+  minSharesOut: bigint,
+  executeBeforeBlock: bigint,
 ) {
   const tx = await contract.updateSwapQueue(
     id,
     callType,
+    toValidatorId,
     toSubnetId,
-    toSubnetNodeId,
+    minSharesOut,
+    executeBeforeBlock,
   );
 
   await tx.wait();
@@ -978,22 +1070,25 @@ export async function ownerUpdateIncludedClassificationEpochs(
   await tx.wait();
 }
 
-export async function ownerAddOrUpdateInitialColdkeys(
+export async function ownerAddOrUpdateInitialValidators(
   contract: Contract,
   subnetId: string,
-  coldkeys: any,
+  validators: Array<{ validatorId: string | number; count: number }>,
 ) {
-  const tx = await contract.ownerAddOrUpdateInitialColdkeys(subnetId, coldkeys);
+  const tx = await contract.ownerAddOrUpdateInitialValidators(
+    subnetId,
+    validators,
+  );
 
   await tx.wait();
 }
 
-export async function ownerRemoveInitialColdkeys(
+export async function ownerRemoveInitialValidators(
   contract: Contract,
   subnetId: string,
-  coldkeys: string[],
+  validators: Array<string | number>,
 ) {
-  const tx = await contract.ownerRemoveInitialColdkeys(subnetId, coldkeys);
+  const tx = await contract.ownerRemoveInitialValidators(subnetId, validators);
 
   await tx.wait();
 }

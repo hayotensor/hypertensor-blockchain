@@ -218,7 +218,6 @@ describe("Overwatch validator-hotkey commit and reveal", () => {
         delegateStakePercentage.toString(),
         initialValidators,
         bootnodes,
-        cost,
         provider,
         true,
       );

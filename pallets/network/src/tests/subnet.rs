@@ -375,6 +375,7 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
             RuntimeOrigin::signed(delegate.clone()),
             subnet_id,
             delegate_amount,
+            1,
         ));
         let delegate_shares = AccountSubnetDelegateStakeShares::<Test>::get(&delegate, subnet_id);
         let total_delegate_shares_before = TotalSubnetDelegateStakeShares::<Test>::get(subnet_id);
@@ -888,6 +889,7 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
             RuntimeOrigin::signed(delegate.clone()),
             subnet_id,
             delegate_shares,
+            1,
         ));
         assert_eq!(
             AccountSubnetDelegateStakeShares::<Test>::get(&delegate, subnet_id),
@@ -1670,6 +1672,7 @@ fn test_activate_subnet() {
             RuntimeOrigin::signed(account(1)),
             subnet_id,
             min_subnet_delegate_stake,
+            1,
         ));
 
         // --- Increase blocks to max registration block
@@ -1799,6 +1802,7 @@ fn test_activate_subnet_anytime() {
             RuntimeOrigin::signed(account(1)),
             subnet_id,
             min_subnet_delegate_stake,
+            1,
         ));
 
         // --- Increase blocks to max registration block
@@ -2086,6 +2090,7 @@ fn test_activate_subnet_already_activated_err() {
             RuntimeOrigin::signed(account(1)),
             subnet_id,
             min_subnet_delegate_stake,
+            1,
         ));
 
         // --- Increase blocks to max registration block
@@ -2217,6 +2222,7 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
             RuntimeOrigin::signed(account(1)),
             subnet_id,
             min_subnet_delegate_stake,
+            1,
         ));
 
         assert_err!(
@@ -2328,6 +2334,7 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
             RuntimeOrigin::signed(account(1)),
             subnet_id,
             min_subnet_delegate_stake,
+            1,
         ));
 
         // --- Increase blocks outside of the enactment period

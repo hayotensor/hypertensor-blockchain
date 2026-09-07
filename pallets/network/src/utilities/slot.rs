@@ -16,6 +16,8 @@
 // Handles all slot block steps
 
 use super::*;
+use frame_support::pallet_prelude::DispatchError;
+use frame_support::storage::{with_transaction, TransactionOutcome};
 use frame_support::{pallet_prelude::Weight, BoundedBTreeMap, BoundedVec};
 
 impl<T: Config> Pallet<T> {
@@ -284,35 +286,50 @@ impl<T: Config> Pallet<T> {
             return weight;
         };
 
-        // Historical results are immutable. Explicit zero values are persisted and remain
-        // distinguishable from missing subnet keys.
-        for (subnet_id, raw_weight) in derived.subnet_weights.iter() {
-            OverwatchSubnetWeights::<T>::insert(settlement.epoch, subnet_id, raw_weight);
-            weight = weight.saturating_add(db_weight.writes(1));
-        }
-
         let total_final_score = derived
             .node_scores
             .values()
             .fold(0u128, |total, score| total.saturating_add(*score));
-        let mut node_rewards = Vec::<(u32, u128)>::new();
-        if total_final_score != 0 {
-            for (node_id, score) in derived.node_scores.iter() {
-                if *score == 0 {
-                    continue;
-                }
-                let normalized_score = Self::percent_div(*score, total_final_score);
-                OverwatchNodeWeights::<T>::insert(settlement.epoch, node_id, normalized_score);
+        // Keep every historical output and the complete reward batch atomic. A later aggregate
+        // overflow must not leave the earlier nodes credited (or partial weights finalized) and
+        // then credit them again when the pending settlement retries.
+        let node_rewards = with_transaction::<Vec<(u32, u128)>, DispatchError, _>(|| {
+            // Explicit zero values are persisted and remain distinguishable from missing subnet
+            // keys once the complete settlement can commit.
+            for (subnet_id, raw_weight) in derived.subnet_weights.iter() {
+                OverwatchSubnetWeights::<T>::insert(settlement.epoch, subnet_id, raw_weight);
                 weight = weight.saturating_add(db_weight.writes(1));
+            }
 
-                let amount = Self::percent_mul(normalized_score, settlement_snapshot.reward_budget);
-                if amount != 0 {
-                    Self::increase_overwatch_node_stake(*node_id, amount);
-                    weight = weight.saturating_add(db_weight.reads_writes(2, 2));
-                    node_rewards.push((*node_id, amount));
+            let mut node_rewards = Vec::<(u32, u128)>::new();
+            if total_final_score != 0 {
+                for (node_id, score) in derived.node_scores.iter() {
+                    if *score == 0 {
+                        continue;
+                    }
+                    let normalized_score = Self::percent_div(*score, total_final_score);
+                    OverwatchNodeWeights::<T>::insert(settlement.epoch, node_id, normalized_score);
+                    weight = weight.saturating_add(db_weight.writes(1));
+
+                    let amount =
+                        Self::percent_mul(normalized_score, settlement_snapshot.reward_budget);
+                    if amount != 0 {
+                        // Charge the reads even when checked accounting rejects the credit. The
+                        // surrounding transaction rolls back writes, not the work already done.
+                        weight = weight.saturating_add(db_weight.reads(2));
+                        if let Err(error) = Self::increase_overwatch_node_stake(*node_id, amount) {
+                            return TransactionOutcome::Rollback(Err(error));
+                        }
+                        weight = weight.saturating_add(db_weight.writes(2));
+                        node_rewards.push((*node_id, amount));
+                    }
                 }
             }
-        }
+            TransactionOutcome::Commit(Ok(node_rewards))
+        });
+        let Ok(node_rewards) = node_rewards else {
+            return weight;
+        };
 
         let effective_signal = EffectiveOverwatchSignal::<T> {
             source_epoch: settlement.epoch,
@@ -384,67 +401,92 @@ impl<T: Config> Pallet<T> {
         // We know the subnet exists because to call this function `SlotAssignment` must exist
         // for the given subnet_id called in `on_initialize` on this block step.
 
-        // Get allocations calculated at the start of the general epoch. Allocation authority
-        // is an exact historical election, so a round remains settleable even if its subnet is
-        // paused by this block. Current lifecycle state only gates the operational work below.
-
-        // FinalSubnetEmissionWeights
+        // A skipped prior round remains the settlement target on later assigned slots. Live
+        // election permits only one pending round per subnet, so selection is O(1); hand-built
+        // benchmark state falls back to the immediately previous epoch.
         weight_meter.consume(db_weight.reads(1));
+        let settlement_subnet_epoch = PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id)
+            .or_else(|| current_subnet_epoch.checked_sub(1));
+        let Some(settlement_subnet_epoch) = settlement_subnet_epoch else {
+            return;
+        };
 
-        if let Some(previous_subnet_epoch) = current_subnet_epoch.checked_sub(1) {
-            if let Ok(subnet_emission_weights) =
-                FinalSubnetEmissionWeights::<T>::try_get(current_epoch)
-            {
-                // Get the subnet's allocation for settling the exact previous subnet epoch.
-                if let Some(&subnet_weight) = subnet_emission_weights.subnet_weights.get(&subnet_id)
-                {
-                    weight_meter.consume(db_weight.reads(1));
-                    let historical_items = SubnetConsensusSubmissionMaxItems::<T>::get(
-                        subnet_id,
-                        previous_subnet_epoch,
-                    )
-                    .min(T::MaxSubnetNodesUpperBound::get());
-                    weight_meter.consume(db_weight.reads(1));
-                    let precheck_weight = if historical_items == 0 {
-                        T::WeightInfo::precheck_subnet_consensus_submission_missing()
-                    } else {
-                        T::WeightInfo::precheck_subnet_consensus_submission(historical_items)
-                    };
+        let historical_items =
+            SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, settlement_subnet_epoch)
+                .min(T::MaxSubnetNodesUpperBound::get());
+        weight_meter.consume(db_weight.reads(1));
+        let precheck_weight = if historical_items == 0 {
+            T::WeightInfo::precheck_subnet_consensus_submission_missing()
+        } else {
+            T::WeightInfo::precheck_subnet_consensus_submission(historical_items)
+        };
 
-                    if weight_meter.can_consume(precheck_weight) {
-                        let (consensus_submission_data, _) =
-                            Self::precheck_subnet_consensus_submission(
-                                subnet_id,
-                                previous_subnet_epoch,
-                                current_epoch,
-                            );
-                        weight_meter.consume(precheck_weight);
+        if !weight_meter.can_consume(precheck_weight) {
+            return;
+        }
 
-                        if let Some(consensus_submission_data) = consensus_submission_data {
-                            // Calculate rewards
-                            let (rewards_data, rewards_block_weight) =
-                                Self::calculate_rewards_with_policy(
-                                    subnet_emission_weights.subnets_emissions,
-                                    subnet_weight,
-                                    &consensus_submission_data.policy,
-                                );
-                            weight_meter.consume(rewards_block_weight);
+        // Missing proposals can be economically settled even when the emission allocation was
+        // omitted. Submitted rounds use the same definitive-zero rule below once the earlier
+        // global allocation slot has passed.
+        let (consensus_submission_data, _) = Self::precheck_subnet_consensus_submission(
+            subnet_id,
+            settlement_subnet_epoch,
+            current_epoch,
+        );
+        weight_meter.consume(precheck_weight);
+        let Some(mut consensus_submission_data) = consensus_submission_data else {
+            return;
+        };
 
-                            // Distribute rewards
-                            Self::distribute_rewards(
-                                weight_meter,
-                                subnet_id,
-                                current_subnet_epoch, // used for graduating nodes
-                                consensus_submission_data,
-                                rewards_data,
-                            );
+        weight_meter.consume(db_weight.reads(1));
+        let settlement_emission_epoch =
+            ConsensusRoundSettlementEmissionEpoch::<T>::get(subnet_id, settlement_subnet_epoch)
+                .unwrap_or(current_epoch);
+        weight_meter.consume(db_weight.reads(1));
+        // The global allocation slot precedes every subnet settlement slot. Consequently, by the
+        // time this code runs, either a missing epoch record or an omitted subnet key definitively
+        // means zero allocation; neither is a reason to retain liabilities forever. Explicit empty
+        // records are still written by `handle_subnet_emission_weights` to make this state visible.
+        let (subnets_emissions, subnet_weight, has_reward_allocation) =
+            match FinalSubnetEmissionWeights::<T>::try_get(settlement_emission_epoch) {
+                Ok(subnet_emission_weights) => {
+                    match subnet_emission_weights.subnet_weights.get(&subnet_id) {
+                        Some(weight) => {
+                            let emissions = subnet_emission_weights.subnets_emissions;
+                            (emissions, *weight, emissions != 0 && *weight != 0)
                         }
-
-                        // Pending removal logic.
+                        None => (0, 0, false),
                     }
                 }
-            }
+                Err(()) => (0, 0, false),
+            };
+
+        if !has_reward_allocation {
+            // The proposer base reward is a separate stake credit and is not derived from
+            // `RewardsData`. Preserve the historical no-allocation semantics by suppressing that
+            // credit too; quorum, slash, reputation, and liability finalization still run.
+            consensus_submission_data.policy.base_validator_reward = 0;
         }
+
+        let Some((rewards_data, rewards_block_weight)) = Self::calculate_rewards_with_policy(
+            subnets_emissions,
+            subnet_weight,
+            &consensus_submission_data.policy,
+        ) else {
+            // Election snapshots are immutable. If a migration or corrupt state supplied an
+            // impossible reward percentage, retain the pending round and every slash liability
+            // without issuing any component of its reward budget.
+            return;
+        };
+        weight_meter.consume(rewards_block_weight);
+        Self::distribute_rewards_for_round(
+            weight_meter,
+            subnet_id,
+            current_subnet_epoch,
+            settlement_subnet_epoch,
+            consensus_submission_data,
+            rewards_data,
+        );
     }
 
     /// Run independently admitted subnet operations after reward settlement. Election sees the
@@ -785,14 +827,19 @@ impl<T: Config> Pallet<T> {
         let (subnet_weights, mut weight): (BTreeMap<u32, u128>, Weight) =
             Self::calculate_subnet_weights(epoch);
 
-        // Store weights and handle foundation
+        // Store weights and handle foundation. Even an all-zero/all-ineligible epoch gets an
+        // explicit empty record so settlement can distinguish "finalized with no allocation"
+        // from "finalization has not run yet" and release pending slash liabilities.
         if !subnet_weights.is_empty() {
             let (subnets_emissions, foundation_emissions_as_u128) =
                 Self::get_epoch_emissions(epoch);
 
             if let Some(foundation_emissions) = Self::u128_to_balance(foundation_emissions_as_u128)
             {
-                Self::add_balance_to_treasury(foundation_emissions);
+                // Foundation issuance is a ceiling, not a guaranteed mint. An exact-credit
+                // failure leaves both the treasury account and TotalIssuance unchanged while the
+                // independently allocated subnet budget can still settle fail-closed below.
+                let _ = Self::add_balance_to_treasury(foundation_emissions);
                 weight = weight.saturating_add(T::WeightInfo::add_balance_to_treasury());
             }
 
@@ -801,6 +848,9 @@ impl<T: Config> Pallet<T> {
                 subnet_weights,
             };
             FinalSubnetEmissionWeights::<T>::insert(epoch, data);
+            weight = weight.saturating_add(T::DbWeight::get().writes(1));
+        } else {
+            FinalSubnetEmissionWeights::<T>::insert(epoch, DistributionData::default());
             weight = weight.saturating_add(T::DbWeight::get().writes(1));
         }
 
@@ -1116,17 +1166,23 @@ impl<T: Config> Pallet<T> {
                 weight = weight.saturating_add(db_weight.reads(1));
                 if let Some(round) = SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch)
                 {
+                    weight = weight.saturating_add(db_weight.reads(1));
+                    if Self::is_consensus_round_settled(subnet_id, prev_subnet_epoch) {
+                        return (None, weight);
+                    }
+
                     let validator_subnet_node_id = round.validator_subnet_node_id;
 
                     // Apply economic losses while leaving reputation loss to the existing
                     // absence-specific node and subnet penalties below.
-                    let (_, _, _, slash_weight) = Self::apply_validator_economic_slashes(
+                    let (slash_result, slash_weight) = Self::apply_validator_economic_slashes(
                         subnet_id,
                         validator_subnet_node_id,
                         0,
                         round.policy.min_attestation_percentage,
                         round.policy.base_slash_percentage,
                         round.policy.max_slash_amount,
+                        round.validator_node_stake_balance,
                         0,
                         round.validator_delegate_stake_balance,
                         round.policy.validator_delegate_stake_slash_threshold,
@@ -1134,6 +1190,16 @@ impl<T: Config> Pallet<T> {
                         round.policy.max_validator_delegate_stake_slash_amount,
                     );
                     weight = weight.saturating_add(slash_weight);
+                    if slash_result.is_err() {
+                        // Keep the immutable round, pending marker, and both liability locks for
+                        // an exact retry. Absence reputation must not be charged until its
+                        // economic settlement commits successfully.
+                        return (None, weight);
+                    }
+                    weight = weight.saturating_add(Self::finalize_consensus_round_slash_liability(
+                        subnet_id,
+                        prev_subnet_epoch,
+                    ));
 
                     //
                     // Update subnet rep
@@ -1203,6 +1269,11 @@ impl<T: Config> Pallet<T> {
         weight = weight.saturating_add(db_weight.reads(1));
 
         weight = weight.saturating_add(db_weight.reads(1));
+        if Self::is_consensus_round_settled(subnet_id, prev_subnet_epoch) {
+            return (None, weight);
+        }
+
+        weight = weight.saturating_add(db_weight.reads(1));
         let Some(attestor_weight_snapshot) =
             SubnetConsensusAttestorWeights::<T>::get(subnet_id, prev_subnet_epoch)
         else {
@@ -1268,6 +1339,7 @@ impl<T: Config> Pallet<T> {
         let consensus_data = ConsensusSubmissionData::<T> {
             policy: round.policy,
             validator_subnet_node_id: submission.validator_id,
+            validator_node_stake_balance: round.validator_node_stake_balance,
             validator_delegate_stake_balance: round.validator_delegate_stake_balance,
             validator_epoch_progress: submission.validator_epoch_progress,
             validator_reward_factor: submission.validator_reward_factor,
@@ -1324,76 +1396,102 @@ impl<T: Config> Pallet<T> {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
-        let overall_subnet_reward: u128 = Self::percent_mul(overall_rewards, emission_weight);
-
         // --- Get owner rewards
         let subnet_owner_percentage = SubnetOwnerPercentage::<T>::get();
         weight = weight.saturating_add(db_weight.reads(1));
-        let subnet_owner_reward: u128 =
-            Self::percent_mul(overall_subnet_reward, subnet_owner_percentage);
-
-        // --- Get subnet rewards minus owner cut
-        let subnet_rewards: u128 = overall_subnet_reward.saturating_sub(subnet_owner_reward);
 
         // --- Get delegators rewards
         let mut delegate_stake_rewards_percentage =
             SubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id);
         weight = weight.saturating_add(db_weight.reads(1));
+        let mut pending_update = None;
         let evaluated_subnet_epoch = current_subnet_epoch.saturating_sub(1);
         if let Some(pending) = PendingSubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id) {
             weight = weight.saturating_add(db_weight.reads(1));
             if pending.effective_subnet_epoch <= evaluated_subnet_epoch {
                 delegate_stake_rewards_percentage = pending.value;
-                SubnetDelegateStakeRewardsPercentage::<T>::insert(subnet_id, pending.value);
-                PendingSubnetDelegateStakeRewardsPercentage::<T>::remove(subnet_id);
-                weight = weight.saturating_add(db_weight.writes(2));
-                Self::deposit_event(Event::SubnetDelegateStakeRewardsPercentageUpdate {
-                    subnet_id,
-                    owner: pending.owner,
-                    value: pending.value,
-                });
+                pending_update = Some(pending);
             }
         } else {
             weight = weight.saturating_add(db_weight.reads(1));
         }
+
+        // Validate the complete split before activating a pending value. A malformed current or
+        // pending rate therefore cannot be persisted by this accounting path, and its allocation
+        // is zero rather than a partially over-budget `RewardsData` value.
+        let Some(rewards_data) = Self::checked_subnet_reward_split(
+            overall_rewards,
+            emission_weight,
+            subnet_owner_percentage,
+            delegate_stake_rewards_percentage,
+        ) else {
+            return (RewardsData::default(), weight);
+        };
+
+        if let Some(pending) = pending_update {
+            SubnetDelegateStakeRewardsPercentage::<T>::insert(subnet_id, pending.value);
+            PendingSubnetDelegateStakeRewardsPercentage::<T>::remove(subnet_id);
+            weight = weight.saturating_add(db_weight.writes(2));
+            Self::deposit_event(Event::SubnetDelegateStakeRewardsPercentageUpdate {
+                subnet_id,
+                owner: pending.owner,
+                value: pending.value,
+            });
+        }
+
+        (rewards_data, weight)
+    }
+
+    /// Calculate one subnet's complete reward split, rejecting every malformed percentage and
+    /// proving that the resulting liabilities exactly partition (and never exceed) its budget.
+    fn checked_subnet_reward_split(
+        overall_rewards: u128,
+        emission_weight: u128,
+        subnet_owner_percentage: u128,
+        subnet_delegate_stake_rewards_percentage: u128,
+    ) -> Option<RewardsData> {
+        let percentage_factor = Self::percentage_factor_as_u128();
+        if emission_weight > percentage_factor
+            || subnet_owner_percentage > percentage_factor
+            || subnet_delegate_stake_rewards_percentage > percentage_factor
+        {
+            return None;
+        }
+
+        let overall_subnet_reward = Self::percent_mul(overall_rewards, emission_weight);
+        let subnet_owner_reward = Self::percent_mul(overall_subnet_reward, subnet_owner_percentage);
+        let subnet_rewards = overall_subnet_reward.checked_sub(subnet_owner_reward)?;
         let delegate_stake_rewards =
-            Self::percent_mul(subnet_rewards, delegate_stake_rewards_percentage);
-        let subnet_node_rewards = subnet_rewards.saturating_sub(delegate_stake_rewards);
-        let rewards_data = RewardsData {
+            Self::percent_mul(subnet_rewards, subnet_delegate_stake_rewards_percentage);
+        let subnet_node_rewards = subnet_rewards.checked_sub(delegate_stake_rewards)?;
+
+        let combined_allocation = subnet_owner_reward
+            .checked_add(delegate_stake_rewards)?
+            .checked_add(subnet_node_rewards)?;
+        if combined_allocation != overall_subnet_reward {
+            return None;
+        }
+
+        Some(RewardsData {
             overall_subnet_reward,
             subnet_owner_reward,
             subnet_rewards,
             delegate_stake_rewards,
             subnet_node_rewards,
-        };
-        (rewards_data, weight)
+        })
     }
 
     pub fn calculate_rewards_with_policy(
         overall_rewards: u128,
         emission_weight: u128,
         policy: &ConsensusPolicySnapshot,
-    ) -> (RewardsData, Weight) {
-        let overall_subnet_reward = Self::percent_mul(overall_rewards, emission_weight);
-        let subnet_owner_reward =
-            Self::percent_mul(overall_subnet_reward, policy.subnet_owner_percentage);
-        let subnet_rewards = overall_subnet_reward.saturating_sub(subnet_owner_reward);
-        let delegate_stake_rewards: u128 = Self::percent_mul(
-            subnet_rewards,
+    ) -> Option<(RewardsData, Weight)> {
+        Self::checked_subnet_reward_split(
+            overall_rewards,
+            emission_weight,
+            policy.subnet_owner_percentage,
             policy.subnet_delegate_stake_rewards_percentage,
-        );
-
-        // --- Get subnet nodes rewards total
-        let subnet_node_rewards: u128 = subnet_rewards.saturating_sub(delegate_stake_rewards);
-
-        let rewards_data = RewardsData {
-            overall_subnet_reward,
-            subnet_owner_reward,
-            subnet_rewards,
-            delegate_stake_rewards,
-            subnet_node_rewards,
-        };
-
-        (rewards_data, Weight::zero())
+        )
+        .map(|rewards_data| (rewards_data, Weight::zero()))
     }
 }

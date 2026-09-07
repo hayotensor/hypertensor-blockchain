@@ -16,7 +16,7 @@ interface IOverwatchNode {
 
     function registerOverwatchNode(
         uint256 stakeToBeAdded
-    ) external payable;
+    ) external;
 
     function removeOverwatchNode(uint256 overwatchNodeId) external;
 
@@ -45,7 +45,7 @@ interface IOverwatchNode {
     function addOverwatchStake(
         uint256 overwatchNodeId,
         uint256 stakeToBeAdded
-    ) external payable;
+    ) external;
 
     function removeOverwatchStake(
         uint256 overwatchNodeId,

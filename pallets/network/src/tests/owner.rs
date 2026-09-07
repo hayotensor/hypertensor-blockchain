@@ -978,13 +978,18 @@ fn test_owner_unpause_reserves_full_epoch_before_consensus() {
         let node_reputations_after_historical_settlement: BTreeMap<u32, u128> =
             SubnetNodeReputation::<Test>::iter_prefix(subnet_id).collect();
 
-        // The first live epoch still has no prior work to fund, but its subnet slot must
-        // elect a validator and begin a complete consensus round.
+        // The first live epoch still has no prior work to fund, but the global allocation
+        // records that definitive empty result and its subnet slot begins a complete round.
         set_epoch(first_consensus_epoch, NETWORK_SUBNET_EMISSION_SLOT);
         Network::on_initialize(System::block_number());
-        assert!(!FinalSubnetEmissionWeights::<Test>::contains_key(
+        assert!(FinalSubnetEmissionWeights::<Test>::contains_key(
             first_consensus_epoch
         ));
+        assert!(
+            !FinalSubnetEmissionWeights::<Test>::get(first_consensus_epoch)
+                .subnet_weights
+                .contains_key(&subnet_id)
+        );
 
         set_block_to_subnet_slot_epoch(first_consensus_epoch, subnet_id);
         Network::on_initialize(System::block_number());
@@ -1911,35 +1916,21 @@ fn test_owner_set_emergency_validator_subnet() {
                 >= emergency_validator_data.started_subnet_epoch
         );
 
-        // G+1 is preparation-only. Position the test there so the loop's first
-        // election/reward simulation lands on the G+2 emergency start epoch.
+        // G+1 is preparation-only. Position the simulated settlements there; emergency
+        // duration advances when a snapshotted round settles, not merely when election is called.
         increase_epochs(1);
 
-        // EmergencySubnetNodeElectionData removes after being greater than total epochs
-        // so use += 2 here
-        for _ in 0..emergency_validator_data
-            .target_emergency_validators_epochs
-            .saturating_add(2)
-        {
-            increase_epochs(1);
-            let epoch = Network::get_current_epoch_as_u32();
-            set_block_to_subnet_slot_epoch(epoch, subnet_id);
-            let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-
-            Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
-
-            // simulate calling distribute_rewards
-            let forked_subnet_node_ids: Option<BTreeSet<u32>> =
-                EmergencySubnetNodeElectionData::<Test>::mutate_exists(subnet_id, |maybe_data| {
-                    if let Some(data) = maybe_data {
-                        // Increment `total_epochs`
-                        data.total_epochs = data.total_epochs.saturating_add(1);
-
-                        Some(data.subnet_node_ids.iter().cloned().collect())
-                    } else {
-                        None
-                    }
-                });
+        for _ in 0..emergency_validator_data.target_emergency_validators_epochs {
+            EmergencySubnetNodeElectionData::<Test>::mutate_exists(subnet_id, |maybe_data| {
+                let data = maybe_data
+                    .as_mut()
+                    .expect("emergency state must remain until its final settlement");
+                data.total_epochs = data.total_epochs.saturating_add(1);
+            });
+            Network::maybe_finish_expired_emergency_validator_set(
+                subnet_id,
+                Network::get_current_subnet_epoch_as_u32(subnet_id),
+            );
         }
 
         assert_eq!(
@@ -2131,21 +2122,29 @@ fn test_owner_fork_subnet_max_fork_epoch() {
                     .started_subnet_epoch
         );
 
-        let max_epochs = emergency_validator_data
-            .clone()
-            .unwrap()
-            .max_emergency_validators_epoch
-            .saturating_sub(Network::get_current_subnet_epoch_as_u32(subnet_id));
-        log::error!("max_epochs {:?}", max_epochs);
+        let emergency_validator_data = emergency_validator_data.unwrap();
 
-        // EmergencySubnetNodeElectionData removes after being greater than `max_epochs`
-        for _ in 0..max_epochs.saturating_add(1) {
-            increase_epochs(1);
-            let epoch = Network::get_current_epoch_as_u32();
-            set_block_to_subnet_slot_epoch(epoch, subnet_id);
-            let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-            Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
-        }
+        // The pause followed a slot that elected a round. Settle that immutable historical round
+        // during G+1 so its pending pointer cannot (correctly) backpressure the next election.
+        let preparation_subnet_epoch = emergency_validator_data
+            .started_subnet_epoch
+            .saturating_sub(1);
+        set_block_to_subnet_slot_epoch(preparation_subnet_epoch, subnet_id);
+        Network::emission_step(
+            &mut frame_support::weights::WeightMeter::new(),
+            System::block_number(),
+            Network::get_current_epoch_as_u32(),
+            preparation_subnet_epoch,
+            subnet_id,
+        );
+
+        // No emergency round settled, so the wall-clock maximum is the expiry condition under
+        // test. The first election attempt beyond that bound cleans the emergency state.
+        let expired_subnet_epoch = emergency_validator_data
+            .max_emergency_validators_epoch
+            .saturating_add(1);
+        set_block_to_subnet_slot_epoch(expired_subnet_epoch, subnet_id);
+        Network::elect_validator(subnet_id, expired_subnet_epoch, System::block_number());
 
         assert_eq!(
             EmergencySubnetNodeElectionData::<Test>::try_get(subnet_id),

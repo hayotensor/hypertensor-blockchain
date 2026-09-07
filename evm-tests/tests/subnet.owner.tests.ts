@@ -16,10 +16,10 @@ import {
     getPauseStartedSubnetEpoch,
     getSlotIndex,
     getSubnetAtSlot,
-    ownerAddOrUpdateInitialColdkeys,
+    ownerAddOrUpdateInitialValidators,
     ownerDeactivateSubnet,
     ownerPauseSubnet,
-    ownerRemoveInitialColdkeys,
+    ownerRemoveInitialValidators,
     ownerUnpauseSubnet,
     ownerUpdateChurnLimit,
     ownerUpdateDelegateStakePercentage,
@@ -40,6 +40,7 @@ import {
     updateBootnodes,
     registerSubnet,
     registerSubnetNode,
+    registerValidator,
     transferBalanceFromSudo,
     ownerUpdateMinMaxStake
 } from "../src/network"
@@ -47,6 +48,7 @@ import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
 import { PublicClient } from "viem";
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { expect } from "chai";
+import { minimumSubnetDelegateSharesOut } from "../src/balance-math";
 
 // npm test -- -g "Test subnet register activate-0xuhnrfvok"
 describe("Test subnet owner-0xuhnrfvok", () => {
@@ -66,41 +68,6 @@ describe("Test subnet owner-0xuhnrfvok", () => {
         [wallet5, wallet6],
         [wallet7, wallet8],
     ]);
-
-    const initialColdkeys = [
-        {
-            coldkey: wallet1.address,
-            count: 1
-        },
-        {
-            coldkey: wallet2.address,
-            count: 1
-        },
-        {
-            coldkey: wallet3.address,
-            count: 1
-        },
-        {
-            coldkey: wallet4.address,
-            count: 1
-        },
-        {
-            coldkey: wallet5.address,
-            count: 1
-        },
-        {
-            coldkey: wallet6.address,
-            count: 1
-        },
-        {
-            coldkey: wallet7.address,
-            count: 1
-        },
-        {
-            coldkey: wallet8.address,
-            count: 1
-        },
-    ];
 
     let publicClient: PublicClient;
     let papiApi: TypedApi<typeof dev>
@@ -164,6 +131,32 @@ describe("Test subnet owner-0xuhnrfvok", () => {
             }
         ]
 
+        const validatorIds = new Map<string, string>();
+        const coldkeys = Array.from(ALL_WALLETS.keys());
+        await batchTransferBalanceFromSudo(
+            api,
+            papiApi,
+            coldkeys.map(wallet => ({
+                address: wallet.address,
+                balance: sudoTransferAmount,
+            })),
+        );
+        for (const [coldkey, hotkey] of ALL_WALLETS.entries()) {
+            const validatorContract = new ethers.Contract(
+                SUBNET_CONTRACT_ADDRESS,
+                SUBNET_CONTRACT_ABI,
+                coldkey,
+            );
+            await registerValidator(validatorContract, hotkey.address);
+            const validatorIdOption = await api.query.network.coldkeyValidatorId(coldkey.address) as Option<any>;
+            expect(validatorIdOption.isSome).to.equal(true);
+            validatorIds.set(coldkey.address, validatorIdOption.unwrap().toString());
+        }
+        const initialValidators = [...validatorIds.values()].map(validatorId => ({
+            validatorId,
+            count: 1,
+        }));
+
         await registerSubnet(
             subnetContract,
             cost,
@@ -174,9 +167,8 @@ describe("Test subnet owner-0xuhnrfvok", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         const palletSubnetId = await api.query.network.subnetName(subnetName);
@@ -193,9 +185,6 @@ describe("Test subnet owner-0xuhnrfvok", () => {
         expect(await getSubnetAtSlot(subnetContract, assignedSlot)).to.equal(BigInt(subnetId));
 
         const minStakeAmount = (await api.query.network.minSubnetMinStake()).toString();
-        const delegateRewardRate = "0";
-
-        const coldkeys = Array.from(ALL_WALLETS.keys());
         const recipients = coldkeys.map(wallet => ({
             address: wallet.address,
             balance: BigInt(minStakeAmount + BigInt(500))
@@ -224,25 +213,20 @@ describe("Test subnet owner-0xuhnrfvok", () => {
                 multiaddr: new Uint8Array()
             }
 
-            let delegateAccount = {
-                accountId: wallet1.address,
-                rate: BigInt(0)
-            }
             const unique = generateRandomString(5)
             const nonUnique = generateRandomString(5)
 
             await registerSubnetNode(
                 accountSubnetContract,
+                validatorIds.get(coldkey.address)!,
                 subnetId,
                 hotkey.address,
                 peer_info_1,
                 peer_info_2,
                 peer_info_3,
-                delegateRewardRate,
                 BigInt(minStakeAmount),
                 unique,
                 nonUnique,
-                delegateAccount,
                 "1000000000000000000"
             );
         }));
@@ -335,56 +319,63 @@ describe("Test subnet owner-0xuhnrfvok", () => {
         await ownerUpdateIncludedClassificationEpochs(subnetContract, subnetId, newIncludedClassificationEpochs)
         expect((await api.query.network.includedClassificationEpochs(subnetId)).toString()).to.be.equal(newIncludedClassificationEpochs)
 
-        const addColdkeys = [
-            {
-                coldkey: wallet9.address,
-                count: 5
-            },
-            {
-                coldkey: wallet10.address,
-                count: 3
-            }
+        await batchTransferBalanceFromSudo(
+            api,
+            papiApi,
+            [wallet9, wallet10].map(wallet => ({
+                address: wallet.address,
+                balance: sudoTransferAmount,
+            })),
+        );
+        const addedValidatorIds: string[] = [];
+        for (const wallet of [wallet9, wallet10]) {
+            const validatorContract = new ethers.Contract(
+                SUBNET_CONTRACT_ADDRESS,
+                SUBNET_CONTRACT_ABI,
+                wallet,
+            );
+            await registerValidator(validatorContract, generateRandomEthersWallet().address);
+            const validatorIdOption = await api.query.network.coldkeyValidatorId(wallet.address) as Option<any>;
+            expect(validatorIdOption.isSome).to.equal(true);
+            addedValidatorIds.push(validatorIdOption.unwrap().toString());
+        }
+        const addValidators = [
+            { validatorId: addedValidatorIds[0], count: 5 },
+            { validatorId: addedValidatorIds[1], count: 3 },
         ];
 
-        await ownerAddOrUpdateInitialColdkeys(subnetContract, subnetId, addColdkeys)
-        let currentColdkeys = await api.query.network.subnetRegistrationInitialColdkeys(subnetId)
-        expect(currentColdkeys != undefined);
-        let currentColdkeysOpt = currentColdkeys as Option<any>;
-        expect(currentColdkeysOpt.isSome);
-        if (currentColdkeysOpt.isSome) {
-            const coldkeysMap = currentColdkeysOpt.unwrap();
+        await ownerAddOrUpdateInitialValidators(subnetContract, subnetId, addValidators)
+        let currentValidators = await api.query.network.nodeRegistrationInitialValidatorIds(subnetId)
+        expect(currentValidators != undefined);
+        let currentValidatorsOpt = currentValidators as Option<any>;
+        expect(currentValidatorsOpt.isSome);
+        if (currentValidatorsOpt.isSome) {
+            const validatorsMap = currentValidatorsOpt.unwrap();
 
             // Convert to a plain object for easier comparison
-            const coldkeysObj = coldkeysMap.toJSON();
+            const validatorsObject = validatorsMap.toJSON();
 
-            // Check each coldkey exists with the correct count
-            for (const entry of addColdkeys) {
-                expect(coldkeysObj[entry.coldkey]).to.equal(entry.count);
+            for (const entry of addValidators) {
+                expect(validatorsObject[entry.validatorId]).to.equal(entry.count);
             }
 
-            // Or check all at once
-            initialColdkeys.forEach(entry => {
-                expect(coldkeysObj[entry.coldkey]).to.equal(entry.count);
-            });
-
-            addColdkeys.forEach(entry => {
-                expect(coldkeysObj[entry.coldkey]).to.equal(entry.count);
+            initialValidators.forEach(entry => {
+                expect(validatorsObject[entry.validatorId]).to.equal(entry.count);
             });
         }
 
-        const removeColdkeys = [wallet10.address]
+        const removeValidators = [addedValidatorIds[1]]
 
-        await ownerRemoveInitialColdkeys(subnetContract, subnetId, removeColdkeys)
-        currentColdkeys = await api.query.network.subnetRegistrationInitialColdkeys(subnetId)
-        expect(currentColdkeys != undefined);
-        currentColdkeysOpt = currentColdkeys as Option<any>;
-        expect(currentColdkeysOpt.isSome);
-        if (currentColdkeysOpt.isSome) {
-            const coldkeysMap = currentColdkeysOpt.unwrap();
-            const coldkeysJson = coldkeysMap.toJSON();
+        await ownerRemoveInitialValidators(subnetContract, subnetId, removeValidators)
+        currentValidators = await api.query.network.nodeRegistrationInitialValidatorIds(subnetId)
+        expect(currentValidators != undefined);
+        currentValidatorsOpt = currentValidators as Option<any>;
+        expect(currentValidatorsOpt.isSome);
+        if (currentValidatorsOpt.isSome) {
+            const validatorsMap = currentValidatorsOpt.unwrap();
+            const validatorsJson = validatorsMap.toJSON();
 
-            // Check that wallet10 doesn't exist
-            expect(coldkeysJson[wallet10.address]).to.equal(undefined);
+            expect(validatorsJson[addedValidatorIds[1]]).to.equal(undefined);
         }
 
 
@@ -436,23 +427,16 @@ describe("Test subnet owner-0xuhnrfvok", () => {
             removeBootnodes
         )
         const newBootnodes = await api.query.network.subnetBootnodes(subnetId)
-        expect(newBootnodes != undefined);
-        const newBootnodesOpt = newBootnodes as Option<any>;
-        expect(newBootnodesOpt.isSome);
-        if (newBootnodesOpt.isSome) {
-            const bootnodesMap = newBootnodesOpt.unwrap();
-            const bootnodesJson = bootnodesMap.toJSON();
-
-            expect(bootnodesJson.includes(BOOTNODES[0])).to.equal(false);
-
-            BOOTNODES.slice(1).forEach(bootnode => {
-                expect(bootnodesJson.has(bootnode)).to.equal(true);
-            });
-
-            addBootnodes.forEach(bootnode => {
-                expect(bootnodesJson.includes(bootnode)).to.equal(true);
-            });
-        }
+        const bootnodesJson = newBootnodes.toJSON() as Record<string, string>;
+        const storedPeerIds = new Set(
+            Object.keys(bootnodesJson).map(peerId =>
+                peerId.startsWith("0x") ? ethers.toUtf8String(peerId) : peerId
+            ),
+        );
+        expect(storedPeerIds.has(BOOTNODES[0].peerId)).to.equal(false);
+        addBootnodes.forEach(bootnode => {
+            expect(storedPeerIds.has(bootnode.peerId)).to.equal(true);
+        });
 
         const newAccessWallet = generateRandomEthersWallet();
         await ownerAddBootnodeAccess(
@@ -461,16 +445,9 @@ describe("Test subnet owner-0xuhnrfvok", () => {
             newAccessWallet.address,
         )
         const newAccess = await api.query.network.subnetBootnodeAccess(subnetId)
-        expect(newAccess != undefined);
-        const newAccessOpt = newAccess as Option<any>;
-        expect(newAccessOpt.isSome);
-        if (newAccessOpt.isSome) {
-            const newAccessMap = newAccessOpt.unwrap();
-            const newAccessMapJson = newAccessMap.toJSON();
-
-            const accessSet = new Set(newAccessMapJson.map((addr: string) => addr.toLowerCase()));
-            expect(accessSet.has(newAccessWallet.address.toLowerCase())).to.equal(true);
-        }
+        const newAccessJson = newAccess.toJSON() as string[];
+        const accessSet = new Set(newAccessJson.map(addr => addr.toLowerCase()));
+        expect(accessSet.has(newAccessWallet.address.toLowerCase())).to.equal(true);
 
 
         // ================
@@ -503,7 +480,12 @@ describe("Test subnet owner-0xuhnrfvok", () => {
             stakingContract,
             subnetId,
             minDelegateStake,
-            BigInt(0)
+            await minimumSubnetDelegateSharesOut(
+                stakingContract,
+                subnetId,
+                minDelegateStake,
+                BigInt(100),
+            )
         );
 
         await activateSubnet(

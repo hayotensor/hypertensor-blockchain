@@ -16,6 +16,10 @@ import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
 import { PublicClient } from "viem";
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { expect } from "chai";
+import {
+    minimumOutputAfterSlippage,
+} from "../src/balance-math";
+import { registerCanonicalValidators } from "../src/validator-fixtures";
 
 // npm test -- -g "test delegate staking-0xDy454g"
 describe("test delegate staking-0xDy454g", () => {
@@ -46,40 +50,7 @@ describe("test delegate staking-0xDy454g", () => {
         wallet7.address,
         wallet8.address,
     ]
-    const initialColdkeys = [
-        {
-            coldkey: wallet1.address,
-            count: 1
-        },
-        {
-            coldkey: wallet2.address,
-            count: 1
-        },
-        {
-            coldkey: wallet3.address,
-            count: 1
-        },
-        {
-            coldkey: wallet4.address,
-            count: 1
-        },
-        {
-            coldkey: wallet5.address,
-            count: 1
-        },
-        {
-            coldkey: wallet6.address,
-            count: 1
-        },
-        {
-            coldkey: wallet7.address,
-            count: 1
-        },
-        {
-            coldkey: wallet8.address,
-            count: 1
-        },
-    ];
+    const validatorColdkeys = [wallet1, wallet2, wallet3];
 
     let publicClient: PublicClient;
     let papiApi: TypedApi<typeof dev>
@@ -88,6 +59,7 @@ describe("test delegate staking-0xDy454g", () => {
 
     const sudoTransferAmount = BigInt(10000e18)
     const stakeAmount = BigInt(100e18)
+    const maxStakingSlippageBasisPoints = BigInt(100)
 
     const subnetContract = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet1);
 
@@ -129,9 +101,23 @@ describe("test delegate staking-0xDy454g", () => {
             api,
             papiApi,
             SUB_LOCAL_URL,
+            wallet3.address,
+            sudoTransferAmount,
+        )
+
+        await transferBalanceFromSudo(
+            api,
+            papiApi,
+            SUB_LOCAL_URL,
             wallet2.address,
             sudoTransferAmount,
         )
+
+        const initialValidators = await registerCanonicalValidators(
+            subnetContract,
+            validatorColdkeys,
+            api,
+        );
 
         // ==============
         // Register subnet
@@ -155,9 +141,8 @@ describe("test delegate staking-0xDy454g", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         subnetId = await subnetContract.getSubnetId(subnetName);
@@ -183,19 +168,49 @@ describe("test delegate staking-0xDy454g", () => {
 
         const beforeEthBalance = await ethersProvider.getBalance(wallet1.address);
 
-        const beforeFinalizedBalance = await waitForFinalizedBalance(
-            papiApi,
-            wallet1.address,
-            (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
-        );
+        const beforeFinalizedBalance = (
+            await papiApi.query.System.Account.getValue(wallet1.address)
+        ).data.free;
 
         const beforeAddBalance = (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
+        await assert.rejects(
+            stakingContract.previewSubnetDelegateStakeDeposit(
+                BigInt(2 ** 32 - 1),
+                stakeAmount,
+            ),
+        );
+        await assert.rejects(
+            stakingContract.previewValidatorDelegateStakeDeposit(
+                BigInt(2 ** 32 - 1),
+                stakeAmount,
+            ),
+        );
+        await assert.rejects(
+            stakingContract.previewSubnetDelegateStakeRedeem(
+                BigInt(2 ** 32 - 1),
+                BigInt(1_000_000_000),
+            ),
+        );
+        await assert.rejects(
+            stakingContract.previewValidatorDelegateStakeRedeem(
+                BigInt(2 ** 32 - 1),
+                BigInt(1_000_000_000),
+            ),
+        );
+        const previewedShares = await stakingContract.previewSubnetDelegateStakeDeposit(
+            subnetId,
+            stakeAmount,
+        );
+        expect(previewedShares > BigInt(0)).to.equal(true);
 
         await addToDelegateStake(
             stakingContract,
             subnetId,
             stakeAmount,
-            BigInt(0)
+            minimumOutputAfterSlippage(
+                previewedShares,
+                maxStakingSlippageBasisPoints,
+            )
         );
 
         const ethBalance = await ethersProvider.getBalance(wallet1.address);
@@ -206,7 +221,7 @@ describe("test delegate staking-0xDy454g", () => {
         const afterFinalizedBalance = await waitForFinalizedBalance(
             papiApi,
             wallet1.address,
-            (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
+            beforeFinalizedBalance,
         );
 
         expect(Number(beforeFinalizedBalance)).to.be.greaterThan(Number(afterFinalizedBalance));
@@ -218,6 +233,13 @@ describe("test delegate staking-0xDy454g", () => {
         expect(Number(balanceAfter)).to.be.greaterThan(0);
         expect(sharesBefore).to.be.lessThan(sharesAfter);
         expect(balanceBefore).to.be.lessThan(balanceAfter);
+        expect(sharesAfter).to.equal(previewedShares);
+        expect(
+            await stakingContract.previewSubnetDelegateStakeRedeem(
+                subnetId,
+                sharesAfter,
+            ),
+        ).to.equal(balanceAfter);
 
         console.log("✅ Add delegate stake testing complete")
     })
@@ -240,11 +262,18 @@ describe("test delegate staking-0xDy454g", () => {
         // ==================
         // Add delegate stake
         // ==================
+        const previewedShares = await stakingContract.previewSubnetDelegateStakeDeposit(
+            subnetId,
+            stakeAmount,
+        );
         await addToDelegateStake(
             stakingContract,
             subnetId,
             stakeAmount,
-            BigInt(0)
+            minimumOutputAfterSlippage(
+                previewedShares,
+                maxStakingSlippageBasisPoints,
+            )
         )
 
         // =====================
@@ -263,18 +292,21 @@ describe("test delegate staking-0xDy454g", () => {
         expect(Number(sharesAfterDelegateStake)).to.not.equal(0);
         expect(Number(balanceAfterDelegateStake)).to.not.equal(0);
         expect(Number(balanceAfterDelegateStake)).to.be.lessThanOrEqual(Number(sharesAfterDelegateStake));
-
-        const beforeFinalizedBalance = await waitForFinalizedBalance(
-            papiApi,
-            wallet1.address,
-            (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
-        );
-        console.log("beforeFinalizedBalance", beforeFinalizedBalance)
+        expect(
+            await stakingContract.previewSubnetDelegateStakeRedeem(
+                subnetId,
+                sharesAfterDelegateStake,
+            ),
+        ).to.equal(balanceAfterDelegateStake);
 
         await removeDelegateStake(
             stakingContract,
             subnetId,
-            sharesAfterDelegateStake
+            sharesAfterDelegateStake,
+            minimumOutputAfterSlippage(
+                balanceAfterDelegateStake,
+                maxStakingSlippageBasisPoints,
+            )
         )
 
         const sharesAfterRemove = await stakingContract.accountSubnetDelegateStakeShares(wallet2.address, subnetId);

@@ -169,6 +169,9 @@ fn validator_election_snapshots_collective_identity_attestation_percentage() {
 
         Network::elect_validator(subnet_id, 3, 0);
         ConsensusValidatorIdentityAttestationPercentage::<Test>::put(pending_value);
+        // A subnet may have only one unsettled consensus round. Complete the prior round's
+        // lifecycle before electing its successor, as production does during epoch settlement.
+        let _ = Network::finalize_consensus_round_slash_liability(subnet_id, 3);
         Network::elect_validator(subnet_id, 4, EpochLength::get());
 
         assert_eq!(

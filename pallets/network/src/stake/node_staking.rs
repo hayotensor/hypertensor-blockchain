@@ -15,7 +15,7 @@
 
 use super::*;
 use frame_support::pallet_prelude::DispatchError;
-use sp_runtime::Saturating;
+use sp_runtime::ArithmeticError;
 
 impl<T: Config> Pallet<T> {
     /// Authenticate the coldkey which owns a node's persistent validator identity. Physical node
@@ -35,7 +35,8 @@ impl<T: Config> Pallet<T> {
         Ok(validator_id)
     }
 
-    pub fn do_add_node_stake(
+    #[frame_support::transactional]
+    pub(crate) fn do_add_node_stake(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
         subnet_node_id: u32,
@@ -67,15 +68,17 @@ impl<T: Config> Pallet<T> {
 
         let node_stake_balance: u128 = NodeSubnetStake::<T>::get(&subnet_node_id, subnet_id);
 
+        let next_node_stake_balance = node_stake_balance
+            .checked_add(stake_to_be_added)
+            .ok_or(ArithmeticError::Overflow)?;
+
         ensure!(
-            node_stake_balance.saturating_add(stake_to_be_added)
-                >= SubnetMinStakeBalance::<T>::get(subnet_id),
+            next_node_stake_balance >= SubnetMinStakeBalance::<T>::get(subnet_id),
             Error::<T>::MinStakeNotReached
         );
 
         ensure!(
-            node_stake_balance.saturating_add(stake_to_be_added)
-                <= SubnetMaxStakeBalance::<T>::get(subnet_id),
+            next_node_stake_balance <= SubnetMaxStakeBalance::<T>::get(subnet_id),
             Error::<T>::MaxStakeReached
         );
 
@@ -99,7 +102,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::BalanceWithdrawalError
         );
 
-        Self::increase_node_stake(subnet_node_id, subnet_id, stake_to_be_added);
+        Self::increase_node_stake(subnet_node_id, subnet_id, stake_to_be_added)?;
 
         // Set last block for rate limiting
         Self::set_last_tx_block(&coldkey, block);
@@ -115,7 +118,7 @@ impl<T: Config> Pallet<T> {
     }
 
     #[frame_support::transactional]
-    pub fn do_remove_node_stake(
+    pub(crate) fn do_remove_node_stake(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
         subnet_node_id: u32,
@@ -142,12 +145,22 @@ impl<T: Config> Pallet<T> {
 
         // if user is still a subnet node they must keep the required minimum balance
         if is_subnet_node {
+            let remaining_node_stake = node_stake_balance
+                .checked_sub(stake_to_be_removed)
+                .ok_or(ArithmeticError::Underflow)?;
             ensure!(
-                node_stake_balance.saturating_sub(stake_to_be_removed)
-                    >= SubnetMinStakeBalance::<T>::get(subnet_id),
+                remaining_node_stake >= SubnetMinStakeBalance::<T>::get(subnet_id),
                 Error::<T>::MinStakeNotReached
             );
         }
+
+        // Election commits this position's direct principal to the round. Keep that principal
+        // collectible until settlement; physical node removal is harmless because ownership and
+        // stake accounting intentionally survive it, but an unstake would otherwise evade slash.
+        ensure!(
+            !Self::is_node_stake_slash_locked(subnet_id, subnet_node_id),
+            Error::<T>::ElectedValidatorCannotUnstake
+        );
 
         // --- Ensure that we can convert this u128 to a balance.
         match Self::u128_to_balance(stake_to_be_removed) {
@@ -166,7 +179,7 @@ impl<T: Config> Pallet<T> {
             .ok_or(sp_runtime::ArithmeticError::Overflow)?;
 
         // --- 7. We remove the balance from the subnet_node_id.
-        Self::decrease_node_stake(subnet_node_id, subnet_id, stake_to_be_removed);
+        Self::decrease_node_stake(subnet_node_id, subnet_id, stake_to_be_removed)?;
 
         // Keep the source debit and ledger credit atomic.
         Self::add_balance_to_unbonding_ledger(
@@ -190,29 +203,51 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn increase_node_stake(subnet_node_id: u32, subnet_id: u32, amount: u128) {
-        // -- increase account subnet staking balance
-        NodeSubnetStake::<T>::mutate(subnet_node_id, subnet_id, |mut n| {
-            n.saturating_accrue(amount)
-        });
+    /// Increase a direct node position and both of its aggregate counters atomically.
+    ///
+    /// Every post-state is calculated before the first storage write. This prevents one counter
+    /// from saturating while the others continue to move, which would permanently disconnect the
+    /// position total from the subnet and network totals.
+    pub(crate) fn increase_node_stake(
+        subnet_node_id: u32,
+        subnet_id: u32,
+        amount: u128,
+    ) -> DispatchResult {
+        let next_node_stake = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id)
+            .checked_add(amount)
+            .ok_or(ArithmeticError::Overflow)?;
+        let next_subnet_stake = TotalSubnetStake::<T>::get(subnet_id)
+            .checked_add(amount)
+            .ok_or(ArithmeticError::Overflow)?;
+        let next_total_stake = TotalStake::<T>::get()
+            .checked_add(amount)
+            .ok_or(ArithmeticError::Overflow)?;
 
-        // -- increase total subnet stake
-        TotalSubnetStake::<T>::mutate(subnet_id, |mut n| n.saturating_accrue(amount));
-
-        // -- increase total stake overall
-        TotalStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
+        NodeSubnetStake::<T>::insert(subnet_node_id, subnet_id, next_node_stake);
+        TotalSubnetStake::<T>::insert(subnet_id, next_subnet_stake);
+        TotalStake::<T>::put(next_total_stake);
+        Ok(())
     }
 
-    pub fn decrease_node_stake(subnet_node_id: u32, subnet_id: u32, amount: u128) {
-        // -- decrease account subnet staking balance
-        NodeSubnetStake::<T>::mutate(subnet_node_id, subnet_id, |mut n| {
-            n.saturating_reduce(amount)
-        });
+    /// Decrease a direct node position and both aggregate counters atomically.
+    pub(crate) fn decrease_node_stake(
+        subnet_node_id: u32,
+        subnet_id: u32,
+        amount: u128,
+    ) -> DispatchResult {
+        let next_node_stake = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id)
+            .checked_sub(amount)
+            .ok_or(ArithmeticError::Underflow)?;
+        let next_subnet_stake = TotalSubnetStake::<T>::get(subnet_id)
+            .checked_sub(amount)
+            .ok_or(ArithmeticError::Underflow)?;
+        let next_total_stake = TotalStake::<T>::get()
+            .checked_sub(amount)
+            .ok_or(ArithmeticError::Underflow)?;
 
-        // -- decrease total subnet stake
-        TotalSubnetStake::<T>::mutate(subnet_id, |mut n| n.saturating_reduce(amount));
-
-        // -- decrease total stake overall
-        TotalStake::<T>::mutate(|mut n| n.saturating_reduce(amount));
+        NodeSubnetStake::<T>::insert(subnet_node_id, subnet_id, next_node_stake);
+        TotalSubnetStake::<T>::insert(subnet_id, next_subnet_stake);
+        TotalStake::<T>::put(next_total_stake);
+        Ok(())
     }
 }

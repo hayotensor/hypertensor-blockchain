@@ -18,6 +18,151 @@ use frame_support::{pallet_prelude::Weight, BoundedBTreeMap};
 use frame_system::pallet_prelude::BlockNumberFor;
 
 impl<T: Config> Pallet<T> {
+    /// Whether an elected validator's delegate pool is still exposed to an unsettled round.
+    /// Share-minting deposits and every outgoing principal path must use the same predicate.
+    pub fn is_validator_delegate_stake_slash_locked(validator_id: u32) -> bool {
+        ValidatorDelegateStakePendingSlashLiabilityCount::<T>::get(validator_id) > 0
+            || Self::get_current_block_as_u32()
+                < ValidatorDelegateStakeSlashLockUntil::<T>::get(validator_id)
+    }
+
+    /// Whether this exact elected node position is still exposed to an unsettled round.
+    pub fn is_node_stake_slash_locked(subnet_id: u32, subnet_node_id: u32) -> bool {
+        NodeStakePendingSlashLiabilityCount::<T>::get(subnet_id, subnet_node_id) > 0
+            || Self::get_current_block_as_u32()
+                < NodeStakeSlashLockUntil::<T>::get(subnet_id, subnet_node_id)
+    }
+
+    fn round_has_node_stake_slash_liability(round: &ElectedConsensusRound) -> bool {
+        round.policy.base_slash_percentage > 0
+            && round.policy.max_slash_amount > 0
+            && round.validator_node_stake_balance > 0
+    }
+
+    fn round_has_validator_delegate_stake_slash_liability(round: &ElectedConsensusRound) -> bool {
+        round.policy.base_validator_delegate_stake_slash_percentage > 0
+            && round.policy.max_validator_delegate_stake_slash_amount > 0
+    }
+
+    /// Whether an election created by the live lifecycle has already consumed its economic
+    /// settlement. Untracked hand-built state is left to test/benchmark compatibility, while every
+    /// real election writes an explicit pending value.
+    pub(crate) fn is_consensus_round_settled(subnet_id: u32, subnet_epoch: u32) -> bool {
+        ConsensusRoundSettlementStatus::<T>::get(subnet_id, subnet_epoch) == Some(true)
+    }
+
+    /// Mark one round settled and release exactly the liabilities that election registered.
+    ///
+    /// This is intentionally called only after the round's economic slash decision. A missing or
+    /// inconsistent counter fails closed with a permanent count instead of allowing principal to
+    /// escape an outstanding liability. The historical elected round remains immutable.
+    pub(crate) fn finalize_consensus_round_slash_liability(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> Weight {
+        let db_weight = T::DbWeight::get();
+        let mut weight = db_weight.reads(1);
+
+        let tracked_liabilities =
+            match ConsensusRoundSettlementStatus::<T>::get(subnet_id, subnet_epoch) {
+                Some(true) => return weight,
+                Some(false) => true,
+                // Hand-built benchmark/test rounds predate the lifecycle marker. They still receive
+                // an exact-once fence, but no counters are decremented because election never raised
+                // them. Live elections always take the `Some(false)` branch.
+                None => false,
+            };
+
+        weight = weight.saturating_add(db_weight.reads(1));
+        let Some(round) = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch) else {
+            // Election and status are written together. If the large historical record is ever
+            // corrupted, retain the pending status and every count so all exits remain locked.
+            return weight;
+        };
+
+        if tracked_liabilities && Self::round_has_node_stake_slash_liability(&round) {
+            let count = NodeStakePendingSlashLiabilityCount::<T>::get(
+                subnet_id,
+                round.validator_subnet_node_id,
+            );
+            weight = weight.saturating_add(db_weight.reads(1));
+            match count {
+                0 => {
+                    // Impossible from valid election state. Fail closed without permitting this
+                    // round to be economically processed a second time.
+                    NodeStakePendingSlashLiabilityCount::<T>::insert(
+                        subnet_id,
+                        round.validator_subnet_node_id,
+                        u32::MAX,
+                    );
+                    NodeStakeSlashLockUntil::<T>::insert(
+                        subnet_id,
+                        round.validator_subnet_node_id,
+                        u32::MAX,
+                    );
+                    weight = weight.saturating_add(db_weight.writes(2));
+                }
+                1 => {
+                    NodeStakePendingSlashLiabilityCount::<T>::remove(
+                        subnet_id,
+                        round.validator_subnet_node_id,
+                    );
+                    NodeStakeSlashLockUntil::<T>::remove(subnet_id, round.validator_subnet_node_id);
+                    weight = weight.saturating_add(db_weight.writes(2));
+                }
+                _ => {
+                    NodeStakePendingSlashLiabilityCount::<T>::insert(
+                        subnet_id,
+                        round.validator_subnet_node_id,
+                        count - 1,
+                    );
+                    weight = weight.saturating_add(db_weight.writes(1));
+                }
+            }
+        }
+
+        if tracked_liabilities && Self::round_has_validator_delegate_stake_slash_liability(&round) {
+            let count =
+                ValidatorDelegateStakePendingSlashLiabilityCount::<T>::get(round.validator_id);
+            weight = weight.saturating_add(db_weight.reads(1));
+            match count {
+                0 => {
+                    ValidatorDelegateStakePendingSlashLiabilityCount::<T>::insert(
+                        round.validator_id,
+                        u32::MAX,
+                    );
+                    ValidatorDelegateStakeSlashLockUntil::<T>::insert(round.validator_id, u32::MAX);
+                    weight = weight.saturating_add(db_weight.writes(2));
+                }
+                1 => {
+                    ValidatorDelegateStakePendingSlashLiabilityCount::<T>::remove(
+                        round.validator_id,
+                    );
+                    ValidatorDelegateStakeSlashLockUntil::<T>::remove(round.validator_id);
+                    weight = weight.saturating_add(db_weight.writes(2));
+                }
+                _ => {
+                    ValidatorDelegateStakePendingSlashLiabilityCount::<T>::insert(
+                        round.validator_id,
+                        count - 1,
+                    );
+                    weight = weight.saturating_add(db_weight.writes(1));
+                }
+            }
+        }
+
+        ConsensusRoundSettlementStatus::<T>::insert(subnet_id, subnet_epoch, true);
+        weight = weight.saturating_add(db_weight.writes(1));
+
+        weight = weight.saturating_add(db_weight.reads(1));
+        if PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id) == Some(subnet_epoch) {
+            PendingConsensusRoundSettlementEpoch::<T>::remove(subnet_id);
+            weight = weight.saturating_add(db_weight.writes(1));
+        }
+        ConsensusRoundSettlementEmissionEpoch::<T>::remove(subnet_id, subnet_epoch);
+        weight.saturating_add(db_weight.writes(1))
+    }
+
     pub(crate) fn can_remove_excess_subnet_at_epoch(
         epoch: u32,
         previous_activation_epoch: u32,
@@ -713,6 +858,12 @@ impl<T: Config> Pallet<T> {
         if SubnetElectedValidator::<T>::contains_key(subnet_id, subnet_epoch) {
             return;
         }
+        // At most one round per subnet may await settlement. This keeps retry selection O(1),
+        // prevents an unbounded liability backlog, and still permits one validator identity to
+        // hold overlapping liabilities across different subnets.
+        if PendingConsensusRoundSettlementEpoch::<T>::contains_key(subnet_id) {
+            return;
+        }
 
         let pending_ids = Self::pending_subnet_node_removal_ids(subnet_id);
         let (physical_slot_list, emergency_active, expired_emergency) =
@@ -772,6 +923,7 @@ impl<T: Config> Pallet<T> {
             let Some(validator_id) = eligible_validator_identity_ids.get(&node_id).copied() else {
                 return;
             };
+            let validator_node_stake_balance = NodeSubnetStake::<T>::get(node_id, subnet_id);
             let validator_delegate_stake_balance =
                 ValidatorDelegateStakeBalance::<T>::get(validator_id);
             let emergency = if emergency_active {
@@ -786,27 +938,74 @@ impl<T: Config> Pallet<T> {
                 None
             };
 
-            SubnetElectedValidator::<T>::insert(
+            let elected_round = ElectedConsensusRound {
+                validator_subnet_node_id: node_id,
+                validator_id,
+                emergency,
+                eligible_subnet_node_ids,
+                eligible_validator_identity_ids,
+                validator_node_stake_balance,
+                policy,
+                validator_delegate_stake_balance,
+            };
+
+            let next_node_liability_count =
+                if Self::round_has_node_stake_slash_liability(&elected_round) {
+                    let Some(next_count) =
+                        NodeStakePendingSlashLiabilityCount::<T>::get(subnet_id, node_id)
+                            .checked_add(1)
+                    else {
+                        // Never create an election whose slash exposure cannot be represented.
+                        return;
+                    };
+                    Some(next_count)
+                } else {
+                    None
+                };
+
+            let next_pool_liability_count =
+                if Self::round_has_validator_delegate_stake_slash_liability(&elected_round) {
+                    let Some(next_count) =
+                        ValidatorDelegateStakePendingSlashLiabilityCount::<T>::get(validator_id)
+                            .checked_add(1)
+                    else {
+                        return;
+                    };
+                    Some(next_count)
+                } else {
+                    None
+                };
+
+            SubnetElectedValidator::<T>::insert(subnet_id, subnet_epoch, &elected_round);
+            ConsensusRoundSettlementStatus::<T>::insert(subnet_id, subnet_epoch, false);
+            PendingConsensusRoundSettlementEpoch::<T>::insert(subnet_id, subnet_epoch);
+            ConsensusRoundSettlementEmissionEpoch::<T>::insert(
                 subnet_id,
                 subnet_epoch,
-                ElectedConsensusRound {
-                    validator_subnet_node_id: node_id,
-                    validator_id,
-                    emergency,
-                    eligible_subnet_node_ids,
-                    eligible_validator_identity_ids,
-                    policy,
-                    validator_delegate_stake_balance,
-                },
+                Self::get_current_epoch_with_block_as_u32(block).saturating_add(1),
             );
 
-            // An enabled round locks outgoing pool operations through its settlement block.
-            // Incoming stake and share transfers do not use this lock. Taking the maximum
-            // preserves every outstanding liability when one identity has overlapping rounds.
-            if policy.base_validator_delegate_stake_slash_percentage > 0
-                && policy.max_validator_delegate_stake_slash_amount > 0
-            {
-                let settlement_block = block.saturating_add(T::EpochLength::get());
+            let settlement_block = block.saturating_add(T::EpochLength::get());
+
+            // Direct node principal remains available until its round is settled. The snapshot
+            // fixes the amount exposed by this election; the lock prevents the owner from making
+            // that snapshot uncollectable before settlement.
+            if let Some(next_count) = next_node_liability_count {
+                NodeStakePendingSlashLiabilityCount::<T>::insert(subnet_id, node_id, next_count);
+                NodeStakeSlashLockUntil::<T>::mutate(subnet_id, node_id, |lock_until| {
+                    *lock_until = (*lock_until).max(settlement_block);
+                });
+            }
+
+            // An enabled round locks pool principal through its settlement block. Taking the
+            // maximum preserves every outstanding liability when one identity has overlapping
+            // rounds. Share-minting deposits are also rejected while this lock is active so a
+            // newcomer cannot inherit a historical slash.
+            if let Some(next_count) = next_pool_liability_count {
+                ValidatorDelegateStakePendingSlashLiabilityCount::<T>::insert(
+                    validator_id,
+                    next_count,
+                );
                 ValidatorDelegateStakeSlashLockUntil::<T>::mutate(validator_id, |lock_until| {
                     *lock_until = (*lock_until).max(settlement_block);
                 });

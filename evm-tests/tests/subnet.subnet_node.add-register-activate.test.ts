@@ -8,7 +8,7 @@ import {
     getCurrentRegistrationCost,
     registerSubnet,
     registerSubnetNode,
-    removeSubnetNode,
+    registerValidator,
     transferBalanceFromSudo
 } from "../src/network"
 import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
@@ -47,54 +47,21 @@ describe("test subnet node entry functions-0xbull3948t92d398", () => {
         wallet7.address,
         wallet8.address,
     ]
-    const initialColdkeys = [
-        {
-            coldkey: wallet1.address,
-            count: 1
-        },
-        {
-            coldkey: wallet2.address,
-            count: 1
-        },
-        {
-            coldkey: wallet3.address,
-            count: 1
-        },
-        {
-            coldkey: wallet4.address,
-            count: 1
-        },
-        {
-            coldkey: wallet5.address,
-            count: 1
-        },
-        {
-            coldkey: wallet6.address,
-            count: 1
-        },
-        {
-            coldkey: wallet7.address,
-            count: 1
-        },
-        {
-            coldkey: wallet8.address,
-            count: 1
-        },
-    ];
+    const validatorColdkeys = [wallet1, wallet2, wallet3, wallet4];
+    const validatorHotkeys = validatorColdkeys.map(() => generateRandomEthersWallet());
+    const validatorIds = new Map<string, string>();
+    let initialValidators: Array<{ validatorId: string; count: number }>;
 
     let publicClient: PublicClient;
     let papiApi: TypedApi<typeof dev>
     let api: ApiPromise
 
     const sudoTransferAmount = BigInt(10000e18)
-    const stakeAmount = BigInt(100e18)
     let minStakeAmount: string;
 
     const subnetContract = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet0);
 
-    const subnetContract1 = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet1);
     const subnetContract2 = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet2);
-    const subnetContract3 = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet3);
     const subnetContract4 = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet4);
 
     const subnetName = generateRandomString(30)
@@ -105,8 +72,6 @@ describe("test subnet node entry functions-0xbull3948t92d398", () => {
     let peer_info_1: { peerId: string; multiaddr: Uint8Array };
     let peer_info_2: { peerId: string; multiaddr: Uint8Array };
     let peer_info_3: { peerId: string; multiaddr: Uint8Array };
-    let peer_info_4: { peerId: string; multiaddr: Uint8Array };
-    let delegateAccount: { accountId: string; rate: bigint };
     const delegateRewardRate = "0";
 
     // sudo account alice as signer
@@ -167,6 +132,23 @@ describe("test subnet node entry functions-0xbull3948t92d398", () => {
             sudoTransferAmount,
         )
 
+        for (let index = 0; index < validatorColdkeys.length; index++) {
+            const coldkey = validatorColdkeys[index];
+            const validatorContract = new ethers.Contract(
+                SUBNET_CONTRACT_ADDRESS,
+                SUBNET_CONTRACT_ABI,
+                coldkey,
+            );
+            await registerValidator(validatorContract, validatorHotkeys[index].address);
+            const validatorIdOption = await api.query.network.coldkeyValidatorId(coldkey.address) as Option<any>;
+            expect(validatorIdOption.isSome).to.equal(true);
+            validatorIds.set(coldkey.address, validatorIdOption.unwrap().toString());
+        }
+        initialValidators = [...validatorIds.values()].map(validatorId => ({
+            validatorId,
+            count: 1,
+        }));
+
         // ==============
         // Register subnet
         // ==============
@@ -189,9 +171,8 @@ describe("test subnet node entry functions-0xbull3948t92d398", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         subnetId = await subnetContract.getSubnetId(subnetName);
@@ -210,11 +191,6 @@ describe("test subnet node entry functions-0xbull3948t92d398", () => {
             multiaddr: new Uint8Array()
         }
 
-        delegateAccount = {
-            accountId: wallet1.address,
-            rate: BigInt(0)
-        }
-
         minStakeAmount = (await api.query.network.minSubnetMinStake()).toString();
     })
 
@@ -226,116 +202,63 @@ describe("test subnet node entry functions-0xbull3948t92d398", () => {
 
         await registerSubnetNode(
             subnetContract2,
+            validatorIds.get(wallet2.address)!,
             subnetId,
             wallet3.address,
             peer_info_1,
             peer_info_2,
             peer_info_3,
-            delegateRewardRate,
             BigInt(minStakeAmount),
             unique,
             nonUnique,
-            delegateAccount,
             "1000000000000000000"
         )
-        let subnetNodeId = await api.query.network.hotkeySubnetNodeId(subnetId, wallet3.address);
+        const subnetNodeId = (await api.query.network.totalSubnetNodeUids(subnetId)).toString();
+        expect(Number(subnetNodeId)).to.be.greaterThan(0);
+        console.log("subnetNodeId", subnetNodeId)
 
-        const subnetNodeIdOpt = subnetNodeId as Option<any>;
-        expect(subnetNodeIdOpt.isSome);
+        const subnetNodeDataHuman = (await api.query.network.subnetNodesData(subnetId, subnetNodeId)).toHuman() as any;
+        console.log("subnetNodeDataHuman", subnetNodeDataHuman)
+        expect(subnetNodeDataHuman.validatorId.toString()).to.equal(validatorIds.get(wallet2.address));
+        expect(unique).to.be.equal(subnetNodeDataHuman.unique);
+        expect(nonUnique).to.be.equal(subnetNodeDataHuman.nonUnique);
+        expect("Validator").to.be.equal(subnetNodeDataHuman.classification.nodeClass);
+        expect((await api.query.network.subnetNodeIdHotkey(subnetId, subnetNodeId)).toString()).to.equal(wallet3.address);
+        const validatorData = (await api.query.network.validatorsData(validatorIds.get(wallet2.address)!)).toHuman() as any;
+        expect(validatorData.delegateRewardRate).to.equal(delegateRewardRate);
 
-        let subnetNodeExists: boolean = false;
-        if (subnetNodeIdOpt.isSome) {
-            subnetNodeExists = true;
-            const subnetNodeIdUnwrapped = subnetNodeIdOpt.unwrap();
-            const human = subnetNodeIdUnwrapped.toHuman();
-            const subnetNodeId = human?.toString();
-            expect(Number(subnetNodeId)).to.be.greaterThan(0);
-            console.log("subnetNodeId", subnetNodeId)
-
-            let subnetNodeData = await api.query.network.subnetNodesData(subnetId, subnetNodeId);
-
-            const subnetNodeDataOpt = subnetNodeData as any;
-            const subnetNodeDataHuman = subnetNodeDataOpt.toHuman() as any;
-            console.log("subnetNodeDataHuman", subnetNodeDataHuman)
-            expect(wallet3.address).to.be.equal(subnetNodeDataHuman.hotkey);
-            // expect(peer1).to.be.equal(subnetNodeDataHuman.peerId);
-            // expect(peer2).to.be.equal(subnetNodeDataHuman.bootnodePeerId);
-            // expect(peer3).to.be.equal(subnetNodeDataHuman.clientPeerId);
-            expect(unique).to.be.equal(subnetNodeDataHuman.unique);
-            expect(nonUnique).to.be.equal(subnetNodeDataHuman.nonUnique);
-            // All nodes are "Validator" if the subnet is in registration
-            expect("Validator").to.be.equal(subnetNodeDataHuman.classification.nodeClass);
-            expect(delegateRewardRate).to.be.equal(subnetNodeDataHuman.delegateRewardRate);
-
-            if (delegateRewardRate == "0") {
-                expect("0").to.be.equal(subnetNodeDataHuman.lastDelegateRewardRateUpdate);
-            }
-        }
-
-        expect(subnetNodeExists);
-
-        let accountSubnetStake = await api.query.network.accountSubnetStake(wallet3.address, subnetId);
-        expect(BigInt(accountSubnetStake.toString())).to.be.equal(BigInt(minStakeAmount));
+        const nodeStake = await api.query.network.nodeSubnetStake(subnetNodeId, subnetId);
+        expect(BigInt(nodeStake.toString())).to.be.equal(BigInt(minStakeAmount));
 
         console.log("✅ Subnet node registration testing complete")
     })
 
     // Status: passing
-    // npm test -- -g "testing remove subnet node-0xf56GRTy2"
-    it("testing remove subnet node-0xf56GRTy2", async () => {
+    // npm test -- -g "testing register second subnet node-0xf56GRTy2"
+    it("testing register second subnet node-0xf56GRTy2", async () => {
         const unique = generateRandomString(16)
         const nonUnique = generateRandomString(16)
 
         await registerSubnetNode(
             subnetContract4,
+            validatorIds.get(wallet4.address)!,
             subnetId,
             wallet5.address,
             peer_info_1,
             peer_info_2,
             peer_info_3,
-            delegateRewardRate,
             BigInt(minStakeAmount),
             unique,
             nonUnique,
-            delegateAccount,
             "1000000000000000000"
         )
 
-        let subnetNodeId: string | undefined;
+        const subnetNodeId = (await api.query.network.totalSubnetNodeUids(subnetId)).toString();
+        console.log("subnetNodeId", subnetNodeId)
+        expect(Number(subnetNodeId)).to.be.greaterThan(0);
+        expect((await api.query.network.subnetNodeValidatorId(subnetId, subnetNodeId)).toString()).to.equal(validatorIds.get(wallet4.address));
 
-        let subnetNodeIdFetched = await api.query.network.hotkeySubnetNodeId(subnetId, wallet4.address);
-
-        const subnetNodeIdOpt = subnetNodeIdFetched as Option<any>;
-        expect(subnetNodeIdOpt.isSome);
-
-        let subnetNodeExists: boolean = false;
-        if (subnetNodeIdOpt.isSome) {
-            subnetNodeExists = true;
-            const subnetNodeIdUnwrapped = subnetNodeIdOpt.unwrap();
-            const human = subnetNodeIdUnwrapped.toHuman();
-            subnetNodeId = human?.toString();
-            console.log("subnetNodeId", subnetNodeId)
-
-            expect(Number(subnetNodeId)).to.be.greaterThan(0);
-        }
-        expect(subnetNodeExists);
-
-        expect(typeof subnetNodeId !== 'undefined');
-
-        // await removeSubnetNode(
-        //     subnetContract4, 
-        //     subnetId,
-        //     subnetNodeId!,
-        // )
-
-        // const subnetNodeIdAfter = await api.query.network.hotkeySubnetNodeId(subnetId, wallet4.address);
-        // console.log("subnetNodeIdAfter", subnetNodeIdAfter)
-
-        // const subnetNodeIdAfterOpt = subnetNodeIdAfter as Option<any>;
-        // expect(!subnetNodeIdAfterOpt.isSome);
-        // expect(subnetNodeIdAfterOpt.isEmpty);
-
-        console.log("✅ Subnet node removal testing complete")
+        console.log("✅ Second subnet node registration testing complete")
     })
 
 });

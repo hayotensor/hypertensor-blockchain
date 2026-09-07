@@ -529,6 +529,10 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_collective_remove_subnet(subnet_id: u32) -> DispatchResultWithPostInfo {
+        ensure!(
+            !PendingConsensusRoundSettlementEpoch::<T>::contains_key(subnet_id),
+            Error::<T>::ConsensusRoundPendingSettlement
+        );
         let _ = Self::do_remove_subnet(subnet_id, SubnetRemovalReason::Council);
         // Keep the declared benchmark weight. The manual cleanup accumulator does not include
         // proof-size or the complete variable-prefix model and is not safe as a refund value.

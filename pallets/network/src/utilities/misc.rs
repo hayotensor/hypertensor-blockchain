@@ -47,7 +47,9 @@ impl<T: Config> Pallet<T> {
             return false;
         }
 
-        return current_block - prev_tx_block <= rate_limit;
+        // Block numbers are expected to be monotonic, but fail closed if corrupted state or a
+        // test/runtime transition presents them out of order instead of panicking on subtraction.
+        current_block.saturating_sub(prev_tx_block) <= rate_limit
     }
 
     pub fn balance_to_u128(
@@ -62,9 +64,10 @@ impl<T: Config> Pallet<T> {
     /// Subnet survival depends only on live subnet delegate balances.
     ///
     /// Liquid currency and active or unbonding Overwatch stake are intentionally excluded. Queued
-    /// swap principal and ordinary network unbonding remain included so moving capital between
-    /// live network pools cannot temporarily lower the minimum stake required to keep a subnet
-    /// alive. Arithmetic overflow fails closed at `u128::MAX` rather than lowering that minimum.
+    /// swap principal, queued-swap refunds, and ordinary network unbonding remain included so
+    /// moving capital between live network pools cannot temporarily lower the minimum stake
+    /// required to keep a subnet alive. Arithmetic overflow fails closed at `u128::MAX` rather
+    /// than lowering that minimum.
     pub fn get_total_network_tvl() -> u128 {
         [
             TotalStake::<T>::get(),
@@ -73,6 +76,7 @@ impl<T: Config> Pallet<T> {
             TotalAccountDelegateStake::<T>::get(),
             TotalNetworkUnbondingBalance::<T>::get(),
             TotalQueuedSwapPrincipal::<T>::get(),
+            TotalQueuedSwapRefundBalance::<T>::get(),
         ]
         .into_iter()
         .try_fold(0u128, u128::checked_add)
@@ -85,7 +89,7 @@ impl<T: Config> Pallet<T> {
         Self::percent_div(nodes as u128, subnets as u128)
     }
 
-    pub fn send_to_treasury(
+    pub(crate) fn send_to_treasury(
         who: &T::AccountId,
         amount: <<T as pallet::Config>::Currency as Currency<
             <T as frame_system::Config>::AccountId,
@@ -105,16 +109,16 @@ impl<T: Config> Pallet<T> {
 
     /// Add balance to treasury
     /// Used for epoch inflation
-    pub fn add_balance_to_treasury(
+    pub(crate) fn add_balance_to_treasury(
         amount: <<T as pallet::Config>::Currency as Currency<
             <T as frame_system::Config>::AccountId,
         >>::Balance,
-    ) {
+    ) -> DispatchResult {
         let treasury_account = T::TreasuryAccount::get();
-        T::Currency::deposit_creating(&treasury_account, amount);
+        Self::deposit_balance_exact(&treasury_account, amount)
     }
 
-    pub fn burn(
+    pub(crate) fn burn(
         who: T::AccountId,
         amount: <<T as pallet::Config>::Currency as Currency<
             <T as frame_system::Config>::AccountId,

@@ -491,8 +491,18 @@ pub mod pallet {
         // Stake
         StakeAdded(u32, T::AccountId, T::AccountId, u128),
         StakeRemoved(u32, T::AccountId, T::AccountId, u128),
-        SubnetDelegateStakeAdded(u32, T::AccountId, u128),
-        SubnetDelegateStakeRemoved(u32, T::AccountId, u128),
+        SubnetDelegateStakeAdded {
+            subnet_id: u32,
+            account_id: T::AccountId,
+            balance: u128,
+            shares_minted: u128,
+        },
+        SubnetDelegateStakeRemoved {
+            subnet_id: u32,
+            account_id: T::AccountId,
+            balance: u128,
+            shares_burned: u128,
+        },
         SubnetDelegateStakeSwapped(u32, u32, T::AccountId, u128),
         DelegateNodeStakeAdded {
             account_id: T::AccountId,
@@ -535,12 +545,14 @@ pub mod pallet {
         ValidatorDelegateStakeAdded {
             validator_id: u32,
             account_id: T::AccountId,
-            delegate_stake_to_be_added: u128,
+            balance: u128,
+            shares_minted: u128,
         },
         ValidatorDelegateStakeRemoved {
             validator_id: u32,
             account_id: T::AccountId,
-            delegate_stake_to_be_removed: u128,
+            balance: u128,
+            shares_burned: u128,
         },
         SetValidatorNodeDelegateStakeWeights {
             validator_id: u32,
@@ -666,6 +678,21 @@ pub mod pallet {
             attestation_percentage: u128,
             node_stake_amount: u128,
             validator_delegate_stake_amount: u128,
+        },
+        /// A delegate pool lost its final asset unit. Its old shares are permanently invalidated
+        /// and a fresh generation may be initialized after all slash liabilities settle.
+        ValidatorDelegatePoolReset {
+            validator_id: u32,
+            old_generation: u64,
+            new_generation: u64,
+            invalidated_shares: u128,
+        },
+        /// A subnet delegate pool returned to its empty shape after losing its final asset unit.
+        SubnetDelegatePoolReset {
+            subnet_id: u32,
+            old_generation: u64,
+            new_generation: u64,
+            invalidated_shares: u128,
         },
 
         // Rewards data
@@ -931,8 +958,8 @@ pub mod pallet {
             balance: u128,
             shares: u128,
         },
-        /// A queued swap could not credit destination shares and returned its complete escrowed
-        /// balance through the delegate-stake unbonding path.
+        /// A queued swap could not credit destination shares and moved its complete escrowed
+        /// balance to the account's dedicated, immediately claimable swap-refund balance.
         SwapCallRefunded {
             id: u32,
             account_id: T::AccountId,
@@ -970,6 +997,10 @@ pub mod pallet {
         MaxSubnets,
         /// Account has subnet peer under subnet already
         InvalidSubnetNodeId,
+        /// The monotonically increasing subnet-node identifier space is exhausted.
+        SubnetNodeIdExhausted,
+        /// The next subnet-node identifier already has ownership, stake, or node data.
+        SubnetNodeIdOccupied,
         /// Invalid validator id. Must be validator class
         InvalidValidatorId,
         InvalidElectedSubnetNode,
@@ -1148,20 +1179,36 @@ pub mod pallet {
         MinStakeNotReached,
         // delegate staking
         CouldNotConvertToShares,
+        /// A deposit or redemption must provide a non-zero caller-defined minimum output.
+        InvalidStakeMinimumOutput,
+        /// The current exchange rate would return less than the caller's minimum output.
+        StakeSlippageExceeded,
+        /// Delegate-pool assets exist without any corresponding real shares.
+        DelegatePoolInvariantViolation,
+        /// Rewards may only enter a pool with delegator-owned circulating shares.
+        DelegatePoolNotActive,
         // Maximum unlockings reached for the unbonding ledger, see MaxUnbondings
         MaxUnlockingsReached,
         /// Maximum queued swap calls reached.
         SwapQueueFull,
         /// The monotonic queued-swap identifier has no remaining value that can be allocated.
         SwapQueueIdExhausted,
+        /// A queued swap must escrow a non-zero amount of source principal.
+        ZeroSwapBalance,
+        /// The caller's minimum destination-share constraint must be non-zero.
+        InvalidSwapMinimumShares,
+        /// The execution deadline must include the complete mandatory queue delay.
+        InvalidSwapDeadline,
         NoStakeUnbondingsOrCooldownNotMet,
         MinDelegateStake,
-        /// Elected validator on current epoch cannot unstake to ensure they are able to be rewarded or penalized
+        /// Elected node principal is locked until its snapshotted round can be settled.
         ElectedValidatorCannotUnstake,
         /// Elected validator on current epoch cannot remove to ensure they are able to be rewarded or penalized
         ElectedValidatorCannotRemove,
         /// Outgoing validator-pool stake is locked until every slashable elected round settles.
         ValidatorDelegateStakeSlashLocked,
+        /// A subnet cannot be removed while its last elected round still requires settlement.
+        ConsensusRoundPendingSettlement,
         MinActiveNodeStakeEpochs,
         /// Shares entered is zero, must be greater than
         SharesZero,
@@ -2186,6 +2233,9 @@ pub mod pallet {
         pub emergency: Option<EmergencyConsensusSnapshot>,
         pub eligible_subnet_node_ids: Vec<u32>,
         pub eligible_validator_identity_ids: BTreeMap<u32, u32>,
+        /// Direct node principal exposed to penalties for this round. Later stake additions must
+        /// not inherit liability for conduct that predates them.
+        pub validator_node_stake_balance: u128,
         pub validator_delegate_stake_balance: u128,
         pub policy: ConsensusPolicySnapshot,
     }
@@ -2198,6 +2248,8 @@ pub mod pallet {
     ///
     /// * `validator_subnet_node_id` - The subnet node ID of the validator who originally
     ///   proposed this consensus data.
+    /// * `validator_node_stake_balance` - Direct node principal snapshotted at election and
+    ///   therefore exposed to this round's node penalty.
     /// * `validator_delegate_stake_balance` - The validator identity pool balance snapshotted
     ///   when this round's validator was elected.
     /// * `validator_epoch_progress` - The percent process of the epoch when the validator submitted
@@ -2236,6 +2288,8 @@ pub mod pallet {
     pub struct ConsensusSubmissionData<T: Config> {
         pub policy: ConsensusPolicySnapshot,
         pub validator_subnet_node_id: u32,
+        /// Direct node principal snapshotted when this round's validator was elected.
+        pub validator_node_stake_balance: u128,
         pub validator_delegate_stake_balance: u128,
         pub validator_epoch_progress: u128,
         pub validator_reward_factor: u128,
@@ -4594,6 +4648,37 @@ pub mod pallet {
         DefaultZeroU128,
     >;
 
+    /// Nominal settlement block for the latest elected round involving this node position.
+    ///
+    /// The key is the exact slashable position rather than the validator identity so an election
+    /// in one subnet does not unnecessarily freeze that identity's unrelated node positions. This
+    /// timestamp is only a conservative compatibility signal; the authoritative lock is the
+    /// outstanding-liability count below, which cannot expire before actual settlement.
+    #[pallet::storage]
+    pub type NodeStakeSlashLockUntil<T> = StorageDoubleMap<
+        _,
+        Identity,
+        u32, // subnet id
+        Identity,
+        u32, // subnet node id
+        u32,
+        ValueQuery,
+    >;
+
+    /// Number of elected, slash-enabled rounds that have not settled this exact node position.
+    /// A count, rather than an unlock block, keeps overlapping and delayed rounds locked until
+    /// each one has actually applied (or definitively skipped) its snapshotted economic penalty.
+    #[pallet::storage]
+    pub type NodeStakePendingSlashLiabilityCount<T> = StorageDoubleMap<
+        _,
+        Identity,
+        u32, // subnet id
+        Identity,
+        u32, // subnet node id
+        u32,
+        ValueQuery,
+    >;
+
     //
     // Validator staking
     //
@@ -4601,6 +4686,17 @@ pub mod pallet {
     /// Total stake sum of all nodes in specified validator
     #[pallet::storage] // validator_id --> u128
     pub type ValidatorDelegateStakeShares<T> = StorageMap<_, Identity, u32, u128, ValueQuery>;
+
+    /// Shares in the current validator-pool generation that are owned by accounts. Total shares
+    /// may be larger because initialization and conversion remainders are permanently locked.
+    #[pallet::storage]
+    pub type ValidatorDelegateStakeCirculatingShares<T> =
+        StorageMap<_, Identity, u32, u128, ValueQuery>;
+
+    /// Generation of a validator delegate pool. A total-loss reset advances this value so old
+    /// account positions can be invalidated without an unbounded account iteration.
+    #[pallet::storage]
+    pub type ValidatorDelegatePoolGeneration<T> = StorageMap<_, Identity, u32, u64, ValueQuery>;
 
     /// Total stake sum of all nodes in specified validator
     #[pallet::storage] // validator_id --> u128
@@ -4636,13 +4732,25 @@ pub mod pallet {
         DefaultZeroU128,
     >;
 
+    /// Pool generation in which an account's stored validator-delegate shares are valid.
+    #[pallet::storage]
+    pub type AccountValidatorDelegateStakeGeneration<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Identity, u32, u64, ValueQuery>;
+
     #[pallet::storage]
     pub type TotalValidatorDelegateStakeBalance<T> = StorageValue<_, u128, ValueQuery>;
 
-    /// Validator identity => first block at which outgoing pool stake is unlocked.
-    /// Slash-enabled overlapping elections extend this value to their latest settlement block.
+    /// Validator identity => nominal settlement block for its latest slash-enabled election.
+    /// The pending-liability count below is authoritative if actual settlement is delayed.
     #[pallet::storage]
     pub type ValidatorDelegateStakeSlashLockUntil<T> =
+        StorageMap<_, Identity, u32, u32, ValueQuery>;
+
+    /// Number of slash-enabled elected rounds that still expose a validator delegate pool.
+    /// The identity-wide count covers simultaneous elections in multiple subnets without letting
+    /// one settlement unlock principal committed to another outstanding round.
+    #[pallet::storage]
+    pub type ValidatorDelegateStakePendingSlashLiabilityCount<T> =
         StorageMap<_, Identity, u32, u32, ValueQuery>;
 
     //
@@ -4714,6 +4822,29 @@ pub mod pallet {
     #[pallet::storage]
     pub type SubnetElectedValidator<T> =
         StorageDoubleMap<_, Identity, u32, Identity, u32, ElectedConsensusRound, OptionQuery>;
+
+    /// Exact-once settlement fence for each elected round.
+    ///
+    /// `false` means elected and pending; `true` means its economic outcome was processed and its
+    /// liability counts were released. `OptionQuery` distinguishes an untracked/manual fixture
+    /// from either real state without rewriting the large historical election record.
+    #[pallet::storage]
+    pub type ConsensusRoundSettlementStatus<T> =
+        StorageDoubleMap<_, Identity, u32, Identity, u32, bool, OptionQuery>;
+
+    /// The single unsettled consensus epoch for a subnet.
+    ///
+    /// Election is suppressed while this pointer exists, which bounds pending work to one round
+    /// per subnet and lets later assigned slots retry it without scanning historical elections.
+    #[pallet::storage]
+    pub type PendingConsensusRoundSettlementEpoch<T> =
+        StorageMap<_, Identity, u32, u32, OptionQuery>;
+
+    /// General emission epoch whose immutable allocation funds a pending subnet round.
+    /// Retrying later must use this historical budget rather than a newer epoch's allocation.
+    #[pallet::storage]
+    pub type ConsensusRoundSettlementEmissionEpoch<T> =
+        StorageDoubleMap<_, Identity, u32, Identity, u32, u32, OptionQuery>;
 
     #[pallet::storage] // subnet ID => epoch  => data
     pub type SubnetConsensusSubmission<T: Config> =
@@ -4937,6 +5068,18 @@ pub mod pallet {
     #[pallet::storage] // subnet_uid --> u128
     pub type TotalSubnetDelegateStakeShares<T> = StorageMap<_, Identity, u32, u128, ValueQuery>;
 
+    /// Shares in the current subnet-pool generation that are owned by accounts. The difference
+    /// from total shares is non-circulating liquidity that receives rounding value but can never
+    /// be redeemed by an account.
+    #[pallet::storage]
+    pub type TotalSubnetDelegateStakeCirculatingShares<T> =
+        StorageMap<_, Identity, u32, u128, ValueQuery>;
+
+    /// Generation of a subnet delegate pool. Kept symmetric with validator pools so the shared
+    /// accounting remains safe if subnet-pool losses are introduced later.
+    #[pallet::storage]
+    pub type SubnetDelegatePoolGeneration<T> = StorageMap<_, Identity, u32, u64, ValueQuery>;
+
     /// Total stake sum of all nodes in specified subnet
     #[pallet::storage] // subnet_uid --> u128
     pub type TotalSubnetDelegateStakeBalance<T> = StorageMap<_, Identity, u32, u128, ValueQuery>;
@@ -4953,6 +5096,11 @@ pub mod pallet {
         ValueQuery,
         DefaultZeroU128,
     >;
+
+    /// Pool generation in which an account's stored subnet-delegate shares are valid.
+    #[pallet::storage]
+    pub type AccountSubnetDelegateStakeGeneration<T: Config> =
+        StorageDoubleMap<_, Blake2_128Concat, T::AccountId, Identity, u32, u64, ValueQuery>;
 
     //
     // Node Delegate Stake
@@ -5201,9 +5349,12 @@ pub mod pallet {
     /// Why escrowed queued-swap principal was returned instead of credited to destination shares.
     #[derive(Encode, Decode, Clone, Copy, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
     pub enum SwapRefundReason {
+        Expired,
+        MinimumSharesNotMet,
         DestinationMissing,
         ZeroDestinationShares,
         DestinationCreditOverflow,
+        MinimumDepositNotMet,
     }
 
     /// Internal disposition of one queue item inspected by the bounded executor.
@@ -5211,8 +5362,18 @@ pub mod pallet {
     pub(crate) enum SwapExecutionOutcome {
         Completed,
         NotReady,
-        RefundBlocked,
         PermanentFailure,
+    }
+
+    /// Delegate pool whose principal was removed to create a queued swap.
+    ///
+    /// The source determines the cooldown that is snapshotted into the queue item. Keeping this
+    /// explicit prevents a swap (including its refund path) from shortening the source pool's
+    /// configured withdrawal delay.
+    #[derive(Clone, Copy, PartialEq, Eq, RuntimeDebug)]
+    pub(crate) enum QueuedSwapSource {
+        SubnetDelegate,
+        ValidatorDelegate,
     }
 
     /// Terminal settlement details used to emit the corresponding queue event.
@@ -5234,12 +5395,16 @@ pub mod pallet {
             account_id: AccountId,
             to_subnet_id: u32,
             balance: u128,
+            min_shares_out: u128,
+            execute_before_block: u32,
         },
         // swap_from_validator_to_validator
         SwapToValidatorDelegateStake {
             account_id: AccountId,
             to_validator_id: u32,
             balance: u128,
+            min_shares_out: u128,
+            execute_before_block: u32,
         },
     }
 
@@ -5249,22 +5414,30 @@ pub mod pallet {
                 Self::SwapToSubnetDelegateStake {
                     to_subnet_id,
                     balance,
+                    min_shares_out,
+                    execute_before_block,
                     ..
                 } => fmt
                     .debug_struct("QueuedSwapCall::SwapToSubnetDelegateStake")
                     .field("account_id", &"<opaque>")
                     .field("to_subnet_id", to_subnet_id)
                     .field("balance", balance)
+                    .field("min_shares_out", min_shares_out)
+                    .field("execute_before_block", execute_before_block)
                     .finish(),
                 Self::SwapToValidatorDelegateStake {
                     to_validator_id,
                     balance,
+                    min_shares_out,
+                    execute_before_block,
                     ..
                 } => fmt
                     .debug_struct("QueuedSwapCall::SwapToValidatorDelegateStake")
                     .field("account_id", &"<opaque>")
                     .field("to_validator_id", to_validator_id)
                     .field("balance", balance)
+                    .field("min_shares_out", min_shares_out)
+                    .field("execute_before_block", execute_before_block)
                     .finish(),
             }
         }
@@ -5275,7 +5448,8 @@ pub mod pallet {
         pub id: u32,
         pub call: QueuedSwapCall<AccountId>,
         pub queued_at_block: u32,
-        pub execute_after_blocks: u32, // How many blocks to wait to execute
+        /// Snapshotted source-pool cooldown (with a one-epoch minimum).
+        pub execute_after_blocks: u32,
     }
 
     impl<AccountId> core::fmt::Debug for QueuedSwapItem<AccountId> {
@@ -5301,6 +5475,28 @@ pub mod pallet {
             match self {
                 QueuedSwapCall::SwapToSubnetDelegateStake { account_id, .. } => account_id,
                 QueuedSwapCall::SwapToValidatorDelegateStake { account_id, .. } => account_id,
+            }
+        }
+
+        pub fn get_min_shares_out(&self) -> u128 {
+            match self {
+                QueuedSwapCall::SwapToSubnetDelegateStake { min_shares_out, .. }
+                | QueuedSwapCall::SwapToValidatorDelegateStake { min_shares_out, .. } => {
+                    *min_shares_out
+                }
+            }
+        }
+
+        pub fn get_execute_before_block(&self) -> u32 {
+            match self {
+                QueuedSwapCall::SwapToSubnetDelegateStake {
+                    execute_before_block,
+                    ..
+                }
+                | QueuedSwapCall::SwapToValidatorDelegateStake {
+                    execute_before_block,
+                    ..
+                } => *execute_before_block,
             }
         }
     }
@@ -5329,6 +5525,17 @@ pub mod pallet {
     /// Exact non-Overwatch principal escrowed by `SwapCallQueue`.
     #[pallet::storage]
     pub type TotalQueuedSwapPrincipal<T> = StorageValue<_, u128, ValueQuery>;
+
+    /// Immediately claimable principal from queued swaps that expired or could not satisfy their
+    /// destination constraints. A scalar per account makes settlement independent of the bounded
+    /// delegate-stake unbonding ledger.
+    #[pallet::storage]
+    pub type QueuedSwapRefundBalance<T: Config> =
+        StorageMap<_, Blake2_128Concat, T::AccountId, u128, ValueQuery>;
+
+    /// Exact aggregate principal held in `QueuedSwapRefundBalance`.
+    #[pallet::storage]
+    pub type TotalQueuedSwapRefundBalance<T> = StorageValue<_, u128, ValueQuery>;
 
     /// Tracks queue swap IDs
     #[pallet::storage]
@@ -6613,6 +6820,7 @@ pub mod pallet {
         ///
         /// * `subnet_id` - Subnet ID.
         /// * `stake_to_be_added` - Amount of add to delegate stake
+        /// * `min_shares_out` - Minimum user-owned shares that must be minted.
         ///
         /// # Requirements
         ///
@@ -6624,8 +6832,9 @@ pub mod pallet {
             origin: OriginFor<T>,
             subnet_id: u32,
             stake_to_be_added: u128,
+            min_shares_out: u128,
         ) -> DispatchResult {
-            let account_id: T::AccountId = ensure_signed(origin.clone())?;
+            ensure_signed(origin.clone())?;
 
             Self::is_paused()?;
 
@@ -6635,7 +6844,7 @@ pub mod pallet {
                 Error::<T>::InvalidSubnetId
             );
 
-            Self::do_add_subnet_delegate_stake(origin, subnet_id, stake_to_be_added)
+            Self::do_add_subnet_delegate_stake(origin, subnet_id, stake_to_be_added, min_shares_out)
         }
 
         /// Swap subnet delegate stake
@@ -6647,6 +6856,9 @@ pub mod pallet {
         /// * `from_subnet_id` - from subnet ID.
         /// * `to_subnet_id` - To subnet ID
         /// * `delegate_stake_shares_to_swap` - Shares of `from_subnet_id` to swap to `to_subnet_id`
+        /// * `min_balance_out` - Minimum source principal the redeemed shares must produce.
+        /// * `min_shares_out` - Minimum destination shares that must be minted.
+        /// * `execute_before_block` - Last block at which the queued swap may execute.
         ///
         /// # Requirements
         ///
@@ -6659,6 +6871,9 @@ pub mod pallet {
             from_subnet_id: u32,
             to_subnet_id: u32,
             delegate_stake_shares_to_swap: u128,
+            min_balance_out: u128,
+            min_shares_out: u128,
+            execute_before_block: u32,
         ) -> DispatchResult {
             Self::is_paused()?;
 
@@ -6674,6 +6889,9 @@ pub mod pallet {
                 from_subnet_id,
                 to_subnet_id,
                 delegate_stake_shares_to_swap,
+                min_balance_out,
+                min_shares_out,
+                execute_before_block,
             )
         }
 
@@ -6714,6 +6932,7 @@ pub mod pallet {
         ///
         /// * `subnet_id` - Subnet ID.
         /// * `shares_to_be_removed` - Shares to remove
+        /// * `min_balance_out` - Minimum principal that must enter the unbonding ledger.
         ///
         /// # Requirements
         ///
@@ -6725,70 +6944,11 @@ pub mod pallet {
             origin: OriginFor<T>,
             subnet_id: u32,
             shares_to_be_removed: u128,
+            min_balance_out: u128,
         ) -> DispatchResult {
             Self::is_paused()?;
 
-            Self::do_remove_delegate_stake(origin, subnet_id, shares_to_be_removed)
-        }
-
-        /// * DONATION FUNCTION*
-        ///
-        /// Increase the delegate stake pool balance of a subnet
-        ///
-        /// * Anyone can perform this action as a donation
-        ///
-        /// # Notes
-        ///
-        /// *** THIS DOES ''NOT'' INCREASE A USERS BALANCE ***
-        ///
-        /// # Arguments
-        ///
-        /// * `subnet_id` - Subnet ID to increase delegate pool balance of.
-        /// * `amount` - Amount TENSOR to add to pool
-        ///
-        ///
-        #[pallet::call_index(58)]
-        #[pallet::weight(T::WeightInfo::donate_delegate_stake())]
-        pub fn donate_delegate_stake(
-            origin: OriginFor<T>,
-            subnet_id: u32,
-            amount: u128,
-        ) -> DispatchResult {
-            let account_id: T::AccountId = ensure_signed(origin)?;
-
-            Self::is_paused()?;
-
-            // --- Ensure subnet exists, otherwise at risk of burning tokens
-            ensure!(
-                SubnetsData::<T>::contains_key(subnet_id),
-                Error::<T>::InvalidSubnetId
-            );
-
-            ensure!(
-                amount >= MinDelegateStakeDeposit::<T>::get(),
-                Error::<T>::MinDelegateStake
-            );
-
-            let amount_as_balance = match Self::u128_to_balance(amount) {
-                Some(b) => b,
-                None => return Err(Error::<T>::CouldNotConvertToBalance.into()),
-            };
-
-            // --- Ensure the callers account_id has enough balance to perform the transaction.
-            ensure!(
-                Self::can_remove_balance_from_coldkey_account(&account_id, amount_as_balance),
-                Error::<T>::NotEnoughBalance
-            );
-
-            // --- Ensure the remove operation from the account_id is a success.
-            ensure!(
-                Self::remove_balance_from_coldkey_account(&account_id, amount_as_balance) == true,
-                Error::<T>::BalanceWithdrawalError
-            );
-
-            Self::do_increase_delegate_stake(subnet_id, amount);
-
-            Ok(())
+            Self::do_remove_delegate_stake(origin, subnet_id, shares_to_be_removed, min_balance_out)
         }
 
         // ==============================================
@@ -6801,6 +6961,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             validator_id: u32,
             delegate_stake_to_be_added: u128,
+            min_shares_out: u128,
         ) -> DispatchResult {
             Self::is_paused()?;
 
@@ -6809,7 +6970,12 @@ pub mod pallet {
                 Error::<T>::InvalidValidatorId
             );
 
-            Self::do_add_validator_delegate_stake(origin, validator_id, delegate_stake_to_be_added)
+            Self::do_add_validator_delegate_stake(
+                origin,
+                validator_id,
+                delegate_stake_to_be_added,
+                min_shares_out,
+            )
         }
 
         #[pallet::call_index(60)]
@@ -6836,6 +7002,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             validator_id: u32,
             validator_delegate_stake_shares_to_be_removed: u128,
+            min_balance_out: u128,
         ) -> DispatchResult {
             Self::is_paused()?;
 
@@ -6843,6 +7010,7 @@ pub mod pallet {
                 origin,
                 validator_id,
                 validator_delegate_stake_shares_to_be_removed,
+                min_balance_out,
             )
         }
 
@@ -6853,9 +7021,10 @@ pub mod pallet {
             from_validator_id: u32,
             to_validator_id: u32,
             stake_to_be_removed: u128,
+            min_balance_out: u128,
+            min_shares_out: u128,
+            execute_before_block: u32,
         ) -> DispatchResult {
-            let coldkey: T::AccountId = ensure_signed(origin.clone())?;
-
             Self::is_paused()?;
 
             Self::do_swap_from_validator_to_validator(
@@ -6863,51 +7032,10 @@ pub mod pallet {
                 from_validator_id,
                 to_validator_id,
                 stake_to_be_removed,
+                min_balance_out,
+                min_shares_out,
+                execute_before_block,
             )
-        }
-
-        #[pallet::call_index(63)]
-        #[pallet::weight(T::WeightInfo::donate_validator_delegate_stake())]
-        pub fn donate_validator_delegate_stake(
-            origin: OriginFor<T>,
-            validator_id: u32,
-            amount: u128,
-        ) -> DispatchResult {
-            let account_id: T::AccountId = ensure_signed(origin)?;
-
-            Self::is_paused()?;
-
-            // --- Ensure Subnet Node exists, otherwise at risk of burning tokens
-            ensure!(
-                ValidatorsData::<T>::contains_key(validator_id),
-                Error::<T>::InvalidSubnetNodeId
-            );
-
-            ensure!(
-                amount >= MinDelegateStakeDeposit::<T>::get(),
-                Error::<T>::MinDelegateStake
-            );
-
-            let amount_as_balance = match Self::u128_to_balance(amount) {
-                Some(b) => b,
-                None => return Err(Error::<T>::CouldNotConvertToBalance.into()),
-            };
-
-            // --- Ensure the callers account_id has enough balance to perform the transaction.
-            ensure!(
-                Self::can_remove_balance_from_coldkey_account(&account_id, amount_as_balance),
-                Error::<T>::NotEnoughBalance
-            );
-
-            // --- Ensure the remove operation from the account_id is a success.
-            ensure!(
-                Self::remove_balance_from_coldkey_account(&account_id, amount_as_balance) == true,
-                Error::<T>::BalanceWithdrawalError
-            );
-
-            Self::do_increase_validator_delegate_stake(validator_id, amount);
-
-            Ok(())
         }
 
         // ==============================================
@@ -6921,6 +7049,9 @@ pub mod pallet {
             from_validator_id: u32,
             to_subnet_id: u32,
             node_delegate_stake_shares_to_swap: u128,
+            min_balance_out: u128,
+            min_shares_out: u128,
+            execute_before_block: u32,
         ) -> DispatchResult {
             Self::is_paused()?;
 
@@ -6934,6 +7065,9 @@ pub mod pallet {
                 from_validator_id,
                 to_subnet_id,
                 node_delegate_stake_shares_to_swap,
+                min_balance_out,
+                min_shares_out,
+                execute_before_block,
             )
         }
 
@@ -6944,6 +7078,9 @@ pub mod pallet {
             from_subnet_id: u32,
             to_validator_id: u32,
             subnet_delegate_stake_shares_to_swap: u128,
+            min_balance_out: u128,
+            min_shares_out: u128,
+            execute_before_block: u32,
         ) -> DispatchResult {
             Self::is_paused()?;
 
@@ -6957,6 +7094,9 @@ pub mod pallet {
                 from_subnet_id,
                 to_validator_id,
                 subnet_delegate_stake_shares_to_swap,
+                min_balance_out,
+                min_shares_out,
+                execute_before_block,
             )
         }
 
@@ -6977,7 +7117,7 @@ pub mod pallet {
             origin: OriginFor<T>,
             amount_to_remove: u128,
         ) -> DispatchResult {
-            let account_id: T::AccountId = ensure_signed(origin.clone())?;
+            ensure_signed(origin.clone())?;
 
             Self::is_paused()?;
 
@@ -8603,6 +8743,17 @@ pub mod pallet {
             subnet_id: u32,
             reason: SubnetRemovalReason,
         ) -> SubnetRemovalOutcome {
+            // Preserve the assigned slot until the O(1) pending-round pointer has been retried.
+            // Removing it first would strand both node and shared-pool slash liabilities.
+            let pending_settlement_weight = T::DbWeight::get().reads(1);
+            if !weight_meter.can_consume(pending_settlement_weight) {
+                return SubnetRemovalOutcome::Deferred;
+            }
+            weight_meter.consume(pending_settlement_weight);
+            if PendingConsensusRoundSettlementEpoch::<T>::contains_key(subnet_id) {
+                return SubnetRemovalOutcome::Deferred;
+            }
+
             // These scalar counters bound every subnet-keyed prefix cleared by cleanup without
             // decoding any of those collections before weight is reserved.
             let selector_weight = T::DbWeight::get().reads(3);
@@ -8972,6 +9123,14 @@ pub mod pallet {
             let mut weight = Weight::zero();
             let db_weight = T::DbWeight::get();
 
+            // Defense in depth for direct internal removal callers. Authenticated and metered
+            // entry points reject/defer earlier, but the slot must never be freed while a round
+            // still owns slash liabilities.
+            weight = weight.saturating_add(db_weight.reads(1));
+            if PendingConsensusRoundSettlementEpoch::<T>::contains_key(subnet_id) {
+                return weight;
+            }
+
             weight = weight.saturating_add(db_weight.reads(1));
             let subnet = match SubnetsData::<T>::try_get(subnet_id) {
                 Ok(subnet) => subnet,
@@ -9200,13 +9359,24 @@ pub mod pallet {
                 Error::<T>::NotKeyOwner
             );
 
+            // The delegate allocation is a split of this validator's already-budgeted node
+            // reward. Accepting a rate above 100% (or the configured protocol cap) would let the
+            // pool mint more stake than the reward being split.
+            ensure!(
+                delegate_reward_rate <= Self::percentage_factor_as_u128()
+                    && delegate_reward_rate <= MaxDelegateStakePercentage::<T>::get(),
+                Error::<T>::InvalidDelegateRewardRate
+            );
+
             if let Some(delegate_account) = &delegate_account {
                 // Verify delegate account
                 Self::validate_validator_delegate_account(&delegate_account, &hotkey, &coldkey)?;
             }
 
-            TotalValidatorIds::<T>::mutate(|n: &mut u32| *n += 1);
-            let validator_id = TotalValidatorIds::<T>::get();
+            let validator_id = TotalValidatorIds::<T>::get()
+                .checked_add(1)
+                .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+            TotalValidatorIds::<T>::put(validator_id);
 
             let validator_data: ValidatorData<T> = ValidatorData {
                 id: validator_id,
@@ -9312,10 +9482,11 @@ pub mod pallet {
                 }
             }
 
-            // Ensure there are registered node slots available
+            // Ensure there are registered node slots available. Retain the bounded queue value so
+            // the prospective ID can also be checked against any partially indexed queue entry.
+            let queued_nodes = SubnetNodeQueue::<T>::get(subnet_id);
             ensure!(
-                (SubnetNodeQueue::<T>::get(subnet_id).len() as u32)
-                    < MaxRegisteredNodes::<T>::get(subnet_id),
+                (queued_nodes.len() as u32) < MaxRegisteredNodes::<T>::get(subnet_id),
                 Error::<T>::MaxQueuedNodes
             );
 
@@ -9324,15 +9495,40 @@ pub mod pallet {
             Self::clean_validator_subnet_nodes(validator_id);
 
             // Keep every validator-wide ownership/allocation value protocol-bounded.
+            let mut validator_subnet_nodes = ValidatorSubnetNodes::<T>::get(validator_id);
             let validator_node_count = TotalValidatorNodes::<T>::get(validator_id);
             ensure!(
                 validator_node_count < T::MaxValidatorNodesUpperBound::get(),
                 Error::<T>::MaxValidatorNodes
             );
             let validator_has_existing_subnet_nodes = validator_node_count > 0;
+            let next_validator_node_count = validator_node_count
+                .checked_add(1)
+                .ok_or(sp_runtime::ArithmeticError::Overflow)?;
 
             // --- Get node ID without committing it yet
-            let subnet_node_id = TotalSubnetNodeUids::<T>::get(subnet_id).saturating_add(1);
+            let subnet_node_id = TotalSubnetNodeUids::<T>::get(subnet_id)
+                .checked_add(1)
+                .ok_or(Error::<T>::SubnetNodeIdExhausted)?;
+
+            // IDs are monotonic and must never be reused. Check every authoritative position
+            // index before accepting funds so a corrupt/regressed counter cannot overwrite a
+            // historical owner, stake balance, active/queued node, or election-slot entry.
+            ensure!(
+                !SubnetNodeValidatorId::<T>::contains_key(subnet_id, subnet_node_id)
+                    && !NodeSubnetStake::<T>::contains_key(subnet_node_id, subnet_id)
+                    && !SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id)
+                    && !RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id)
+                    && !SubnetNodeIdHotkey::<T>::contains_key(subnet_id, subnet_node_id)
+                    && !SubnetNodeReputation::<T>::contains_key(subnet_id, subnet_node_id)
+                    && !NodeSlotIndex::<T>::contains_key(subnet_id, subnet_node_id)
+                    && !validator_subnet_nodes
+                        .get(&subnet_id)
+                        .map(|node_ids| node_ids.contains(&subnet_node_id))
+                        .unwrap_or(false)
+                    && !queued_nodes.iter().any(|node| node.id == subnet_node_id),
+                Error::<T>::SubnetNodeIdOccupied
+            );
 
             Self::validate_registration_peer_infos(
                 subnet_id,
@@ -9372,24 +9568,41 @@ pub mod pallet {
             };
 
             let node_stake_balance: u128 = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
+            let next_node_stake_balance = node_stake_balance
+                .checked_add(stake_to_be_added)
+                .ok_or(sp_runtime::ArithmeticError::Overflow)?;
 
             ensure!(
-                node_stake_balance.saturating_add(stake_to_be_added)
-                    >= SubnetMinStakeBalance::<T>::get(subnet_id),
+                next_node_stake_balance >= SubnetMinStakeBalance::<T>::get(subnet_id),
                 Error::<T>::MinStakeNotReached
             );
 
             ensure!(
-                node_stake_balance.saturating_add(stake_to_be_added)
-                    <= SubnetMaxStakeBalance::<T>::get(subnet_id),
+                next_node_stake_balance <= SubnetMaxStakeBalance::<T>::get(subnet_id),
                 Error::<T>::MaxStakeReached
             );
 
-            let total_withdrawal = burn_amount.saturating_add(stake_to_be_added);
+            let total_withdrawal = burn_amount
+                .checked_add(stake_to_be_added)
+                .ok_or(sp_runtime::ArithmeticError::Overflow)?;
             let total_withdrawal_as_balance = match Self::u128_to_balance(total_withdrawal) {
                 Some(b) => b,
                 None => return Err(Error::<T>::CouldNotConvertToBalance.into()),
             };
+
+            // Precompute every fallible counter/epoch transition before touching currency.
+            let classification_start_epoch = subnet_epoch
+                .checked_add(1)
+                .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+            let next_total_subnet_nodes = TotalSubnetNodes::<T>::get(subnet_id)
+                .checked_add(1)
+                .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+            let next_total_nodes = TotalNodes::<T>::get()
+                .checked_add(1)
+                .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+            let next_registrations_this_epoch = NodeRegistrationsThisEpoch::<T>::get(subnet_id)
+                .checked_add(1)
+                .ok_or(sp_runtime::ArithmeticError::Overflow)?;
 
             ensure!(
                 Self::can_remove_balance_from_coldkey_account(
@@ -9486,7 +9699,7 @@ pub mod pallet {
                 UniqueParamSubnetNodeId::<T>::insert(subnet_id, &unique_param, subnet_node_id);
             }
 
-            Self::record_registration(subnet_id);
+            NodeRegistrationsThisEpoch::<T>::insert(subnet_id, next_registrations_this_epoch);
 
             SubnetNodeReputation::<T>::insert(
                 subnet_id,
@@ -9497,7 +9710,7 @@ pub mod pallet {
             // --- Register subnet node
             let classification: SubnetNodeClassification = SubnetNodeClassification {
                 node_class: SubnetNodeClass::Registered,
-                start_epoch: subnet_epoch + 1,
+                start_epoch: classification_start_epoch,
             };
 
             let subnet_node: SubnetNode<T> = SubnetNode {
@@ -9512,8 +9725,8 @@ pub mod pallet {
             };
 
             // Increase total subnet nodes
-            TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
-            TotalNodes::<T>::mutate(|n: &mut u32| *n += 1);
+            TotalSubnetNodes::<T>::insert(subnet_id, next_total_subnet_nodes);
+            TotalNodes::<T>::put(next_total_nodes);
 
             SubnetNodeValidatorId::<T>::insert(subnet_id, subnet_node_id, validator_id);
             Self::set_default_validator_node_delegate_stake_weight_for_registration(
@@ -9523,7 +9736,7 @@ pub mod pallet {
                 validator_has_existing_subnet_nodes,
             );
 
-            Self::increase_node_stake(subnet_node_id, subnet_id, stake_to_be_added);
+            Self::increase_node_stake(subnet_node_id, subnet_id, stake_to_be_added)?;
             Self::set_last_tx_block(&coldkey, block);
 
             if subnet.state == SubnetState::Registered {
@@ -9553,15 +9766,12 @@ pub mod pallet {
                 });
             }
 
-            ValidatorSubnetNodes::<T>::mutate(validator_id, |node_map| {
-                node_map
-                    .entry(subnet_id)
-                    .or_insert_with(BTreeSet::new)
-                    .insert(subnet_node_id);
-            });
-            TotalValidatorNodes::<T>::mutate(validator_id, |count| {
-                *count = count.saturating_add(1)
-            });
+            validator_subnet_nodes
+                .entry(subnet_id)
+                .or_insert_with(BTreeSet::new)
+                .insert(subnet_node_id);
+            ValidatorSubnetNodes::<T>::insert(validator_id, validator_subnet_nodes);
+            TotalValidatorNodes::<T>::insert(validator_id, next_validator_node_count);
 
             if let Some(node_hotkey) = &hotkey {
                 SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, node_hotkey);
@@ -10119,10 +10329,12 @@ pub mod pallet {
                     // a redundant frame-system block-number read.
                     let subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(subnet_id, block);
 
-                    let historical_items = subnet_epoch
-                        .checked_sub(1)
-                        .map(|previous_epoch| {
-                            SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, previous_epoch)
+                    let settlement_subnet_epoch =
+                        PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id)
+                            .or_else(|| subnet_epoch.checked_sub(1));
+                    let historical_items = settlement_subnet_epoch
+                        .map(|settlement_epoch| {
+                            SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, settlement_epoch)
                         })
                         .unwrap_or(0)
                         .min(T::MaxSubnetNodesUpperBound::get());
@@ -10339,8 +10551,7 @@ pub mod pallet {
                         // Preserve this item and the remaining FIFO suffix in place.
                         break;
                     }
-                    SwapExecutionOutcome::RefundBlocked
-                    | SwapExecutionOutcome::PermanentFailure => {
+                    SwapExecutionOutcome::PermanentFailure => {
                         rotated
                             .try_push(queue_id)
                             .expect("rotated IDs are a subset of the bounded queue");
@@ -10442,41 +10653,48 @@ pub mod pallet {
             block_number: u32,
             weight_meter: &mut WeightMeter,
         ) -> Result<CompletedSwapOutcome, SwapExecutionOutcome> {
+            if block_number > queued_call.get_execute_before_block() {
+                return Self::refund_queued_swap(
+                    queued_call.get_queue_account(),
+                    queued_call.get_queue_balance(),
+                    SwapRefundReason::Expired,
+                    weight_meter,
+                );
+            }
+
             match queued_call {
                 QueuedSwapCall::SwapToSubnetDelegateStake {
                     account_id,
                     to_subnet_id,
                     balance,
+                    min_shares_out,
+                    execute_before_block: _,
                 } => {
                     if !SubnetsData::<T>::contains_key(to_subnet_id) {
-                        return match Self::refund_queued_swap_to_unbonding_ledger(
+                        return Self::refund_queued_swap(
                             account_id,
                             *balance,
-                            block_number,
+                            SwapRefundReason::DestinationMissing,
                             weight_meter,
-                        ) {
-                            SwapExecutionOutcome::Completed => Ok(CompletedSwapOutcome::Refunded {
-                                balance: *balance,
-                                reason: SwapRefundReason::DestinationMissing,
-                            }),
-                            outcome => Err(outcome),
-                        };
+                        );
                     }
 
                     let credit_weight = T::WeightInfo::handle_increase_account_delegate_stake();
-                    let refund_weight = T::WeightInfo::claim_unbondings();
+                    let refund_weight = Self::queued_swap_refund_weight();
                     if !weight_meter.can_consume(credit_weight.saturating_add(refund_weight)) {
                         return Err(SwapExecutionOutcome::NotReady);
                     }
+
                     weight_meter.consume(credit_weight);
-                    match Self::handle_increase_account_delegate_stake(
+                    match Self::handle_increase_account_delegate_stake_with_limit(
                         account_id,
                         *to_subnet_id,
                         *balance,
+                        *min_shares_out,
                     ) {
                         Ok((credited_balance, shares)) => {
                             debug_assert_eq!(credited_balance, *balance);
-                            debug_assert!(shares > 0);
+                            debug_assert!(shares >= *min_shares_out);
                             return Ok(CompletedSwapOutcome::Credited {
                                 balance: credited_balance,
                                 shares,
@@ -10484,26 +10702,27 @@ pub mod pallet {
                         }
                         Err(error) => {
                             let reason = if error
+                                == DispatchError::from(
+                                    Error::<T>::MinDelegateStakeDepositNotReached,
+                                ) {
+                                SwapRefundReason::MinimumDepositNotMet
+                            } else if error
+                                == DispatchError::from(Error::<T>::StakeSlippageExceeded)
+                            {
+                                SwapRefundReason::MinimumSharesNotMet
+                            } else if error
                                 == DispatchError::from(Error::<T>::CouldNotConvertToShares)
                             {
                                 SwapRefundReason::ZeroDestinationShares
                             } else {
                                 SwapRefundReason::DestinationCreditOverflow
                             };
-                            return match Self::refund_queued_swap_to_unbonding_ledger(
+                            return Self::refund_queued_swap(
                                 account_id,
                                 *balance,
-                                block_number,
+                                reason,
                                 weight_meter,
-                            ) {
-                                SwapExecutionOutcome::Completed => {
-                                    Ok(CompletedSwapOutcome::Refunded {
-                                        balance: *balance,
-                                        reason,
-                                    })
-                                }
-                                outcome => Err(outcome),
-                            };
+                            );
                         }
                     }
                 }
@@ -10511,37 +10730,35 @@ pub mod pallet {
                     account_id,
                     to_validator_id,
                     balance,
+                    min_shares_out,
+                    execute_before_block: _,
                 } => {
                     if !ValidatorsData::<T>::contains_key(to_validator_id) {
-                        return match Self::refund_queued_swap_to_unbonding_ledger(
+                        return Self::refund_queued_swap(
                             account_id,
                             *balance,
-                            block_number,
+                            SwapRefundReason::DestinationMissing,
                             weight_meter,
-                        ) {
-                            SwapExecutionOutcome::Completed => Ok(CompletedSwapOutcome::Refunded {
-                                balance: *balance,
-                                reason: SwapRefundReason::DestinationMissing,
-                            }),
-                            outcome => Err(outcome),
-                        };
+                        );
                     }
 
                     let credit_weight =
                         T::WeightInfo::handle_increase_account_validator_delegate_stake();
-                    let refund_weight = T::WeightInfo::claim_unbondings();
+                    let refund_weight = Self::queued_swap_refund_weight();
                     if !weight_meter.can_consume(credit_weight.saturating_add(refund_weight)) {
                         return Err(SwapExecutionOutcome::NotReady);
                     }
+
                     weight_meter.consume(credit_weight);
-                    match Self::handle_increase_account_validator_delegate_stake(
+                    match Self::handle_increase_account_validator_delegate_stake_with_limit(
                         account_id,
                         *to_validator_id,
                         *balance,
+                        *min_shares_out,
                     ) {
                         Ok((credited_balance, shares)) => {
                             debug_assert_eq!(credited_balance, *balance);
-                            debug_assert!(shares > 0);
+                            debug_assert!(shares >= *min_shares_out);
                             return Ok(CompletedSwapOutcome::Credited {
                                 balance: credited_balance,
                                 shares,
@@ -10549,87 +10766,62 @@ pub mod pallet {
                         }
                         Err(error) => {
                             let reason = if error
+                                == DispatchError::from(
+                                    Error::<T>::MinDelegateStakeDepositNotReached,
+                                ) {
+                                SwapRefundReason::MinimumDepositNotMet
+                            } else if error
+                                == DispatchError::from(Error::<T>::StakeSlippageExceeded)
+                            {
+                                SwapRefundReason::MinimumSharesNotMet
+                            } else if error
                                 == DispatchError::from(Error::<T>::CouldNotConvertToShares)
                             {
                                 SwapRefundReason::ZeroDestinationShares
                             } else {
                                 SwapRefundReason::DestinationCreditOverflow
                             };
-                            return match Self::refund_queued_swap_to_unbonding_ledger(
+                            return Self::refund_queued_swap(
                                 account_id,
                                 *balance,
-                                block_number,
+                                reason,
                                 weight_meter,
-                            ) {
-                                SwapExecutionOutcome::Completed => {
-                                    Ok(CompletedSwapOutcome::Refunded {
-                                        balance: *balance,
-                                        reason,
-                                    })
-                                }
-                                outcome => Err(outcome),
-                            };
+                            );
                         }
                     }
                 }
             }
         }
 
-        fn refund_queued_swap_to_unbonding_ledger(
+        fn queued_swap_refund_weight() -> Weight {
+            T::DbWeight::get().reads_writes(2, 2)
+        }
+
+        fn refund_queued_swap(
             account_id: &T::AccountId,
             balance: u128,
-            block_number: u32,
+            reason: SwapRefundReason,
             weight_meter: &mut WeightMeter,
-        ) -> SwapExecutionOutcome {
-            let refund_weight = T::WeightInfo::claim_unbondings();
+        ) -> Result<CompletedSwapOutcome, SwapExecutionOutcome> {
+            let refund_weight = Self::queued_swap_refund_weight();
             if !weight_meter.can_consume(refund_weight) {
-                return SwapExecutionOutcome::NotReady;
+                return Err(SwapExecutionOutcome::NotReady);
             }
-            // Charge the complete bounded refund attempt even when checked arithmetic or the
-            // ledger-capacity check retains the item after performing its storage reads.
             weight_meter.consume(refund_weight);
 
-            let Some(cooldown_blocks) =
-                DelegateStakeCooldownEpochs::<T>::get().checked_mul(T::EpochLength::get())
+            let Some(account_refund) =
+                QueuedSwapRefundBalance::<T>::get(account_id).checked_add(balance)
             else {
-                return SwapExecutionOutcome::PermanentFailure;
+                return Err(SwapExecutionOutcome::PermanentFailure);
             };
-            let Some(claim_block) = block_number.checked_add(cooldown_blocks) else {
-                return SwapExecutionOutcome::PermanentFailure;
-            };
-            let max_unbondings = MaxUnbondings::<T>::get();
-            let Some(total_network_unbonding_balance) =
-                TotalNetworkUnbondingBalance::<T>::get().checked_add(balance)
+            let Some(total_refunds) = TotalQueuedSwapRefundBalance::<T>::get().checked_add(balance)
             else {
-                return SwapExecutionOutcome::PermanentFailure;
+                return Err(SwapExecutionOutcome::PermanentFailure);
             };
 
-            // Hook execution must stay bounded by this benchmark. Do not implicitly claim an
-            // arbitrary number of matured entries here; a full ledger blocks this refund until
-            // the account explicitly claims, unless it can merge into the exact claim block.
-            if StakeUnbondingLedger::<T>::try_mutate(account_id, |ledger| -> Result<(), ()> {
-                if let Some(entry) = ledger.get_mut(&claim_block) {
-                    entry.network = entry.network.checked_add(balance).ok_or(())?;
-                } else {
-                    if ledger.len() as u32 >= max_unbondings {
-                        return Err(());
-                    }
-                    ledger.insert(
-                        claim_block,
-                        UnbondingEntry {
-                            network: balance,
-                            overwatch: 0,
-                        },
-                    );
-                }
-                Ok(())
-            })
-            .is_err()
-            {
-                return SwapExecutionOutcome::RefundBlocked;
-            }
-            TotalNetworkUnbondingBalance::<T>::put(total_network_unbonding_balance);
-            SwapExecutionOutcome::Completed
+            QueuedSwapRefundBalance::<T>::insert(account_id, account_refund);
+            TotalQueuedSwapRefundBalance::<T>::put(total_refunds);
+            Ok(CompletedSwapOutcome::Refunded { balance, reason })
         }
     }
 

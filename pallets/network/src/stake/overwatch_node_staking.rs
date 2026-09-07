@@ -14,10 +14,11 @@
 // limitations under the License.
 
 use super::*;
-use sp_runtime::Saturating;
+use sp_runtime::ArithmeticError;
 
 impl<T: Config> Pallet<T> {
-    pub fn do_add_overwatch_node_stake(
+    #[frame_support::transactional]
+    pub(crate) fn do_add_overwatch_node_stake(
         origin: T::RuntimeOrigin,
         overwatch_node_id: u32,
         stake_to_be_added: u128,
@@ -42,9 +43,12 @@ impl<T: Config> Pallet<T> {
 
         let account_stake_balance: u128 = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
 
+        let next_account_stake_balance = account_stake_balance
+            .checked_add(stake_to_be_added)
+            .ok_or(ArithmeticError::Overflow)?;
+
         ensure!(
-            account_stake_balance.saturating_add(stake_to_be_added)
-                >= OverwatchMinStakeBalance::<T>::get(),
+            next_account_stake_balance >= OverwatchMinStakeBalance::<T>::get(),
             Error::<T>::MinStakeNotReached
         );
 
@@ -60,7 +64,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::BalanceWithdrawalError
         );
 
-        Self::increase_overwatch_node_stake(overwatch_node_id, stake_to_be_added);
+        Self::increase_overwatch_node_stake(overwatch_node_id, stake_to_be_added)?;
 
         // Self::deposit_event(Event::StakeAdded(subnet_id, coldkey, hotkey, stake_to_be_added));
 
@@ -68,7 +72,7 @@ impl<T: Config> Pallet<T> {
     }
 
     #[frame_support::transactional]
-    pub fn do_remove_overwatch_node_stake(
+    pub(crate) fn do_remove_overwatch_node_stake(
         origin: T::RuntimeOrigin,
         overwatch_node_id: u32,
         is_overwatch_node: bool,
@@ -106,9 +110,11 @@ impl<T: Config> Pallet<T> {
 
         // if user is still an overwatch node they must keep the required minimum balance
         if is_overwatch_node {
+            let remaining_account_stake = account_stake_balance
+                .checked_sub(stake_to_be_removed)
+                .ok_or(ArithmeticError::Underflow)?;
             ensure!(
-                account_stake_balance.saturating_sub(stake_to_be_removed)
-                    >= OverwatchMinStakeBalance::<T>::get(),
+                remaining_account_stake >= OverwatchMinStakeBalance::<T>::get(),
                 Error::<T>::MinStakeNotReached
             );
         }
@@ -125,7 +131,7 @@ impl<T: Config> Pallet<T> {
             .ok_or(sp_runtime::ArithmeticError::Overflow)?;
 
         // --- 7. We remove the balance from the hotkey.
-        Self::decrease_overwatch_node_stake(overwatch_node_id, stake_to_be_removed);
+        Self::decrease_overwatch_node_stake(overwatch_node_id, stake_to_be_removed)?;
 
         // Keep the source debit and ledger credit atomic. Overwatch principal remains excluded
         // from the network TVL while it cools down.
@@ -142,23 +148,37 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn increase_overwatch_node_stake(overwatch_node_id: u32, amount: u128) {
-        // -- increase account overwatch staking balance
-        OverwatchNodeStakeBalance::<T>::mutate(overwatch_node_id, |mut n| {
-            n.saturating_accrue(amount)
-        });
+    /// Increase an Overwatch position and its aggregate only after both additions succeed.
+    pub(crate) fn increase_overwatch_node_stake(
+        overwatch_node_id: u32,
+        amount: u128,
+    ) -> DispatchResult {
+        let next_node_stake = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id)
+            .checked_add(amount)
+            .ok_or(ArithmeticError::Overflow)?;
+        let next_total_stake = TotalOverwatchNodeStakeBalance::<T>::get()
+            .checked_add(amount)
+            .ok_or(ArithmeticError::Overflow)?;
 
-        // -- increase total overwatch stake
-        TotalOverwatchNodeStakeBalance::<T>::mutate(|mut n| n.saturating_accrue(amount));
+        OverwatchNodeStakeBalance::<T>::insert(overwatch_node_id, next_node_stake);
+        TotalOverwatchNodeStakeBalance::<T>::put(next_total_stake);
+        Ok(())
     }
 
-    pub fn decrease_overwatch_node_stake(overwatch_node_id: u32, amount: u128) {
-        // -- decrease account overwatch staking balance
-        OverwatchNodeStakeBalance::<T>::mutate(overwatch_node_id, |mut n| {
-            n.saturating_reduce(amount)
-        });
+    /// Decrease an Overwatch position and its aggregate only after both subtractions succeed.
+    pub(crate) fn decrease_overwatch_node_stake(
+        overwatch_node_id: u32,
+        amount: u128,
+    ) -> DispatchResult {
+        let next_node_stake = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id)
+            .checked_sub(amount)
+            .ok_or(ArithmeticError::Underflow)?;
+        let next_total_stake = TotalOverwatchNodeStakeBalance::<T>::get()
+            .checked_sub(amount)
+            .ok_or(ArithmeticError::Underflow)?;
 
-        // -- decrease total overwatch stake
-        TotalOverwatchNodeStakeBalance::<T>::mutate(|mut n| n.saturating_reduce(amount));
+        OverwatchNodeStakeBalance::<T>::insert(overwatch_node_id, next_node_stake);
+        TotalOverwatchNodeStakeBalance::<T>::put(next_total_stake);
+        Ok(())
     }
 }

@@ -35,6 +35,7 @@ fn top_up_subnet_delegate_stake(subnet_id: u32, margin: u128) {
             RuntimeOrigin::signed(account(0)),
             subnet_id,
             amount,
+            1,
         ));
     }
 

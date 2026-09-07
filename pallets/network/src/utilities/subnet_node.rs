@@ -1609,11 +1609,13 @@ impl<T: Config> Pallet<T> {
         Self::percent_mul(base_burn, burn_rate)
     }
 
-    /// Record a registration (increment counter)
-    /// Called by `register_subnet_node`
+    /// Record a registration, rejecting counter exhaustion instead of saturating.
     pub fn record_registration(subnet_id: u32) -> DispatchResult {
         let current_count = NodeRegistrationsThisEpoch::<T>::get(subnet_id);
-        NodeRegistrationsThisEpoch::<T>::insert(subnet_id, current_count.saturating_add(1));
+        let next_count = current_count
+            .checked_add(1)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
+        NodeRegistrationsThisEpoch::<T>::insert(subnet_id, next_count);
         Ok(())
     }
 

@@ -10,6 +10,7 @@ use crate::{
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
+use sp_runtime::ArithmeticError;
 use sp_std::collections::btree_map::BTreeMap;
 
 #[test]
@@ -417,7 +418,7 @@ fn test_remove_delegate_account_balance() {
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
-        Network::increase_delegate_account_balance(&account_id, 100);
+        assert_ok!(Network::increase_delegate_account_balance(&account_id, 100));
 
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
@@ -460,7 +461,7 @@ fn test_remove_delegate_account_balance_amount_zero_error() {
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
-        Network::increase_delegate_account_balance(&account_id, 100);
+        assert_ok!(Network::increase_delegate_account_balance(&account_id, 100));
 
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
@@ -483,7 +484,7 @@ fn test_remove_delegate_account_balance_not_enough_stake_error() {
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
-        Network::increase_delegate_account_balance(&account_id, 100);
+        assert_ok!(Network::increase_delegate_account_balance(&account_id, 100));
 
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
@@ -499,4 +500,28 @@ fn test_remove_delegate_account_balance_not_enough_stake_error() {
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
     })
+}
+
+#[test]
+fn checked_delegate_account_mutations_do_not_partially_update_aggregate() {
+    new_test_ext().execute_with(|| {
+        let account_id = account(991);
+        DelegateAccountStake::<Test>::insert(&account_id, 10);
+        TotalAccountDelegateStake::<Test>::put(u128::MAX);
+
+        assert_err!(
+            Network::increase_delegate_account_balance(&account_id, 1),
+            ArithmeticError::Overflow
+        );
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 10);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), u128::MAX);
+
+        TotalAccountDelegateStake::<Test>::put(5);
+        assert_err!(
+            Network::decrease_delegate_account_balance(&account_id, 6),
+            ArithmeticError::Underflow
+        );
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 10);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), 5);
+    });
 }

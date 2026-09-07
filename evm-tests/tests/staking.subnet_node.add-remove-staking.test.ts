@@ -8,6 +8,7 @@ import {
     addToStake,
     batchTransferBalanceFromSudo,
     getCurrentRegistrationCost,
+    getNodeSubnetStake,
     registerSubnet,
     registerSubnetNode,
     removeStake,
@@ -17,7 +18,7 @@ import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
 import { PublicClient } from "viem";
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { expect } from "chai";
-import { Option } from '@polkadot/types';
+import { registerCanonicalValidators } from "../src/validator-fixtures";
 
 // npm test -- -g "test node staking-0x65683fx2"
 describe("test node staking-0x65683fx2", () => {
@@ -43,40 +44,7 @@ describe("test node staking-0x65683fx2", () => {
         wallet7.address,
         wallet8.address,
     ]
-    const initialColdkeys = [
-        {
-            coldkey: wallet1.address,
-            count: 1
-        },
-        {
-            coldkey: wallet2.address,
-            count: 1
-        },
-        {
-            coldkey: wallet3.address,
-            count: 1
-        },
-        {
-            coldkey: wallet4.address,
-            count: 1
-        },
-        {
-            coldkey: wallet5.address,
-            count: 1
-        },
-        {
-            coldkey: wallet6.address,
-            count: 1
-        },
-        {
-            coldkey: wallet7.address,
-            count: 1
-        },
-        {
-            coldkey: wallet8.address,
-            count: 1
-        },
-    ];
+    const validatorColdkeys = [wallet1, wallet2, wallet3];
 
     let publicClient: PublicClient;
     // init substrate part
@@ -127,6 +95,12 @@ describe("test node staking-0x65683fx2", () => {
             recipients
         )
 
+        const initialValidators = await registerCanonicalValidators(
+            subnetContract,
+            validatorColdkeys,
+            api,
+        );
+
         // ==============
         // Register subnet
         // ==============
@@ -149,9 +123,8 @@ describe("test node staking-0x65683fx2", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         subnetId = await subnetContract.getSubnetId(subnetName);
@@ -177,45 +150,29 @@ describe("test node staking-0x65683fx2", () => {
             multiaddr: new Uint8Array()
         }
 
-        let delegateAccount1 = {
-            accountId: wallet1.address,
-            rate: BigInt(0)
-        }
-
-        const delegateRewardRate = "0";
+        const validatorId1 = initialValidators[0].validatorId;
 
         const unique = generateRandomString(16)
         const nonUnique = generateRandomString(16)
 
         await registerSubnetNode(
             subnetContract1,
+            validatorId1,
             subnetId,
             wallet4.address,
             peer_info_1,
             peer_info_2,
             peer_info_3,
-            delegateRewardRate,
             BigInt(minStake.toString()),
             unique,
             nonUnique,
-            delegateAccount1,
             "1000000000000000000"
         )
 
-        let subnetNodeId1Fetched = await api.query.network.hotkeySubnetNodeId(subnetId, wallet4.address);
-
-        const subnetNodeId1Opt = subnetNodeId1Fetched as Option<any>;
-        expect(subnetNodeId1Opt.isSome);
-
-        let subnetNode1Exists: boolean = false;
-        if (subnetNodeId1Opt.isSome) {
-            subnetNode1Exists = true;
-            const subnetNodeId2Unwrapped = subnetNodeId1Opt.unwrap();
-            const human = subnetNodeId2Unwrapped.toHuman();
-            subnetNodeId1 = human?.toString();
-            expect(Number(subnetNodeId1)).to.be.greaterThan(0);
-        }
-        expect(subnetNode1Exists);
+        subnetNodeId1 = (
+            await api.query.network.totalSubnetNodeUids(subnetId)
+        ).toString();
+        expect(Number(subnetNodeId1)).to.be.greaterThan(0);
 
         // ================
         // Subnet node 2
@@ -234,49 +191,32 @@ describe("test node staking-0x65683fx2", () => {
             multiaddr: new Uint8Array()
         }
 
-        let delegateAccount2 = {
-            accountId: wallet1.address,
-            rate: BigInt(0)
-        }
-
-
         const unique2 = generateRandomString(16)
 
         await registerSubnetNode(
             subnetContract2,
+            initialValidators[1].validatorId,
             subnetId,
             wallet5.address,
             peer_info_4,
             peer_info_5,
             peer_info_6,
-            delegateRewardRate,
             BigInt(minStake.toString()),
             unique2,
             nonUnique,
-            delegateAccount2,
             "1000000000000000000"
         )
 
-        let subnetNodeId2Fetched = await api.query.network.hotkeySubnetNodeId(subnetId, wallet5.address);
-
-        const subnetNodeId2Opt = subnetNodeId2Fetched as Option<any>;
-        expect(subnetNodeId2Opt.isSome);
-
-        let subnetNode2Exists: boolean = false;
-        if (subnetNodeId2Opt.isSome) {
-            subnetNode2Exists = true;
-            const subnetNodeId2Unwrapped = subnetNodeId2Opt.unwrap();
-            const human = subnetNodeId2Unwrapped.toHuman();
-            subnetNodeId2 = human?.toString();
-            expect(Number(subnetNodeId2)).to.be.greaterThan(0);
-        }
-        expect(subnetNode2Exists);
+        subnetNodeId2 = (
+            await api.query.network.totalSubnetNodeUids(subnetId)
+        ).toString();
+        expect(Number(subnetNodeId2)).to.be.greaterThan(Number(subnetNodeId1));
     })
 
     // Status: passing
     // npm test -- -g "testing add subnet node stake-0xpqlaz0185"
     it("testing add subnet node stake-0xpqlaz0185", async () => {
-        let accountSubnetStakePre = await api.query.network.accountSubnetStake(wallet1.address, subnetId);
+        let accountSubnetStakePre = await getNodeSubnetStake(stakingContract1, subnetId, subnetNodeId1);
 
         const beforeFinalizedBalance = (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
 
@@ -284,11 +224,10 @@ describe("test node staking-0x65683fx2", () => {
             stakingContract1,
             subnetId,
             subnetNodeId1,
-            wallet4.address,
             stakeAmount
         )
 
-        let accountSubnetStakePost = await api.query.network.accountSubnetStake(wallet4.address, subnetId);
+        let accountSubnetStakePost = await getNodeSubnetStake(stakingContract1, subnetId, subnetNodeId1);
 
         expect(Number(accountSubnetStakePre.toString())).to.be.lessThan(Number(accountSubnetStakePost.toString()));
 
@@ -306,7 +245,7 @@ describe("test node staking-0x65683fx2", () => {
     // Status: passing
     // npm test -- -g "testing remove subnet node stake-0xnvhgyt926v"
     it("testing remove subnet node stake-0xnvhgyt926v", async () => {
-        let accountSubnetStakePre = await api.query.network.accountSubnetStake(wallet5.address, subnetId);
+        let accountSubnetStakePre = await getNodeSubnetStake(stakingContract2, subnetId, subnetNodeId2);
 
         console.log("adding stake")
         // =========
@@ -316,11 +255,10 @@ describe("test node staking-0x65683fx2", () => {
             stakingContract2,
             subnetId,
             subnetNodeId2,
-            wallet5.address,
             stakeAmount
         )
 
-        let accountSubnetStakePost = await api.query.network.accountSubnetStake(wallet5.address, subnetId);
+        let accountSubnetStakePost = await getNodeSubnetStake(stakingContract2, subnetId, subnetNodeId2);
         expect(Number(accountSubnetStakePre.toString())).to.be.lessThan(Number(accountSubnetStakePost.toString()))
 
         // =========
@@ -329,17 +267,21 @@ describe("test node staking-0x65683fx2", () => {
         await removeStake(
             stakingContract2,
             subnetId,
-            wallet5.address,
+            subnetNodeId2,
             stakeAmount
         )
 
-        let accountSubnetStakeAfterRemoval = await api.query.network.accountSubnetStake(wallet5.address, subnetId);
+        let accountSubnetStakeAfterRemoval = await getNodeSubnetStake(stakingContract2, subnetId, subnetNodeId2);
         expect(Number(accountSubnetStakePre.toString())).to.be.equal(Number(accountSubnetStakeAfterRemoval.toString()));
 
-        const unbondings = (await api.query.network.stakeUnbondingLedger(wallet2.address)).toHuman();
+        const unbondings = (await api.query.network.stakeUnbondingLedger(wallet2.address)).toHuman() as Record<
+            string,
+            { network: string; overwatch: string }
+        >;
         console.log("unbondings", unbondings)
-        const unbondingBalance = Object.values(unbondings!)[0];
-        const unbondingBalanceWithoutCommas = unbondingBalance.replace(/,/g, "");
+        const unbondingEntry = Object.values(unbondings)[0];
+        expect(unbondingEntry).to.not.equal(undefined);
+        const unbondingBalanceWithoutCommas = unbondingEntry.network.replace(/,/g, "");
         expect(Number(unbondingBalanceWithoutCommas.toString())).to.be.equal(Number(stakeAmount.toString()));
 
         console.log("✅ Remove stake testing complete")

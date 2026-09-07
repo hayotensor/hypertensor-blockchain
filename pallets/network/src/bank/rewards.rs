@@ -14,7 +14,13 @@
 // limitations under the License.
 
 use super::*;
-use frame_support::{pallet_prelude::DispatchError, weights::Weight, BoundedBTreeSet, BoundedVec};
+use frame_support::{
+    pallet_prelude::DispatchError,
+    storage::{with_transaction, TransactionOutcome},
+    weights::Weight,
+    BoundedBTreeSet, BoundedVec,
+};
+use sp_runtime::ArithmeticError;
 
 impl<T: Config> Pallet<T> {
     pub(crate) fn validator_owned_nodes_weight_param(validator_id: u32) -> u32 {
@@ -119,14 +125,40 @@ impl<T: Config> Pallet<T> {
     ///    Store all newly pending node IDs and emit one batched event before returning.
     ///
     /// Physical node deletion is intentionally deferred to separately metered cleanup paths.
-    pub fn distribute_rewards(
+    pub(crate) fn distribute_rewards(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
         current_subnet_epoch: u32,
         consensus_submission_data: ConsensusSubmissionData<T>,
         rewards_data: RewardsData,
     ) {
+        Self::distribute_rewards_for_round(
+            weight_meter,
+            subnet_id,
+            current_subnet_epoch,
+            current_subnet_epoch.saturating_sub(1),
+            consensus_submission_data,
+            rewards_data,
+        );
+    }
+
+    /// Round-explicit settlement path used when a previously skipped epoch is retried.
+    pub(crate) fn distribute_rewards_for_round(
+        weight_meter: &mut WeightMeter,
+        subnet_id: u32,
+        current_subnet_epoch: u32,
+        settled_subnet_epoch: u32,
+        consensus_submission_data: ConsensusSubmissionData<T>,
+        rewards_data: RewardsData,
+    ) {
         let db_weight = T::DbWeight::get();
+        weight_meter.consume(db_weight.reads(1));
+        if Self::is_consensus_round_settled(subnet_id, settled_subnet_epoch) {
+            // Settlement (including any slash and liability release) is exact-once. This also
+            // prevents a retained submission from minting the same reward budget twice.
+            return;
+        }
+
         // Quarantine is cheap and bounded independently from physical node deletion. Load it once,
         // deduplicate every newly ineligible node locally, and persist it before any settlement
         // exit. Physical cleanup is deliberately outside reward distribution.
@@ -207,7 +239,7 @@ impl<T: Config> Pallet<T> {
                     )
                 };
 
-            Self::handle_non_consensus(
+            let slash_succeeded = Self::handle_non_consensus(
                 subnet_id,
                 consensus_submission_data,
                 penalty_attestation_ratio,
@@ -226,6 +258,15 @@ impl<T: Config> Pallet<T> {
                 &mut newly_pending_active_removals,
                 weight_meter,
             );
+            if !slash_succeeded {
+                // The combined node/pool slash rolled back. Keep the exact round pending and do
+                // not retain reputation, reward, quarantine, or liability-release side effects.
+                return;
+            }
+            weight_meter.consume(Self::finalize_consensus_round_slash_liability(
+                subnet_id,
+                settled_subnet_epoch,
+            ));
 
             if pending_active_removals_dirty {
                 PendingActiveNodeRemovals::<T>::insert(subnet_id, pending_active_removals);
@@ -238,6 +279,13 @@ impl<T: Config> Pallet<T> {
             );
             return;
         }
+
+        // Both quorum gates passed, so this round has no economic slash to apply. Release its
+        // snapshotted liabilities before any later reward-specific early return.
+        weight_meter.consume(Self::finalize_consensus_round_slash_liability(
+            subnet_id,
+            settled_subnet_epoch,
+        ));
 
         let consensus_validator_id = SubnetNodeValidatorId::<T>::get(
             subnet_id,
@@ -328,31 +376,43 @@ impl<T: Config> Pallet<T> {
                     // charged by `handle_validator_reward`.
                     weight_meter.consume(db_weight.reads(1));
                 } else {
-                    Self::handle_validator_reward(
+                    if Self::handle_validator_reward(
                         weight_meter,
                         subnet_id,
                         validator_subnet_node_id,
                         &consensus_submission_data,
                         policy.min_attestation_percentage,
                         policy.base_validator_reward,
-                    );
+                    )
+                    .is_err()
+                    {
+                        return;
+                    }
                 }
             }
 
             // Zero node score does not invalidate rewards unrelated to a node or proposer.
-            Self::handle_subnet_owner_reward(
+            if Self::handle_subnet_owner_reward(
                 weight_meter,
                 subnet_id,
                 rewards_data.subnet_owner_reward,
-            );
-            if rewards_data.delegate_stake_rewards != 0 {
-                Self::do_increase_delegate_stake(subnet_id, rewards_data.delegate_stake_rewards);
-                weight_meter.consume(db_weight.reads_writes(3, 5));
+            )
+            .is_err()
+            {
+                return;
             }
+            let credited_delegate_stake_reward = match Self::handle_subnet_delegate_stake_reward(
+                weight_meter,
+                subnet_id,
+                rewards_data.delegate_stake_rewards,
+            ) {
+                Some(reward) => reward,
+                None => return,
+            };
             Self::deposit_event(Event::SubnetRewards {
                 subnet_id,
                 node_rewards: Vec::new(),
-                delegate_stake_reward: rewards_data.delegate_stake_rewards,
+                delegate_stake_reward: credited_delegate_stake_reward,
                 node_delegate_stake_rewards: Vec::new(),
                 node_delegate_account_allocations: Vec::new(),
             });
@@ -360,7 +420,15 @@ impl<T: Config> Pallet<T> {
         }
 
         // --- Reward owner
-        Self::handle_subnet_owner_reward(weight_meter, subnet_id, rewards_data.subnet_owner_reward);
+        if Self::handle_subnet_owner_reward(
+            weight_meter,
+            subnet_id,
+            rewards_data.subnet_owner_reward,
+        )
+        .is_err()
+        {
+            return;
+        }
 
         // CPU cost for this bounded loop is covered by the generated `emission_step(h)` model;
         // only branch-specific storage work is tracked by this internal admission meter.
@@ -635,51 +703,75 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            // We allow the node to not exist here and still increase the delegate reward pool
-            // --- Increase delegate account balance and emit event
-            if let Ok(validator_data) = &ValidatorsData::<T>::try_get(subnet_node.validator_id) {
-                if validator_data.delegate_reward_rate != 0 {
-                    if let Some((updated_account_reward, node_delegate_reward)) =
-                        Self::handle_validator_delegate_stake(
+            // Apply every balance belonging to this node inside one storage transaction. If any
+            // checked aggregate cannot accept its allocation, none of the node, validator-pool,
+            // or delegate-account rewards are retained and no event reports a partial credit.
+            let reward_result: Result<
+                (u128, Option<(u32, u128)>, Option<(T::AccountId, u128)>),
+                DispatchError,
+            > = with_transaction(|| {
+                let mut credited_node_reward = account_reward;
+                let mut validator_delegate_allocation = None;
+                let mut delegate_account_allocation = None;
+
+                if let Ok(validator_data) = ValidatorsData::<T>::try_get(subnet_node.validator_id) {
+                    if validator_data.delegate_reward_rate != 0 {
+                        match Self::handle_validator_delegate_stake(
                             weight_meter,
                             subnet_node.validator_id,
                             validator_data.delegate_reward_rate,
-                            account_reward,
-                        )
-                    {
-                        // Update account reward with the substracted amount that was given to the delegates
-                        account_reward = updated_account_reward;
-                        // Add the node delegate reward to the list for event
-                        validator_delegate_stake_rewards
-                            .push((subnet_node.validator_id, node_delegate_reward));
+                            credited_node_reward,
+                        ) {
+                            Ok(Some((updated_account_reward, node_delegate_reward))) => {
+                                credited_node_reward = updated_account_reward;
+                                validator_delegate_allocation =
+                                    Some((subnet_node.validator_id, node_delegate_reward));
+                            }
+                            Ok(None) => {}
+                            Err(error) => return TransactionOutcome::Rollback(Err(error)),
+                        }
+                    }
+
+                    if let Some(delegate_account) = validator_data.delegate_account {
+                        match Self::handle_delegate_account(
+                            credited_node_reward,
+                            &delegate_account.account_id,
+                            delegate_account.rate,
+                        ) {
+                            Ok((updated_account_reward, delegate_account_deposit)) => {
+                                credited_node_reward = updated_account_reward;
+                                delegate_account_allocation =
+                                    Some((delegate_account.account_id, delegate_account_deposit));
+                            }
+                            Err(error) => return TransactionOutcome::Rollback(Err(error)),
+                        }
                     }
                 }
 
-                if let Some(delegate_account) = &validator_data.delegate_account {
-                    // We don't check if the rate is > 0 because the rate can't
-                    // be set to 0.
-                    let (updated_account_reward, delegate_account_deposit) =
-                        Self::handle_delegate_account(
-                            account_reward,
-                            &delegate_account.account_id,
-                            delegate_account.rate,
-                        );
-                    account_reward = updated_account_reward;
-
-                    node_delegate_account_allocations.push((
-                        subnet_node.id,
-                        (
-                            delegate_account.account_id.clone(),
-                            delegate_account_deposit,
-                        ),
-                    ));
+                match Self::increase_node_stake(subnet_node.id, subnet_id, credited_node_reward) {
+                    Ok(()) => TransactionOutcome::Commit(Ok((
+                        credited_node_reward,
+                        validator_delegate_allocation,
+                        delegate_account_allocation,
+                    ))),
+                    Err(error) => TransactionOutcome::Rollback(Err(error)),
                 }
-            }
+            });
 
-            Self::increase_node_stake(subnet_node.id, subnet_id, account_reward);
+            let Ok((account_reward, validator_allocation, delegate_account_allocation)) =
+                reward_result
+            else {
+                continue;
+            };
             // NodeSubnetStake | TotalSubnetStake | TotalStake
             weight_meter.consume(db_weight.reads_writes(3, 3));
 
+            if let Some(allocation) = validator_allocation {
+                validator_delegate_stake_rewards.push(allocation);
+            }
+            if let Some(allocation) = delegate_account_allocation {
+                node_delegate_account_allocations.push((subnet_node.id, allocation));
+            }
             node_rewards.push((subnet_node.id, account_reward));
         }
 
@@ -702,40 +794,42 @@ impl<T: Config> Pallet<T> {
                 // by `handle_validator_reward`.
                 weight_meter.consume(db_weight.reads(1));
             } else {
-                Self::handle_validator_reward(
+                if Self::handle_validator_reward(
                     weight_meter,
                     subnet_id,
                     validator_subnet_node_id,
                     &consensus_submission_data,
                     policy.min_attestation_percentage,
                     policy.base_validator_reward,
-                );
+                )
+                .is_err()
+                {
+                    return;
+                }
             }
         }
 
         // --- Increase the delegate stake pool balance
-        if rewards_data.delegate_stake_rewards != 0 {
-            Self::do_increase_delegate_stake(subnet_id, rewards_data.delegate_stake_rewards);
-            // reads::
-            // TotalSubnetDelegateStakeShares | TotalSubnetDelegateStakeBalance | TotalDelegateStake
-            //
-            // writes::
-            // TotalSubnetDelegateStakeBalance | | TotalSubnetDelegateStakeShares|
-            // TotalSubnetDelegateStakeShares| TotalSubnetDelegateStakeBalance| TotalDelegateStake
-            weight_meter.consume(db_weight.reads_writes(3, 5));
-        }
+        let credited_delegate_stake_reward = match Self::handle_subnet_delegate_stake_reward(
+            weight_meter,
+            subnet_id,
+            rewards_data.delegate_stake_rewards,
+        ) {
+            Some(reward) => reward,
+            None => return,
+        };
 
         Self::deposit_event(Event::SubnetRewards {
             subnet_id,
             node_rewards,
-            delegate_stake_reward: rewards_data.delegate_stake_rewards,
+            delegate_stake_reward: credited_delegate_stake_reward,
             node_delegate_stake_rewards: validator_delegate_stake_rewards,
             node_delegate_account_allocations,
         });
     }
 
     /// Subnet is not in consensus
-    pub fn handle_non_consensus(
+    pub(crate) fn handle_non_consensus(
         subnet_id: u32,
         consensus_submission_data: ConsensusSubmissionData<T>,
         penalty_attestation_ratio: u128,
@@ -750,7 +844,7 @@ impl<T: Config> Pallet<T> {
         pending_active_removals_dirty: &mut bool,
         newly_pending_active_removals: &mut BoundedVec<u32, T::MaxSubnetNodesUpperBound>,
         weight_meter: &mut WeightMeter,
-    ) {
+    ) -> bool {
         let db_weight = T::DbWeight::get();
         let validator_subnet_node_id = consensus_submission_data.validator_subnet_node_id;
         let stake_attestation_ratio = consensus_submission_data.attestation_ratio;
@@ -775,7 +869,7 @@ impl<T: Config> Pallet<T> {
         // Proposer-node reputation uses only the distinct-identity strong-rejection shortfall.
         // Node removal is deliberately deferred until after the attestor-role decrease below so
         // the proposer can receive both sequential reputation penalties before removal.
-        let slash_validator_weight = Self::slash_validator_for_round_with_policy(
+        let (slash_validator_weight, slash_succeeded) = Self::slash_validator_for_round_with_policy(
             subnet_id,
             validator_subnet_node_id,
             penalty_attestation_ratio,
@@ -785,6 +879,7 @@ impl<T: Config> Pallet<T> {
             strong_rejection_identity_shortfall,
             base_slash_percentage,
             max_slash_amount,
+            consensus_submission_data.validator_node_stake_balance,
             stake_attestation_ratio,
             consensus_submission_data.validator_delegate_stake_balance,
             consensus_submission_data
@@ -798,6 +893,9 @@ impl<T: Config> Pallet<T> {
                 .max_validator_delegate_stake_slash_amount,
         );
         weight_meter.consume(slash_validator_weight);
+        if !slash_succeeded {
+            return false;
+        }
 
         // Submitted proposals can decrease subnet reputation only when a distinct-identity
         // strong rejection exists. Stake-only rejection retains its economic consequences but
@@ -872,16 +970,17 @@ impl<T: Config> Pallet<T> {
                 validator_subnet_node_id,
             );
         }
+        true
     }
 
-    pub fn handle_validator_reward(
+    pub(crate) fn handle_validator_reward(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
         subnet_node_id: u32,
         consensus_submission_data: &ConsensusSubmissionData<T>,
         min_attestation_percentage: u128,
         base_validator_reward: u128,
-    ) {
+    ) -> DispatchResult {
         let db_weight = T::DbWeight::get();
 
         weight_meter.consume(db_weight.reads(1));
@@ -896,22 +995,23 @@ impl<T: Config> Pallet<T> {
         weight_meter.consume(db_weight.reads(1));
 
         // Give validator rewards to their stake
-        Self::increase_node_stake(subnet_node_id, subnet_id, validator_reward);
+        Self::increase_node_stake(subnet_node_id, subnet_id, validator_reward)
     }
 
-    pub fn handle_subnet_owner_reward(
+    pub(crate) fn handle_subnet_owner_reward(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
         amount: u128,
-    ) {
+    ) -> DispatchResult {
         // SubnetOwner
         weight_meter.consume(T::DbWeight::get().reads(1));
         if let Ok(owner) = SubnetOwner::<T>::try_get(subnet_id) {
-            if let Some(balance) = Self::u128_to_balance(amount) {
-                Self::add_balance_to_coldkey_account(&owner, balance);
-                weight_meter.consume(T::WeightInfo::add_balance_to_coldkey_account());
-            }
+            let balance =
+                Self::u128_to_balance(amount).ok_or(Error::<T>::CouldNotConvertToBalance)?;
+            weight_meter.consume(T::WeightInfo::add_balance_to_coldkey_account());
+            Self::add_balance_to_coldkey_account(&owner, balance)?;
         }
+        Ok(())
     }
 
     /// Handles node queue operations based on stake-weighted consensus data.
@@ -940,7 +1040,7 @@ impl<T: Config> Pallet<T> {
     /// # Returns
     ///
     /// Returns `Ok(())` on success
-    pub fn handle_node_queue_consensus(
+    pub(crate) fn handle_node_queue_consensus(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
         consensus_submission_data: &ConsensusSubmissionData<T>,
@@ -1012,7 +1112,7 @@ impl<T: Config> Pallet<T> {
         newly_pending_registered_removals
     }
 
-    pub fn handle_idle_node(
+    pub(crate) fn handle_idle_node(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
         subnet_node_id: u32,
@@ -1046,7 +1146,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    pub fn handle_included_node(
+    pub(crate) fn handle_included_node(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
         subnet_node_id: u32,
@@ -1088,7 +1188,7 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    pub fn maybe_get_forked_subnet_node_ids(
+    pub(crate) fn maybe_get_forked_subnet_node_ids(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
         emergency_snapshot: &Option<EmergencyConsensusSnapshot>,
@@ -1119,24 +1219,29 @@ impl<T: Config> Pallet<T> {
         Some(snapshot.subnet_node_ids.iter().cloned().collect())
     }
 
-    pub fn handle_validator_delegate_stake(
+    pub(crate) fn handle_validator_delegate_stake(
         weight_meter: &mut WeightMeter,
         validator_id: u32,
         delegate_reward_rate: u128,
         account_reward: u128,
-    ) -> Option<(u128, u128)> {
+    ) -> Result<Option<(u128, u128)>, DispatchError> {
         let db_weight = T::DbWeight::get();
         // --- Ensure users are staked to subnet node
-        let total_node_delegated_stake_shares =
-            ValidatorDelegateStakeShares::<T>::get(validator_id);
-        // ValidatorDelegateStakeShares
+        let circulating_shares = ValidatorDelegateStakeCirculatingShares::<T>::get(validator_id);
+        // ValidatorDelegateStakeCirculatingShares
         weight_meter.consume(db_weight.reads(1));
 
-        // We make sure the pool has shares before depositing into it
-        if total_node_delegated_stake_shares != 0 {
+        // Locked minimum-liquidity shares have no owner. Rewards may only increase the exchange
+        // rate when at least one circulating share can receive them.
+        if Self::delegate_pool_has_circulating_shares(circulating_shares) {
             let node_delegate_reward = Self::percent_mul(account_reward, delegate_reward_rate);
-            let updated_account_reward = account_reward.saturating_sub(node_delegate_reward);
-            Self::do_increase_validator_delegate_stake(validator_id, node_delegate_reward);
+            // A malformed stored rate must never mint a delegate allocation larger than the
+            // reward it is carved from. Registration/setters enforce the percentage bound; this
+            // checked subtraction is the accounting boundary's defense in depth.
+            let updated_account_reward = account_reward
+                .checked_sub(node_delegate_reward)
+                .ok_or(ArithmeticError::Underflow)?;
+            Self::do_increase_validator_delegate_stake(validator_id, node_delegate_reward)?;
             // reads:
             // ValidatorDelegateStakeBalance | ValidatorDelegateStakeShares |
             // TotalValidatorDelegateStakeBalance
@@ -1146,20 +1251,58 @@ impl<T: Config> Pallet<T> {
             // TotalValidatorDelegateStakeBalance
             weight_meter.consume(db_weight.reads_writes(5, 3));
 
-            return Some((updated_account_reward, node_delegate_reward));
+            return Ok(Some((updated_account_reward, node_delegate_reward)));
         }
-        None
+        Ok(None)
     }
 
-    pub fn handle_delegate_account(
+    /// Credit a subnet-wide delegate reward only when the pool has user-circulating shares.
+    ///
+    /// A pool containing only the permanently locked minimum-liquidity shares has no economic
+    /// owner. Crediting it would strand issuance and let a later depositor capture historical
+    /// rewards. `None` is reserved for an accounting failure so callers can abort settlement;
+    /// `Some(0)` means that no reward was issued to an inactive pool.
+    fn handle_subnet_delegate_stake_reward(
+        weight_meter: &mut WeightMeter,
+        subnet_id: u32,
+        delegate_stake_reward: u128,
+    ) -> Option<u128> {
+        if delegate_stake_reward == 0 {
+            return Some(0);
+        }
+
+        let db_weight = T::DbWeight::get();
+        let circulating_shares = TotalSubnetDelegateStakeCirculatingShares::<T>::get(subnet_id);
+        weight_meter.consume(db_weight.reads(1));
+
+        if !Self::delegate_pool_has_circulating_shares(circulating_shares) {
+            return Some(0);
+        }
+
+        if Self::do_increase_delegate_stake(subnet_id, delegate_stake_reward).is_err() {
+            return None;
+        }
+        // reads:
+        // TotalSubnetDelegateStakeShares | TotalSubnetDelegateStakeBalance |
+        // TotalSubnetDelegateStakeCirculatingShares | TotalDelegateStake
+        //
+        // writes:
+        // TotalSubnetDelegateStakeBalance | TotalDelegateStake
+        weight_meter.consume(db_weight.reads_writes(4, 2));
+        Some(delegate_stake_reward)
+    }
+
+    pub(crate) fn handle_delegate_account(
         account_reward: u128,
         delegate_account_id: &T::AccountId,
         rate: u128,
-    ) -> (u128, u128) {
+    ) -> Result<(u128, u128), DispatchError> {
         let delegate_account_deposit = Self::percent_mul(account_reward, rate);
-        let updated_account_reward = account_reward.saturating_sub(delegate_account_deposit);
-        Self::increase_delegate_account_balance(delegate_account_id, delegate_account_deposit);
+        let updated_account_reward = account_reward
+            .checked_sub(delegate_account_deposit)
+            .ok_or(ArithmeticError::Underflow)?;
+        Self::increase_delegate_account_balance(delegate_account_id, delegate_account_deposit)?;
 
-        (updated_account_reward, delegate_account_deposit)
+        Ok((updated_account_reward, delegate_account_deposit))
     }
 }

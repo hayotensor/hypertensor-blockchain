@@ -70,6 +70,7 @@ pub fn insert_elected_subnet_node(subnet_id: u32, subnet_epoch: u32, subnet_node
             emergency: None,
             eligible_subnet_node_ids: vec![subnet_node_id],
             eligible_validator_identity_ids: BTreeMap::from([(subnet_node_id, validator_id)]),
+            validator_node_stake_balance: NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
             policy: Network::consensus_policy_snapshot(subnet_id, subnet_epoch),
             validator_delegate_stake_balance,
         },
@@ -529,6 +530,7 @@ pub fn build_activated_subnet(
         RuntimeOrigin::signed(account(delegate_staker_account)),
         subnet_id,
         min_subnet_delegate_stake,
+        1,
     ));
 
     let total_delegate_stake_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
@@ -901,6 +903,7 @@ pub fn build_activated_subnet_new_excess_subnets(
         RuntimeOrigin::signed(account(delegate_staker_account)),
         subnet_id,
         min_subnet_delegate_stake,
+        1,
     ));
 
     let total_delegate_stake_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
@@ -1162,6 +1165,7 @@ pub fn build_registered_subnet(
             RuntimeOrigin::signed(account(delegate_staker_account)),
             subnet_id,
             min_subnet_delegate_stake,
+            1,
         ));
 
         let total_delegate_stake_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
@@ -1687,6 +1691,7 @@ pub fn build_activated_subnet_with_delegator_rewards(
         RuntimeOrigin::signed(account(delegate_staker_account)),
         subnet_id,
         min_subnet_delegate_stake,
+        1,
     ));
 
     let total_delegate_stake_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
@@ -2260,6 +2265,7 @@ pub fn insert_subnet_requirements(id: u32) {
         RuntimeOrigin::signed(account(delegate_staker_account)),
         id,
         min_subnet_delegate_stake,
+        1,
     ));
 
     let total_delegate_stake_balance = TotalSubnetDelegateStakeBalance::<Test>::get(id);

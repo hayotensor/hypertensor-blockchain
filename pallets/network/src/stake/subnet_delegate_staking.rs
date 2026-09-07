@@ -17,23 +17,58 @@
 
 use super::*;
 use frame_support::pallet_prelude::DispatchError;
-use sp_runtime::{ArithmeticError, Saturating};
+use sp_runtime::ArithmeticError;
 
 impl<T: Config> Pallet<T> {
+    /// Shares owned by an account in the subnet pool's current generation.
+    pub fn current_account_subnet_delegate_stake_shares(
+        account_id: &T::AccountId,
+        subnet_id: u32,
+    ) -> u128 {
+        if AccountSubnetDelegateStakeGeneration::<T>::get(account_id, subnet_id)
+            == SubnetDelegatePoolGeneration::<T>::get(subnet_id)
+        {
+            AccountSubnetDelegateStakeShares::<T>::get(account_id, subnet_id)
+        } else {
+            0
+        }
+    }
+
+    fn set_current_account_subnet_delegate_stake_shares(
+        account_id: &T::AccountId,
+        subnet_id: u32,
+        shares: u128,
+    ) {
+        if shares == 0 {
+            AccountSubnetDelegateStakeShares::<T>::remove(account_id, subnet_id);
+            AccountSubnetDelegateStakeGeneration::<T>::remove(account_id, subnet_id);
+        } else {
+            AccountSubnetDelegateStakeShares::<T>::insert(account_id, subnet_id, shares);
+            AccountSubnetDelegateStakeGeneration::<T>::insert(
+                account_id,
+                subnet_id,
+                SubnetDelegatePoolGeneration::<T>::get(subnet_id),
+            );
+        }
+    }
+
     #[frame_support::transactional]
-    pub fn do_add_subnet_delegate_stake(
+    pub(crate) fn do_add_subnet_delegate_stake(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
         delegate_stake_to_be_added: u128,
+        min_shares_out: u128,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
-        let (result, _balance, _shares) = Self::perform_do_add_subnet_delegate_stake(
-            &account_id,
-            subnet_id,
-            delegate_stake_to_be_added,
-            false,
-        );
+        let (result, credited_balance, credited_shares) =
+            Self::perform_do_add_subnet_delegate_stake(
+                &account_id,
+                subnet_id,
+                delegate_stake_to_be_added,
+                min_shares_out,
+                false,
+            );
 
         result?;
 
@@ -42,11 +77,12 @@ impl<T: Config> Pallet<T> {
         // Set last block for rate limiting
         Self::set_last_tx_block(&account_id, block);
 
-        Self::deposit_event(Event::SubnetDelegateStakeAdded(
+        Self::deposit_event(Event::SubnetDelegateStakeAdded {
             subnet_id,
             account_id,
-            delegate_stake_to_be_added,
-        ));
+            balance: credited_balance,
+            shares_minted: credited_shares,
+        });
 
         Ok(())
     }
@@ -62,10 +98,11 @@ impl<T: Config> Pallet<T> {
     ///              - True: Don't remove balance from users account
     ///              - False: Check user balance is withdrawable and withdraw balance
     ///
-    pub fn perform_do_add_subnet_delegate_stake(
+    pub(crate) fn perform_do_add_subnet_delegate_stake(
         account_id: &T::AccountId,
         subnet_id: u32,
         delegate_stake_to_be_added: u128,
+        min_shares_out: u128,
         swap: bool,
     ) -> (DispatchResult, u128, u128) {
         let balance = match Self::u128_to_balance(delegate_stake_to_be_added) {
@@ -79,6 +116,23 @@ impl<T: Config> Pallet<T> {
                 0,
                 0,
             );
+        }
+
+        let total_shares = TotalSubnetDelegateStakeShares::<T>::get(subnet_id);
+        let total_balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
+        let circulating_shares = TotalSubnetDelegateStakeCirculatingShares::<T>::get(subnet_id);
+        if let Err(error) =
+            Self::validate_delegate_pool_accounting(total_shares, total_balance, circulating_shares)
+        {
+            return (Err(error), 0, 0);
+        }
+        if let Err(error) = Self::preview_delegate_pool_deposit(
+            delegate_stake_to_be_added,
+            total_shares,
+            total_balance,
+            min_shares_out,
+        ) {
+            return (Err(error), 0, 0);
         }
 
         // --- Ensure the callers account_id has enough delegate_stake to perform the transaction.
@@ -102,10 +156,11 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        match Self::handle_increase_account_delegate_stake(
+        match Self::handle_increase_account_delegate_stake_with_limit(
             account_id,
             subnet_id,
             delegate_stake_to_be_added,
+            min_shares_out,
         ) {
             Ok((credited_balance, credited_shares)) => (Ok(()), credited_balance, credited_shares),
             Err(error) => (Err(error), 0, 0),
@@ -116,59 +171,97 @@ impl<T: Config> Pallet<T> {
     ///
     /// Returns the credited `(balance, shares)`. Validation completes before any storage is
     /// changed, including initialization of the pool's minimum liquidity.
-    pub fn handle_increase_account_delegate_stake(
+    pub(crate) fn handle_increase_account_delegate_stake(
         account_id: &T::AccountId,
         subnet_id: u32,
         delegate_stake_to_be_added: u128,
     ) -> Result<(u128, u128), DispatchError> {
+        Self::handle_increase_account_delegate_stake_with_limit(
+            account_id,
+            subnet_id,
+            delegate_stake_to_be_added,
+            1,
+        )
+    }
+
+    pub(crate) fn handle_increase_account_delegate_stake_with_limit(
+        account_id: &T::AccountId,
+        subnet_id: u32,
+        delegate_stake_to_be_added: u128,
+        min_shares_out: u128,
+    ) -> Result<(u128, u128), DispatchError> {
+        ensure!(
+            delegate_stake_to_be_added >= MinDelegateStakeDeposit::<T>::get(),
+            Error::<T>::MinDelegateStakeDepositNotReached
+        );
+
         let total_subnet_delegated_stake_shares =
             TotalSubnetDelegateStakeShares::<T>::get(subnet_id);
         let total_subnet_delegated_stake_balance =
             TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
-
-        // --- Get amount to be added as shares based on stake to balance added to account
-        let delegate_stake_to_be_added_as_shares = Self::convert_to_shares(
-            delegate_stake_to_be_added,
+        let circulating_shares = TotalSubnetDelegateStakeCirculatingShares::<T>::get(subnet_id);
+        Self::validate_delegate_pool_accounting(
             total_subnet_delegated_stake_shares,
             total_subnet_delegated_stake_balance,
-        );
+            circulating_shares,
+        )?;
 
-        // --- Check rounding errors, mitigates donation attacks that round to zero
-        if delegate_stake_to_be_added_as_shares == 0 {
-            return Err(Error::<T>::CouldNotConvertToShares.into());
-        }
+        let (delegate_stake_to_be_added_as_shares, gross_shares) =
+            Self::preview_delegate_pool_deposit(
+                delegate_stake_to_be_added,
+                total_subnet_delegated_stake_shares,
+                total_subnet_delegated_stake_balance,
+                min_shares_out,
+            )?;
 
         // Compute every principal-bearing write before changing storage. A queued swap must not
         // report a complete credit if any destination balance or share counter would saturate.
-        let minimum_liquidity = if total_subnet_delegated_stake_shares == 0 {
-            Self::DELEGATE_POOL_MIN_LIQUIDITY
-        } else {
-            0
-        };
-        let account_shares = AccountSubnetDelegateStakeShares::<T>::get(account_id, subnet_id)
-            .checked_add(delegate_stake_to_be_added_as_shares)
-            .ok_or(ArithmeticError::Overflow)?;
+        let account_shares =
+            Self::current_account_subnet_delegate_stake_shares(account_id, subnet_id)
+                .checked_add(delegate_stake_to_be_added_as_shares)
+                .ok_or(ArithmeticError::Overflow)?;
         let total_balance = total_subnet_delegated_stake_balance
             .checked_add(delegate_stake_to_be_added)
             .ok_or(ArithmeticError::Overflow)?;
         let total_shares = total_subnet_delegated_stake_shares
-            .checked_add(minimum_liquidity)
-            .and_then(|shares| shares.checked_add(delegate_stake_to_be_added_as_shares))
+            .checked_add(gross_shares)
+            .ok_or(ArithmeticError::Overflow)?;
+        let next_circulating_shares = circulating_shares
+            .checked_add(delegate_stake_to_be_added_as_shares)
             .ok_or(ArithmeticError::Overflow)?;
         let total_delegate_stake = TotalDelegateStake::<T>::get()
             .checked_add(delegate_stake_to_be_added)
             .ok_or(ArithmeticError::Overflow)?;
+        Self::validate_delegate_pool_accounting(
+            total_shares,
+            total_balance,
+            next_circulating_shares,
+        )?;
 
-        AccountSubnetDelegateStakeShares::<T>::insert(account_id, subnet_id, account_shares);
+        let next_flow = if SubnetsData::<T>::contains_key(subnet_id) {
+            let flow_delta = i128::try_from(delegate_stake_to_be_added)
+                .map_err(|_| ArithmeticError::Overflow)?;
+            Some(
+                SubnetNetFlow::<T>::get(subnet_id)
+                    .checked_add(flow_delta)
+                    .ok_or(ArithmeticError::Overflow)?,
+            )
+        } else {
+            None
+        };
+
+        Self::set_current_account_subnet_delegate_stake_shares(
+            account_id,
+            subnet_id,
+            account_shares,
+        );
         TotalSubnetDelegateStakeBalance::<T>::insert(subnet_id, total_balance);
         TotalSubnetDelegateStakeShares::<T>::insert(subnet_id, total_shares);
+        TotalSubnetDelegateStakeCirculatingShares::<T>::insert(subnet_id, next_circulating_shares);
         TotalDelegateStake::<T>::put(total_delegate_stake);
 
-        if SubnetsData::<T>::contains_key(subnet_id) {
-            let flow_delta = i128::try_from(delegate_stake_to_be_added).unwrap_or(i128::MAX);
-            SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
-                *flow = flow.saturating_add(flow_delta);
-            });
+        if let Some(flow) = next_flow {
+            SubnetNetFlow::<T>::insert(subnet_id, flow);
         }
 
         Ok((
@@ -178,18 +271,20 @@ impl<T: Config> Pallet<T> {
     }
 
     #[frame_support::transactional]
-    pub fn do_remove_delegate_stake(
+    pub(crate) fn do_remove_delegate_stake(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
         delegate_stake_shares_to_be_removed: u128,
+        min_balance_out: u128,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
-        let (result, delegate_stake_to_be_removed, _) =
+        let (result, delegate_stake_to_be_removed, shares_burned) =
             Self::perform_do_remove_subnet_delegate_stake(
                 &account_id,
                 subnet_id,
                 delegate_stake_shares_to_be_removed,
+                min_balance_out,
                 true,
             );
 
@@ -200,11 +295,12 @@ impl<T: Config> Pallet<T> {
         // Set last block for rate limiting
         Self::set_last_tx_block(&account_id, block);
 
-        Self::deposit_event(Event::SubnetDelegateStakeRemoved(
+        Self::deposit_event(Event::SubnetDelegateStakeRemoved {
             subnet_id,
             account_id,
-            delegate_stake_to_be_removed,
-        ));
+            balance: delegate_stake_to_be_removed,
+            shares_burned,
+        });
 
         Ok(())
     }
@@ -220,19 +316,23 @@ impl<T: Config> Pallet<T> {
     ///              - True: Unstake user to unstaking ledger.
     ///              - False: Don't add balance to unstaking ledger.
     ///
-    pub fn perform_do_remove_subnet_delegate_stake(
+    pub(crate) fn perform_do_remove_subnet_delegate_stake(
         account_id: &T::AccountId,
         subnet_id: u32,
         delegate_stake_shares_to_be_removed: u128,
+        min_balance_out: u128,
         add_to_ledger: bool,
     ) -> (DispatchResult, u128, u128) {
         // --- Ensure that the delegate_stake amount to be removed is above zero.
         if delegate_stake_shares_to_be_removed == 0 {
             return (Err(Error::<T>::SharesZero.into()), 0, 0);
         }
+        if min_balance_out == 0 {
+            return (Err(Error::<T>::InvalidStakeMinimumOutput.into()), 0, 0);
+        }
 
-        let account_delegate_stake_shares: u128 =
-            AccountSubnetDelegateStakeShares::<T>::get(&account_id, subnet_id);
+        let account_delegate_stake_shares =
+            Self::current_account_subnet_delegate_stake_shares(account_id, subnet_id);
 
         // --- Ensure that the account has enough delegate_stake to withdraw.
         if account_delegate_stake_shares < delegate_stake_shares_to_be_removed {
@@ -243,17 +343,30 @@ impl<T: Config> Pallet<T> {
             TotalSubnetDelegateStakeShares::<T>::get(subnet_id);
         let total_subnet_delegated_stake_balance =
             TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
-
-        // --- Get accounts current balance
-        let delegate_stake_to_be_removed = Self::convert_to_balance(
-            delegate_stake_shares_to_be_removed,
+        let circulating_shares = TotalSubnetDelegateStakeCirculatingShares::<T>::get(subnet_id);
+        if let Err(error) = Self::validate_delegate_pool_accounting(
             total_subnet_delegated_stake_shares,
             total_subnet_delegated_stake_balance,
-        );
+            circulating_shares,
+        ) {
+            return (Err(error), 0, 0);
+        }
+
+        // Quote both the account debit and the supply-side burn before changing storage.
+        let (delegate_stake_to_be_removed, supply_shares_to_be_burned) =
+            match Self::preview_delegate_pool_redemption(
+                delegate_stake_shares_to_be_removed,
+                total_subnet_delegated_stake_shares,
+                total_subnet_delegated_stake_balance,
+                min_balance_out,
+            ) {
+                Ok(quote) => quote,
+                Err(error) => return (Err(error.into()), 0, 0),
+            };
 
         // --- Ensure that we can convert this u128 to a balance.
         // Redunant
-        let delegate_stake_to_be_added_as_currency =
+        let _delegate_stake_to_be_added_as_currency =
             match Self::u128_to_balance(delegate_stake_to_be_removed) {
                 Some(b) => b,
                 None => return (Err(Error::<T>::CouldNotConvertToBalance.into()), 0, 0),
@@ -264,22 +377,24 @@ impl<T: Config> Pallet<T> {
             return (Err(Error::<T>::TxRateLimitExceeded.into()), 0, 0);
         }
 
-        let cooldown_blocks =
-            match DelegateStakeCooldownEpochs::<T>::get().checked_mul(T::EpochLength::get()) {
-                Some(blocks) => blocks,
-                None => return (Err(ArithmeticError::Overflow.into()), 0, 0),
-            };
-
         // --- We remove the shares from the account and balance from the pool
-        Self::decrease_account_delegate_stake(
+        if let Err(error) = Self::decrease_account_delegate_stake_with_supply_burn(
             &account_id,
             subnet_id,
             delegate_stake_to_be_removed,
             delegate_stake_shares_to_be_removed,
-        );
+            supply_shares_to_be_burned,
+        ) {
+            return (Err(error), 0, 0);
+        }
 
         // Keep the source debit and ledger credit atomic in the unstake dispatch transaction.
         if add_to_ledger {
+            let cooldown_blocks =
+                match DelegateStakeCooldownEpochs::<T>::get().checked_mul(T::EpochLength::get()) {
+                    Some(blocks) => blocks,
+                    None => return (Err(ArithmeticError::Overflow.into()), 0, 0),
+                };
             if let Err(error) = Self::add_balance_to_unbonding_ledger(
                 &account_id,
                 delegate_stake_to_be_removed,
@@ -298,7 +413,8 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    pub fn do_transfer_delegate_stake(
+    #[frame_support::transactional]
+    pub(crate) fn do_transfer_delegate_stake(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
         to_account_id: T::AccountId,
@@ -316,8 +432,8 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotEnoughStakeToWithdraw
         );
 
-        let account_delegate_stake_shares: u128 =
-            AccountSubnetDelegateStakeShares::<T>::get(&account_id, subnet_id);
+        let account_delegate_stake_shares =
+            Self::current_account_subnet_delegate_stake_shares(&account_id, subnet_id);
 
         ensure!(
             account_delegate_stake_shares >= delegate_stake_shares_to_transfer,
@@ -328,13 +444,19 @@ impl<T: Config> Pallet<T> {
             TotalSubnetDelegateStakeShares::<T>::get(subnet_id);
         let total_subnet_delegated_stake_balance =
             TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
+        let circulating_shares = TotalSubnetDelegateStakeCirculatingShares::<T>::get(subnet_id);
+        Self::validate_delegate_pool_accounting(
+            total_subnet_delegated_stake_shares,
+            total_subnet_delegated_stake_balance,
+            circulating_shares,
+        )?;
 
         // --- Get accounts current balance
-        let delegate_stake_to_be_transferred = Self::convert_to_balance(
+        let delegate_stake_to_be_transferred = Self::try_convert_to_balance(
             delegate_stake_shares_to_transfer,
             total_subnet_delegated_stake_shares,
             total_subnet_delegated_stake_balance,
-        );
+        )?;
 
         // --- Ensure transfer balance is greater than the min
         ensure!(
@@ -342,105 +464,150 @@ impl<T: Config> Pallet<T> {
             Error::<T>::MinDelegateStakeDepositNotReached
         );
 
-        // --- Remove shares from caller
-        Self::decrease_account_delegate_stake(
+        let source_shares = account_delegate_stake_shares
+            .checked_sub(delegate_stake_shares_to_transfer)
+            .ok_or(ArithmeticError::Underflow)?;
+        let destination_shares =
+            Self::current_account_subnet_delegate_stake_shares(&to_account_id, subnet_id)
+                .checked_add(delegate_stake_shares_to_transfer)
+                .ok_or(ArithmeticError::Overflow)?;
+
+        // A transfer changes ownership only; pool supply, assets, and circulating shares stay
+        // exactly constant.
+        Self::set_current_account_subnet_delegate_stake_shares(
             &account_id,
             subnet_id,
-            0, // Do not mutate balance since we are transferring in the same subnet
-            delegate_stake_shares_to_transfer,
+            source_shares,
         );
-
-        // --- Increase shares to `to_account_id`
-        Self::increase_account_delegate_stake(
+        Self::set_current_account_subnet_delegate_stake_shares(
             &to_account_id,
             subnet_id,
-            0, // Do not mutate balance since we are transferring in the same subnet
-            delegate_stake_shares_to_transfer,
+            destination_shares,
         );
 
         Ok(())
     }
 
-    pub fn increase_account_delegate_stake(
+    fn decrease_account_delegate_stake_with_supply_burn(
         account_id: &T::AccountId,
         subnet_id: u32,
         amount: u128,
-        shares: u128,
-    ) {
-        // -- increase account subnet staking shares balance
-        AccountSubnetDelegateStakeShares::<T>::mutate(account_id, subnet_id, |mut n| {
-            n.saturating_accrue(shares)
-        });
+        account_shares_to_remove: u128,
+        supply_shares_to_burn: u128,
+    ) -> DispatchResult {
+        let current_balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
+        let current_total_shares = TotalSubnetDelegateStakeShares::<T>::get(subnet_id);
+        let current_circulating_shares =
+            TotalSubnetDelegateStakeCirculatingShares::<T>::get(subnet_id);
+        Self::validate_delegate_pool_accounting(
+            current_total_shares,
+            current_balance,
+            current_circulating_shares,
+        )?;
 
-        // -- increase total subnet delegate stake balance
-        TotalSubnetDelegateStakeBalance::<T>::mutate(subnet_id, |mut n| {
-            n.saturating_accrue(amount)
-        });
-
-        // -- increase total subnet delegate stake shares
-        TotalSubnetDelegateStakeShares::<T>::mutate(subnet_id, |mut n| n.saturating_accrue(shares));
-
-        TotalDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
-
-        if SubnetsData::<T>::contains_key(subnet_id) {
-            let flow_delta = i128::try_from(amount).unwrap_or(i128::MAX);
-            SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
-                *flow = flow.saturating_add(flow_delta);
-            });
-        }
-    }
-
-    pub fn decrease_account_delegate_stake(
-        account_id: &T::AccountId,
-        subnet_id: u32,
-        amount: u128,
-        shares: u128,
-    ) {
-        // -- decrease account subnet staking shares balance
-        AccountSubnetDelegateStakeShares::<T>::mutate(account_id, subnet_id, |mut n| {
-            n.saturating_reduce(shares)
-        });
-
-        // -- decrease total subnet delegate stake balance
-        TotalSubnetDelegateStakeBalance::<T>::mutate(subnet_id, |mut n| {
-            n.saturating_reduce(amount)
-        });
-
-        // -- decrease total subnet delegate stake shares
-        TotalSubnetDelegateStakeShares::<T>::mutate(subnet_id, |mut n| n.saturating_reduce(shares));
-
-        TotalDelegateStake::<T>::mutate(|mut n| n.saturating_reduce(amount));
-
-        if SubnetsData::<T>::contains_key(subnet_id) {
-            let flow_delta = i128::try_from(amount).unwrap_or(i128::MAX);
-            SubnetNetFlow::<T>::mutate(subnet_id, |flow| {
-                *flow = flow.saturating_sub(flow_delta);
-            });
-        }
-    }
-
-    /// Rewards are deposited here from the ``rewards.rs`` or by donations
-    /// Note: We don't count SubnetNetFlow here
-    pub fn do_increase_delegate_stake(subnet_id: u32, amount: u128) {
-        if TotalSubnetDelegateStakeBalance::<T>::get(subnet_id) == 0
-            || TotalSubnetDelegateStakeShares::<T>::get(subnet_id) == 0
-        {
-            TotalSubnetDelegateStakeShares::<T>::mutate(subnet_id, |mut n| {
-                n.saturating_accrue(Self::DELEGATE_POOL_MIN_LIQUIDITY)
-            });
+        let account_shares =
+            Self::current_account_subnet_delegate_stake_shares(account_id, subnet_id)
+                .checked_sub(account_shares_to_remove)
+                .ok_or(ArithmeticError::Underflow)?;
+        let total_balance = current_balance
+            .checked_sub(amount)
+            .ok_or(ArithmeticError::Underflow)?;
+        let total_shares = current_total_shares
+            .checked_sub(supply_shares_to_burn)
+            .ok_or(ArithmeticError::Underflow)?;
+        let circulating_shares = current_circulating_shares
+            .checked_sub(account_shares_to_remove)
+            .ok_or(ArithmeticError::Underflow)?;
+        let total_delegate_stake = TotalDelegateStake::<T>::get()
+            .checked_sub(amount)
+            .ok_or(ArithmeticError::Underflow)?;
+        let next_generation = if total_balance == 0 {
+            Some(
+                SubnetDelegatePoolGeneration::<T>::get(subnet_id)
+                    .checked_add(1)
+                    .ok_or(ArithmeticError::Overflow)?,
+            )
+        } else {
+            Self::validate_delegate_pool_accounting(
+                total_shares,
+                total_balance,
+                circulating_shares,
+            )?;
+            None
+        };
+        let next_flow = if SubnetsData::<T>::contains_key(subnet_id) {
+            let delta = i128::try_from(amount).map_err(|_| ArithmeticError::Overflow)?;
+            Some(
+                SubnetNetFlow::<T>::get(subnet_id)
+                    .checked_sub(delta)
+                    .ok_or(ArithmeticError::Underflow)?,
+            )
+        } else {
+            None
         };
 
-        // -- increase total subnet delegate stake
-        TotalSubnetDelegateStakeBalance::<T>::mutate(subnet_id, |mut n| {
-            n.saturating_accrue(amount)
-        });
+        if let Some(new_generation) = next_generation {
+            let old_generation = SubnetDelegatePoolGeneration::<T>::get(subnet_id);
+            TotalSubnetDelegateStakeBalance::<T>::remove(subnet_id);
+            TotalSubnetDelegateStakeShares::<T>::remove(subnet_id);
+            TotalSubnetDelegateStakeCirculatingShares::<T>::remove(subnet_id);
+            SubnetDelegatePoolGeneration::<T>::insert(subnet_id, new_generation);
+            Self::deposit_event(Event::SubnetDelegatePoolReset {
+                subnet_id,
+                old_generation,
+                new_generation,
+                invalidated_shares: circulating_shares,
+            });
+        } else {
+            Self::set_current_account_subnet_delegate_stake_shares(
+                account_id,
+                subnet_id,
+                account_shares,
+            );
+            TotalSubnetDelegateStakeBalance::<T>::insert(subnet_id, total_balance);
+            TotalSubnetDelegateStakeShares::<T>::insert(subnet_id, total_shares);
+            TotalSubnetDelegateStakeCirculatingShares::<T>::insert(subnet_id, circulating_shares);
+        }
+        TotalDelegateStake::<T>::put(total_delegate_stake);
+        if let Some(flow) = next_flow {
+            SubnetNetFlow::<T>::insert(subnet_id, flow);
+        }
+        Ok(())
+    }
 
-        TotalDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
+    /// Rewards are deposited here from `rewards.rs`.
+    /// Note: We don't count SubnetNetFlow here
+    pub(crate) fn do_increase_delegate_stake(subnet_id: u32, amount: u128) -> DispatchResult {
+        if amount == 0 {
+            return Ok(());
+        }
+        let current_balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
+        let current_shares = TotalSubnetDelegateStakeShares::<T>::get(subnet_id);
+        let circulating_shares = TotalSubnetDelegateStakeCirculatingShares::<T>::get(subnet_id);
+        Self::validate_delegate_pool_accounting(
+            current_shares,
+            current_balance,
+            circulating_shares,
+        )?;
+        ensure!(
+            Self::delegate_pool_has_circulating_shares(circulating_shares),
+            Error::<T>::DelegatePoolNotActive
+        );
+
+        let next_balance = current_balance
+            .checked_add(amount)
+            .ok_or(ArithmeticError::Overflow)?;
+        let next_total = TotalDelegateStake::<T>::get()
+            .checked_add(amount)
+            .ok_or(ArithmeticError::Overflow)?;
+        TotalSubnetDelegateStakeBalance::<T>::insert(subnet_id, next_balance);
+        TotalDelegateStake::<T>::put(next_total);
+        Ok(())
     }
 
     pub fn convert_account_shares_to_balance(account_id: &T::AccountId, subnet_id: u32) -> u128 {
-        let account_delegate_stake_shares: u128 =
-            AccountSubnetDelegateStakeShares::<T>::get(&account_id, subnet_id);
+        let account_delegate_stake_shares =
+            Self::current_account_subnet_delegate_stake_shares(account_id, subnet_id);
         if account_delegate_stake_shares == 0 {
             return 0;
         }
@@ -448,6 +615,16 @@ impl<T: Config> Pallet<T> {
             TotalSubnetDelegateStakeShares::<T>::get(subnet_id);
         let total_subnet_delegated_stake_balance =
             TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
+        let circulating_shares = TotalSubnetDelegateStakeCirculatingShares::<T>::get(subnet_id);
+        if Self::validate_delegate_pool_accounting(
+            total_subnet_delegated_stake_shares,
+            total_subnet_delegated_stake_balance,
+            circulating_shares,
+        )
+        .is_err()
+        {
+            return 0;
+        }
 
         // --- Get accounts current balance
         Self::convert_to_balance(

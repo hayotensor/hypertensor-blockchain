@@ -71,9 +71,11 @@ impl<T: Config> Pallet<T> {
 
         let account_stake_balance: u128 = OverwatchNodeStakeBalance::<T>::get(current_uid);
 
+        let next_account_stake_balance = account_stake_balance
+            .checked_add(stake_to_be_added)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
         ensure!(
-            account_stake_balance.saturating_add(stake_to_be_added)
-                >= OverwatchMinStakeBalance::<T>::get(),
+            next_account_stake_balance >= OverwatchMinStakeBalance::<T>::get(),
             Error::<T>::MinStakeNotReached
         );
 
@@ -87,7 +89,7 @@ impl<T: Config> Pallet<T> {
             Self::remove_balance_from_coldkey_account(&coldkey, balance) == true,
             Error::<T>::BalanceWithdrawalError
         );
-        Self::increase_overwatch_node_stake(current_uid, stake_to_be_added);
+        Self::increase_overwatch_node_stake(current_uid, stake_to_be_added)?;
 
         // ⸺ Register
         TotalOverwatchNodeUids::<T>::put(current_uid);

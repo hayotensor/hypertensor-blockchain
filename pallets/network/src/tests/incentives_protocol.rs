@@ -18,11 +18,13 @@ use crate::{
     SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
     SubnetPauseCooldownEpochs, SubnetPauseData, SubnetRemovalReason, SubnetReputation,
     SubnetReputationFactorSchedules, SubnetState, SubnetsData, TotalActiveSubnets,
-    TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetUids,
+    TotalDelegateStake, TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeCirculatingShares,
+    TotalSubnetDelegateStakeShares, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetUids,
     TotalValidatorDelegateStakeBalance, TotalValidatorNodes, ValidatorAbsentSubnetReputationFactor,
-    ValidatorColdkey, ValidatorDelegateStakeBalance, ValidatorDelegateStakeShares,
-    ValidatorNodeDelegateStakeWeightUpdateInterval, ValidatorNodeDelegateStakeWeights,
-    ValidatorSubnetNodes, ValidatorsData, NETWORK_EPOCH_PRELIMINARIES_SLOT,
+    ValidatorColdkey, ValidatorDelegateStakeBalance, ValidatorDelegateStakeCirculatingShares,
+    ValidatorDelegateStakeShares, ValidatorNodeDelegateStakeWeightUpdateInterval,
+    ValidatorNodeDelegateStakeWeights, ValidatorSubnetNodes, ValidatorsData,
+    NETWORK_EPOCH_PRELIMINARIES_SLOT,
 };
 use crate::{AttestEntry, ConsensusPolicySnapshot, Event, SubnetReputationFactors};
 use frame_support::dispatch::{DispatchResultWithPostInfo, Pays};
@@ -261,6 +263,25 @@ fn set_elected_round_validator_identity(
             .eligible_validator_identity_ids
             .insert(subnet_node_id, validator_id);
     });
+}
+
+fn install_active_emergency_validator_set(subnet_id: u32, subnet_node_ids: Vec<u32>) {
+    let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+    EmergencySubnetNodeElectionData::<Test>::insert(
+        subnet_id,
+        EmergencySubnetValidatorData {
+            subnet_node_ids,
+            target_emergency_validators_epochs: 1,
+            max_emergency_validators_epoch: subnet_epoch.saturating_add(1),
+            total_epochs: 0,
+            activated: true,
+            started_subnet_epoch: subnet_epoch,
+            reputation_factors: Network::get_reputation_factors_for_epoch(subnet_id, subnet_epoch),
+            min_subnet_node_reputation: MinSubnetNodeReputation::<Test>::get(subnet_id),
+            min_weight_decrease_reputation_threshold:
+                SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::get(subnet_id),
+        },
+    );
 }
 
 fn setup_validator_owned_nodes(
@@ -2345,50 +2366,32 @@ fn test_propose_attestation_snapshots_only_emergency_validator_weights() {
     new_test_ext().execute_with(|| {
         let emergency_validator_count = MinSubnetNodes::<Test>::get();
         let node_count = emergency_validator_count.saturating_add(1);
+        let emergency_validator_ids = (1..=emergency_validator_count).collect::<Vec<_>>();
+        let emergency_validator_ids_for_setup = emergency_validator_ids.clone();
         let (subnet_id, subnet_epoch, elected_node_id, hotkey, base_data) =
-            build_elected_subnet_for_consensus("subnet-name".into(), node_count);
-
-        let mut emergency_validator_ids = vec![elected_node_id];
-        emergency_validator_ids.extend(
-            (1..=node_count)
-                .filter(|subnet_node_id| *subnet_node_id != elected_node_id)
-                .take(emergency_validator_count.saturating_sub(1) as usize),
-        );
-        emergency_validator_ids.sort_unstable();
+            build_elected_subnet_for_consensus_with_setup(
+                "subnet-name".into(),
+                node_count,
+                move |subnet_id| {
+                    install_active_emergency_validator_set(
+                        subnet_id,
+                        emergency_validator_ids_for_setup,
+                    );
+                },
+            );
+        assert!(emergency_validator_ids.contains(&elected_node_id));
 
         let excluded_node = (1..=node_count)
             .find(|subnet_node_id| !emergency_validator_ids.contains(subnet_node_id))
             .unwrap();
 
-        EmergencySubnetNodeElectionData::<Test>::insert(
-            subnet_id,
-            EmergencySubnetValidatorData {
-                subnet_node_ids: emergency_validator_ids.clone(),
-                target_emergency_validators_epochs: 1,
-                max_emergency_validators_epoch: subnet_epoch + 1,
-                total_epochs: 0,
-                activated: true,
-                started_subnet_epoch: subnet_epoch,
-                reputation_factors: Network::get_reputation_factors_for_epoch(
-                    subnet_id,
-                    subnet_epoch,
-                ),
-                min_subnet_node_reputation: MinSubnetNodeReputation::<Test>::get(subnet_id),
-                min_weight_decrease_reputation_threshold:
-                    SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::get(subnet_id),
-            },
+        let emergency_round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch)
+            .expect("the first election must snapshot the already-active emergency set");
+        assert!(emergency_round.emergency.is_some());
+        assert_eq!(
+            emergency_round.eligible_subnet_node_ids,
+            emergency_validator_ids
         );
-
-        // Emergency membership is frozen by election. Re-elect after installing the emergency
-        // set instead of expecting proposal creation to reread live emergency storage.
-        SubnetElectedValidator::<Test>::remove(subnet_id, subnet_epoch);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
-        let emergency_round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
-        let hotkey = Network::get_subnet_node_associated_hotkey(
-            subnet_id,
-            emergency_round.validator_subnet_node_id,
-        )
-        .unwrap();
 
         let mut expected_total_weight = 0u128;
         for (index, subnet_node_id) in emergency_validator_ids.iter().copied().enumerate() {
@@ -5180,13 +5183,26 @@ fn run_strong_rejection_attestor_reputation_case(
         SubnetNodeValidatorId::<Test>::insert(subnet_id, proposer_node_id, proposer_validator_id);
         NodeSubnetStake::<Test>::insert(attestor_node_id, subnet_id, starting_stake);
         NodeSubnetStake::<Test>::insert(proposer_node_id, subnet_id, starting_stake);
+        crate::TotalSubnetStake::<Test>::insert(subnet_id, starting_stake * 2);
+        crate::TotalStake::<Test>::put(starting_stake * 2);
         ValidatorDelegateStakeBalance::<Test>::insert(attestor_validator_id, starting_pool_balance);
         ValidatorDelegateStakeBalance::<Test>::insert(proposer_validator_id, starting_pool_balance);
+        ValidatorDelegateStakeShares::<Test>::insert(
+            attestor_validator_id,
+            Network::DELEGATE_POOL_MIN_LIQUIDITY + 1,
+        );
+        ValidatorDelegateStakeCirculatingShares::<Test>::insert(attestor_validator_id, 1);
+        ValidatorDelegateStakeShares::<Test>::insert(
+            proposer_validator_id,
+            Network::DELEGATE_POOL_MIN_LIQUIDITY + 1,
+        );
+        ValidatorDelegateStakeCirculatingShares::<Test>::insert(proposer_validator_id, 1);
         TotalValidatorDelegateStakeBalance::<Test>::put(starting_pool_balance * 2);
 
         let consensus_submission_data = ConsensusSubmissionData::<Test> {
             policy,
             validator_subnet_node_id: proposer_node_id,
+            validator_node_stake_balance: starting_stake,
             validator_delegate_stake_balance: starting_pool_balance,
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
@@ -6702,49 +6718,25 @@ fn test_identity_gated_non_attestor_decrease_can_remove_node_below_minimum_reput
 fn test_emergency_non_attestor_decrease_uses_identity_supermajority_gate() {
     new_test_ext().execute_with(|| {
         let node_count = 9;
+        let emergency_validator_ids = (1..=8).collect::<Vec<_>>();
+        let emergency_validator_ids_for_setup = emergency_validator_ids.clone();
         let (subnet_id, subnet_epoch, proposer_node_id, proposer_hotkey, consensus_data) =
-            build_elected_subnet_for_consensus(
+            build_elected_subnet_for_consensus_with_setup(
                 b"emergency-non-attestor-identity-gate".to_vec(),
                 node_count,
+                move |subnet_id| {
+                    install_active_emergency_validator_set(
+                        subnet_id,
+                        emergency_validator_ids_for_setup,
+                    );
+                },
             );
         set_equal_validator_delegate_weights_for_elected_round(subnet_id, node_count);
 
-        let mut emergency_validator_ids = vec![proposer_node_id];
-        emergency_validator_ids.extend(
-            (1..=node_count)
-                .filter(|subnet_node_id| *subnet_node_id != proposer_node_id)
-                .take(7),
-        );
-        emergency_validator_ids.sort_unstable();
+        assert!(emergency_validator_ids.contains(&proposer_node_id));
         let excluded_normal_validator = (1..=node_count)
             .find(|subnet_node_id| !emergency_validator_ids.contains(subnet_node_id))
             .unwrap();
-        EmergencySubnetNodeElectionData::<Test>::insert(
-            subnet_id,
-            EmergencySubnetValidatorData {
-                subnet_node_ids: emergency_validator_ids.clone(),
-                target_emergency_validators_epochs: 1,
-                max_emergency_validators_epoch: subnet_epoch.saturating_add(1),
-                total_epochs: 0,
-                activated: true,
-                started_subnet_epoch: subnet_epoch,
-                reputation_factors: Network::get_reputation_factors_for_epoch(
-                    subnet_id,
-                    subnet_epoch,
-                ),
-                min_subnet_node_reputation: MinSubnetNodeReputation::<Test>::get(subnet_id),
-                min_weight_decrease_reputation_threshold:
-                    SubnetNodeMinWeightDecreaseReputationThreshold::<Test>::get(subnet_id),
-            },
-        );
-
-        // The elected round, including its emergency membership, is immutable proposal input.
-        SubnetElectedValidator::<Test>::remove(subnet_id, subnet_epoch);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
-        let emergency_round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
-        let proposer_node_id = emergency_round.validator_subnet_node_id;
-        let proposer_hotkey =
-            Network::get_subnet_node_associated_hotkey(subnet_id, proposer_node_id).unwrap();
 
         let non_attestor = emergency_validator_ids
             .iter()
@@ -7311,13 +7303,14 @@ fn run_submitted_validator_pool_slash_case(
         assert_eq!(round.validator_delegate_stake_balance, pool_balance);
 
         if add_stake_after_election {
-            let (_, shares_added) = Network::handle_increase_account_validator_delegate_stake(
-                &account(911),
-                validator_id,
-                pool_balance,
-            )
-            .expect("post-election validator delegate stake credit must succeed");
-            assert!(shares_added > 0);
+            assert_err!(
+                Network::handle_increase_account_validator_delegate_stake(
+                    &account(911),
+                    validator_id,
+                    pool_balance,
+                ),
+                Error::<Test>::ValidatorDelegateStakeSlashLocked
+            );
         }
 
         let attestation_ratio = test_percent(attestation_numerator, attestation_denominator);
@@ -7344,6 +7337,7 @@ fn run_submitted_validator_pool_slash_case(
         let consensus_submission_data = ConsensusSubmissionData::<Test> {
             policy: round.policy,
             validator_subnet_node_id: elected_node_id,
+            validator_node_stake_balance: round.validator_node_stake_balance,
             validator_delegate_stake_balance: round.validator_delegate_stake_balance,
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
@@ -8687,11 +8681,17 @@ fn test_distribute_rewards_fork_graduate_idle_to_included() {
         increase_epochs(idle_epochs + 1);
         let epoch = Network::get_current_epoch_as_u32();
 
-        // ⸺ Submit consnesus data
+        // ⸺ Submit consnesus data. A prior activation slot already elected a round, so run
+        // the real next-slot order: settle that round before electing a new validator.
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::emission_step(
+            &mut WeightMeter::new(),
+            System::block_number(),
+            Network::get_current_epoch_as_u32(),
+            subnet_epoch,
+            subnet_id,
+        );
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -8907,7 +8907,6 @@ fn test_distribute_rewards_graduate_included_to_validator() {
             let epoch = Network::get_current_epoch_as_u32();
             let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
             set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
-            Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
 
             // Start of epoch, check stake balances
             let mut stake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
@@ -8946,10 +8945,8 @@ fn test_distribute_rewards_graduate_included_to_validator() {
                 assert!(subnet_weight.is_some());
             }
 
-            // Propose attestation and attest
-            run_subnet_consensus_step_v2(subnet_id, None, None);
-
-            // Emissions
+            // Runtime ordering is allocation, prior-round settlement, then current election.
+            // Proposals arrive only after the slot hook has completed.
             Network::emission_step(
                 &mut WeightMeter::new(),
                 System::block_number(),
@@ -8985,6 +8982,9 @@ fn test_distribute_rewards_graduate_included_to_validator() {
                     }
                 }
             }
+
+            // Propose and attest the round elected by the operational half of emission_step.
+            run_subnet_consensus_step_v2(subnet_id, None, None);
             increase_epochs(1);
         }
 
@@ -9100,7 +9100,6 @@ fn test_distribute_rewards_graduate_included_to_validator_v2() {
             let epoch = Network::get_current_epoch_as_u32();
             let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
             set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
-            Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
 
             // Start of epoch, check stake balances
             let mut stake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
@@ -9138,10 +9137,8 @@ fn test_distribute_rewards_graduate_included_to_validator_v2() {
                 assert!(subnet_weight.is_some());
             }
 
-            // Propose attestation and attest
-            run_subnet_consensus_step_v2(subnet_id, None, None);
-
-            // Emissions
+            // Runtime ordering is allocation, prior-round settlement, then current election.
+            // Proposals arrive only after the slot hook has completed.
             Network::emission_step(
                 &mut WeightMeter::new(),
                 System::block_number(),
@@ -9175,6 +9172,9 @@ fn test_distribute_rewards_graduate_included_to_validator_v2() {
                     }
                 }
             }
+
+            // Propose and attest the round elected by the operational half of emission_step.
+            run_subnet_consensus_step_v2(subnet_id, None, None);
             increase_epochs(1);
         }
 
@@ -9664,7 +9664,11 @@ fn test_distribute_rewards_node_delegate_stake() {
 
         // increase shares manually
         // *Distribution requires shares to distribute to stakers*
-        ValidatorDelegateStakeShares::<Test>::insert(validator_id, 1);
+        ValidatorDelegateStakeShares::<Test>::insert(
+            validator_id,
+            Network::DELEGATE_POOL_MIN_LIQUIDITY + 1,
+        );
+        ValidatorDelegateStakeCirculatingShares::<Test>::insert(validator_id, 1);
 
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
@@ -9827,7 +9831,11 @@ fn test_distribute_rewards_fork_node_delegate_stake() {
 
         // increase shares manually
         // *Distribution requires shares to distribute to stakers*
-        ValidatorDelegateStakeShares::<Test>::insert(validator_id, 1);
+        ValidatorDelegateStakeShares::<Test>::insert(
+            validator_id,
+            Network::DELEGATE_POOL_MIN_LIQUIDITY + 1,
+        );
+        ValidatorDelegateStakeCirculatingShares::<Test>::insert(validator_id, 1);
 
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
@@ -10010,6 +10018,7 @@ fn test_do_epoch_preliminaries_deactivate_min_subnet_delegate_stake() {
             RuntimeOrigin::signed(account(1)),
             subnet_id,
             delegate_shares,
+            1,
         ));
 
         let first_health_epoch = SubnetsData::<Test>::get(subnet_id)
@@ -10074,7 +10083,11 @@ fn test_propose_attestation_epoch_progression_0() {
 
         // increase shares manually
         // *Distribution requires shares to distribute to stakers*
-        ValidatorDelegateStakeShares::<Test>::insert(validator_id, 1);
+        ValidatorDelegateStakeShares::<Test>::insert(
+            validator_id,
+            Network::DELEGATE_POOL_MIN_LIQUIDITY + 1,
+        );
+        ValidatorDelegateStakeCirculatingShares::<Test>::insert(validator_id, 1);
 
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
@@ -10167,7 +10180,11 @@ fn test_propose_attestation_epoch_progression_50() {
 
         // increase shares manually
         // *Distribution requires shares to distribute to stakers*
-        ValidatorDelegateStakeShares::<Test>::insert(validator_id, 1);
+        ValidatorDelegateStakeShares::<Test>::insert(
+            validator_id,
+            Network::DELEGATE_POOL_MIN_LIQUIDITY + 1,
+        );
+        ValidatorDelegateStakeCirculatingShares::<Test>::insert(validator_id, 1);
 
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
@@ -10261,7 +10278,11 @@ fn test_propose_attestation_epoch_progression_99() {
 
         // increase shares manually
         // *Distribution requires shares to distribute to stakers*
-        ValidatorDelegateStakeShares::<Test>::insert(validator_id, 1);
+        ValidatorDelegateStakeShares::<Test>::insert(
+            validator_id,
+            Network::DELEGATE_POOL_MIN_LIQUIDITY + 1,
+        );
+        ValidatorDelegateStakeCirculatingShares::<Test>::insert(validator_id, 1);
 
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
@@ -10358,7 +10379,11 @@ fn test_propose_attestation_epoch_progression_100() {
 
         // increase shares manually
         // *Distribution requires shares to distribute to stakers*
-        ValidatorDelegateStakeShares::<Test>::insert(validator_id, 1);
+        ValidatorDelegateStakeShares::<Test>::insert(
+            validator_id,
+            Network::DELEGATE_POOL_MIN_LIQUIDITY + 1,
+        );
+        ValidatorDelegateStakeCirculatingShares::<Test>::insert(validator_id, 1);
 
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
@@ -10683,6 +10708,17 @@ fn test_emergency_validator_proposal_rejects_queue_mutation() {
             .unwrap()
             .consensus_eligible_from_subnet_epoch
             .unwrap();
+        // The pause happened after a slot had already elected a round. Run the unpause
+        // preparation slot so that historical round settles before the first emergency election.
+        let preparation_subnet_epoch = consensus_eligible_from_subnet_epoch.saturating_sub(1);
+        set_block_to_subnet_slot_epoch(preparation_subnet_epoch, subnet_id);
+        Network::emission_step(
+            &mut WeightMeter::new(),
+            System::block_number(),
+            Network::get_current_epoch_as_u32(),
+            preparation_subnet_epoch,
+            subnet_id,
+        );
         set_block_to_subnet_slot_epoch(consensus_eligible_from_subnet_epoch, subnet_id);
         let block_number = System::block_number();
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
@@ -10748,6 +10784,7 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
         let zero_score_submission = ConsensusSubmissionData::<Test> {
             policy,
             validator_subnet_node_id: subnet_node_id,
+            validator_node_stake_balance: initial_node_stake,
             validator_delegate_stake_balance: 0,
             validator_epoch_progress: 0,
             validator_reward_factor: percentage_factor,
@@ -10782,8 +10819,19 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
         SubnetReputation::<Test>::insert(subnet_id, percentage_factor);
         NodeSubnetStake::<Test>::insert(subnet_node_id, subnet_id, initial_node_stake);
 
+        // Model a pool after its final user has redeemed: the locked minimum-liquidity shares and
+        // initialization dust remain, but there are no circulating shares entitled to rewards.
+        TotalSubnetDelegateStakeShares::<Test>::insert(
+            subnet_id,
+            Network::DELEGATE_POOL_MIN_LIQUIDITY,
+        );
+        TotalSubnetDelegateStakeCirculatingShares::<Test>::insert(subnet_id, 0);
+        TotalSubnetDelegateStakeBalance::<Test>::insert(subnet_id, 1);
+        TotalDelegateStake::<Test>::put(1);
+
         let (fresh_rewards, _) =
-            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy);
+            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy)
+                .expect("valid reward split");
         assert_eq!(
             fresh_rewards,
             RewardsData {
@@ -10814,7 +10862,8 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
         );
         assert_eq!(
             TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
-            delegate_stake_before + 2 * fresh_rewards.delegate_stake_rewards
+            delegate_stake_before,
+            "a locked-only pool must not receive ownerless historical rewards"
         );
         assert_eq!(
             NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
@@ -10833,11 +10882,26 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
                 ))
                 .count(),
             2,
-            "zero-score rounds still settle owner and subnet-wide delegate rewards"
+            "zero-score rounds still report their actual reward settlement"
         );
 
+        assert!(network_events()
+            .iter()
+            .filter_map(|event| {
+                match event {
+                    Event::SubnetRewards {
+                        subnet_id: event_subnet_id,
+                        delegate_stake_reward,
+                        ..
+                    } if *event_subnet_id == subnet_id => Some(*delegate_stake_reward),
+                    _ => None,
+                }
+            })
+            .all(|reward| reward == 0));
+
         let (next_rewards, _) =
-            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy);
+            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy)
+                .expect("valid reward split");
         assert_eq!(
             next_rewards, fresh_rewards,
             "forfeited zero-score allocations must not carry into a later round"
@@ -10847,6 +10911,14 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
         nonzero_score_submission.weight_sum = 1;
         nonzero_score_submission.data[0].score = 1;
         let node_stake_before_nonzero = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
+        let activation_deposit = 1_000;
+        let (_, circulating_shares) = Network::handle_increase_account_delegate_stake(
+            &account(99),
+            subnet_id,
+            activation_deposit,
+        )
+        .expect("activating delegate stake deposit must succeed");
+        assert!(circulating_shares > 0);
 
         Network::distribute_rewards(
             &mut WeightMeter::new(),
@@ -10864,9 +10936,8 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
         );
         assert_eq!(
             TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
-            delegate_stake_before
-                + 2 * fresh_rewards.delegate_stake_rewards
-                + next_rewards.delegate_stake_rewards
+            delegate_stake_before + activation_deposit + next_rewards.delegate_stake_rewards,
+            "an active pool must receive the current reward without capturing skipped rewards"
         );
         assert_eq!(
             NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
@@ -10895,6 +10966,73 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
                 node_delegate_stake_rewards: Vec::new(),
                 node_delegate_account_allocations: Vec::new(),
             })
+        );
+    });
+}
+
+#[test]
+fn test_validator_delegate_rewards_require_circulating_shares() {
+    new_test_ext().execute_with(|| {
+        let inactive_validator_id = 41;
+        let active_validator_id = 42;
+        let account_reward = 1_000;
+        let reward_rate = test_percent(1, 2);
+
+        // This is the valid residual state after every user redeems: locked shares and one unit
+        // of initialization dust remain, but nobody owns a circulating share.
+        ValidatorDelegateStakeShares::<Test>::insert(
+            inactive_validator_id,
+            Network::DELEGATE_POOL_MIN_LIQUIDITY,
+        );
+        ValidatorDelegateStakeCirculatingShares::<Test>::insert(inactive_validator_id, 0);
+        ValidatorDelegateStakeBalance::<Test>::insert(inactive_validator_id, 1);
+        TotalValidatorDelegateStakeBalance::<Test>::put(1);
+
+        assert_eq!(
+            Network::handle_validator_delegate_stake(
+                &mut WeightMeter::new(),
+                inactive_validator_id,
+                reward_rate,
+                account_reward,
+            ),
+            Ok(None)
+        );
+        assert_eq!(
+            ValidatorDelegateStakeBalance::<Test>::get(inactive_validator_id),
+            1,
+            "locked-only shares must not capture validator rewards"
+        );
+        assert_eq!(TotalValidatorDelegateStakeBalance::<Test>::get(), 1);
+
+        let activation_deposit = 1_000;
+        let (_, circulating_shares) = Network::handle_increase_account_validator_delegate_stake(
+            &account(99),
+            active_validator_id,
+            activation_deposit,
+        )
+        .expect("active validator delegate stake deposit must succeed");
+        assert!(circulating_shares > 0);
+
+        let expected_delegate_reward = Network::percent_mul(account_reward, reward_rate);
+        assert_eq!(
+            Network::handle_validator_delegate_stake(
+                &mut WeightMeter::new(),
+                active_validator_id,
+                reward_rate,
+                account_reward,
+            ),
+            Ok(Some((
+                account_reward - expected_delegate_reward,
+                expected_delegate_reward,
+            )))
+        );
+        assert_eq!(
+            ValidatorDelegateStakeBalance::<Test>::get(active_validator_id),
+            activation_deposit + expected_delegate_reward
+        );
+        assert_eq!(
+            TotalValidatorDelegateStakeBalance::<Test>::get(),
+            1 + activation_deposit + expected_delegate_reward
         );
     });
 }

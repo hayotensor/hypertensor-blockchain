@@ -7,10 +7,10 @@ import { generateRandomEd25519PeerId, generateRandomEthersWallet, generateRandom
 import {
     batchTransferBalanceFromSudo,
     getCurrentRegistrationCost,
-    registerOrUpdateIdentity,
     registerSubnet,
     registerSubnetNode,
-    removeIdentity,
+    registerValidator,
+    updateValidatorIdentity,
 } from "../src/network"
 import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
 import { PublicClient } from "viem";
@@ -42,40 +42,9 @@ describe("test identities-0xDANBre34", () => {
         wallet7.address,
         wallet8.address,
     ]
-    const initialColdkeys = [
-        {
-            coldkey: wallet1.address,
-            count: 1
-        },
-        {
-            coldkey: wallet2.address,
-            count: 1
-        },
-        {
-            coldkey: wallet3.address,
-            count: 1
-        },
-        {
-            coldkey: wallet4.address,
-            count: 1
-        },
-        {
-            coldkey: wallet5.address,
-            count: 1
-        },
-        {
-            coldkey: wallet6.address,
-            count: 1
-        },
-        {
-            coldkey: wallet7.address,
-            count: 1
-        },
-        {
-            coldkey: wallet8.address,
-            count: 1
-        },
-    ];
+    const validatorColdkeys = [wallet1, wallet2, wallet3, wallet4, wallet5, wallet6, wallet7, wallet8];
+    const validatorHotkeys = validatorColdkeys.map(() => generateRandomEthersWallet());
+    const subnetNodeHotkey = generateRandomEthersWallet();
 
     let publicClient: PublicClient;
     // init substrate part
@@ -83,13 +52,13 @@ describe("test identities-0xDANBre34", () => {
     let api: ApiPromise
 
     const sudoTransferAmount = BigInt(10000e18)
-    const stakeAmount = BigInt(100e18)
-
     const subnetContract = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet0);
     const subnetContract1 = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet1);
 
     let subnetId: string;
     let subnetNodeId1: string;
+    let validatorId: string;
+    let initialValidators: Array<{ validatorId: string; count: number }>;
 
     // sudo account alice as signer
     let alice: PolkadotSigner;
@@ -120,6 +89,24 @@ describe("test identities-0xDANBre34", () => {
             recipients
         )
 
+        initialValidators = [];
+        for (let index = 0; index < validatorColdkeys.length; index++) {
+            const coldkey = validatorColdkeys[index];
+            const validatorContract = new ethers.Contract(
+                SUBNET_CONTRACT_ADDRESS,
+                SUBNET_CONTRACT_ABI,
+                coldkey,
+            );
+            await registerValidator(validatorContract, validatorHotkeys[index].address);
+            const validatorIdOption = await api.query.network.coldkeyValidatorId(coldkey.address) as Option<any>;
+            expect(validatorIdOption.isSome).to.equal(true);
+            const registeredValidatorId = validatorIdOption.unwrap().toString();
+            initialValidators.push({ validatorId: registeredValidatorId, count: 1 });
+            if (coldkey.address === wallet1.address) {
+                validatorId = registeredValidatorId;
+            }
+        }
+
         // ==============
         // Register subnet
         // ==============
@@ -142,9 +129,8 @@ describe("test identities-0xDANBre34", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         subnetId = await subnetContract.getSubnetId(subnetName);
@@ -170,44 +156,26 @@ describe("test identities-0xDANBre34", () => {
             multiaddr: new Uint8Array()
         }
 
-        let delegateAccount = {
-            accountId: wallet1.address,
-            rate: BigInt(0)
-        }
-        const delegateRewardRate = "0";
-
         const unique = generateRandomString(16)
         const nonUnique = generateRandomString(16)
 
         await registerSubnetNode(
             subnetContract1,
+            validatorId,
             subnetId,
-            wallet4.address,
+            subnetNodeHotkey.address,
             peer_info_1,
             peer_info_2,
             peer_info_3,
-            delegateRewardRate,
             BigInt(minStake.toString()),
             unique,
             nonUnique,
-            delegateAccount,
             "1000000000000000000"
         )
 
-        let subnetNodeId1Fetched = await api.query.network.hotkeySubnetNodeId(subnetId, wallet4.address);
-
-        const subnetNodeId1Opt = subnetNodeId1Fetched as Option<any>;
-        expect(subnetNodeId1Opt.isSome);
-
-        let subnetNode1Exists: boolean = false;
-        if (subnetNodeId1Opt.isSome) {
-            subnetNode1Exists = true;
-            const subnetNodeId2Unwrapped = subnetNodeId1Opt.unwrap();
-            const human = subnetNodeId2Unwrapped.toHuman();
-            subnetNodeId1 = human?.toString();
-            expect(Number(subnetNodeId1)).to.be.greaterThan(0);
-        }
-        expect(subnetNode1Exists);
+        subnetNodeId1 = (await api.query.network.totalSubnetNodeUids(subnetId)).toString();
+        expect(Number(subnetNodeId1)).to.be.greaterThan(0);
+        expect((await api.query.network.subnetNodeValidatorId(subnetId, subnetNodeId1)).toString()).to.equal(validatorId);
     })
 
     // Status: passing
@@ -224,9 +192,10 @@ describe("test identities-0xDANBre34", () => {
         const newDescription = generateRandomString(16)
         const newMisc = generateRandomString(16)
 
-        await registerOrUpdateIdentity(
+        await updateValidatorIdentity(
             subnetContract1,
-            wallet4.address,
+            validatorId,
+            true,
             newName,
             newUrl,
             newImage,
@@ -239,28 +208,26 @@ describe("test identities-0xDANBre34", () => {
             newMisc,
         )
 
-        let newColdkeyIdentity = await api.query.network.coldkeyIdentity(wallet1.address);
-        let newColdkeyIdentityOpt = newColdkeyIdentity as Option<any>;
-        expect(newColdkeyIdentityOpt.isSome);
-        if (newColdkeyIdentityOpt.isSome) {
-            const data = newColdkeyIdentityOpt.unwrap();
-            const human = data.toHuman();
-            expect(human.name == newName);
-            expect(human.url == newUrl);
-            expect(human.image == newImage);
-            expect(human.discord == newDiscord);
-            expect(human.x == newX);
-            expect(human.telegram == newTelegram);
-            expect(human.github == newGithub);
-            expect(human.huggingFace == newHuggingFace);
-            expect(human.description == newDescription);
-            expect(human.misc == newMisc);
-        }
+        let validatorData = (await api.query.network.validatorsData(validatorId)).toHuman() as any;
+        expect(validatorData.identity.name).to.equal(newName);
+        expect(validatorData.identity.url).to.equal(newUrl);
+        expect(validatorData.identity.image).to.equal(newImage);
+        expect(validatorData.identity.discord).to.equal(newDiscord);
+        expect(validatorData.identity.x).to.equal(newX);
+        expect(validatorData.identity.telegram).to.equal(newTelegram);
+        expect(validatorData.identity.github).to.equal(newGithub);
+        expect(validatorData.identity.huggingFace).to.equal(newHuggingFace);
+        expect(validatorData.identity.description).to.equal(newDescription);
+        expect(validatorData.identity.misc).to.equal(newMisc);
 
-        await removeIdentity(subnetContract1)
-        newColdkeyIdentity = await api.query.network.coldkeyIdentity(wallet1.address);
-        newColdkeyIdentityOpt = newColdkeyIdentity as Option<any>;
-        expect(newColdkeyIdentityOpt.isSome == false);
+        await updateValidatorIdentity(
+            subnetContract1,
+            validatorId,
+            false,
+            "", "", "", "", "", "", "", "", "", "",
+        );
+        validatorData = (await api.query.network.validatorsData(validatorId)).toHuman() as any;
+        expect(validatorData.identity).to.equal(null);
 
         console.log("✅ Registering identity testing complete")
     })

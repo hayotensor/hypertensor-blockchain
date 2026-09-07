@@ -220,7 +220,7 @@ Validators also maintain node settings such as peer information, bootnode peer i
 
 ### Staking Movement
 
-Validator delegate stake can be added, removed, transferred, donated, or swapped between validators or between validator and subnet delegation pools, subject to network staking rules.
+Validator delegate stake can be added, removed, transferred, or swapped between validators or between validator and subnet delegation pools, subject to network staking rules.
 
 Removing delegated stake uses the network's unbonding process before balances become claimable. This gives the network predictable stake movement instead of immediate withdrawal from active staking pools.
 

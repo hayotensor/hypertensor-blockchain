@@ -6,12 +6,12 @@ use crate::{
     CurrentNodeBurnRate, Error, InitialValidatorData, MaxDelegateStakePercentage,
     MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     MinSubnetNodes, MultiaddrSubnetNodeId, NodeRegistrationInitialValidatorIds,
-    NodeRewardRateUpdatePeriod, NodeSlotIndex, NodeSubnetStake, PeerIdSubnetNodeId, PeerInfo,
-    PendingRegisteredNodeRemovals, RegisteredSubnetNodesData, SubnetElectedValidator,
-    SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification,
-    SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueue, SubnetNodeQueueEpochs,
-    SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
-    SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, SubnetsData,
+    NodeRegistrationsThisEpoch, NodeRewardRateUpdatePeriod, NodeSlotIndex, NodeSubnetStake,
+    PeerIdSubnetNodeId, PeerInfo, PendingRegisteredNodeRemovals, RegisteredSubnetNodesData,
+    SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
+    SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueue,
+    SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData,
+    SubnetOwner, SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, SubnetsData,
     TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes,
     TotalStake, TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
     TotalSubnetUids, TotalValidatorIds, TotalValidatorNodes, UniqueParamSubnetNodeId,
@@ -265,6 +265,221 @@ fn test_register_subnet_node_enforces_cumulative_validator_node_cap() {
         );
         assert_eq!(
             PeerIdSubnetNodeId::<Test>::try_get(subnet_id, second_peer_id),
+            Err(())
+        );
+    });
+}
+
+#[test]
+fn test_register_subnet_node_rejects_exhausted_id_without_mutation() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        let coldkey = account(20_000);
+        let hotkey = account(20_001);
+        let peer_id = peer(20_002);
+        let stake_amount = MinSubnetMinStake::<Test>::get();
+        let funding = stake_amount
+            .checked_add(Network::calculate_burn_amount(subnet_id))
+            .and_then(|amount| amount.checked_add(1_000))
+            .unwrap();
+
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+        let _ = Balances::deposit_creating(&coldkey, funding);
+        assert_ok!(Network::register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            MaxDelegateStakePercentage::<Test>::get().saturating_sub(1),
+            None,
+            None,
+        ));
+        let validator_id = TotalValidatorIds::<Test>::get();
+        TotalSubnetNodeUids::<Test>::insert(subnet_id, u32::MAX);
+
+        let balance_before = Balances::free_balance(&coldkey);
+        let issuance_before = Balances::total_issuance();
+        let queue_before = SubnetNodeQueue::<Test>::get(subnet_id);
+        let subnet_nodes_before = TotalSubnetNodes::<Test>::get(subnet_id);
+        let network_nodes_before = TotalNodes::<Test>::get();
+        let validator_nodes_before = TotalValidatorNodes::<Test>::get(validator_id);
+        let validator_ownership_before = ValidatorSubnetNodes::<Test>::get(validator_id);
+        let subnet_stake_before = TotalSubnetStake::<Test>::get(subnet_id);
+        let network_stake_before = TotalStake::<Test>::get();
+        let registrations_before = NodeRegistrationsThisEpoch::<Test>::get(subnet_id);
+
+        assert_err!(
+            Network::register_subnet_node(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
+                subnet_id,
+                None,
+                Some(PeerInfo::<Test> {
+                    peer_id: peer_id.clone(),
+                    multiaddr: None,
+                }),
+                None,
+                None,
+                stake_amount,
+                None,
+                None,
+                u128::MAX,
+            ),
+            Error::<Test>::SubnetNodeIdExhausted
+        );
+
+        assert_eq!(Balances::free_balance(&coldkey), balance_before);
+        assert_eq!(Balances::total_issuance(), issuance_before);
+        assert_eq!(TotalSubnetNodeUids::<Test>::get(subnet_id), u32::MAX);
+        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id), queue_before);
+        assert_eq!(
+            TotalSubnetNodes::<Test>::get(subnet_id),
+            subnet_nodes_before
+        );
+        assert_eq!(TotalNodes::<Test>::get(), network_nodes_before);
+        assert_eq!(
+            TotalValidatorNodes::<Test>::get(validator_id),
+            validator_nodes_before
+        );
+        assert_eq!(
+            ValidatorSubnetNodes::<Test>::get(validator_id),
+            validator_ownership_before
+        );
+        assert_eq!(
+            TotalSubnetStake::<Test>::get(subnet_id),
+            subnet_stake_before
+        );
+        assert_eq!(TotalStake::<Test>::get(), network_stake_before);
+        assert_eq!(
+            NodeRegistrationsThisEpoch::<Test>::get(subnet_id),
+            registrations_before
+        );
+        assert_eq!(
+            PeerIdSubnetNodeId::<Test>::try_get(subnet_id, peer_id),
+            Err(())
+        );
+    });
+}
+
+#[test]
+fn test_register_subnet_node_rejects_occupied_candidate_indexes() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 1;
+        let coldkey = account(20_010);
+        let hotkey = account(20_011);
+        let peer_id = peer(20_012);
+        let stake_amount = MinSubnetMinStake::<Test>::get();
+        let funding = stake_amount
+            .checked_add(Network::calculate_burn_amount(subnet_id))
+            .and_then(|amount| amount.checked_add(1_000))
+            .unwrap();
+
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+        let _ = Balances::deposit_creating(&coldkey, funding);
+        assert_ok!(Network::register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            MaxDelegateStakePercentage::<Test>::get().saturating_sub(1),
+            None,
+            None,
+        ));
+        let validator_id = TotalValidatorIds::<Test>::get();
+        let candidate_id = TotalSubnetNodeUids::<Test>::get(subnet_id)
+            .checked_add(1)
+            .unwrap();
+
+        let register = || {
+            Network::register_subnet_node(
+                RuntimeOrigin::signed(coldkey.clone()),
+                validator_id,
+                subnet_id,
+                None,
+                Some(PeerInfo::<Test> {
+                    peer_id: peer_id.clone(),
+                    multiaddr: None,
+                }),
+                None,
+                None,
+                stake_amount,
+                None,
+                None,
+                u128::MAX,
+            )
+        };
+
+        let balance_before = Balances::free_balance(&coldkey);
+        let issuance_before = Balances::total_issuance();
+        let queue_before = SubnetNodeQueue::<Test>::get(subnet_id);
+        let total_uids_before = TotalSubnetNodeUids::<Test>::get(subnet_id);
+        let subnet_nodes_before = TotalSubnetNodes::<Test>::get(subnet_id);
+        let network_nodes_before = TotalNodes::<Test>::get();
+        let validator_nodes_before = TotalValidatorNodes::<Test>::get(validator_id);
+
+        // The validator-wide inverse ownership index is independently authoritative.
+        ValidatorSubnetNodes::<Test>::insert(
+            validator_id,
+            BTreeMap::from([(subnet_id, BTreeSet::from([candidate_id]))]),
+        );
+        assert_err!(register(), Error::<Test>::SubnetNodeIdOccupied);
+        assert!(ValidatorSubnetNodes::<Test>::get(validator_id)
+            .get(&subnet_id)
+            .unwrap()
+            .contains(&candidate_id));
+        ValidatorSubnetNodes::<Test>::remove(validator_id);
+
+        // Historical ownership must be sufficient to reject a regressed/corrupt counter.
+        SubnetNodeValidatorId::<Test>::insert(subnet_id, candidate_id, validator_id);
+        assert_err!(register(), Error::<Test>::SubnetNodeIdOccupied);
+        assert_eq!(
+            SubnetNodeValidatorId::<Test>::get(subnet_id, candidate_id),
+            Some(validator_id)
+        );
+        SubnetNodeValidatorId::<Test>::remove(subnet_id, candidate_id);
+
+        // A stake ledger entry must never be adopted by a new registration.
+        NodeSubnetStake::<Test>::insert(candidate_id, subnet_id, 1);
+        assert_err!(register(), Error::<Test>::SubnetNodeIdOccupied);
+        assert_eq!(NodeSubnetStake::<Test>::get(candidate_id, subnet_id), 1);
+        NodeSubnetStake::<Test>::remove(candidate_id, subnet_id);
+
+        // Likewise, fail closed when node data survived without its ownership index.
+        let occupied_node = SubnetNode::<Test> {
+            id: candidate_id,
+            validator_id,
+            peer_info: None,
+            bootnode_peer_info: None,
+            client_peer_info: None,
+            classification: SubnetNodeClassification {
+                node_class: SubnetNodeClass::Registered,
+                start_epoch: 0,
+            },
+            unique: None,
+            non_unique: None,
+        };
+        RegisteredSubnetNodesData::<Test>::insert(subnet_id, candidate_id, occupied_node.clone());
+        assert_err!(register(), Error::<Test>::SubnetNodeIdOccupied);
+        assert_eq!(
+            RegisteredSubnetNodesData::<Test>::get(subnet_id, candidate_id),
+            occupied_node
+        );
+        RegisteredSubnetNodesData::<Test>::remove(subnet_id, candidate_id);
+
+        assert_eq!(Balances::free_balance(&coldkey), balance_before);
+        assert_eq!(Balances::total_issuance(), issuance_before);
+        assert_eq!(
+            TotalSubnetNodeUids::<Test>::get(subnet_id),
+            total_uids_before
+        );
+        assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id), queue_before);
+        assert_eq!(
+            TotalSubnetNodes::<Test>::get(subnet_id),
+            subnet_nodes_before
+        );
+        assert_eq!(TotalNodes::<Test>::get(), network_nodes_before);
+        assert_eq!(
+            TotalValidatorNodes::<Test>::get(validator_id),
+            validator_nodes_before
+        );
+        assert_eq!(
+            PeerIdSubnetNodeId::<Test>::try_get(subnet_id, peer_id),
             Err(())
         );
     });
@@ -4262,6 +4477,7 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
         let missing_node_consensus = ConsensusSubmissionData::<Test> {
             policy: Network::consensus_policy_snapshot(subnet_id, 1),
             validator_subnet_node_id: 0,
+            validator_node_stake_balance: 0,
             validator_delegate_stake_balance: 0,
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
@@ -4305,6 +4521,7 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
         let queued_node_consensus = ConsensusSubmissionData::<Test> {
             policy: Network::consensus_policy_snapshot(subnet_id, 1),
             validator_subnet_node_id: 0,
+            validator_node_stake_balance: 0,
             validator_delegate_stake_balance: 0,
             validator_epoch_progress: 0,
             validator_reward_factor: 0,

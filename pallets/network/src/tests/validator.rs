@@ -218,6 +218,78 @@ fn test_register_validator() {
 }
 
 #[test]
+fn validator_registration_rejects_reward_rates_above_every_protocol_cap() {
+    new_test_ext().execute_with(|| {
+        let initial_validator_ids = TotalValidatorIds::<Test>::get();
+        let configured_cap = MaxDelegateStakePercentage::<Test>::get();
+
+        assert_err!(
+            Network::do_register_validator(
+                RuntimeOrigin::signed(account(20_000)),
+                account(20_001),
+                configured_cap.checked_add(1).unwrap(),
+                None,
+                None,
+            ),
+            Error::<Test>::InvalidDelegateRewardRate
+        );
+
+        // The absolute 100% bound remains authoritative even if governance ever misconfigures
+        // the narrower delegate cap above 100%.
+        MaxDelegateStakePercentage::<Test>::put(
+            Network::percentage_factor_as_u128()
+                .checked_add(10)
+                .unwrap(),
+        );
+        assert_err!(
+            Network::do_register_validator(
+                RuntimeOrigin::signed(account(20_002)),
+                account(20_003),
+                Network::percentage_factor_as_u128().checked_add(1).unwrap(),
+                None,
+                None,
+            ),
+            Error::<Test>::InvalidDelegateRewardRate
+        );
+
+        assert_eq!(TotalValidatorIds::<Test>::get(), initial_validator_ids);
+        assert!(!ValidatorColdkeyHotkey::<Test>::contains_key(account(
+            20_000
+        )));
+        assert!(!ValidatorColdkeyHotkey::<Test>::contains_key(account(
+            20_002
+        )));
+        assert!(!HotkeyValidatorId::<Test>::contains_key(account(20_001)));
+        assert!(!HotkeyValidatorId::<Test>::contains_key(account(20_003)));
+    });
+}
+
+#[test]
+fn validator_registration_rejects_identifier_exhaustion_without_writes() {
+    new_test_ext().execute_with(|| {
+        let coldkey = account(20_010);
+        let hotkey = account(20_011);
+        TotalValidatorIds::<Test>::put(u32::MAX);
+
+        assert_err!(
+            Network::do_register_validator(
+                RuntimeOrigin::signed(coldkey.clone()),
+                hotkey.clone(),
+                MaxDelegateStakePercentage::<Test>::get(),
+                None,
+                None,
+            ),
+            sp_runtime::ArithmeticError::Overflow
+        );
+
+        assert_eq!(TotalValidatorIds::<Test>::get(), u32::MAX);
+        assert!(!ValidatorColdkeyHotkey::<Test>::contains_key(&coldkey));
+        assert!(!HotkeyValidatorId::<Test>::contains_key(&hotkey));
+        assert!(!ValidatorsData::<Test>::contains_key(u32::MAX));
+    });
+}
+
+#[test]
 fn test_update_validator_coldkey_revokes_old_coldkey() {
     new_test_ext().execute_with(|| {
         let old_coldkey = account(10_000);

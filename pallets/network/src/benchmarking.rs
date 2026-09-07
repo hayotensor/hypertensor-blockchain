@@ -207,6 +207,8 @@ fn prime_near_full_swap_queue<T: Config>() {
                     account_id: account_id.clone(),
                     to_subnet_id: u32::MAX,
                     balance: 1,
+                    min_shares_out: 1,
+                    execute_before_block: u32::MAX,
                 },
                 queued_at_block,
                 execute_after_blocks: T::EpochLength::get(),
@@ -582,6 +584,7 @@ fn build_activated_subnet<T: Config>(
         RawOrigin::Signed(delegate_staker_account.clone()).into(),
         subnet_id,
         min_subnet_delegate_stake,
+        1,
     ));
 
     let total_delegate_stake_balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
@@ -787,6 +790,7 @@ fn build_registered_subnet<T: Config>(
         RawOrigin::Signed(delegate_staker_account.clone()).into(),
         subnet_id,
         min_subnet_delegate_stake,
+        1,
     ));
 
     let total_delegate_stake_balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
@@ -2623,6 +2627,7 @@ fn prepare_accepted_queue_mutations<T: Config>(
     let consensus_submission_data = ConsensusSubmissionData::<T> {
         policy: ConsensusPolicySnapshot::default(),
         validator_subnet_node_id: 0,
+        validator_node_stake_balance: 0,
         validator_delegate_stake_balance: 0,
         validator_epoch_progress: 0,
         validator_reward_factor: 0,
@@ -2679,9 +2684,13 @@ fn prepare_alternate_emission_step<T: Config>(
     for subnet_node_id in 1..=h {
         let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
             .expect("historical benchmark node has a validator identity");
-        ValidatorDelegateStakeBalance::<T>::insert(validator_id, delegate_pool);
-        ValidatorDelegateStakeShares::<T>::insert(validator_id, 1);
         let delegate_account = get_account::<T>("alternate-emission-delegate", validator_id);
+        Network::<T>::handle_increase_account_validator_delegate_stake(
+            &delegate_account,
+            validator_id,
+            delegate_pool,
+        )
+        .expect("benchmark validator delegate pool must satisfy production accounting");
         ValidatorsData::<T>::mutate(validator_id, |validator| {
             validator.delegate_reward_rate = percentage.saturating_div(2);
             validator.delegate_account = Some(DelegateAccount {
@@ -2692,7 +2701,6 @@ fn prepare_alternate_emission_step<T: Config>(
         });
         SubnetNodeReputation::<T>::insert(subnet_id, subnet_node_id, percentage);
     }
-    TotalValidatorDelegateStakeBalance::<T>::set(delegate_pool.saturating_mul(h as u128));
 
     increase_epochs::<T>(1);
     set_block_to_subnet_slot_epoch::<T>(Network::<T>::get_current_epoch_as_u32(), subnet_id);
@@ -2753,6 +2761,10 @@ fn prepare_alternate_emission_step<T: Config>(
             }),
             eligible_subnet_node_ids: eligible_subnet_node_ids.clone(),
             eligible_validator_identity_ids: eligible_validator_identity_ids.clone(),
+            validator_node_stake_balance: NodeSubnetStake::<T>::get(
+                validator_subnet_node_id,
+                subnet_id,
+            ),
             validator_delegate_stake_balance: delegate_pool,
             policy,
         },
@@ -2857,6 +2869,22 @@ fn prepare_alternate_emission_step<T: Config>(
         previous_subnet_epoch.saturating_add(1)
     );
 
+    // Mirror the live election lifecycle so every alternate settlement benchmark measures the
+    // exact-once fence and both slash-liability release paths, not only a hand-built round.
+    ConsensusRoundSettlementStatus::<T>::insert(subnet_id, previous_subnet_epoch, false);
+    PendingConsensusRoundSettlementEpoch::<T>::insert(subnet_id, previous_subnet_epoch);
+    ConsensusRoundSettlementEmissionEpoch::<T>::insert(
+        subnet_id,
+        previous_subnet_epoch,
+        current_epoch,
+    );
+    NodeStakePendingSlashLiabilityCount::<T>::insert(subnet_id, validator_subnet_node_id, 1);
+    ValidatorDelegateStakePendingSlashLiabilityCount::<T>::insert(validator_id, 1);
+    let nominal_unlock_block =
+        Network::<T>::get_current_block_as_u32().saturating_add(T::EpochLength::get());
+    NodeStakeSlashLockUntil::<T>::insert(subnet_id, validator_subnet_node_id, nominal_unlock_block);
+    ValidatorDelegateStakeSlashLockUntil::<T>::insert(validator_id, nominal_unlock_block);
+
     // A validator slot vector may have any insertion/removal order. Put the rejected attestors at
     // the tail so each of the bounded removal operations scans the largest reachable prefix while
     // every index and cardinality still matches the live h-node state.
@@ -2915,7 +2943,6 @@ enum MixedSwapBranch {
 
 struct MixedSwapBenchmarkContext {
     block_number: u32,
-    claim_block: u32,
     subnet_ids: Vec<u32>,
     validator_calls: u32,
     subnet_calls: u32,
@@ -3024,12 +3051,6 @@ fn prepare_mixed_swap_benchmark<T: Config>(
     );
     frame_system::Pallet::<T>::set_block_number(u32_to_block::<T>(block_number));
 
-    let max_unbondings = T::MaxUnbondingsUpperBound::get();
-    assert!(max_unbondings > 0);
-    MaxUnbondings::<T>::set(max_unbondings);
-    let cooldown_blocks =
-        DelegateStakeCooldownEpochs::<T>::get().saturating_mul(T::EpochLength::get());
-    let claim_block = block_number.saturating_add(cooldown_blocks);
     let missing_subnet_id = u32::MAX;
     assert!(!SubnetsData::<T>::contains_key(missing_subnet_id));
 
@@ -3048,6 +3069,8 @@ fn prepare_mixed_swap_benchmark<T: Config>(
                     account_id,
                     to_validator_id: validator_id,
                     balance,
+                    min_shares_out: 1,
+                    execute_before_block: u32::MAX,
                 }
             }
             MixedSwapBranch::Subnet => {
@@ -3057,35 +3080,20 @@ fn prepare_mixed_swap_benchmark<T: Config>(
                     account_id,
                     to_subnet_id,
                     balance,
+                    min_shares_out: 1,
+                    execute_before_block: u32::MAX,
                 }
             }
             MixedSwapBranch::Refund => {
-                // Merge into an existing target block in an otherwise maximum-sized ledger. This
-                // is the largest successful refund value rewrite; a full ledger without the target
-                // would stop the prefix before exercising later branches.
-                let mut ledger = BTreeMap::new();
-                ledger.insert(
-                    claim_block,
-                    UnbondingEntry {
-                        network: 1,
-                        overwatch: 0,
-                    },
-                );
-                for offset in 1..max_unbondings {
-                    ledger.insert(
-                        claim_block.saturating_add(offset),
-                        UnbondingEntry {
-                            network: 1,
-                            overwatch: 0,
-                        },
-                    );
-                }
-                assert_eq!(ledger.len() as u32, max_unbondings);
-                StakeUnbondingLedger::<T>::insert(&account_id, ledger);
+                // Seed an existing scalar liability so the timed path measures both checked
+                // accumulation and a non-default map-value rewrite.
+                QueuedSwapRefundBalance::<T>::insert(&account_id, 1);
                 QueuedSwapCall::SwapToSubnetDelegateStake {
                     account_id,
                     to_subnet_id: missing_subnet_id,
                     balance,
+                    min_shares_out: 1,
+                    execute_before_block: u32::MAX,
                 }
             }
         };
@@ -3112,9 +3120,7 @@ fn prepare_mixed_swap_benchmark<T: Config>(
             .checked_mul(balance)
             .expect("benchmark queue principal fits u128"),
     );
-    TotalNetworkUnbondingBalance::<T>::set(
-        (refund_calls as u128).saturating_mul(max_unbondings as u128),
-    );
+    TotalQueuedSwapRefundBalance::<T>::set(refund_calls as u128);
 
     assert_eq!(SwapQueueOrder::<T>::get().len() as u32, x);
     assert_eq!(SwapQueueCount::<T>::get(), x);
@@ -3123,7 +3129,6 @@ fn prepare_mixed_swap_benchmark<T: Config>(
 
     MixedSwapBenchmarkContext {
         block_number,
-        claim_block,
         subnet_ids,
         validator_calls,
         subnet_calls,
@@ -3174,17 +3179,20 @@ fn verify_mixed_swap_benchmark<T: Config>(
             MixedSwapBranch::Refund => {
                 observed_refunds = observed_refunds.saturating_add(1);
                 assert_eq!(
-                    StakeUnbondingLedger::<T>::get(account_id)
-                        .get(&context.claim_block)
-                        .map(|entry| entry.network),
-                    Some(balance.saturating_add(1))
+                    QueuedSwapRefundBalance::<T>::get(&account_id),
+                    balance.saturating_add(1)
                 );
+                assert!(StakeUnbondingLedger::<T>::get(&account_id).is_empty());
             }
         }
     }
     assert_eq!(validator_index, context.validator_calls);
     assert_eq!(subnet_index, context.subnet_calls);
     assert_eq!(observed_refunds, context.refund_calls);
+    assert_eq!(
+        TotalQueuedSwapRefundBalance::<T>::get(),
+        (context.refund_calls as u128).saturating_mul(balance.saturating_add(1))
+    );
     assert_eq!(get_current_block_as_u32::<T>(), context.block_number);
 }
 
@@ -4899,7 +4907,8 @@ mod benchmarks {
         assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
+            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            1,
         ));
         let delegate_shares =
             AccountSubnetDelegateStakeShares::<T>::get(delegate_account.clone(), subnet_id);
@@ -4928,7 +4937,8 @@ mod benchmarks {
         assert_ok!(Network::<T>::remove_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
-            delegate_shares
+            delegate_shares,
+            1,
         ));
 
         let unbondings: BTreeMap<u32, UnbondingEntry> =
@@ -4954,6 +4964,9 @@ mod benchmarks {
             TotalNetworkUnbondingBalance::<T>::get(),
             total_network_unbonding
         );
+        let queued_swap_refund = DEFAULT_DELEGATE_STAKE_TO_BE_ADDED;
+        QueuedSwapRefundBalance::<T>::insert(&delegate_account, queued_swap_refund);
+        TotalQueuedSwapRefundBalance::<T>::put(queued_swap_refund);
 
         let pre_delegator_balance: u128 = T::Currency::free_balance(&delegate_account.clone())
             .try_into()
@@ -4980,10 +4993,12 @@ mod benchmarks {
 
         assert_eq!(
             post_delegator_balance,
-            pre_delegator_balance + total_claim_balance
+            pre_delegator_balance + total_claim_balance + queued_swap_refund
         );
         assert!(StakeUnbondingLedger::<T>::get(&delegate_account).is_empty());
         assert_eq!(TotalNetworkUnbondingBalance::<T>::get(), 0);
+        assert_eq!(QueuedSwapRefundBalance::<T>::get(&delegate_account), 0);
+        assert_eq!(TotalQueuedSwapRefundBalance::<T>::get(), 0);
     }
 
     #[benchmark]
@@ -5014,6 +5029,7 @@ mod benchmarks {
             RawOrigin::Signed(delegate_account.clone()),
             subnet_id,
             DEFAULT_STAKE_TO_BE_ADDED,
+            1,
         );
 
         let post_delegator_balance = T::Currency::free_balance(&delegate_account.clone());
@@ -5034,11 +5050,12 @@ mod benchmarks {
             total_subnet_delegated_stake_balance,
         );
 
-        // Ensure balance is within <= 0.01% of deposited balance, and less than deposited balance
+        // The quote must not exceed the deposit and may equal it when the activated destination
+        // was initialized before this account's deposit.
         assert!(
             (delegate_balance
                 >= Network::<T>::percent_mul(DEFAULT_STAKE_TO_BE_ADDED, 990000000000000000))
-                && (delegate_balance < DEFAULT_STAKE_TO_BE_ADDED)
+                && (delegate_balance <= DEFAULT_STAKE_TO_BE_ADDED)
         );
     }
 
@@ -5077,7 +5094,8 @@ mod benchmarks {
         assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             from_subnet_id,
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
+            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            1,
         ));
 
         let delegate_shares =
@@ -5104,6 +5122,9 @@ mod benchmarks {
             from_subnet_id,
             to_subnet_id,
             delegate_shares,
+            1,
+            1,
+            u32::MAX,
         );
 
         let from_delegate_shares =
@@ -5128,6 +5149,7 @@ mod benchmarks {
                 account_id,
                 to_subnet_id,
                 balance,
+                ..
             } => {
                 assert_eq!(*account_id, delegate_account.clone());
                 assert_eq!(*to_subnet_id, starting_to_subnet_id);
@@ -5179,7 +5201,8 @@ mod benchmarks {
         assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
+            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            1,
         ));
 
         let to_delegate_account: T::AccountId = funded_account::<T>("to_delegate_account", 0);
@@ -5230,7 +5253,8 @@ mod benchmarks {
         assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             subnet_id,
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
+            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            1,
         ));
         let delegate_shares =
             AccountSubnetDelegateStakeShares::<T>::get(delegate_account.clone(), subnet_id);
@@ -5266,6 +5290,7 @@ mod benchmarks {
             RawOrigin::Signed(delegate_account.clone()),
             subnet_id,
             delegate_shares,
+            1,
         );
 
         let unbondings: BTreeMap<u32, UnbondingEntry> =
@@ -5285,78 +5310,6 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn donate_delegate_stake() {
-        let end = 12;
-        build_activated_subnet::<T>(
-            DEFAULT_SUBNET_NAME.into(),
-            0,
-            end,
-            DEFAULT_DEPOSIT_AMOUNT,
-            DEFAULT_SUBNET_NODE_STAKE,
-        );
-        let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
-
-        let delegate_account: T::AccountId = funded_account::<T>("delegate_account", 0);
-        assert_ok!(T::Currency::transfer(
-            &get_alice::<T>(), // alice
-            &delegate_account.clone(),
-            (DEFAULT_DELEGATE_STAKE_TO_BE_ADDED + 500)
-                .try_into()
-                .ok()
-                .expect("REASON"),
-            ExistenceRequirement::KeepAlive,
-        ));
-
-        assert_ok!(Network::<T>::add_subnet_delegate_stake(
-            RawOrigin::Signed(delegate_account.clone()).into(),
-            subnet_id,
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
-        ));
-
-        let delegate_shares =
-            AccountSubnetDelegateStakeShares::<T>::get(delegate_account.clone(), subnet_id);
-        let total_subnet_delegated_stake_shares =
-            TotalSubnetDelegateStakeShares::<T>::get(subnet_id);
-        let total_subnet_delegated_stake_balance =
-            TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
-
-        let delegate_balance = Network::<T>::convert_to_balance(
-            delegate_shares,
-            total_subnet_delegated_stake_shares,
-            total_subnet_delegated_stake_balance,
-        );
-
-        let funder = funded_account::<T>("funder", 0);
-
-        #[extrinsic_call]
-        donate_delegate_stake(
-            RawOrigin::Signed(funder),
-            subnet_id,
-            DEFAULT_SUBNET_NODE_STAKE,
-        );
-
-        let increased_delegate_shares =
-            AccountSubnetDelegateStakeShares::<T>::get(delegate_account.clone(), subnet_id);
-        let increased_total_subnet_delegated_stake_shares =
-            TotalSubnetDelegateStakeShares::<T>::get(subnet_id);
-        let increased_total_subnet_delegated_stake_balance =
-            TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
-
-        let increased_delegate_balance = Network::<T>::convert_to_balance(
-            increased_delegate_shares,
-            increased_total_subnet_delegated_stake_shares,
-            increased_total_subnet_delegated_stake_balance,
-        );
-        assert_eq!(
-            increased_total_subnet_delegated_stake_balance,
-            total_subnet_delegated_stake_balance + DEFAULT_SUBNET_NODE_STAKE
-        );
-
-        assert_ne!(increased_delegate_balance, delegate_balance);
-        assert!(increased_delegate_balance > delegate_balance);
-    }
-
-    #[benchmark]
     fn add_validator_delegate_stake() {
         let validator_id = 1;
         ensure_validator::<T>(validator_id);
@@ -5369,6 +5322,7 @@ mod benchmarks {
             RawOrigin::Signed(delegate_account.clone()),
             validator_id,
             DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            1,
         );
 
         let account_validator_delegate_stake_shares =
@@ -5407,7 +5361,8 @@ mod benchmarks {
         assert_ok!(Network::<T>::add_validator_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             from_validator_id,
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
+            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            1,
         ));
 
         frame_system::Pallet::<T>::set_block_number(u32_to_block::<T>(
@@ -5427,6 +5382,9 @@ mod benchmarks {
             from_validator_id,
             to_validator_id,
             delegate_shares_to_swap,
+            1,
+            1,
+            u32::MAX,
         );
 
         assert_eq!(
@@ -5442,6 +5400,7 @@ mod benchmarks {
                 account_id,
                 to_validator_id: queued_to_validator_id,
                 balance,
+                ..
             } => {
                 assert_eq!(*account_id, delegate_account.clone());
                 assert_eq!(*queued_to_validator_id, to_validator_id);
@@ -5476,7 +5435,8 @@ mod benchmarks {
         assert_ok!(Network::<T>::add_validator_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             validator_id,
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
+            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            1,
         ));
 
         let to_delegate_account: T::AccountId = funded_account::<T>("to_delegate_account", 0);
@@ -5512,7 +5472,8 @@ mod benchmarks {
         assert_ok!(Network::<T>::add_validator_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             validator_id,
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
+            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            1,
         ));
 
         frame_system::Pallet::<T>::set_block_number(u32_to_block::<T>(
@@ -5546,6 +5507,7 @@ mod benchmarks {
             RawOrigin::Signed(delegate_account.clone()),
             validator_id,
             delegate_shares,
+            1,
         );
 
         assert_eq!(
@@ -5564,30 +5526,6 @@ mod benchmarks {
         assert_eq!(
             TotalNetworkUnbondingBalance::<T>::get(),
             total_network_unbonding_before + delegate_balance
-        );
-    }
-
-    #[benchmark]
-    fn donate_validator_delegate_stake() {
-        let validator_id = 1;
-        ensure_validator::<T>(validator_id);
-
-        let funder: T::AccountId = funded_account::<T>("funder", 0);
-        fund_account::<T>(&funder, DEFAULT_DELEGATE_STAKE_TO_BE_ADDED);
-
-        let pre_total_validator_delegate_stake_balance =
-            ValidatorDelegateStakeBalance::<T>::get(validator_id);
-
-        #[extrinsic_call]
-        donate_validator_delegate_stake(
-            RawOrigin::Signed(funder),
-            validator_id,
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
-        );
-
-        assert_eq!(
-            ValidatorDelegateStakeBalance::<T>::get(validator_id),
-            pre_total_validator_delegate_stake_balance + DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
         );
     }
 
@@ -5612,7 +5550,8 @@ mod benchmarks {
         assert_ok!(Network::<T>::add_validator_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             from_validator_id,
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
+            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            1,
         ));
 
         frame_system::Pallet::<T>::set_block_number(u32_to_block::<T>(
@@ -5632,6 +5571,9 @@ mod benchmarks {
             from_validator_id,
             to_subnet_id,
             delegate_shares_to_swap,
+            1,
+            1,
+            u32::MAX,
         );
 
         assert_eq!(
@@ -5646,6 +5588,7 @@ mod benchmarks {
                 account_id,
                 to_subnet_id: queued_to_subnet_id,
                 balance,
+                ..
             } => {
                 assert_eq!(*account_id, delegate_account.clone());
                 assert_eq!(*queued_to_subnet_id, to_subnet_id);
@@ -5691,7 +5634,8 @@ mod benchmarks {
         assert_ok!(Network::<T>::add_subnet_delegate_stake(
             RawOrigin::Signed(delegate_account.clone()).into(),
             from_subnet_id,
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
+            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            1,
         ));
 
         frame_system::Pallet::<T>::set_block_number(u32_to_block::<T>(
@@ -5710,6 +5654,9 @@ mod benchmarks {
             from_subnet_id,
             to_validator_id,
             delegate_shares,
+            1,
+            1,
+            u32::MAX,
         );
 
         assert_eq!(
@@ -5725,6 +5672,7 @@ mod benchmarks {
                 account_id,
                 to_validator_id: queued_to_validator_id,
                 balance,
+                ..
             } => {
                 assert_eq!(*account_id, delegate_account.clone());
                 assert_eq!(*queued_to_validator_id, to_validator_id);
@@ -5752,7 +5700,8 @@ mod benchmarks {
     fn remove_delegate_account_balance() {
         let delegate_account: T::AccountId = funded_account::<T>("delegate_account", 0);
         let amount_to_remove = DEFAULT_DELEGATE_STAKE_TO_BE_ADDED;
-        Network::<T>::increase_delegate_account_balance(&delegate_account, amount_to_remove);
+        Network::<T>::increase_delegate_account_balance(&delegate_account, amount_to_remove)
+            .expect("benchmark delegate-account setup must fit the stake aggregates");
         frame_system::Pallet::<T>::set_block_number(u32_to_block::<T>(1));
         let block = get_current_block_as_u32::<T>();
         let claim_block = block
@@ -8409,6 +8358,7 @@ mod benchmarks {
             RawOrigin::Signed(account.clone()).into(),
             from_subnet_id,
             amount,
+            1,
         ));
 
         let delegate_shares =
@@ -8439,6 +8389,9 @@ mod benchmarks {
             from_subnet_id,
             to_subnet_id,
             delegate_shares,
+            1,
+            1,
+            u32::MAX,
         ));
         let from_delegate_shares =
             AccountSubnetDelegateStakeShares::<T>::get(account.clone(), from_subnet_id);
@@ -8467,6 +8420,7 @@ mod benchmarks {
                 account_id,
                 to_subnet_id,
                 balance,
+                ..
             } => {
                 assert_eq!(*account_id, account.clone());
                 assert_eq!(*to_subnet_id, starting_to_subnet_id);
@@ -8491,6 +8445,8 @@ mod benchmarks {
             account_id: account.clone(),
             to_subnet_id: from_subnet_id,
             balance: u128::MAX,
+            min_shares_out: 1,
+            execute_before_block: u32::MAX,
         };
 
         #[extrinsic_call]
@@ -8507,6 +8463,7 @@ mod benchmarks {
                 account_id,
                 to_subnet_id,
                 balance,
+                ..
             } => {
                 assert_eq!(*account_id, account.clone());
                 assert_eq!(*to_subnet_id, from_subnet_id);
@@ -8551,6 +8508,8 @@ mod benchmarks {
             Network::<T>::percentage_factor_as_u128() / 10,
         );
         MaxValidatorDelegateStakeSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
+        BaseSlashPercentage::<T>::set(Network::<T>::percentage_factor_as_u128() / 10);
+        MaxSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
         let election_block = get_current_block_as_u32::<T>();
 
         #[block]
@@ -8565,6 +8524,22 @@ mod benchmarks {
             .unwrap()
             .validator_subnet_node_id;
         let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id).unwrap();
+        assert_eq!(
+            NodeStakePendingSlashLiabilityCount::<T>::get(subnet_id, subnet_node_id),
+            1,
+        );
+        assert_eq!(
+            ValidatorDelegateStakePendingSlashLiabilityCount::<T>::get(validator_id),
+            1,
+        );
+        assert_eq!(
+            ConsensusRoundSettlementStatus::<T>::get(subnet_id, subnet_epoch),
+            Some(false),
+        );
+        assert_eq!(
+            PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id),
+            Some(subnet_epoch),
+        );
         assert_eq!(
             ValidatorDelegateStakeSlashLockUntil::<T>::get(validator_id),
             election_block.saturating_add(T::EpochLength::get()),
@@ -8614,6 +8589,8 @@ mod benchmarks {
             Network::<T>::percentage_factor_as_u128() / 10,
         );
         MaxValidatorDelegateStakeSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
+        BaseSlashPercentage::<T>::set(Network::<T>::percentage_factor_as_u128() / 10);
+        MaxSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
         let election_block = get_current_block_as_u32::<T>();
 
         #[block]
@@ -8623,6 +8600,21 @@ mod benchmarks {
         }
 
         let round = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch).unwrap();
+        assert_eq!(
+            NodeStakePendingSlashLiabilityCount::<T>::get(
+                subnet_id,
+                round.validator_subnet_node_id,
+            ),
+            1,
+        );
+        assert_eq!(
+            ValidatorDelegateStakePendingSlashLiabilityCount::<T>::get(round.validator_id),
+            1,
+        );
+        assert_eq!(
+            ConsensusRoundSettlementStatus::<T>::get(subnet_id, subnet_epoch),
+            Some(false),
+        );
         assert!(round.emergency.is_some());
         assert_eq!(round.eligible_subnet_node_ids.len() as u32, e);
         assert!(EmergencySubnetNodeElectionData::<T>::contains_key(
@@ -8670,6 +8662,8 @@ mod benchmarks {
             Network::<T>::percentage_factor_as_u128() / 10,
         );
         MaxValidatorDelegateStakeSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
+        BaseSlashPercentage::<T>::set(Network::<T>::percentage_factor_as_u128() / 10);
+        MaxSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
         let election_block = get_current_block_as_u32::<T>();
 
         #[block]
@@ -8679,6 +8673,21 @@ mod benchmarks {
         }
 
         let round = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch).unwrap();
+        assert_eq!(
+            NodeStakePendingSlashLiabilityCount::<T>::get(
+                subnet_id,
+                round.validator_subnet_node_id,
+            ),
+            1,
+        );
+        assert_eq!(
+            ValidatorDelegateStakePendingSlashLiabilityCount::<T>::get(round.validator_id),
+            1,
+        );
+        assert_eq!(
+            ConsensusRoundSettlementStatus::<T>::get(subnet_id, subnet_epoch),
+            Some(false),
+        );
         assert!(round.emergency.is_none());
         assert_eq!(round.eligible_subnet_node_ids.len() as u32, x);
         assert!(!EmergencySubnetNodeElectionData::<T>::contains_key(
@@ -8715,6 +8724,14 @@ mod benchmarks {
             AccountSubnetDelegateStakeShares::<T>::get(&account_id, subnet_id),
             0
         );
+        assert_eq!(
+            TotalSubnetDelegateStakeCirculatingShares::<T>::get(subnet_id),
+            AccountSubnetDelegateStakeShares::<T>::get(&account_id, subnet_id),
+        );
+        assert_eq!(
+            AccountSubnetDelegateStakeGeneration::<T>::get(&account_id, subnet_id),
+            SubnetDelegatePoolGeneration::<T>::get(subnet_id),
+        );
     }
 
     #[benchmark]
@@ -8742,6 +8759,14 @@ mod benchmarks {
         assert_ne!(
             AccountValidatorDelegateStakeShares::<T>::get(&account_id, validator_id),
             0
+        );
+        assert_eq!(
+            ValidatorDelegateStakeCirculatingShares::<T>::get(validator_id),
+            AccountValidatorDelegateStakeShares::<T>::get(&account_id, validator_id),
+        );
+        assert_eq!(
+            AccountValidatorDelegateStakeGeneration::<T>::get(&account_id, validator_id),
+            ValidatorDelegatePoolGeneration::<T>::get(validator_id),
         );
     }
 
@@ -9002,7 +9027,7 @@ mod benchmarks {
             Network::<T>::balance_to_u128(T::Currency::free_balance(&treasury_account)).unwrap();
         #[block]
         {
-            let _ = Network::<T>::add_balance_to_treasury(amount_as_balance);
+            assert!(Network::<T>::add_balance_to_treasury(amount_as_balance).is_ok());
         }
 
         let pot =
@@ -9285,7 +9310,11 @@ mod benchmarks {
 
         #[block]
         {
-            Network::<T>::add_balance_to_coldkey_account(&coldkey.clone(), amount_as_balance);
+            assert!(Network::<T>::add_balance_to_coldkey_account(
+                &coldkey.clone(),
+                amount_as_balance
+            )
+            .is_ok());
         }
 
         let balance = T::Currency::free_balance(&coldkey.clone());
@@ -9591,6 +9620,7 @@ mod benchmarks {
                     eligible_validator_identity_ids: (1..=max_historical_nodes)
                         .map(|node_id| (node_id, node_id))
                         .collect(),
+                    validator_node_stake_balance: NodeSubnetStake::<T>::get(1, subnet_id),
                     validator_delegate_stake_balance: 0,
                     policy: Network::<T>::consensus_policy_snapshot(
                         subnet_id,
@@ -9633,7 +9663,11 @@ mod benchmarks {
             let _ = Network::<T>::handle_subnet_emission_weights(epoch);
         }
 
-        assert!(!FinalSubnetEmissionWeights::<T>::contains_key(epoch));
+        assert!(FinalSubnetEmissionWeights::<T>::contains_key(epoch));
+        assert_eq!(
+            FinalSubnetEmissionWeights::<T>::get(epoch),
+            DistributionData::default()
+        );
     }
 
     #[benchmark]
@@ -9705,6 +9739,8 @@ mod benchmarks {
                         account_id,
                         to_validator_id: validator_id,
                         balance,
+                        min_shares_out: 1,
+                        execute_before_block: u32::MAX,
                     },
                     queued_at_block: block_number,
                     execute_after_blocks: 0,
@@ -9776,6 +9812,8 @@ mod benchmarks {
                         account_id,
                         to_subnet_id,
                         balance,
+                        min_shares_out: 1,
+                        execute_before_block: u32::MAX,
                     },
                     queued_at_block: block_number,
                     execute_after_blocks: 0,
@@ -9818,39 +9856,12 @@ mod benchmarks {
     fn execute_ready_swap_refunds(x: Linear<1, { MAX_SWAP_QUEUE_BENCHMARK_DOMAIN }>) {
         let block_number = get_current_block_as_u32::<T>();
         let balance = DEFAULT_DELEGATE_STAKE_TO_BE_ADDED;
-        let max_unbondings = T::MaxUnbondingsUpperBound::get();
-        MaxUnbondings::<T>::set(max_unbondings);
-        let cooldown_blocks =
-            DelegateStakeCooldownEpochs::<T>::get().saturating_mul(T::EpochLength::get());
-        let claim_block = block_number.saturating_add(cooldown_blocks);
         let missing_subnet_id = u32::MAX;
         assert!(!SubnetsData::<T>::contains_key(missing_subnet_id));
 
         for id in 0..x {
             let account_id = get_account::<T>("ready_swap_account", id);
-
-            // The invalid destination exercises the refund branch. Fill every ledger that will
-            // execute to its bound while retaining the target claim block, so the benchmark pays
-            // to decode and rewrite the maximum value without triggering an unbounded auto-claim.
-            let mut ledger = BTreeMap::new();
-            ledger.insert(
-                claim_block,
-                UnbondingEntry {
-                    network: 1,
-                    overwatch: 0,
-                },
-            );
-            for offset in 1..max_unbondings {
-                ledger.insert(
-                    claim_block.saturating_add(offset),
-                    UnbondingEntry {
-                        network: 1,
-                        overwatch: 0,
-                    },
-                );
-            }
-            assert_eq!(ledger.len() as u32, max_unbondings);
-            StakeUnbondingLedger::<T>::insert(&account_id, ledger);
+            QueuedSwapRefundBalance::<T>::insert(&account_id, 1);
 
             SwapCallQueue::<T>::insert(
                 id,
@@ -9860,6 +9871,8 @@ mod benchmarks {
                         account_id,
                         to_subnet_id: missing_subnet_id,
                         balance,
+                        min_shares_out: 1,
+                        execute_before_block: u32::MAX,
                     },
                     queued_at_block: block_number,
                     execute_after_blocks: 0,
@@ -9871,7 +9884,7 @@ mod benchmarks {
                 .checked_mul(balance)
                 .expect("benchmark queue principal fits u128"),
         );
-        TotalNetworkUnbondingBalance::<T>::set((x as u128).saturating_mul(max_unbondings as u128));
+        TotalQueuedSwapRefundBalance::<T>::set(x as u128);
         assert_benchmark_queued_swap_principal::<T>();
 
         let mut weight_meter = WeightMeter::new();
@@ -9892,16 +9905,19 @@ mod benchmarks {
         for id in 0..x {
             let account_id = get_account::<T>("ready_swap_account", id);
             assert_eq!(
-                StakeUnbondingLedger::<T>::get(account_id)
-                    .get(&claim_block)
-                    .map(|entry| entry.network),
-                Some(balance.saturating_add(1))
+                QueuedSwapRefundBalance::<T>::get(&account_id),
+                balance.saturating_add(1)
             );
+            assert!(StakeUnbondingLedger::<T>::get(&account_id).is_empty());
         }
+        assert_eq!(
+            TotalQueuedSwapRefundBalance::<T>::get(),
+            (x as u128).saturating_mul(balance.saturating_add(1))
+        );
     }
 
     /// Mixed ready-prefix vertex with `x - 2` validator calls plus one subnet call and one
-    /// maximum-ledger refund. Together with the other two vertices this bounds every reachable
+    /// scalar-liability refund. Together with the other two vertices this bounds every reachable
     /// affine composition of the three item branches for a fixed prefix length.
     #[benchmark]
     fn execute_ready_swap_mixed_validator(
@@ -9925,7 +9941,7 @@ mod benchmarks {
     }
 
     /// Mixed ready-prefix vertex with `x - 2` subnet calls plus one validator call and one
-    /// maximum-ledger refund.
+    /// scalar-liability refund.
     #[benchmark]
     fn execute_ready_swap_mixed_subnet(
         x: Linear<{ MIN_MIXED_SWAP_BENCHMARK_DOMAIN }, { MAX_SWAP_QUEUE_BENCHMARK_DOMAIN }>,
@@ -9947,7 +9963,7 @@ mod benchmarks {
         verify_mixed_swap_benchmark::<T>(x, MixedSwapBranch::Subnet, &context);
     }
 
-    /// Mixed ready-prefix vertex with `x - 2` maximum-ledger refunds plus one validator call and
+    /// Mixed ready-prefix vertex with `x - 2` scalar-liability refunds plus one validator call and
     /// one subnet call.
     #[benchmark]
     fn execute_ready_swap_mixed_refund(
@@ -10909,6 +10925,7 @@ mod benchmarks {
                         .map(|validator_id| (node_id, validator_id))
                 })
                 .collect(),
+            validator_node_stake_balance: NodeSubnetStake::<T>::get(1, subnet_id),
             validator_delegate_stake_balance: 0,
             policy: Network::<T>::consensus_policy_snapshot(
                 subnet_id,
@@ -11047,6 +11064,8 @@ mod benchmarks {
         ValidatorDelegateStakeSlashThreshold::<T>::set(percentage_factor);
         BaseValidatorDelegateStakeSlashPercentage::<T>::set(percentage_factor / 2);
         MaxValidatorDelegateStakeSlashAmount::<T>::set(delegate_pool_balance);
+        BaseSlashPercentage::<T>::set(percentage_factor / 2);
+        MaxSlashAmount::<T>::set(DEFAULT_SUBNET_NODE_STAKE);
         ValidatorDelegateStakeBalance::<T>::insert(validator_id, delegate_pool_balance);
         ValidatorDelegateStakeShares::<T>::insert(validator_id, delegate_pool_balance);
         TotalValidatorDelegateStakeBalance::<T>::set(delegate_pool_balance);
@@ -11064,6 +11083,10 @@ mod benchmarks {
                             .map(|identity_id| (node_id, identity_id))
                     })
                     .collect(),
+                validator_node_stake_balance: NodeSubnetStake::<T>::get(
+                    validator_subnet_node_id,
+                    subnet_id,
+                ),
                 validator_delegate_stake_balance: delegate_pool_balance,
                 policy: Network::<T>::consensus_policy_snapshot(subnet_id, previous_subnet_epoch),
             },
@@ -11082,6 +11105,24 @@ mod benchmarks {
                 .base_validator_delegate_stake_slash_percentage
                 > 0
         );
+        assert!(stored_round.policy.base_slash_percentage > 0);
+        ConsensusRoundSettlementStatus::<T>::insert(subnet_id, previous_subnet_epoch, false);
+        PendingConsensusRoundSettlementEpoch::<T>::insert(subnet_id, previous_subnet_epoch);
+        ConsensusRoundSettlementEmissionEpoch::<T>::insert(
+            subnet_id,
+            previous_subnet_epoch,
+            current_epoch,
+        );
+        NodeStakePendingSlashLiabilityCount::<T>::insert(subnet_id, validator_subnet_node_id, 1);
+        ValidatorDelegateStakePendingSlashLiabilityCount::<T>::insert(validator_id, 1);
+        let nominal_unlock_block =
+            Network::<T>::get_current_block_as_u32().saturating_add(T::EpochLength::get());
+        NodeStakeSlashLockUntil::<T>::insert(
+            subnet_id,
+            validator_subnet_node_id,
+            nominal_unlock_block,
+        );
+        ValidatorDelegateStakeSlashLockUntil::<T>::insert(validator_id, nominal_unlock_block);
         SubnetConsensusSubmission::<T>::remove(subnet_id, previous_subnet_epoch);
 
         #[block]
@@ -11094,6 +11135,18 @@ mod benchmarks {
             assert!(result.is_none());
         }
         assert!(ValidatorDelegateStakeBalance::<T>::get(validator_id) < delegate_pool_balance);
+        assert_eq!(
+            ConsensusRoundSettlementStatus::<T>::get(subnet_id, previous_subnet_epoch),
+            Some(true),
+        );
+        assert_eq!(
+            NodeStakePendingSlashLiabilityCount::<T>::get(subnet_id, validator_subnet_node_id,),
+            0,
+        );
+        assert_eq!(
+            ValidatorDelegateStakePendingSlashLiabilityCount::<T>::get(validator_id),
+            0,
+        );
     }
 
     // Informational purposes only
@@ -11147,6 +11200,7 @@ mod benchmarks {
                     eligible_validator_identity_ids: (1..=max_historical_nodes)
                         .map(|node_id| (node_id, node_id))
                         .collect(),
+                    validator_node_stake_balance: NodeSubnetStake::<T>::get(1, subnet_id),
                     validator_delegate_stake_balance: 0,
                     policy: Network::<T>::consensus_policy_snapshot(
                         subnet_id,

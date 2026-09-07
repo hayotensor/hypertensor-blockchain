@@ -1,15 +1,19 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    Error, MaxSubnetNodes, MaxSubnets, MinActiveNodeStakeEpochs, MinSubnetMinStake,
-    NodeSubnetStake, PeerInfo, RegisteredSubnetNodesData, StakeCooldownEpochs,
-    StakeUnbondingLedger, SubnetMaxStakeBalance, SubnetName, SubnetNodeQueueEpochs,
-    SubnetNodesData, SubnetRemovalReason, SubnetsData, TotalActiveSubnets, TotalSubnetNodeUids,
-    TotalSubnetNodes, TotalSubnetStake, TotalValidatorIds, TxRateLimit, ValidatorSubnetNodes,
+    BaseSlashPercentage, ConsensusRoundSettlementEmissionEpoch, ConsensusRoundSettlementStatus,
+    Error, FinalSubnetEmissionWeights, MaxSlashAmount, MaxSubnetNodes, MaxSubnets,
+    MinActiveNodeStakeEpochs, MinSubnetMinStake, NodeStakePendingSlashLiabilityCount,
+    NodeStakeSlashLockUntil, NodeSubnetStake, PeerInfo, PendingConsensusRoundSettlementEpoch,
+    RegisteredSubnetNodesData, StakeCooldownEpochs, StakeUnbondingLedger, SubnetElectedValidator,
+    SubnetMaxStakeBalance, SubnetName, SubnetNodeQueueEpochs, SubnetNodesData, SubnetRemovalReason,
+    SubnetsData, TotalActiveSubnets, TotalStake, TotalSubnetNodeUids, TotalSubnetNodes,
+    TotalSubnetStake, TotalValidatorIds, TxRateLimit, ValidatorSubnetNodes,
 };
 use frame_support::traits::Currency;
 use frame_support::weights::WeightMeter;
 use frame_support::{assert_err, assert_ok};
+use sp_runtime::ArithmeticError;
 use sp_std::collections::btree_map::BTreeMap;
 
 // ///
@@ -27,6 +31,204 @@ use sp_std::collections::btree_map::BTreeMap;
 // ///
 // ///
 // ///
+
+#[test]
+fn elected_node_stake_is_locked_and_slashed_from_its_election_snapshot() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "node-slash-liability".into();
+        let deposit_amount = 1_000_000_000_000_000_000_000_000_u128;
+        let minimum_stake = MinSubnetMinStake::<Test>::get();
+        let percentage_factor = Network::percentage_factor_as_u128();
+        BaseSlashPercentage::<Test>::put(percentage_factor);
+        MaxSlashAmount::<Test>::put(u128::MAX);
+        build_activated_subnet(subnet_name.clone(), 0, 16, deposit_amount, minimum_stake);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+
+        let election_block = System::block_number();
+        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        SubnetElectedValidator::<Test>::remove(subnet_id, subnet_epoch);
+        Network::elect_validator(subnet_id, subnet_epoch, election_block);
+        let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
+        let node_id = round.validator_subnet_node_id;
+        let election_stake = NodeSubnetStake::<Test>::get(node_id, subnet_id);
+
+        assert_eq!(round.validator_node_stake_balance, election_stake);
+        let unlock_block = election_block + EpochLength::get();
+        assert_eq!(
+            NodeStakeSlashLockUntil::<Test>::get(subnet_id, node_id),
+            unlock_block
+        );
+        assert_eq!(
+            NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, node_id),
+            1
+        );
+        assert_eq!(
+            ConsensusRoundSettlementStatus::<Test>::get(subnet_id, subnet_epoch),
+            Some(false)
+        );
+
+        // A post-election top-up is owned by the same account but did not underwrite the
+        // historical round. It remains outside this round's snapshotted penalty base.
+        let post_election_top_up = minimum_stake.saturating_mul(2);
+        assert_ok!(Network::increase_node_stake(
+            node_id,
+            subnet_id,
+            post_election_top_up
+        ));
+
+        let coldkey = Network::get_subnet_node_associated_coldkey(subnet_id, node_id).unwrap();
+        // Passing the nominal settlement block cannot release principal if the hook has not
+        // actually processed the round.
+        System::set_block_number(unlock_block.saturating_add(5));
+        assert_err!(
+            Network::remove_node_stake(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet_id,
+                node_id,
+                minimum_stake,
+            ),
+            Error::<Test>::ElectedValidatorCannotUnstake
+        );
+        let _ = Network::do_remove_subnet(subnet_id, SubnetRemovalReason::Owner);
+        assert!(SubnetsData::<Test>::contains_key(subnet_id));
+
+        // Missing-submission settlement applies the snapshot-capped slash and atomically releases
+        // the one outstanding liability. Calling it again is an exact-once no-op.
+        let settlement_emission_epoch =
+            ConsensusRoundSettlementEmissionEpoch::<Test>::get(subnet_id, subnet_epoch).unwrap();
+        FinalSubnetEmissionWeights::<Test>::remove(settlement_emission_epoch);
+        assert_eq!(
+            PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
+            Some(subnet_epoch)
+        );
+        Network::emission_settlement_step(
+            &mut WeightMeter::new(),
+            System::block_number(),
+            Network::get_current_epoch_as_u32(),
+            Network::get_current_subnet_epoch_as_u32(subnet_id),
+            subnet_id,
+        );
+        assert_eq!(
+            NodeSubnetStake::<Test>::get(node_id, subnet_id),
+            post_election_top_up
+        );
+        assert_eq!(
+            NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, node_id),
+            0
+        );
+        assert!(!NodeStakeSlashLockUntil::<Test>::contains_key(
+            subnet_id, node_id
+        ));
+        assert_eq!(
+            ConsensusRoundSettlementStatus::<Test>::get(subnet_id, subnet_epoch),
+            Some(true)
+        );
+        assert_eq!(
+            PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
+            None
+        );
+
+        let stake_after_settlement = NodeSubnetStake::<Test>::get(node_id, subnet_id);
+        let (duplicate_submission, _) = Network::precheck_subnet_consensus_submission(
+            subnet_id,
+            subnet_epoch,
+            Network::get_current_epoch_as_u32(),
+        );
+        assert!(duplicate_submission.is_none());
+        assert_eq!(
+            NodeSubnetStake::<Test>::get(node_id, subnet_id),
+            stake_after_settlement
+        );
+
+        assert_ok!(Network::remove_node_stake(
+            RuntimeOrigin::signed(coldkey),
+            subnet_id,
+            node_id,
+            minimum_stake,
+        ));
+        assert_eq!(
+            NodeSubnetStake::<Test>::get(node_id, subnet_id),
+            minimum_stake
+        );
+    });
+}
+
+#[test]
+fn checked_node_stake_mutations_do_not_partially_update_aggregates() {
+    new_test_ext().execute_with(|| {
+        const SUBNET_ID: u32 = 7;
+        const NODE_ID: u32 = 11;
+
+        NodeSubnetStake::<Test>::insert(NODE_ID, SUBNET_ID, 10);
+        TotalSubnetStake::<Test>::insert(SUBNET_ID, u128::MAX);
+        TotalStake::<Test>::put(10);
+
+        assert_err!(
+            Network::increase_node_stake(NODE_ID, SUBNET_ID, 1),
+            ArithmeticError::Overflow
+        );
+        assert_eq!(NodeSubnetStake::<Test>::get(NODE_ID, SUBNET_ID), 10);
+        assert_eq!(TotalSubnetStake::<Test>::get(SUBNET_ID), u128::MAX);
+        assert_eq!(TotalStake::<Test>::get(), 10);
+
+        NodeSubnetStake::<Test>::insert(NODE_ID, SUBNET_ID, 10);
+        TotalSubnetStake::<Test>::insert(SUBNET_ID, 10);
+        TotalStake::<Test>::put(5);
+
+        assert_err!(
+            Network::decrease_node_stake(NODE_ID, SUBNET_ID, 6),
+            ArithmeticError::Underflow
+        );
+        assert_eq!(NodeSubnetStake::<Test>::get(NODE_ID, SUBNET_ID), 10);
+        assert_eq!(TotalSubnetStake::<Test>::get(SUBNET_ID), 10);
+        assert_eq!(TotalStake::<Test>::get(), 5);
+    });
+}
+
+#[test]
+fn add_node_stake_restores_wallet_when_an_aggregate_overflows() {
+    new_test_ext().execute_with(|| {
+        let subnet_name: Vec<u8> = "node-stake-overflow".into();
+        let deposit_amount = 1_000_000_000_000_000_000_000_000_u128;
+        let stake_amount = MinSubnetMinStake::<Test>::get();
+        let end = 3;
+        let subnets = TotalActiveSubnets::<Test>::get() + 1;
+        let coldkey = get_coldkey(subnets, MaxSubnetNodes::<Test>::get(), end);
+
+        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
+        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        let node_id = end;
+        let _ = Balances::deposit_creating(&coldkey, deposit_amount);
+
+        let wallet_before = Balances::free_balance(&coldkey);
+        let node_stake_before = NodeSubnetStake::<Test>::get(node_id, subnet_id);
+        let subnet_stake_before = TotalSubnetStake::<Test>::get(subnet_id);
+        let last_tx_before = Network::get_last_tx_block(&coldkey);
+        TotalStake::<Test>::put(u128::MAX);
+
+        assert_err!(
+            Network::add_node_stake(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet_id,
+                node_id,
+                1,
+            ),
+            ArithmeticError::Overflow
+        );
+
+        assert_eq!(Balances::free_balance(&coldkey), wallet_before);
+        assert_eq!(
+            NodeSubnetStake::<Test>::get(node_id, subnet_id),
+            node_stake_before
+        );
+        assert_eq!(
+            TotalSubnetStake::<Test>::get(subnet_id),
+            subnet_stake_before
+        );
+        assert_eq!(TotalStake::<Test>::get(), u128::MAX);
+        assert_eq!(Network::get_last_tx_block(&coldkey), last_tx_before);
+    });
+}
 
 #[test]
 fn test_add_to_stake_not_key_owner() {

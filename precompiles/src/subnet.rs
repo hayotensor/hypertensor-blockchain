@@ -46,7 +46,6 @@ where
     #[precompile::public(
         "registerValidator(address,uint256,bool,address,uint256,bool,string,string,string,string,string,string,string,string,string,string)"
     )]
-    #[precompile::payable]
     fn register_validator(
         handle: &mut impl PrecompileHandle,
         hotkey: Address,
@@ -109,7 +108,6 @@ where
     }
 
     #[precompile::public("updateValidatorColdkey(uint256,address)")]
-    #[precompile::payable]
     fn update_validator_coldkey(
         handle: &mut impl PrecompileHandle,
         validator_id: U256,
@@ -135,7 +133,6 @@ where
     }
 
     #[precompile::public("updateValidatorHotkey(uint256,address)")]
-    #[precompile::payable]
     fn update_validator_hotkey(
         handle: &mut impl PrecompileHandle,
         validator_id: U256,
@@ -161,7 +158,6 @@ where
     }
 
     #[precompile::public("updateValidatorDelegateAccount(uint256,bool,address,bool,uint256)")]
-    #[precompile::payable]
     fn update_validator_delegate_account(
         handle: &mut impl PrecompileHandle,
         validator_id: U256,
@@ -204,7 +200,6 @@ where
     #[precompile::public(
         "updateValidatorIdentity(uint256,bool,string,string,string,string,string,string,string,string,string,string)"
     )]
-    #[precompile::payable]
     fn update_validator_identity(
         handle: &mut impl PrecompileHandle,
         validator_id: U256,
@@ -254,7 +249,6 @@ where
     #[precompile::public(
         "registerSubnet(uint256,string,string,string,string,uint256,uint256,uint256,(uint256,uint256)[],(string,bytes)[])"
     )]
-    #[precompile::payable]
     fn register_subnet(
         handle: &mut impl PrecompileHandle,
         max_cost: U256,
@@ -329,7 +323,6 @@ where
     }
 
     #[precompile::public("activateSubnet(uint256)")]
-    #[precompile::payable]
     fn activate_subnet(handle: &mut impl PrecompileHandle, subnet_id: U256) -> EvmResult<()> {
         let subnet_id = try_u256_to_u32(subnet_id)?;
 
@@ -384,7 +377,6 @@ where
     #[precompile::public(
         "registerSubnetNode(uint256,uint256,address,(string,bytes),(string,bytes),(string,bytes),uint256,string,string,uint256)"
     )]
-    #[precompile::payable]
     fn register_subnet_node(
         handle: &mut impl PrecompileHandle,
         validator_id: U256,
@@ -448,7 +440,6 @@ where
     }
 
     #[precompile::public("removeSubnetNode(uint256,uint256)")]
-    #[precompile::payable]
     fn remove_subnet_node(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
@@ -474,7 +465,6 @@ where
     }
 
     #[precompile::public("updateValidatorDelegateRewardRate(uint256,uint256)")]
-    #[precompile::payable]
     fn update_validator_delegate_reward_rate(
         handle: &mut impl PrecompileHandle,
         validator_id: U256,
@@ -500,7 +490,6 @@ where
     }
 
     #[precompile::public("updateNodeUnique(uint256,uint256,string)")]
-    #[precompile::payable]
     fn update_node_unique(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
@@ -532,7 +521,6 @@ where
     }
 
     #[precompile::public("updateNonUnique(uint256,uint256,string)")]
-    #[precompile::payable]
     fn update_node_non_unique(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
@@ -564,7 +552,6 @@ where
     }
 
     #[precompile::public("updateNodeHotkey(uint256,uint256,address)")]
-    #[precompile::payable]
     fn update_node_hotkey(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
@@ -597,7 +584,6 @@ where
     }
 
     #[precompile::public("updateNodePeerInfo(uint256,uint256,(string,bytes))")]
-    #[precompile::payable]
     fn update_node_peer_info(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
@@ -626,7 +612,6 @@ where
     }
 
     #[precompile::public("updateNodeBootnodePeerInfo(uint256,uint256,(string,bytes))")]
-    #[precompile::payable]
     fn update_node_bootnode_peer_info(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
@@ -655,7 +640,6 @@ where
     }
 
     #[precompile::public("updateNodeClientPeerInfo(uint256,uint256,(string,bytes))")]
-    #[precompile::payable]
     fn update_node_client_peer_info(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
@@ -686,7 +670,6 @@ where
     #[precompile::public(
         "proposeAttestation(uint256,(uint256,uint256)[],bool,uint256,bool,uint256,bytes,bytes)"
     )]
-    #[precompile::payable]
     fn propose_attestation(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
@@ -745,7 +728,6 @@ where
     }
 
     #[precompile::public("attest(uint256,uint256,bytes)")]
-    #[precompile::payable]
     fn attest(
         handle: &mut impl PrecompileHandle,
         subnet_id: U256,
@@ -778,7 +760,6 @@ where
     // #[precompile::public(
     //     "updateValidatorIdentity(address,string,string,string,string,string,string,string,string,string,string)"
     // )]
-    // #[precompile::payable]
     // fn update_validator_identity(
     //     handle: &mut impl PrecompileHandle,
     //     hotkey: Address,

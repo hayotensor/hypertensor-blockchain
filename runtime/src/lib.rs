@@ -438,12 +438,10 @@ fn is_network_value_call(call: &pallet_network::Call<Runtime>) -> bool {
             | pallet_network::Call::swap_from_subnet_to_subnet { .. }
             | pallet_network::Call::transfer_delegate_stake { .. }
             | pallet_network::Call::remove_delegate_stake { .. }
-            | pallet_network::Call::donate_delegate_stake { .. }
             | pallet_network::Call::add_validator_delegate_stake { .. }
             | pallet_network::Call::transfer_validator_delegate_stake { .. }
             | pallet_network::Call::remove_validator_delegate_stake { .. }
             | pallet_network::Call::swap_from_validator_to_validator { .. }
-            | pallet_network::Call::donate_validator_delegate_stake { .. }
             | pallet_network::Call::swap_from_validator_to_subnet { .. }
             | pallet_network::Call::swap_from_subnet_to_validator { .. }
             | pallet_network::Call::update_swap_queue { .. }
@@ -1748,6 +1746,8 @@ mod tests {
             account_id: account(1),
             to_subnet_id: 2,
             balance: 10,
+            min_shares_out: 1,
+            execute_before_block: 100,
         }
     }
 
@@ -1852,11 +1852,15 @@ mod tests {
             network_call(pallet_network::Call::add_subnet_delegate_stake {
                 subnet_id: 1,
                 stake_to_be_added: 10,
+                min_shares_out: 1,
             }),
             network_call(pallet_network::Call::swap_from_subnet_to_subnet {
                 from_subnet_id: 1,
                 to_subnet_id: 2,
                 delegate_stake_shares_to_swap: 10,
+                min_balance_out: 1,
+                min_shares_out: 1,
+                execute_before_block: u32::MAX,
             }),
             network_call(pallet_network::Call::transfer_delegate_stake {
                 subnet_id: 1,
@@ -1866,14 +1870,12 @@ mod tests {
             network_call(pallet_network::Call::remove_delegate_stake {
                 subnet_id: 1,
                 shares_to_be_removed: 10,
-            }),
-            network_call(pallet_network::Call::donate_delegate_stake {
-                subnet_id: 1,
-                amount: 10,
+                min_balance_out: 1,
             }),
             network_call(pallet_network::Call::add_validator_delegate_stake {
                 validator_id: 1,
                 delegate_stake_to_be_added: 10,
+                min_shares_out: 1,
             }),
             network_call(pallet_network::Call::transfer_validator_delegate_stake {
                 validator_id: 1,
@@ -1883,25 +1885,31 @@ mod tests {
             network_call(pallet_network::Call::remove_validator_delegate_stake {
                 validator_id: 1,
                 validator_delegate_stake_shares_to_be_removed: 10,
+                min_balance_out: 1,
             }),
             network_call(pallet_network::Call::swap_from_validator_to_validator {
                 from_validator_id: 1,
                 to_validator_id: 2,
                 stake_to_be_removed: 10,
-            }),
-            network_call(pallet_network::Call::donate_validator_delegate_stake {
-                validator_id: 1,
-                amount: 10,
+                min_balance_out: 1,
+                min_shares_out: 1,
+                execute_before_block: u32::MAX,
             }),
             network_call(pallet_network::Call::swap_from_validator_to_subnet {
                 from_validator_id: 1,
                 to_subnet_id: 1,
                 node_delegate_stake_shares_to_swap: 10,
+                min_balance_out: 1,
+                min_shares_out: 1,
+                execute_before_block: u32::MAX,
             }),
             network_call(pallet_network::Call::swap_from_subnet_to_validator {
                 from_subnet_id: 1,
                 to_validator_id: 1,
                 subnet_delegate_stake_shares_to_swap: 10,
+                min_balance_out: 1,
+                min_shares_out: 1,
+                execute_before_block: u32::MAX,
             }),
             network_call(pallet_network::Call::update_swap_queue {
                 id: 1,
@@ -1940,6 +1948,7 @@ mod tests {
         let blocked_network_call = network_call(pallet_network::Call::add_subnet_delegate_stake {
             subnet_id: 1,
             stake_to_be_added: 10,
+            min_shares_out: 1,
         });
         let utility_call = RuntimeCall::Utility(pallet_utility::Call::batch_all {
             calls: vec![blocked_network_call],
@@ -1975,6 +1984,7 @@ mod tests {
         let delegate_stake = network_call(pallet_network::Call::add_subnet_delegate_stake {
             subnet_id: 1,
             stake_to_be_added: 10,
+            min_shares_out: 1,
         });
         let node_stake = network_call(pallet_network::Call::add_node_stake {
             subnet_id: 1,
@@ -1989,6 +1999,7 @@ mod tests {
             network_call(pallet_network::Call::add_validator_delegate_stake {
                 validator_id: 1,
                 delegate_stake_to_be_added: 10,
+                min_shares_out: 1,
             });
         let swap_queue_update = network_call(pallet_network::Call::update_swap_queue {
             id: 1,
@@ -1998,10 +2009,6 @@ mod tests {
             network_call(pallet_network::Call::remove_delegate_account_balance {
                 amount_to_remove: 10,
             });
-        let donation = network_call(pallet_network::Call::donate_delegate_stake {
-            subnet_id: 1,
-            amount: 10,
-        });
 
         assert!(ProxyType::Transfer.filter(&balance_transfer));
         assert!(ProxyType::Transfer.filter(&network_transfer));
@@ -2016,7 +2023,6 @@ mod tests {
         assert!(ProxyType::SubNetworkDelegateStaking.filter(&swap_queue_update));
         assert!(ProxyType::SubNetworkDelegateStaking.filter(&delegate_account_balance_removal));
         assert!(!ProxyType::SubNetworkDelegateStaking.filter(&network_transfer));
-        assert!(!ProxyType::SubNetworkDelegateStaking.filter(&donation));
     }
 
     #[test]

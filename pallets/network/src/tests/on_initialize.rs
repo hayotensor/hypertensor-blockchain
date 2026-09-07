@@ -218,6 +218,7 @@ fn test_on_initialize() {
                                 RuntimeOrigin::signed(delegate),
                                 subnet_id,
                                 amount,
+                                1,
                             ));
                         }
                     }

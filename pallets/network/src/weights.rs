@@ -12,6 +12,7 @@
 //! NON-BLOCKING SWAP-QUEUE ROTATION METHODS REGENERATED: 2026-08-30, STEPS: `50`, REPEAT: `20`
 //! REWARD-FIRST PENDING-REMOVAL METHODS REGENERATED: 2026-08-30, STEPS: `50`, REPEAT: `20`
 //! OVERWATCH BOUNDED-LIFECYCLE METHODS REGENERATED: 2026-08-31, STEPS: `50`, REPEAT: `20`
+//! PENDING SLASH-LIABILITY STORAGE SAFETY ENVELOPES ADDED: 2026-09-05
 //! WORST CASE MAP SIZE: `1000000`
 //! HOSTNAME: `Bob`, CPU: `11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz`
 //! WASM-EXECUTION: `Compiled`, CHAIN: `None`, DB CACHE: `1024`
@@ -53,6 +54,24 @@ fn settlement_pending_marker_envelope() -> Weight {
 		SETTLEMENT_PENDING_MARKER_ENVELOPE_REF_TIME,
 		SETTLEMENT_PENDING_MARKER_ENVELOPE_PROOF_BYTES,
 	)
+}
+
+// Conservative proof-size additions for small pending-liability maps introduced after the last
+// benchmark run. DB read/write ref-time is added at each affected function below. These margins
+// must be replaced by regenerated measurements on the next runtime-weight refresh.
+fn pending_liability_key_proof() -> Weight {
+	Weight::from_parts(0, 4_096)
+}
+
+fn consensus_round_liability_proof() -> Weight {
+	Weight::from_parts(0, 32_768)
+}
+
+// Seven clean-key reads guard a newly allocated subnet-node ID against overwriting historical
+// ownership, stake, node data, or election indexes. Replace this proof envelope with regenerated
+// measurements on the next runtime-weight refresh.
+fn subnet_node_registration_collision_proof() -> Weight {
+	Weight::from_parts(0, 7 * 4_096)
 }
 
 /// Weight functions needed for `pallet_network`.
@@ -106,12 +125,10 @@ pub trait WeightInfo {
 	fn swap_from_subnet_to_subnet() -> Weight;
 	fn transfer_delegate_stake() -> Weight;
 	fn remove_delegate_stake() -> Weight;
-	fn donate_delegate_stake() -> Weight;
 	fn add_validator_delegate_stake() -> Weight;
 	fn swap_from_validator_to_validator() -> Weight;
 	fn transfer_validator_delegate_stake() -> Weight;
 	fn remove_validator_delegate_stake() -> Weight;
-	fn donate_validator_delegate_stake() -> Weight;
 	fn swap_from_validator_to_subnet() -> Weight;
 	fn swap_from_subnet_to_validator() -> Weight;
 	fn remove_delegate_account_balance() -> Weight;
@@ -290,6 +307,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::HotkeyValidatorId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalValidatorIds` (r:1 w:1)
 	/// Proof: `Network::TotalValidatorIds` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::MaxDelegateStakePercentage` (r:1 w:0)
+	/// Proof: `Network::MaxDelegateStakePercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorColdkey` (r:0 w:1)
 	/// Proof: `Network::ValidatorColdkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorsData` (r:0 w:1)
@@ -304,7 +323,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `3541`
 		// Minimum execution time: 21_583_000 picoseconds.
 		Weight::from_parts(23_761_000, 3541)
-			.saturating_add(T::DbWeight::get().reads(4_u64))
+			.saturating_add(T::DbWeight::get().reads(5_u64))
 			.saturating_add(T::DbWeight::get().writes(7_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
@@ -887,8 +906,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `4356285`
 		// Minimum execution time: 10_243_848_000 picoseconds.
 		Weight::from_parts(13_236_029_000, 4356285)
-			.saturating_add(T::DbWeight::get().reads(3859_u64))
+			.saturating_add(T::DbWeight::get().reads(3861_u64))
 			.saturating_add(T::DbWeight::get().writes(3906_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -1698,8 +1718,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::BaseNodeBurnAmount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::CurrentNodeBurnRate` (r:1 w:0)
 	/// Proof: `Network::CurrentNodeBurnRate` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Storage: `Network::NodeSubnetStake` (r:2 w:1)
 	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetNodesData` (r:1 w:0)
+	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSlotIndex` (r:1 w:0)
+	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetMinStakeBalance` (r:1 w:0)
 	/// Proof: `Network::SubnetMinStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetMaxStakeBalance` (r:1 w:0)
@@ -1730,13 +1754,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::TotalSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalStake` (r:1 w:1)
 	/// Proof: `Network::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeValidatorId` (r:0 w:1)
+	/// Storage: `Network::SubnetNodeValidatorId` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeValidatorId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::RegisteredSubnetNodesData` (r:0 w:1)
+	/// Storage: `Network::RegisteredSubnetNodesData` (r:1 w:1)
 	/// Proof: `Network::RegisteredSubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeReputation` (r:0 w:1)
+	/// Storage: `Network::SubnetNodeReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeIdHotkey` (r:0 w:1)
+	/// Storage: `Network::SubnetNodeIdHotkey` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn register_subnet_node() -> Weight {
 		// Proof Size summary in bytes:
@@ -1744,8 +1768,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `26074`
 		// Minimum execution time: 287_625_000 picoseconds.
 		Weight::from_parts(336_377_000, 26074)
-			.saturating_add(T::DbWeight::get().reads(44_u64))
+			.saturating_add(T::DbWeight::get().reads(51_u64))
 			.saturating_add(T::DbWeight::get().writes(26_u64))
+			.saturating_add(subnet_node_registration_collision_proof())
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -1923,8 +1948,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `14775`
 		// Minimum execution time: 162_014_000 picoseconds.
 		Weight::from_parts(178_288_000, 14775)
-			.saturating_add(T::DbWeight::get().reads(17_u64))
+			.saturating_add(T::DbWeight::get().reads(19_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
+			.saturating_add(pending_liability_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -1944,14 +1970,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
 	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
+	/// Storage: `Network::QueuedSwapRefundBalance` (r:1 w:1)
+	/// Proof: `Network::QueuedSwapRefundBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalQueuedSwapRefundBalance` (r:1 w:1)
+	/// Proof: `Network::TotalQueuedSwapRefundBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn claim_unbondings() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `10808`
-		//  Estimated: `14273`
-		// Minimum execution time: 3_133_542_000 picoseconds.
-		Weight::from_parts(3_298_562_000, 14273)
-			.saturating_add(T::DbWeight::get().reads(9_u64))
-			.saturating_add(T::DbWeight::get().writes(6_u64))
+		//  Measured:  `11088`
+		//  Estimated: `14553`
+		// Minimum execution time: 5_358_697_000 picoseconds.
+		Weight::from_parts(6_111_410_000, 14553)
+			.saturating_add(T::DbWeight::get().reads(11_u64))
+			.saturating_add(T::DbWeight::get().writes(8_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -1991,8 +2021,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `5309`
 		// Minimum execution time: 93_572_000 picoseconds.
 		Weight::from_parts(104_998_000, 5309)
-			.saturating_add(T::DbWeight::get().reads(16_u64))
-			.saturating_add(T::DbWeight::get().writes(10_u64))
+			.saturating_add(T::DbWeight::get().reads(21_u64))
+			.saturating_add(T::DbWeight::get().writes(13_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2038,8 +2068,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `14248`
 		// Minimum execution time: 122_347_000 picoseconds.
 		Weight::from_parts(163_918_000, 14248)
-			.saturating_add(T::DbWeight::get().reads(19_u64))
-			.saturating_add(T::DbWeight::get().writes(12_u64))
+			.saturating_add(T::DbWeight::get().reads(23_u64))
+			.saturating_add(T::DbWeight::get().writes(15_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2063,8 +2093,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `7186`
 		// Minimum execution time: 52_581_000 picoseconds.
 		Weight::from_parts(55_375_000, 7186)
-			.saturating_add(T::DbWeight::get().reads(9_u64))
-			.saturating_add(T::DbWeight::get().writes(6_u64))
+			.saturating_add(T::DbWeight::get().reads(13_u64))
+			.saturating_add(T::DbWeight::get().writes(8_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2106,41 +2136,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `14659`
 		// Minimum execution time: 105_263_000 picoseconds.
 		Weight::from_parts(120_200_000, 14659)
-			.saturating_add(T::DbWeight::get().reads(17_u64))
-			.saturating_add(T::DbWeight::get().writes(10_u64))
-	}
-	/// Storage: `Network::TxPause` (r:1 w:0)
-	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetsData` (r:1 w:0)
-	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::MinDelegateStakeDeposit` (r:1 w:0)
-	/// Proof: `Network::MinDelegateStakeDeposit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Account` (r:1 w:1)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(116), added: 2591, mode: `MaxEncodedLen`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
-	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Network::TotalSubnetDelegateStakeBalance` (r:1 w:1)
-	/// Proof: `Network::TotalSubnetDelegateStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalSubnetDelegateStakeShares` (r:1 w:0)
-	/// Proof: `Network::TotalSubnetDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalDelegateStake` (r:1 w:1)
-	/// Proof: `Network::TotalDelegateStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn donate_delegate_stake() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `1700`
-		//  Estimated: `5165`
-		// Minimum execution time: 66_448_000 picoseconds.
-		Weight::from_parts(70_279_000, 5165)
-			.saturating_add(T::DbWeight::get().reads(12_u64))
-			.saturating_add(T::DbWeight::get().writes(6_u64))
+			.saturating_add(T::DbWeight::get().reads(21_u64))
+			.saturating_add(T::DbWeight::get().writes(13_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2178,8 +2175,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `4145`
 		// Minimum execution time: 66_357_000 picoseconds.
 		Weight::from_parts(75_834_000, 4145)
-			.saturating_add(T::DbWeight::get().reads(15_u64))
-			.saturating_add(T::DbWeight::get().writes(9_u64))
+			.saturating_add(T::DbWeight::get().reads(22_u64))
+			.saturating_add(T::DbWeight::get().writes(12_u64))
+			.saturating_add(pending_liability_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2223,8 +2221,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `9260`
 		// Minimum execution time: 96_460_000 picoseconds.
 		Weight::from_parts(113_157_000, 9260)
-			.saturating_add(T::DbWeight::get().reads(17_u64))
-			.saturating_add(T::DbWeight::get().writes(11_u64))
+			.saturating_add(T::DbWeight::get().reads(22_u64))
+			.saturating_add(T::DbWeight::get().writes(14_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2244,8 +2243,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `6486`
 		// Minimum execution time: 33_379_000 picoseconds.
 		Weight::from_parts(34_208_000, 6486)
-			.saturating_add(T::DbWeight::get().reads(7_u64))
-			.saturating_add(T::DbWeight::get().writes(5_u64))
+			.saturating_add(T::DbWeight::get().reads(11_u64))
+			.saturating_add(T::DbWeight::get().writes(7_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2285,41 +2284,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `13367`
 		// Minimum execution time: 78_312_000 picoseconds.
 		Weight::from_parts(83_472_000, 13367)
-			.saturating_add(T::DbWeight::get().reads(16_u64))
-			.saturating_add(T::DbWeight::get().writes(9_u64))
-	}
-	/// Storage: `Network::TxPause` (r:1 w:0)
-	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ValidatorsData` (r:1 w:0)
-	/// Proof: `Network::ValidatorsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::MinDelegateStakeDeposit` (r:1 w:0)
-	/// Proof: `Network::MinDelegateStakeDeposit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Account` (r:1 w:1)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(116), added: 2591, mode: `MaxEncodedLen`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
-	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Network::ValidatorDelegateStakeBalance` (r:1 w:1)
-	/// Proof: `Network::ValidatorDelegateStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ValidatorDelegateStakeShares` (r:1 w:1)
-	/// Proof: `Network::ValidatorDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalValidatorDelegateStakeBalance` (r:1 w:1)
-	/// Proof: `Network::TotalValidatorDelegateStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn donate_validator_delegate_stake() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `553`
-		//  Estimated: `4018`
-		// Minimum execution time: 45_013_000 picoseconds.
-		Weight::from_parts(47_391_000, 4018)
-			.saturating_add(T::DbWeight::get().reads(12_u64))
-			.saturating_add(T::DbWeight::get().writes(7_u64))
+			.saturating_add(T::DbWeight::get().reads(21_u64))
+			.saturating_add(T::DbWeight::get().writes(12_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2365,8 +2332,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `10662`
 		// Minimum execution time: 130_930_000 picoseconds.
 		Weight::from_parts(159_978_000, 10662)
-			.saturating_add(T::DbWeight::get().reads(18_u64))
-			.saturating_add(T::DbWeight::get().writes(11_u64))
+			.saturating_add(T::DbWeight::get().reads(23_u64))
+			.saturating_add(T::DbWeight::get().writes(14_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2414,8 +2382,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `10499`
 		// Minimum execution time: 118_487_000 picoseconds.
 		Weight::from_parts(150_408_000, 10499)
-			.saturating_add(T::DbWeight::get().reads(19_u64))
-			.saturating_add(T::DbWeight::get().writes(12_u64))
+			.saturating_add(T::DbWeight::get().reads(23_u64))
+			.saturating_add(T::DbWeight::get().writes(15_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -3302,8 +3270,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `4356237`
 		// Minimum execution time: 10_626_531_000 picoseconds.
 		Weight::from_parts(12_033_719_000, 4356237)
-			.saturating_add(T::DbWeight::get().reads(3857_u64))
+			.saturating_add(T::DbWeight::get().reads(3859_u64))
 			.saturating_add(T::DbWeight::get().writes(3906_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
@@ -5160,10 +5129,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(102_998_406, 5649)
 			// Standard Error: 60_565
 			.saturating_add(Weight::from_parts(3_216_568, 0).saturating_mul(x.into()))
-			.saturating_add(T::DbWeight::get().reads(44_u64))
+			.saturating_add(T::DbWeight::get().reads(47_u64))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(x.into())))
-			.saturating_add(T::DbWeight::get().writes(2_u64))
+			.saturating_add(T::DbWeight::get().writes(8_u64))
 			.saturating_add(Weight::from_parts(0, 2491).saturating_mul(x.into()))
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:0)
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -5264,10 +5234,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(155_601_125, 5941)
 			// Standard Error: 118_871
 			.saturating_add(Weight::from_parts(10_805_977, 0).saturating_mul(e.into()))
-			.saturating_add(T::DbWeight::get().reads(43_u64))
+			.saturating_add(T::DbWeight::get().reads(46_u64))
 			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(e.into())))
-			.saturating_add(T::DbWeight::get().writes(2_u64))
+			.saturating_add(T::DbWeight::get().writes(8_u64))
 			.saturating_add(Weight::from_parts(0, 8049).saturating_mul(e.into()))
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:0)
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -5379,10 +5350,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(3_145_170, 0).saturating_mul(x.into()))
 			// Standard Error: 306_488
 			.saturating_add(Weight::from_parts(282_562, 0).saturating_mul(e.into()))
-			.saturating_add(T::DbWeight::get().reads(47_u64))
+			.saturating_add(T::DbWeight::get().reads(50_u64))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(x.into())))
-			.saturating_add(T::DbWeight::get().writes(6_u64))
+			.saturating_add(T::DbWeight::get().writes(12_u64))
 			.saturating_add(Weight::from_parts(0, 2746).saturating_mul(x.into()))
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::TotalSubnetDelegateStakeShares` (r:1 w:1)
 	/// Proof: `Network::TotalSubnetDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -5400,8 +5372,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `3541`
 		// Minimum execution time: 12_721_000 picoseconds.
 		Weight::from_parts(13_251_000, 3541)
-			.saturating_add(T::DbWeight::get().reads(5_u64))
-			.saturating_add(T::DbWeight::get().writes(4_u64))
+			.saturating_add(T::DbWeight::get().reads(10_u64))
+			.saturating_add(T::DbWeight::get().writes(7_u64))
 	}
 	/// Storage: `Network::ValidatorDelegateStakeShares` (r:1 w:1)
 	/// Proof: `Network::ValidatorDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -5417,8 +5389,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `3802`
 		// Minimum execution time: 14_643_000 picoseconds.
 		Weight::from_parts(15_818_000, 3802)
-			.saturating_add(T::DbWeight::get().reads(4_u64))
-			.saturating_add(T::DbWeight::get().writes(4_u64))
+			.saturating_add(T::DbWeight::get().reads(11_u64))
+			.saturating_add(T::DbWeight::get().writes(7_u64))
+			.saturating_add(pending_liability_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TotalOverwatchNodes` (r:1 w:0)
 	/// Proof: `Network::TotalOverwatchNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -5595,7 +5568,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(20_482_357, 0).saturating_mul(a.into()))
 			// Standard Error: 1_415_676
 			.saturating_add(Weight::from_parts(16_932_204, 0).saturating_mul(r.into()))
-			.saturating_add(T::DbWeight::get().reads(18_u64))
+			.saturating_add(T::DbWeight::get().reads(19_u64))
 			.saturating_add(T::DbWeight::get().reads((12_u64).saturating_mul(a.into())))
 			.saturating_add(T::DbWeight::get().reads((11_u64).saturating_mul(r.into())))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(o.into())))
@@ -5605,6 +5578,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(o.into())))
 			.saturating_add(Weight::from_parts(0, 11609).saturating_mul(a.into()))
 			.saturating_add(Weight::from_parts(0, 10639).saturating_mul(r.into()))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::ValidatorSubnetNodes` (r:1 w:1)
 	/// Proof: `Network::ValidatorSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -6333,6 +6307,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNetFlowSmoothingAlpha` (r:1 w:0)
 	/// Proof: `Network::SubnetNetFlowSmoothingAlpha` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::FinalSubnetEmissionWeights` (r:0 w:1)
+	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn handle_subnet_emission_weights_empty() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `452`
@@ -6340,6 +6316,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Minimum execution time: 25_048_000 picoseconds.
 		Weight::from_parts(25_999_000, 3917)
 			.saturating_add(T::DbWeight::get().reads(7_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
 	}
 	/// Storage: `Network::MaxSwapQueueCallsPerBlock` (r:1 w:0)
 	/// Proof: `Network::MaxSwapQueueCallsPerBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -6402,10 +6379,11 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			// Standard Error: 49_757
 			.saturating_add(Weight::from_parts(24_463_652, 0).saturating_mul(x.into()))
 			.saturating_add(T::DbWeight::get().reads(6_u64))
-			.saturating_add(T::DbWeight::get().reads((5_u64).saturating_mul(x.into())))
+			.saturating_add(T::DbWeight::get().reads((7_u64).saturating_mul(x.into())))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
 			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 2577).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:999 w:999)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -6452,14 +6430,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::TotalQueuedSwapPrincipal` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetsData` (r:1 w:0)
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::DelegateStakeCooldownEpochs` (r:1 w:0)
-	/// Proof: `Network::DelegateStakeCooldownEpochs` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::MaxUnbondings` (r:1 w:0)
-	/// Proof: `Network::MaxUnbondings` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalNetworkUnbondingBalance` (r:1 w:1)
-	/// Proof: `Network::TotalNetworkUnbondingBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::StakeUnbondingLedger` (r:999 w:999)
-	/// Proof: `Network::StakeUnbondingLedger` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::QueuedSwapRefundBalance` (r:999 w:999)
+	/// Proof: `Network::QueuedSwapRefundBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalQueuedSwapRefundBalance` (r:1 w:1)
+	/// Proof: `Network::TotalQueuedSwapRefundBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -6471,17 +6445,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// The range of component `x` is `[1, 1000]`.
 	fn execute_ready_swap_refunds(x: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `401 + x * (9326 ±0)`
-		//  Estimated: `3866 + x * (11801 ±0)`
-		// Minimum execution time: 35_417_000 picoseconds.
-		Weight::from_parts(36_087_000, 3866)
-			// Standard Error: 40_657
-			.saturating_add(Weight::from_parts(28_803_809, 0).saturating_mul(x.into()))
-			.saturating_add(T::DbWeight::get().reads(9_u64))
+		//  Measured:  `377 + x * (142 ±0)`
+		//  Estimated: `3842 + x * (2617 ±0)`
+		// Minimum execution time: 45_212_000 picoseconds.
+		Weight::from_parts(46_331_000, 3842)
+			// Standard Error: 206_072
+			.saturating_add(Weight::from_parts(24_565_258, 0).saturating_mul(x.into()))
+			.saturating_add(T::DbWeight::get().reads(7_u64))
 			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(x.into())))
 			.saturating_add(T::DbWeight::get().writes(4_u64))
 			.saturating_add(T::DbWeight::get().writes((2_u64).saturating_mul(x.into())))
-			.saturating_add(Weight::from_parts(0, 11801).saturating_mul(x.into()))
+			.saturating_add(Weight::from_parts(0, 2617).saturating_mul(x.into()))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:1000 w:1000)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -6489,6 +6463,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::TotalQueuedSwapPrincipal` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorsData` (r:998 w:0)
 	/// Proof: `Network::ValidatorsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegateStakeSlashLockUntil` (r:998 w:0)
+	/// Proof: `Network::ValidatorDelegateStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorDelegateStakeShares` (r:998 w:998)
 	/// Proof: `Network::ValidatorDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorDelegateStakeBalance` (r:998 w:998)
@@ -6517,28 +6493,25 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::TotalDelegateStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNetFlow` (r:1 w:1)
 	/// Proof: `Network::SubnetNetFlow` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::DelegateStakeCooldownEpochs` (r:1 w:0)
-	/// Proof: `Network::DelegateStakeCooldownEpochs` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::MaxUnbondings` (r:1 w:0)
-	/// Proof: `Network::MaxUnbondings` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalNetworkUnbondingBalance` (r:1 w:1)
-	/// Proof: `Network::TotalNetworkUnbondingBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::StakeUnbondingLedger` (r:1 w:1)
-	/// Proof: `Network::StakeUnbondingLedger` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::QueuedSwapRefundBalance` (r:1 w:1)
+	/// Proof: `Network::QueuedSwapRefundBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalQueuedSwapRefundBalance` (r:1 w:1)
+	/// Proof: `Network::TotalQueuedSwapRefundBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// The range of component `x` is `[3, 1000]`.
 	fn execute_ready_swap_mixed_validator(x: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `10916 + x * (102 ±0)`
-		//  Estimated: `16856 + x * (2577 ±0)`
-		// Minimum execution time: 109_220_000 picoseconds.
-		Weight::from_parts(112_837_000, 16856)
-			// Standard Error: 61_449
-			.saturating_add(Weight::from_parts(24_595_416, 0).saturating_mul(x.into()))
-			.saturating_add(T::DbWeight::get().reads(9_u64))
-			.saturating_add(T::DbWeight::get().reads((5_u64).saturating_mul(x.into())))
+		//  Measured:  `1760 + x * (123 ±0)`
+		//  Estimated: `7700 + x * (2598 ±0)`
+		// Minimum execution time: 140_762_000 picoseconds.
+		Weight::from_parts(504_591_254, 7700)
+			// Standard Error: 692_942
+			.saturating_add(Weight::from_parts(35_163_563, 0).saturating_mul(x.into()))
+			.saturating_add(T::DbWeight::get().reads(5_u64))
+			.saturating_add(T::DbWeight::get().reads((8_u64).saturating_mul(x.into())))
 			.saturating_add(T::DbWeight::get().writes(5_u64))
 			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(x.into())))
-			.saturating_add(Weight::from_parts(0, 2577).saturating_mul(x.into()))
+			.saturating_add(Weight::from_parts(0, 2598).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:1000 w:1000)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -6585,17 +6558,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// The range of component `x` is `[3, 1000]`.
 	fn execute_ready_swap_mixed_subnet(x: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `29035 + x * (65 ±0)`
-		//  Estimated: `74575 + x * (2540 ±1)`
-		// Minimum execution time: 112_474_000 picoseconds.
-		Weight::from_parts(116_519_000, 74575)
-			// Standard Error: 36_438
-			.saturating_add(Weight::from_parts(21_507_341, 0).saturating_mul(x.into()))
-			.saturating_add(T::DbWeight::get().reads(82_u64))
+		//  Measured:  `19567 + x * (86 ±0)`
+		//  Estimated: `65107 + x * (2561 ±0)`
+		// Minimum execution time: 129_674_000 picoseconds.
+		Weight::from_parts(137_989_000, 65107)
+			// Standard Error: 209_771
+			.saturating_add(Weight::from_parts(27_260_244, 0).saturating_mul(x.into()))
+			.saturating_add(T::DbWeight::get().reads(83_u64))
 			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(x.into())))
 			.saturating_add(T::DbWeight::get().writes(59_u64))
 			.saturating_add(T::DbWeight::get().writes((2_u64).saturating_mul(x.into())))
-			.saturating_add(Weight::from_parts(0, 2540).saturating_mul(x.into()))
+			.saturating_add(Weight::from_parts(0, 2561).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:1000 w:1000)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -6642,17 +6616,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// The range of component `x` is `[3, 1000]`.
 	fn execute_ready_swap_mixed_refund(x: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `11092 + x * (9325 ±1)`
-		//  Estimated: `19507 + x * (11800 ±1)`
-		// Minimum execution time: 109_683_000 picoseconds.
-		Weight::from_parts(117_488_000, 19507)
-			// Standard Error: 49_564
-			.saturating_add(Weight::from_parts(29_030_246, 0).saturating_mul(x.into()))
-			.saturating_add(T::DbWeight::get().reads(18_u64))
+		//  Measured:  `1716 + x * (142 ±0)`
+		//  Estimated: `7656 + x * (2617 ±0)`
+		// Minimum execution time: 245_958_000 picoseconds.
+		Weight::from_parts(418_106_000, 7656)
+			// Standard Error: 298_455
+			.saturating_add(Weight::from_parts(20_736_235, 0).saturating_mul(x.into()))
+			.saturating_add(T::DbWeight::get().reads(19_u64))
 			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(x.into())))
 			.saturating_add(T::DbWeight::get().writes(11_u64))
 			.saturating_add(T::DbWeight::get().writes((2_u64).saturating_mul(x.into())))
-			.saturating_add(Weight::from_parts(0, 11800).saturating_mul(x.into()))
+			.saturating_add(Weight::from_parts(0, 2617).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TotalActiveSubnetNodes` (r:17 w:0)
 	/// Proof: `Network::TotalActiveSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -6708,9 +6683,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			// Standard Error: 498_394
 			.saturating_add(Weight::from_parts(28_166_046, 0).saturating_mul(x.into()))
 			.saturating_add(T::DbWeight::get().reads(16_u64))
-			.saturating_add(T::DbWeight::get().reads((7_u64).saturating_mul(x.into())))
+			.saturating_add(T::DbWeight::get().reads((8_u64).saturating_mul(x.into())))
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 6680).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof().saturating_mul(x.into()))
 	}
 	/// Storage: `Network::PendingOverwatchSettlement` (r:1 w:1)
 	/// Proof: `Network::PendingOverwatchSettlement` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -6902,7 +6878,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `4549`
 		// Minimum execution time: 37_006_000 picoseconds.
 		Weight::from_parts(41_245_000, 4549)
-			.saturating_add(T::DbWeight::get().reads(5_u64))
+			.saturating_add(T::DbWeight::get().reads(6_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::PendingActiveNodeRemovals` (r:1 w:0)
 	/// Proof: `Network::PendingActiveNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -7005,12 +6982,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(406_392_000, 40276)
 			// Standard Error: 111_764
 			.saturating_add(Weight::from_parts(44_356_064, 0).saturating_mul(h.into()))
-			.saturating_add(T::DbWeight::get().reads(26_u64))
+			.saturating_add(T::DbWeight::get().reads(36_u64))
 			.saturating_add(T::DbWeight::get().reads((6_u64).saturating_mul(h.into())))
-			.saturating_add(T::DbWeight::get().writes(10_u64))
+			.saturating_add(T::DbWeight::get().writes(17_u64))
 			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(h.into())))
 			.saturating_add(Weight::from_parts(0, 10927).saturating_mul(h.into()))
 			.saturating_add(settlement_pending_marker_envelope())
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::SubnetNodeQueue` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -7209,9 +7187,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `146186`
 		// Minimum execution time: 232_363_000 picoseconds.
 		Weight::from_parts(257_510_000, 146186)
-			.saturating_add(T::DbWeight::get().reads(17_u64))
-			.saturating_add(T::DbWeight::get().writes(10_u64))
+			.saturating_add(T::DbWeight::get().reads(24_u64))
+			.saturating_add(T::DbWeight::get().writes(17_u64))
 			.saturating_add(settlement_pending_marker_envelope())
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
@@ -7258,12 +7237,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(129_271_000, 8951)
 			// Standard Error: 59_057
 			.saturating_add(Weight::from_parts(9_028_155, 0).saturating_mul(h.into()))
-			.saturating_add(T::DbWeight::get().reads(16_u64))
+			.saturating_add(T::DbWeight::get().reads(26_u64))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(h.into())))
-			.saturating_add(T::DbWeight::get().writes(8_u64))
+			.saturating_add(T::DbWeight::get().writes(15_u64))
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(h.into())))
 			.saturating_add(Weight::from_parts(0, 2837).saturating_mul(h.into()))
 			.saturating_add(settlement_pending_marker_envelope())
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
@@ -7318,12 +7298,13 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(728_689_000, 172595)
 			// Standard Error: 79_114
 			.saturating_add(Weight::from_parts(8_371_455, 0).saturating_mul(h.into()))
-			.saturating_add(T::DbWeight::get().reads(20_u64))
+			.saturating_add(T::DbWeight::get().reads(30_u64))
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(h.into())))
-			.saturating_add(T::DbWeight::get().writes(9_u64))
+			.saturating_add(T::DbWeight::get().writes(16_u64))
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(h.into())))
 			.saturating_add(Weight::from_parts(0, 2305).saturating_mul(h.into()))
 			.saturating_add(settlement_pending_marker_envelope())
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -7340,8 +7321,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(40_703_203, 5698)
 			// Standard Error: 3_525
 			.saturating_add(Weight::from_parts(403_416, 0).saturating_mul(x.into()))
-			.saturating_add(T::DbWeight::get().reads(3_u64))
+			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(Weight::from_parts(0, 130).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -7377,8 +7359,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		//  Estimated: `144432`
 		// Minimum execution time: 257_573_000 picoseconds.
 		Weight::from_parts(333_621_000, 144432)
-			.saturating_add(T::DbWeight::get().reads(14_u64))
-			.saturating_add(T::DbWeight::get().writes(9_u64))
+			.saturating_add(T::DbWeight::get().reads(20_u64))
+			.saturating_add(T::DbWeight::get().writes(16_u64))
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::SubnetDistributionPower` (r:1 w:0)
 	/// Proof: `Network::SubnetDistributionPower` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -7430,6 +7413,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::HotkeyValidatorId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalValidatorIds` (r:1 w:1)
 	/// Proof: `Network::TotalValidatorIds` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::MaxDelegateStakePercentage` (r:1 w:0)
+	/// Proof: `Network::MaxDelegateStakePercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorColdkey` (r:0 w:1)
 	/// Proof: `Network::ValidatorColdkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorsData` (r:0 w:1)
@@ -7444,7 +7429,7 @@ impl WeightInfo for () {
 		//  Estimated: `3541`
 		// Minimum execution time: 21_583_000 picoseconds.
 		Weight::from_parts(23_761_000, 3541)
-			.saturating_add(RocksDbWeight::get().reads(4_u64))
+			.saturating_add(RocksDbWeight::get().reads(5_u64))
 			.saturating_add(RocksDbWeight::get().writes(7_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
@@ -8027,8 +8012,9 @@ impl WeightInfo for () {
 		//  Estimated: `4356285`
 		// Minimum execution time: 10_243_848_000 picoseconds.
 		Weight::from_parts(13_236_029_000, 4356285)
-			.saturating_add(RocksDbWeight::get().reads(3859_u64))
+			.saturating_add(RocksDbWeight::get().reads(3861_u64))
 			.saturating_add(RocksDbWeight::get().writes(3906_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -8838,8 +8824,12 @@ impl WeightInfo for () {
 	/// Proof: `Network::BaseNodeBurnAmount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::CurrentNodeBurnRate` (r:1 w:0)
 	/// Proof: `Network::CurrentNodeBurnRate` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Storage: `Network::NodeSubnetStake` (r:2 w:1)
 	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetNodesData` (r:1 w:0)
+	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSlotIndex` (r:1 w:0)
+	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetMinStakeBalance` (r:1 w:0)
 	/// Proof: `Network::SubnetMinStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetMaxStakeBalance` (r:1 w:0)
@@ -8870,13 +8860,13 @@ impl WeightInfo for () {
 	/// Proof: `Network::TotalSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalStake` (r:1 w:1)
 	/// Proof: `Network::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeValidatorId` (r:0 w:1)
+	/// Storage: `Network::SubnetNodeValidatorId` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeValidatorId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::RegisteredSubnetNodesData` (r:0 w:1)
+	/// Storage: `Network::RegisteredSubnetNodesData` (r:1 w:1)
 	/// Proof: `Network::RegisteredSubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeReputation` (r:0 w:1)
+	/// Storage: `Network::SubnetNodeReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeIdHotkey` (r:0 w:1)
+	/// Storage: `Network::SubnetNodeIdHotkey` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn register_subnet_node() -> Weight {
 		// Proof Size summary in bytes:
@@ -8884,8 +8874,9 @@ impl WeightInfo for () {
 		//  Estimated: `26074`
 		// Minimum execution time: 287_625_000 picoseconds.
 		Weight::from_parts(336_377_000, 26074)
-			.saturating_add(RocksDbWeight::get().reads(44_u64))
+			.saturating_add(RocksDbWeight::get().reads(51_u64))
 			.saturating_add(RocksDbWeight::get().writes(26_u64))
+			.saturating_add(subnet_node_registration_collision_proof())
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9063,8 +9054,9 @@ impl WeightInfo for () {
 		//  Estimated: `14775`
 		// Minimum execution time: 162_014_000 picoseconds.
 		Weight::from_parts(178_288_000, 14775)
-			.saturating_add(RocksDbWeight::get().reads(17_u64))
+			.saturating_add(RocksDbWeight::get().reads(19_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
+			.saturating_add(pending_liability_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9084,14 +9076,18 @@ impl WeightInfo for () {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
 	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
+	/// Storage: `Network::QueuedSwapRefundBalance` (r:1 w:1)
+	/// Proof: `Network::QueuedSwapRefundBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalQueuedSwapRefundBalance` (r:1 w:1)
+	/// Proof: `Network::TotalQueuedSwapRefundBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn claim_unbondings() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `10808`
-		//  Estimated: `14273`
-		// Minimum execution time: 3_133_542_000 picoseconds.
-		Weight::from_parts(3_298_562_000, 14273)
-			.saturating_add(RocksDbWeight::get().reads(9_u64))
-			.saturating_add(RocksDbWeight::get().writes(6_u64))
+		//  Measured:  `11088`
+		//  Estimated: `14553`
+		// Minimum execution time: 5_358_697_000 picoseconds.
+		Weight::from_parts(6_111_410_000, 14553)
+			.saturating_add(RocksDbWeight::get().reads(11_u64))
+			.saturating_add(RocksDbWeight::get().writes(8_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9131,8 +9127,8 @@ impl WeightInfo for () {
 		//  Estimated: `5309`
 		// Minimum execution time: 93_572_000 picoseconds.
 		Weight::from_parts(104_998_000, 5309)
-			.saturating_add(RocksDbWeight::get().reads(16_u64))
-			.saturating_add(RocksDbWeight::get().writes(10_u64))
+			.saturating_add(RocksDbWeight::get().reads(21_u64))
+			.saturating_add(RocksDbWeight::get().writes(13_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9178,8 +9174,8 @@ impl WeightInfo for () {
 		//  Estimated: `14248`
 		// Minimum execution time: 122_347_000 picoseconds.
 		Weight::from_parts(163_918_000, 14248)
-			.saturating_add(RocksDbWeight::get().reads(19_u64))
-			.saturating_add(RocksDbWeight::get().writes(12_u64))
+			.saturating_add(RocksDbWeight::get().reads(23_u64))
+			.saturating_add(RocksDbWeight::get().writes(15_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9203,8 +9199,8 @@ impl WeightInfo for () {
 		//  Estimated: `7186`
 		// Minimum execution time: 52_581_000 picoseconds.
 		Weight::from_parts(55_375_000, 7186)
-			.saturating_add(RocksDbWeight::get().reads(9_u64))
-			.saturating_add(RocksDbWeight::get().writes(6_u64))
+			.saturating_add(RocksDbWeight::get().reads(13_u64))
+			.saturating_add(RocksDbWeight::get().writes(8_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9246,41 +9242,8 @@ impl WeightInfo for () {
 		//  Estimated: `14659`
 		// Minimum execution time: 105_263_000 picoseconds.
 		Weight::from_parts(120_200_000, 14659)
-			.saturating_add(RocksDbWeight::get().reads(17_u64))
-			.saturating_add(RocksDbWeight::get().writes(10_u64))
-	}
-	/// Storage: `Network::TxPause` (r:1 w:0)
-	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetsData` (r:1 w:0)
-	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::MinDelegateStakeDeposit` (r:1 w:0)
-	/// Proof: `Network::MinDelegateStakeDeposit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Account` (r:1 w:1)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(116), added: 2591, mode: `MaxEncodedLen`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
-	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Network::TotalSubnetDelegateStakeBalance` (r:1 w:1)
-	/// Proof: `Network::TotalSubnetDelegateStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalSubnetDelegateStakeShares` (r:1 w:0)
-	/// Proof: `Network::TotalSubnetDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalDelegateStake` (r:1 w:1)
-	/// Proof: `Network::TotalDelegateStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn donate_delegate_stake() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `1700`
-		//  Estimated: `5165`
-		// Minimum execution time: 66_448_000 picoseconds.
-		Weight::from_parts(70_279_000, 5165)
-			.saturating_add(RocksDbWeight::get().reads(12_u64))
-			.saturating_add(RocksDbWeight::get().writes(6_u64))
+			.saturating_add(RocksDbWeight::get().reads(21_u64))
+			.saturating_add(RocksDbWeight::get().writes(13_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9318,8 +9281,9 @@ impl WeightInfo for () {
 		//  Estimated: `4145`
 		// Minimum execution time: 66_357_000 picoseconds.
 		Weight::from_parts(75_834_000, 4145)
-			.saturating_add(RocksDbWeight::get().reads(15_u64))
-			.saturating_add(RocksDbWeight::get().writes(9_u64))
+			.saturating_add(RocksDbWeight::get().reads(22_u64))
+			.saturating_add(RocksDbWeight::get().writes(12_u64))
+			.saturating_add(pending_liability_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9363,8 +9327,9 @@ impl WeightInfo for () {
 		//  Estimated: `9260`
 		// Minimum execution time: 96_460_000 picoseconds.
 		Weight::from_parts(113_157_000, 9260)
-			.saturating_add(RocksDbWeight::get().reads(17_u64))
-			.saturating_add(RocksDbWeight::get().writes(11_u64))
+			.saturating_add(RocksDbWeight::get().reads(22_u64))
+			.saturating_add(RocksDbWeight::get().writes(14_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9384,8 +9349,8 @@ impl WeightInfo for () {
 		//  Estimated: `6486`
 		// Minimum execution time: 33_379_000 picoseconds.
 		Weight::from_parts(34_208_000, 6486)
-			.saturating_add(RocksDbWeight::get().reads(7_u64))
-			.saturating_add(RocksDbWeight::get().writes(5_u64))
+			.saturating_add(RocksDbWeight::get().reads(11_u64))
+			.saturating_add(RocksDbWeight::get().writes(7_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9425,41 +9390,9 @@ impl WeightInfo for () {
 		//  Estimated: `13367`
 		// Minimum execution time: 78_312_000 picoseconds.
 		Weight::from_parts(83_472_000, 13367)
-			.saturating_add(RocksDbWeight::get().reads(16_u64))
-			.saturating_add(RocksDbWeight::get().writes(9_u64))
-	}
-	/// Storage: `Network::TxPause` (r:1 w:0)
-	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ValidatorsData` (r:1 w:0)
-	/// Proof: `Network::ValidatorsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::MinDelegateStakeDeposit` (r:1 w:0)
-	/// Proof: `Network::MinDelegateStakeDeposit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `System::Account` (r:1 w:1)
-	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(116), added: 2591, mode: `MaxEncodedLen`)
-	/// Storage: `System::Number` (r:1 w:0)
-	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::ExecutionPhase` (r:1 w:0)
-	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
-	/// Storage: `System::EventCount` (r:1 w:1)
-	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `System::Events` (r:1 w:1)
-	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
-	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
-	/// Storage: `Network::ValidatorDelegateStakeBalance` (r:1 w:1)
-	/// Proof: `Network::ValidatorDelegateStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ValidatorDelegateStakeShares` (r:1 w:1)
-	/// Proof: `Network::ValidatorDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalValidatorDelegateStakeBalance` (r:1 w:1)
-	/// Proof: `Network::TotalValidatorDelegateStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	fn donate_validator_delegate_stake() -> Weight {
-		// Proof Size summary in bytes:
-		//  Measured:  `553`
-		//  Estimated: `4018`
-		// Minimum execution time: 45_013_000 picoseconds.
-		Weight::from_parts(47_391_000, 4018)
-			.saturating_add(RocksDbWeight::get().reads(12_u64))
-			.saturating_add(RocksDbWeight::get().writes(7_u64))
+			.saturating_add(RocksDbWeight::get().reads(21_u64))
+			.saturating_add(RocksDbWeight::get().writes(12_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9505,8 +9438,9 @@ impl WeightInfo for () {
 		//  Estimated: `10662`
 		// Minimum execution time: 130_930_000 picoseconds.
 		Weight::from_parts(159_978_000, 10662)
-			.saturating_add(RocksDbWeight::get().reads(18_u64))
-			.saturating_add(RocksDbWeight::get().writes(11_u64))
+			.saturating_add(RocksDbWeight::get().reads(23_u64))
+			.saturating_add(RocksDbWeight::get().writes(14_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9554,8 +9488,8 @@ impl WeightInfo for () {
 		//  Estimated: `10499`
 		// Minimum execution time: 118_487_000 picoseconds.
 		Weight::from_parts(150_408_000, 10499)
-			.saturating_add(RocksDbWeight::get().reads(19_u64))
-			.saturating_add(RocksDbWeight::get().writes(12_u64))
+			.saturating_add(RocksDbWeight::get().reads(23_u64))
+			.saturating_add(RocksDbWeight::get().writes(15_u64))
 	}
 	/// Storage: `Network::TxPause` (r:1 w:0)
 	/// Proof: `Network::TxPause` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -10442,8 +10376,9 @@ impl WeightInfo for () {
 		//  Estimated: `4356237`
 		// Minimum execution time: 10_626_531_000 picoseconds.
 		Weight::from_parts(12_033_719_000, 4356237)
-			.saturating_add(RocksDbWeight::get().reads(3857_u64))
+			.saturating_add(RocksDbWeight::get().reads(3859_u64))
 			.saturating_add(RocksDbWeight::get().writes(3906_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
@@ -12300,10 +12235,11 @@ impl WeightInfo for () {
 		Weight::from_parts(102_998_406, 5649)
 			// Standard Error: 60_565
 			.saturating_add(Weight::from_parts(3_216_568, 0).saturating_mul(x.into()))
-			.saturating_add(RocksDbWeight::get().reads(44_u64))
+			.saturating_add(RocksDbWeight::get().reads(47_u64))
 			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(x.into())))
-			.saturating_add(RocksDbWeight::get().writes(2_u64))
+			.saturating_add(RocksDbWeight::get().writes(8_u64))
 			.saturating_add(Weight::from_parts(0, 2491).saturating_mul(x.into()))
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:0)
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -12404,10 +12340,11 @@ impl WeightInfo for () {
 		Weight::from_parts(155_601_125, 5941)
 			// Standard Error: 118_871
 			.saturating_add(Weight::from_parts(10_805_977, 0).saturating_mul(e.into()))
-			.saturating_add(RocksDbWeight::get().reads(43_u64))
+			.saturating_add(RocksDbWeight::get().reads(46_u64))
 			.saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(e.into())))
-			.saturating_add(RocksDbWeight::get().writes(2_u64))
+			.saturating_add(RocksDbWeight::get().writes(8_u64))
 			.saturating_add(Weight::from_parts(0, 8049).saturating_mul(e.into()))
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:0)
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -12519,10 +12456,11 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(3_145_170, 0).saturating_mul(x.into()))
 			// Standard Error: 306_488
 			.saturating_add(Weight::from_parts(282_562, 0).saturating_mul(e.into()))
-			.saturating_add(RocksDbWeight::get().reads(47_u64))
+			.saturating_add(RocksDbWeight::get().reads(50_u64))
 			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(x.into())))
-			.saturating_add(RocksDbWeight::get().writes(6_u64))
+			.saturating_add(RocksDbWeight::get().writes(12_u64))
 			.saturating_add(Weight::from_parts(0, 2746).saturating_mul(x.into()))
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::TotalSubnetDelegateStakeShares` (r:1 w:1)
 	/// Proof: `Network::TotalSubnetDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -12540,8 +12478,8 @@ impl WeightInfo for () {
 		//  Estimated: `3541`
 		// Minimum execution time: 12_721_000 picoseconds.
 		Weight::from_parts(13_251_000, 3541)
-			.saturating_add(RocksDbWeight::get().reads(5_u64))
-			.saturating_add(RocksDbWeight::get().writes(4_u64))
+			.saturating_add(RocksDbWeight::get().reads(10_u64))
+			.saturating_add(RocksDbWeight::get().writes(7_u64))
 	}
 	/// Storage: `Network::ValidatorDelegateStakeShares` (r:1 w:1)
 	/// Proof: `Network::ValidatorDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -12557,8 +12495,9 @@ impl WeightInfo for () {
 		//  Estimated: `3802`
 		// Minimum execution time: 14_643_000 picoseconds.
 		Weight::from_parts(15_818_000, 3802)
-			.saturating_add(RocksDbWeight::get().reads(4_u64))
-			.saturating_add(RocksDbWeight::get().writes(4_u64))
+			.saturating_add(RocksDbWeight::get().reads(11_u64))
+			.saturating_add(RocksDbWeight::get().writes(7_u64))
+			.saturating_add(pending_liability_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TotalOverwatchNodes` (r:1 w:0)
 	/// Proof: `Network::TotalOverwatchNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -12735,7 +12674,7 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(20_482_357, 0).saturating_mul(a.into()))
 			// Standard Error: 1_415_676
 			.saturating_add(Weight::from_parts(16_932_204, 0).saturating_mul(r.into()))
-			.saturating_add(RocksDbWeight::get().reads(18_u64))
+			.saturating_add(RocksDbWeight::get().reads(19_u64))
 			.saturating_add(RocksDbWeight::get().reads((12_u64).saturating_mul(a.into())))
 			.saturating_add(RocksDbWeight::get().reads((11_u64).saturating_mul(r.into())))
 			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(o.into())))
@@ -12745,6 +12684,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(o.into())))
 			.saturating_add(Weight::from_parts(0, 11609).saturating_mul(a.into()))
 			.saturating_add(Weight::from_parts(0, 10639).saturating_mul(r.into()))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::ValidatorSubnetNodes` (r:1 w:1)
 	/// Proof: `Network::ValidatorSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -13473,6 +13413,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNetFlowSmoothingAlpha` (r:1 w:0)
 	/// Proof: `Network::SubnetNetFlowSmoothingAlpha` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::FinalSubnetEmissionWeights` (r:0 w:1)
+	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn handle_subnet_emission_weights_empty() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `452`
@@ -13480,6 +13422,7 @@ impl WeightInfo for () {
 		// Minimum execution time: 25_048_000 picoseconds.
 		Weight::from_parts(25_999_000, 3917)
 			.saturating_add(RocksDbWeight::get().reads(7_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
 	}
 	/// Storage: `Network::MaxSwapQueueCallsPerBlock` (r:1 w:0)
 	/// Proof: `Network::MaxSwapQueueCallsPerBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -13542,10 +13485,11 @@ impl WeightInfo for () {
 			// Standard Error: 49_757
 			.saturating_add(Weight::from_parts(24_463_652, 0).saturating_mul(x.into()))
 			.saturating_add(RocksDbWeight::get().reads(6_u64))
-			.saturating_add(RocksDbWeight::get().reads((5_u64).saturating_mul(x.into())))
+			.saturating_add(RocksDbWeight::get().reads((7_u64).saturating_mul(x.into())))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
 			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 2577).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:999 w:999)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -13592,14 +13536,10 @@ impl WeightInfo for () {
 	/// Proof: `Network::TotalQueuedSwapPrincipal` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetsData` (r:1 w:0)
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::DelegateStakeCooldownEpochs` (r:1 w:0)
-	/// Proof: `Network::DelegateStakeCooldownEpochs` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::MaxUnbondings` (r:1 w:0)
-	/// Proof: `Network::MaxUnbondings` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalNetworkUnbondingBalance` (r:1 w:1)
-	/// Proof: `Network::TotalNetworkUnbondingBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::StakeUnbondingLedger` (r:999 w:999)
-	/// Proof: `Network::StakeUnbondingLedger` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::QueuedSwapRefundBalance` (r:999 w:999)
+	/// Proof: `Network::QueuedSwapRefundBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalQueuedSwapRefundBalance` (r:1 w:1)
+	/// Proof: `Network::TotalQueuedSwapRefundBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -13611,17 +13551,17 @@ impl WeightInfo for () {
 	/// The range of component `x` is `[1, 1000]`.
 	fn execute_ready_swap_refunds(x: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `401 + x * (9326 ±0)`
-		//  Estimated: `3866 + x * (11801 ±0)`
-		// Minimum execution time: 35_417_000 picoseconds.
-		Weight::from_parts(36_087_000, 3866)
-			// Standard Error: 40_657
-			.saturating_add(Weight::from_parts(28_803_809, 0).saturating_mul(x.into()))
-			.saturating_add(RocksDbWeight::get().reads(9_u64))
+		//  Measured:  `377 + x * (142 ±0)`
+		//  Estimated: `3842 + x * (2617 ±0)`
+		// Minimum execution time: 45_212_000 picoseconds.
+		Weight::from_parts(46_331_000, 3842)
+			// Standard Error: 206_072
+			.saturating_add(Weight::from_parts(24_565_258, 0).saturating_mul(x.into()))
+			.saturating_add(RocksDbWeight::get().reads(7_u64))
 			.saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(x.into())))
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
 			.saturating_add(RocksDbWeight::get().writes((2_u64).saturating_mul(x.into())))
-			.saturating_add(Weight::from_parts(0, 11801).saturating_mul(x.into()))
+			.saturating_add(Weight::from_parts(0, 2617).saturating_mul(x.into()))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:1000 w:1000)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -13668,17 +13608,18 @@ impl WeightInfo for () {
 	/// The range of component `x` is `[3, 1000]`.
 	fn execute_ready_swap_mixed_validator(x: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `10916 + x * (102 ±0)`
-		//  Estimated: `16856 + x * (2577 ±0)`
-		// Minimum execution time: 109_220_000 picoseconds.
-		Weight::from_parts(112_837_000, 16856)
-			// Standard Error: 61_449
-			.saturating_add(Weight::from_parts(24_595_416, 0).saturating_mul(x.into()))
-			.saturating_add(RocksDbWeight::get().reads(9_u64))
-			.saturating_add(RocksDbWeight::get().reads((5_u64).saturating_mul(x.into())))
+		//  Measured:  `1760 + x * (123 ±0)`
+		//  Estimated: `7700 + x * (2598 ±0)`
+		// Minimum execution time: 140_762_000 picoseconds.
+		Weight::from_parts(504_591_254, 7700)
+			// Standard Error: 692_942
+			.saturating_add(Weight::from_parts(35_163_563, 0).saturating_mul(x.into()))
+			.saturating_add(RocksDbWeight::get().reads(5_u64))
+			.saturating_add(RocksDbWeight::get().reads((8_u64).saturating_mul(x.into())))
 			.saturating_add(RocksDbWeight::get().writes(5_u64))
 			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(x.into())))
-			.saturating_add(Weight::from_parts(0, 2577).saturating_mul(x.into()))
+			.saturating_add(Weight::from_parts(0, 2598).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:1000 w:1000)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -13725,17 +13666,18 @@ impl WeightInfo for () {
 	/// The range of component `x` is `[3, 1000]`.
 	fn execute_ready_swap_mixed_subnet(x: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `29035 + x * (65 ±0)`
-		//  Estimated: `74575 + x * (2540 ±1)`
-		// Minimum execution time: 112_474_000 picoseconds.
-		Weight::from_parts(116_519_000, 74575)
-			// Standard Error: 36_438
-			.saturating_add(Weight::from_parts(21_507_341, 0).saturating_mul(x.into()))
-			.saturating_add(RocksDbWeight::get().reads(82_u64))
+		//  Measured:  `19567 + x * (86 ±0)`
+		//  Estimated: `65107 + x * (2561 ±0)`
+		// Minimum execution time: 129_674_000 picoseconds.
+		Weight::from_parts(137_989_000, 65107)
+			// Standard Error: 209_771
+			.saturating_add(Weight::from_parts(27_260_244, 0).saturating_mul(x.into()))
+			.saturating_add(RocksDbWeight::get().reads(83_u64))
 			.saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(x.into())))
 			.saturating_add(RocksDbWeight::get().writes(59_u64))
 			.saturating_add(RocksDbWeight::get().writes((2_u64).saturating_mul(x.into())))
-			.saturating_add(Weight::from_parts(0, 2540).saturating_mul(x.into()))
+			.saturating_add(Weight::from_parts(0, 2561).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:1000 w:1000)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -13782,17 +13724,18 @@ impl WeightInfo for () {
 	/// The range of component `x` is `[3, 1000]`.
 	fn execute_ready_swap_mixed_refund(x: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `11092 + x * (9325 ±1)`
-		//  Estimated: `19507 + x * (11800 ±1)`
-		// Minimum execution time: 109_683_000 picoseconds.
-		Weight::from_parts(117_488_000, 19507)
-			// Standard Error: 49_564
-			.saturating_add(Weight::from_parts(29_030_246, 0).saturating_mul(x.into()))
-			.saturating_add(RocksDbWeight::get().reads(18_u64))
+		//  Measured:  `1716 + x * (142 ±0)`
+		//  Estimated: `7656 + x * (2617 ±0)`
+		// Minimum execution time: 245_958_000 picoseconds.
+		Weight::from_parts(418_106_000, 7656)
+			// Standard Error: 298_455
+			.saturating_add(Weight::from_parts(20_736_235, 0).saturating_mul(x.into()))
+			.saturating_add(RocksDbWeight::get().reads(19_u64))
 			.saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(x.into())))
 			.saturating_add(RocksDbWeight::get().writes(11_u64))
 			.saturating_add(RocksDbWeight::get().writes((2_u64).saturating_mul(x.into())))
-			.saturating_add(Weight::from_parts(0, 11800).saturating_mul(x.into()))
+			.saturating_add(Weight::from_parts(0, 2617).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TotalActiveSubnetNodes` (r:17 w:0)
 	/// Proof: `Network::TotalActiveSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -13848,9 +13791,10 @@ impl WeightInfo for () {
 			// Standard Error: 498_394
 			.saturating_add(Weight::from_parts(28_166_046, 0).saturating_mul(x.into()))
 			.saturating_add(RocksDbWeight::get().reads(16_u64))
-			.saturating_add(RocksDbWeight::get().reads((7_u64).saturating_mul(x.into())))
+			.saturating_add(RocksDbWeight::get().reads((8_u64).saturating_mul(x.into())))
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 6680).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof().saturating_mul(x.into()))
 	}
 	/// Storage: `Network::PendingOverwatchSettlement` (r:1 w:1)
 	/// Proof: `Network::PendingOverwatchSettlement` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -14042,7 +13986,8 @@ impl WeightInfo for () {
 		//  Estimated: `4549`
 		// Minimum execution time: 37_006_000 picoseconds.
 		Weight::from_parts(41_245_000, 4549)
-			.saturating_add(RocksDbWeight::get().reads(5_u64))
+			.saturating_add(RocksDbWeight::get().reads(6_u64))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::PendingActiveNodeRemovals` (r:1 w:0)
 	/// Proof: `Network::PendingActiveNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -14145,12 +14090,13 @@ impl WeightInfo for () {
 		Weight::from_parts(406_392_000, 40276)
 			// Standard Error: 111_764
 			.saturating_add(Weight::from_parts(44_356_064, 0).saturating_mul(h.into()))
-			.saturating_add(RocksDbWeight::get().reads(26_u64))
+			.saturating_add(RocksDbWeight::get().reads(36_u64))
 			.saturating_add(RocksDbWeight::get().reads((6_u64).saturating_mul(h.into())))
-			.saturating_add(RocksDbWeight::get().writes(10_u64))
+			.saturating_add(RocksDbWeight::get().writes(17_u64))
 			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(h.into())))
 			.saturating_add(Weight::from_parts(0, 10927).saturating_mul(h.into()))
 			.saturating_add(settlement_pending_marker_envelope())
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::SubnetNodeQueue` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -14349,9 +14295,10 @@ impl WeightInfo for () {
 		//  Estimated: `146186`
 		// Minimum execution time: 232_363_000 picoseconds.
 		Weight::from_parts(257_510_000, 146186)
-			.saturating_add(RocksDbWeight::get().reads(17_u64))
-			.saturating_add(RocksDbWeight::get().writes(10_u64))
+			.saturating_add(RocksDbWeight::get().reads(24_u64))
+			.saturating_add(RocksDbWeight::get().writes(17_u64))
 			.saturating_add(settlement_pending_marker_envelope())
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
@@ -14398,12 +14345,13 @@ impl WeightInfo for () {
 		Weight::from_parts(129_271_000, 8951)
 			// Standard Error: 59_057
 			.saturating_add(Weight::from_parts(9_028_155, 0).saturating_mul(h.into()))
-			.saturating_add(RocksDbWeight::get().reads(16_u64))
+			.saturating_add(RocksDbWeight::get().reads(26_u64))
 			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(h.into())))
-			.saturating_add(RocksDbWeight::get().writes(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(15_u64))
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(h.into())))
 			.saturating_add(Weight::from_parts(0, 2837).saturating_mul(h.into()))
 			.saturating_add(settlement_pending_marker_envelope())
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
@@ -14458,12 +14406,13 @@ impl WeightInfo for () {
 		Weight::from_parts(728_689_000, 172595)
 			// Standard Error: 79_114
 			.saturating_add(Weight::from_parts(8_371_455, 0).saturating_mul(h.into()))
-			.saturating_add(RocksDbWeight::get().reads(20_u64))
+			.saturating_add(RocksDbWeight::get().reads(30_u64))
 			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(h.into())))
-			.saturating_add(RocksDbWeight::get().writes(9_u64))
+			.saturating_add(RocksDbWeight::get().writes(16_u64))
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(h.into())))
 			.saturating_add(Weight::from_parts(0, 2305).saturating_mul(h.into()))
 			.saturating_add(settlement_pending_marker_envelope())
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -14480,8 +14429,9 @@ impl WeightInfo for () {
 		Weight::from_parts(40_703_203, 5698)
 			// Standard Error: 3_525
 			.saturating_add(Weight::from_parts(403_416, 0).saturating_mul(x.into()))
-			.saturating_add(RocksDbWeight::get().reads(3_u64))
+			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(Weight::from_parts(0, 130).saturating_mul(x.into()))
+			.saturating_add(pending_liability_key_proof())
 	}
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -14517,8 +14467,9 @@ impl WeightInfo for () {
 		//  Estimated: `144432`
 		// Minimum execution time: 257_573_000 picoseconds.
 		Weight::from_parts(333_621_000, 144432)
-			.saturating_add(RocksDbWeight::get().reads(14_u64))
-			.saturating_add(RocksDbWeight::get().writes(9_u64))
+			.saturating_add(RocksDbWeight::get().reads(20_u64))
+			.saturating_add(RocksDbWeight::get().writes(16_u64))
+			.saturating_add(consensus_round_liability_proof())
 	}
 	/// Storage: `Network::SubnetDistributionPower` (r:1 w:0)
 	/// Proof: `Network::SubnetDistributionPower` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
