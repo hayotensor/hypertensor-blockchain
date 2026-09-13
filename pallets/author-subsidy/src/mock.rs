@@ -1,184 +1,139 @@
-// Copyright (C) Hypertensor.
-// SPDX-License-Identifier: Apache-2.0
-
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-// 	http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 use crate as pallet_author_subsidy;
 use crate::*;
-use core::str::FromStr;
-use fp_account::EthereumSignature;
-use frame_support::weights::constants::WEIGHT_REF_TIME_PER_MILLIS;
-use frame_support::ConsensusEngineId;
-use frame_support::{derive_impl, parameter_types, traits::Everything, weights::Weight};
-use frame_system as system;
-use pallet_evm::IdentityAddressMapping;
-use sp_core::H160;
-use sp_core::{ConstU128, H256};
-use sp_runtime::traits::{AccountIdLookup, BlakeTwo256, IdentifyAccount, Verify};
-use sp_runtime::BuildStorage;
-use sp_runtime::Perbill;
+use frame_support::{derive_impl, parameter_types, traits::Everything, ConsensusEngineId};
+use sp_core::{sr25519, ConstU128, Pair, H256};
+use sp_runtime::{
+    traits::{BlakeTwo256, IdentityLookup},
+    BuildStorage,
+};
 
+pub type AccountId = fp_account::AccountId20;
 type Block = frame_system::mocking::MockBlockU32<Test>;
-
 frame_support::construct_runtime!(
-    pub enum Test
-    {
-      System: system,
-      Balances: pallet_balances,
-      AuthorSubsidy: pallet_author_subsidy,
+    pub enum Test {
+        System: frame_system,
+        Balances: pallet_balances,
+        AuthorSubsidy: pallet_author_subsidy,
     }
 );
 
-/// A hash of some data used by the chain.
-pub type Hash = H256;
-
-/// The hashing algorithm used by the chain.
-pub type Hashing = BlakeTwo256;
-
-// An index to a block.
-pub type BlockNumber = u32;
-
-pub type BalanceCall = pallet_balances::Call<Test>;
-
-pub const MILLISECS_PER_BLOCK: u64 = 6000;
-
-// NOTE: Currently it is not possible to change the slot duration after the chain has started.
-//       Attempting to do so will brick block production.
-
-// Time is measured by number of blocks.
-pub const MINUTES: BlockNumber = 60_000 / (MILLISECS_PER_BLOCK as BlockNumber);
-pub const HOURS: BlockNumber = MINUTES * 60;
-pub const DAYS: BlockNumber = HOURS * 24;
-pub const YEAR: BlockNumber = DAYS * 365;
-pub const BLOCKS_PER_HALVING: BlockNumber = YEAR * 2;
-
-pub const SECS_PER_BLOCK: u32 = 6000 / 1000;
-
-pub const EPOCH_LENGTH: u32 = 100;
-pub const BLOCKS_PER_EPOCH: u32 = SECS_PER_BLOCK * EPOCH_LENGTH;
-pub const EPOCHS_PER_YEAR: u32 = (YEAR as u32) / BLOCKS_PER_EPOCH;
-
-pub const OVERWATCH_YEARLY_EMISSIONS: u128 = 10_000_000_000_000_000_000_000; // 10,000
-pub const OVERWATCH_EPOCH_EMISSIONS: u128 = OVERWATCH_YEARLY_EMISSIONS / (EPOCHS_PER_YEAR as u128);
-
-pub const AUTHOR_YEARLY_EMISSIONS: u128 = 1_000_000_000_000_000_000_000; // 1,000
-pub const AUTHOR_BLOCK_EMISSIONS: u128 = AUTHOR_YEARLY_EMISSIONS / (YEAR as u128);
-
-const NORMAL_DISPATCH_RATIO: Perbill = Perbill::from_percent(75);
-/// We allow for 2000ms of compute with a 6 second average block time.
-pub const WEIGHT_MILLISECS_PER_BLOCK: u64 = 2000;
-pub const MAXIMUM_BLOCK_WEIGHT: Weight = Weight::from_parts(
-    WEIGHT_MILLISECS_PER_BLOCK * WEIGHT_REF_TIME_PER_MILLIS,
-    u64::MAX,
-);
-
-parameter_types! {
-    pub BlockWeights: frame_system::limits::BlockWeights = frame_system::limits::BlockWeights
-        ::with_sensible_defaults(MAXIMUM_BLOCK_WEIGHT, NORMAL_DISPATCH_RATIO);
+#[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
+impl frame_system::Config for Test {
+    type Block = Block;
+    type AccountId = AccountId;
+    type Lookup = IdentityLookup<AccountId>;
+    type Hash = H256;
+    type Hashing = BlakeTwo256;
+    type AccountData = pallet_balances::AccountData<u128>;
+    type BaseCallFilter = Everything;
 }
-
-parameter_types! {
-  pub const BlockHashCount: BlockNumber = 250;
-  pub const SS58Prefix: u8 = 42;
-}
-
-pub type Signature = EthereumSignature;
-
-pub type AccountPublic = <Signature as Verify>::Signer;
-
-pub type AccountId = <<Signature as Verify>::Signer as IdentifyAccount>::AccountId;
-
-// The address format for describing accounts.
-pub type Address = AccountId;
-
-// Balance of an account.
-pub type Balance = u128;
-
-pub const EXISTENTIAL_DEPOSIT: u128 = 500;
 
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
 impl pallet_balances::Config for Test {
-    type ExistentialDeposit = ConstU128<EXISTENTIAL_DEPOSIT>;
+    type Balance = u128;
+    type ExistentialDeposit = ConstU128<500>;
     type AccountStore = System;
-    type Balance = Balance;
 }
 
-#[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
-impl frame_system::Config for Test {
-    type BaseCallFilter = Everything;
-    type BlockWeights = ();
-    type BlockLength = ();
-    type Block = Block;
-    type DbWeight = ();
-    type RuntimeOrigin = RuntimeOrigin;
-    type RuntimeCall = RuntimeCall;
-    type Nonce = u32;
-    type Hash = H256;
-    type Hashing = BlakeTwo256;
-    type AccountId = AccountId;
-    type Lookup = AccountIdLookup<AccountId, ()>;
-    type RuntimeEvent = RuntimeEvent;
-    type BlockHashCount = BlockHashCount;
-    type Version = ();
-    type PalletInfo = PalletInfo;
-    type AccountData = pallet_balances::AccountData<u128>;
-    type OnNewAccount = ();
-    type OnKilledAccount = ();
-    type SystemWeightInfo = ();
-    type SS58Prefix = SS58Prefix;
-    type OnSetCode = ();
-    type MaxConsumers = frame_support::traits::ConstU32<16>;
-}
-
+pub const AUTHOR_BLOCK_EMISSIONS: u128 = 1_000_000_000_000_000_000_000 / 5_256_000;
+pub const AUTHOR_SUBSIDY_WEIGHT: Weight = Weight::from_parts(123_456, 789);
+pub const SKIPPED_SUBSIDY_WEIGHT: Weight = Weight::from_parts(12_345, 678);
 parameter_types! {
     pub const AuthorBlockEmissions: u128 = AUTHOR_BLOCK_EMISSIONS;
+    pub storage Authorities: Vec<sr25519::Public> = Vec::new();
 }
-
-pub const AUTHOR_SUBSIDY_WEIGHT: Weight = Weight::from_parts(123_456, 789);
-
+pub struct IsAuthority;
+impl Contains<sr25519::Public> for IsAuthority {
+    fn contains(key: &sr25519::Public) -> bool {
+        Authorities::get().contains(key)
+    }
+}
+pub struct MockFindAuthor;
+impl FindAuthor<H160> for MockFindAuthor {
+    fn find_author<'a, I>(digests: I) -> Option<H160>
+    where
+        I: 'a + IntoIterator<Item = (ConsensusEngineId, &'a [u8])>,
+    {
+        for (engine, mut data) in digests {
+            if engine == *b"aura" {
+                let key = sr25519::Public::decode(&mut data).ok()?;
+                if !IsAuthority::contains(&key) {
+                    return None;
+                }
+                return AuthorSubsidy::reward_address_at(&key, System::block_number());
+            }
+        }
+        None
+    }
+}
 pub struct TestWeightInfo;
 impl WeightInfo for TestWeightInfo {
     fn on_initialize() -> Weight {
         AUTHOR_SUBSIDY_WEIGHT
     }
-}
-
-pub fn mock_author() -> H160 {
-    H160::from_str("1234500000000000000000000000000000000000").unwrap()
-}
-
-pub struct FindAuthorTruncated;
-impl FindAuthor<H160> for FindAuthorTruncated {
-    fn find_author<'a, I>(_digests: I) -> Option<H160>
-    where
-        I: 'a + IntoIterator<Item = (ConsensusEngineId, &'a [u8])>,
-    {
-        Some(mock_author())
+    fn on_initialize_skipped() -> Weight {
+        SKIPPED_SUBSIDY_WEIGHT
+    }
+    fn set_reward_address() -> Weight {
+        Weight::from_parts(1_000_000, 1_000)
+    }
+    fn update_reward_address() -> Weight {
+        Self::set_reward_address()
     }
 }
-
 impl Config for Test {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
-    type FindAuthor = FindAuthorTruncated;
-    type AddressMapping = IdentityAddressMapping;
+    type FindAuthor = MockFindAuthor;
+    type AddressMapping = pallet_evm::IdentityAddressMapping;
+    type IsAuraAuthority = IsAuthority;
     type WeightInfo = TestWeightInfo;
     type AuthorBlockEmissions = AuthorBlockEmissions;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = MockBenchmarkHelper;
 }
 
+pub fn alice() -> sr25519::Pair {
+    sr25519::Pair::from_string("//Alice", None).unwrap()
+}
+pub fn bob() -> sr25519::Pair {
+    sr25519::Pair::from_string("//Bob", None).unwrap()
+}
+pub fn author_digest(key: sr25519::Public) {
+    System::initialize(
+        &System::block_number(),
+        &System::block_hash(System::block_number().saturating_sub(1)),
+        &sp_runtime::generic::Digest {
+            logs: vec![sp_runtime::generic::DigestItem::PreRuntime(
+                *b"aura",
+                key.encode(),
+            )],
+        },
+    );
+}
 pub fn new_test_ext() -> sp_io::TestExternalities {
-    frame_system::GenesisConfig::<Test>::default()
+    let mut ext: sp_io::TestExternalities = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap()
-        .into()
+        .into();
+    #[cfg(feature = "runtime-benchmarks")]
+    ext.register_extension(sp_keystore::KeystoreExt::new(
+        sp_keystore::testing::MemoryKeystore::new(),
+    ));
+    ext.execute_with(|| {
+        System::set_block_number(1);
+        frame_system::BlockHash::<Test>::insert(0, H256::repeat_byte(42));
+        Authorities::set(&vec![alice().public(), bob().public()]);
+        author_digest(alice().public());
+    });
+    ext
+}
+#[cfg(feature = "runtime-benchmarks")]
+pub struct MockBenchmarkHelper;
+#[cfg(feature = "runtime-benchmarks")]
+impl BenchmarkHelper for MockBenchmarkHelper {
+    fn setup_author(authority: sr25519::Public) {
+        Authorities::set(&vec![authority]);
+        author_digest(authority);
+    }
 }

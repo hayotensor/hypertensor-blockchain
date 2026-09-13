@@ -1,6 +1,6 @@
 [package]
 name = "pallet-network"
-description = "FRAME pallet template for defining custom runtime logic. (polkadot v1.15.0)"
+description = "FRAME pallet for Hypertensor subnet management, staking, and consensus."
 version = "4.0.0-dev"
 license = "Unlicense"
 authors.workspace = true

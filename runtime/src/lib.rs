@@ -67,6 +67,9 @@ use pallet_evm::{
 
 pub mod genesis_config_presets;
 
+#[cfg(test)]
+mod author_subsidy_tests;
+
 // A few exports that help ease life for downstream crates.
 pub use frame_system::Call as SystemCall;
 pub use frame_system::{EnsureRoot, EnsureRootWithSuccess, EnsureWithSuccess};
@@ -700,10 +703,13 @@ parameter_types! {
 impl pallet_author_subsidy::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
-    type FindAuthor = FindAuthorTruncated<Aura>;
+    type FindAuthor = FindAuthorRewardAddress<Aura>;
     type AddressMapping = IdentityAddressMapping;
+    type IsAuraAuthority = AuraRewardAuthority;
     type WeightInfo = pallet_author_subsidy::weights::SubstrateWeight<Runtime>;
     type AuthorBlockEmissions = AuthorBlockEmissions;
+    #[cfg(feature = "runtime-benchmarks")]
+    type BenchmarkHelper = AuthorSubsidyBenchmarkHelper;
 }
 
 parameter_types! {
@@ -798,6 +804,61 @@ impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorTruncated<F> {
     }
 }
 
+/// Membership in consensus is read here, never changed by payout configuration.
+pub struct AuraRewardAuthority;
+impl Contains<sp_core::sr25519::Public> for AuraRewardAuthority {
+    fn contains(key: &sp_core::sr25519::Public) -> bool {
+        let aura_key: AuraId = (*key).into();
+        pallet_aura::Authorities::<Runtime>::get()
+            .iter()
+            .any(|authority| authority == &aura_key)
+    }
+}
+
+/// Resolve the Aura author to its verified EVM payout account. The original
+/// `FindAuthorTruncated` remains available, but is not used for reward routing.
+pub struct FindAuthorRewardAddress<F>(PhantomData<F>);
+impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorRewardAddress<F> {
+    fn find_author<'a, I>(digests: I) -> Option<H160>
+    where
+        I: 'a + IntoIterator<Item = (ConsensusEngineId, &'a [u8])>,
+    {
+        let authorities = pallet_aura::Authorities::<Runtime>::get();
+        // Aura's index finder uses modulo authority count, so guard it first.
+        if authorities.is_empty() {
+            return None;
+        }
+        let index = F::find_author(digests)?;
+        let authority = authorities.get(index as usize)?;
+        AuthorSubsidy::reward_address_at(authority.as_ref(), System::block_number())
+    }
+}
+
+#[cfg(feature = "runtime-benchmarks")]
+pub struct AuthorSubsidyBenchmarkHelper;
+#[cfg(feature = "runtime-benchmarks")]
+impl pallet_author_subsidy::BenchmarkHelper for AuthorSubsidyBenchmarkHelper {
+    fn setup_author(authority: sp_core::sr25519::Public) {
+        let max: u32 = <Runtime as pallet_aura::Config>::MaxAuthorities::get();
+        let mut authorities: Vec<AuraId> = (0..max - 1)
+            .map(|i| sp_core::sr25519::Public::from_raw([i as u8; 32]).into())
+            .collect();
+        // Exercise the entire membership scan and the largest authority proof.
+        authorities.push(authority.into());
+        pallet_aura::Authorities::<Runtime>::put(BoundedVec::try_from(authorities).unwrap());
+        System::initialize(
+            &System::block_number(),
+            &System::parent_hash(),
+            &sp_runtime::generic::Digest {
+                logs: vec![DigestItem::PreRuntime(
+                    sp_consensus_aura::AURA_ENGINE_ID,
+                    (u64::from(max) - 1).encode(),
+                )],
+            },
+        );
+    }
+}
+
 const BLOCK_GAS_LIMIT: u64 = 75_000_000;
 const MAX_POV_SIZE: u64 = 5 * 1024 * 1024;
 /// The maximum storage growth per block in bytes.
@@ -829,7 +890,7 @@ impl pallet_evm::Config for Runtime {
     type Runner = pallet_evm::runner::stack::Runner<Self>;
     type OnChargeTransaction = ();
     type OnCreate = ();
-    type FindAuthor = FindAuthorTruncated<Aura>;
+    type FindAuthor = FindAuthorRewardAddress<Aura>;
     type GasLimitPovSizeRatio = GasLimitPovSizeRatio;
     type GasLimitStorageGrowthRatio = GasLimitStorageGrowthRatio;
     type Timestamp = Timestamp;
@@ -909,11 +970,6 @@ pub mod pallet_manual_seal {
 
 impl pallet_manual_seal::Config for Runtime {}
 
-impl pallet_template::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = pallet_template::weights::SubstrateWeight<Runtime>;
-}
-
 // Create the runtime by composing the FRAME pallets that were previously configured.
 #[frame_support::runtime]
 mod runtime {
@@ -966,9 +1022,6 @@ mod runtime {
 
     #[runtime::pallet_index(11)]
     pub type ManualSeal = pallet_manual_seal;
-
-    #[runtime::pallet_index(12)]
-    pub type Template = pallet_template;
 
     #[runtime::pallet_index(13)]
     pub type AtomicSwap = pallet_atomic_swap;
@@ -1098,7 +1151,6 @@ mod benches {
         [pallet_timestamp, Timestamp]
         [pallet_sudo, Sudo]
         [pallet_evm, EVM]
-        [pallet_template, Template]
         [pallet_collective, Collective]
         [pallet_network, Network]
         [pallet_author_subsidy, AuthorSubsidy]

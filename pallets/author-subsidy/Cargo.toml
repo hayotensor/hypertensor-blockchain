@@ -1,6 +1,6 @@
 [package]
 name = "pallet-author-subsidy"
-description = "FRAME pallet template for defining custom runtime logic."
+description = "FRAME pallet for block author subsidies."
 version = "0.1.0"
 license = "Unlicense"
 authors.workspace = true
@@ -19,12 +19,14 @@ frame-support.workspace = true
 frame-system.workspace = true
 scale-info = { features = ["derive"], workspace = true }
 sp-core = { features = ["serde"], workspace = true }
+sp-io.workspace = true
 fp-account = { workspace = true, features = ["serde"] }
 pallet-evm = { workspace = true }
 log.workspace = true
 pallet-balances.workspace = true
 
 [dev-dependencies]
+sp-keystore = { git = "https://github.com/paritytech/polkadot-sdk", branch = "stable2412" }
 sp-io = { default-features = true, workspace = true }
 sp-runtime = { default-features = true, workspace = true }
 
@@ -41,6 +43,7 @@ std = [
 	"scale-info/std",
 	"pallet-balances/std",
 	"sp-core/std",
+	"sp-io/std",
 ]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
