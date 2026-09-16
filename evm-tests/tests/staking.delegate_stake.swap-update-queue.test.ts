@@ -17,6 +17,12 @@ import { PublicClient } from "viem";
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { expect } from "chai";
 import { Option } from '@polkadot/types';
+import {
+    minimumOutputAfterSlippage,
+    minimumSubnetDelegateSharesOut,
+    minimumValidatorDelegateSharesOut,
+} from "../src/balance-math";
+import { registerCanonicalValidators } from "../src/validator-fixtures";
 
 // npm test -- -g "test swap and transfer delegate staking-0xrh2"
 describe("test swap and transfer delegate staking-0xrh2", () => {
@@ -40,40 +46,7 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
         wallet7.address,
         wallet8.address,
     ]
-    const initialColdkeys = [
-        {
-            coldkey: wallet1.address,
-            count: 1
-        },
-        {
-            coldkey: wallet2.address,
-            count: 1
-        },
-        {
-            coldkey: wallet3.address,
-            count: 1
-        },
-        {
-            coldkey: wallet4.address,
-            count: 1
-        },
-        {
-            coldkey: wallet5.address,
-            count: 1
-        },
-        {
-            coldkey: wallet6.address,
-            count: 1
-        },
-        {
-            coldkey: wallet7.address,
-            count: 1
-        },
-        {
-            coldkey: wallet8.address,
-            count: 1
-        },
-    ];
+    const validatorColdkeys = [wallet1, wallet2, wallet3];
 
     let publicClient: PublicClient;
     // init substrate part
@@ -83,11 +56,13 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
 
     const sudoTransferAmount = BigInt(10000e18)
     const stakeAmount = BigInt(100e18)
+    const maxStakingSlippageBasisPoints = BigInt(100)
 
     const subnetContract = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet1);
     let fromSubnetId: string;
     let toSubnetId: string;
     let subnetNodeId: string;
+    let destinationValidatorId: string;
 
     // sudo account alice as signer
     let alice: PolkadotSigner;
@@ -119,9 +94,23 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
             api,
             papiApi,
             SUB_LOCAL_URL,
+            wallet3.address,
+            sudoTransferAmount,
+        )
+
+        await transferBalanceFromSudo(
+            api,
+            papiApi,
+            SUB_LOCAL_URL,
             wallet2.address,
             sudoTransferAmount,
         )
+
+        const initialValidators = await registerCanonicalValidators(
+            subnetContract,
+            validatorColdkeys,
+            api,
+        );
 
         // ==============
         // Register subnet
@@ -145,9 +134,8 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         fromSubnetId = await subnetContract.getSubnetId(subnetName);
@@ -168,9 +156,8 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         toSubnetId = await subnetContract.getSubnetId(subnetName2);
@@ -192,11 +179,7 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
             multiaddr: new Uint8Array()
         }
 
-        let delegateAccount = {
-            accountId: wallet1.address,
-            rate: BigInt(0)
-        }
-        const delegateRewardRate = "0";
+        const validatorId = initialValidators[0].validatorId;
 
         const bootnode = generateRandomString(16)
         const unique = generateRandomString(16)
@@ -204,34 +187,29 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
 
         await registerSubnetNode(
             subnetContract,
+            validatorId,
             fromSubnetId,
             wallet2.address,
             peer_info_1,
             peer_info_2,
             peer_info_3,
-            delegateRewardRate,
             BigInt(minStake.toString()),
             unique,
             nonUnique,
-            delegateAccount,
             "1000000000000000000"
         )
 
-        let subnetNodeIdFetched = await api.query.network.hotkeySubnetNodeId(fromSubnetId, wallet2.address);
+        subnetNodeId = (
+            await api.query.network.totalSubnetNodeUids(fromSubnetId)
+        ).toString();
+        expect(Number(subnetNodeId)).to.be.greaterThan(0);
 
-        const subnetNodeIdOpt = subnetNodeIdFetched as Option<any>;
-        expect(subnetNodeIdOpt.isSome);
-
-        let subnetNodeExists: boolean = false;
-        if (subnetNodeIdOpt.isSome) {
-            subnetNodeExists = true;
-            const subnetNodeIdUnwrapped = subnetNodeIdOpt.unwrap();
-            const human = subnetNodeIdUnwrapped.toHuman();
-            subnetNodeId = human?.toString();
-            expect(Number(subnetNodeId)).to.be.greaterThan(0);
-        }
-        expect(subnetNodeExists);
-        expect(subnetNodeId != undefined);
+        const destinationValidatorIdOption = await api.query.network.subnetNodeValidatorId(
+            fromSubnetId,
+            subnetNodeId,
+        ) as Option<any>;
+        expect(destinationValidatorIdOption.isSome).to.equal(true);
+        destinationValidatorId = destinationValidatorIdOption.unwrap().toString();
     })
 
     // Status: passing
@@ -252,26 +230,51 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
             stakingContract,
             fromSubnetId,
             stakeAmount,
-            BigInt(0)
+            await minimumSubnetDelegateSharesOut(
+                stakingContract,
+                fromSubnetId,
+                stakeAmount,
+                maxStakingSlippageBasisPoints,
+            )
         );
 
         const sharesAfter = await stakingContract.accountSubnetDelegateStakeShares(wallet1.address, fromSubnetId);
         const balanceAfter = await stakingContract.accountSubnetDelegateStakeBalance(wallet1.address, fromSubnetId);
 
         expect(sharesBefore).to.be.lessThan(sharesAfter);
-        expect(sharesBefore).to.not.equal(0);
+        expect(sharesBefore).to.equal(BigInt(0));
         expect(balanceBefore).to.be.lessThan(balanceAfter);
 
         // ==================
         // Swap delegate stake
         // ==================
         const nextSwapId = await api.query.network.nextSwapQueueId();
+        const quotedBalanceOut = await stakingContract.previewSubnetDelegateStakeRedeem(
+            fromSubnetId,
+            sharesAfter,
+        );
+        const minBalanceOut = minimumOutputAfterSlippage(
+            quotedBalanceOut,
+            maxStakingSlippageBasisPoints,
+        );
+        const minSharesOut = await minimumSubnetDelegateSharesOut(
+            stakingContract,
+            toSubnetId,
+            quotedBalanceOut,
+            maxStakingSlippageBasisPoints,
+        );
+        const epochLength = BigInt(api.consts.network.epochLength.toString());
+        const currentBlock = BigInt((await api.query.system.number()).toString());
+        const executeBeforeBlock = currentBlock + epochLength * BigInt(2);
 
         await swapDelegateStake(
             stakingContract,
             fromSubnetId,
             toSubnetId,
-            sharesAfter
+            sharesAfter,
+            minBalanceOut,
+            minSharesOut,
+            executeBeforeBlock,
         );
 
         // Ensure shares decreased
@@ -287,9 +290,11 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
         expect(swapCallQueue != undefined);
 
         const swapCallQueueOpt = swapCallQueue as Option<any>;
-        expect(swapCallQueueOpt.isSome);
+        expect(swapCallQueueOpt.isSome).to.equal(true);
 
         let swapQueueId = 0;
+        const parseHumanNumber = (value: any) =>
+            BigInt(value.toString().replace(/,/g, ""));
 
         if (swapCallQueueOpt.isSome) {
             const swapCallQueue = swapCallQueueOpt.unwrap();
@@ -297,46 +302,59 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
             const callType = Object.keys(human.call);
             expect(callType[0]).to.be.equal("SwapToSubnetDelegateStake");
 
-            const swapCallQueueId = human.id;
-            swapQueueId = swapCallQueueId;
+            const swapCallQueueId = parseHumanNumber(human.id);
+            swapQueueId = Number(swapCallQueueId);
             const accountIdHuman = human.call.SwapToSubnetDelegateStake.accountId;
             let toSubnetIdHuman = human.call.SwapToSubnetDelegateStake.toSubnetId;
             toSubnetIdHuman = toSubnetIdHuman.replace(/,/g, "");
             let balanceHuman = human.call.SwapToSubnetDelegateStake.balance;
             balanceHuman = balanceHuman.replace(/,/g, "");
-            expect(Number(swapCallQueueId.toString())).to.be.equal(Number(nextSwapId.toString()));
+            const queuedMinSharesOut = parseHumanNumber(
+                human.call.SwapToSubnetDelegateStake.minSharesOut,
+            );
+            const queuedExecuteBeforeBlock = parseHumanNumber(
+                human.call.SwapToSubnetDelegateStake.executeBeforeBlock,
+            );
+            expect(swapCallQueueId).to.equal(BigInt(nextSwapId.toString()));
             expect(accountIdHuman).to.be.equal(wallet1.address);
             expect(Number(toSubnetIdHuman)).to.be.equal(Number(toSubnetId));
             expect(Number(balanceHuman.toString())).to.be.greaterThan(0);
+            expect(queuedMinSharesOut).to.equal(minSharesOut);
+            expect(queuedExecuteBeforeBlock).to.equal(executeBeforeBlock);
         }
 
         // Ensure `getQueuedSwapCall` works
         let evmSwapQueue = await stakingContract.getQueuedSwapCall(swapQueueId);
-        let _id = evmSwapQueue[0]
-        let _account_id = evmSwapQueue[1]
-        let _call_type = evmSwapQueue[2]
-        let _to_subnet_id = evmSwapQueue[3]
-        let _to_subnet_node_id = evmSwapQueue[4]
-        let _balance = evmSwapQueue[5]
-        let _queued_at_block = evmSwapQueue[6]
-        let _execute_after_blocks = evmSwapQueue[7]
-        expect(Number(_id) == swapQueueId);
-        expect(_account_id == wallet1.address);
-        expect(Number(_call_type) == 0); // SwapToSubnetDelegateStake
-        expect(Number(_queued_at_block) > 0);
-        expect(Number(_execute_after_blocks) > 0);
-        expect(Number(_balance) > 0);
-        expect(Number(_to_subnet_id) == Number(toSubnetId));
-        expect(Number(_to_subnet_node_id) == 0);
+        expect(Number(evmSwapQueue[0])).to.equal(swapQueueId);
+        expect(evmSwapQueue[1]).to.equal(wallet1.address);
+        expect(Number(evmSwapQueue[2])).to.equal(0); // SwapToSubnetDelegateStake
+        expect(Number(evmSwapQueue[3])).to.equal(0); // no validator destination
+        expect(Number(evmSwapQueue[4])).to.equal(Number(toSubnetId));
+        expect(BigInt(evmSwapQueue[5]) > BigInt(0)).to.equal(true);
+        expect(BigInt(evmSwapQueue[6])).to.equal(minSharesOut);
+        expect(BigInt(evmSwapQueue[7])).to.equal(executeBeforeBlock);
+        expect(Number(evmSwapQueue[8])).to.be.greaterThan(0);
+        expect(Number(evmSwapQueue[9])).to.be.greaterThan(0);
+        const queuedBalance = BigInt(evmSwapQueue[5]);
 
         // Update the queue
         // Update back to the from subnet ID
+        const firstUpdateBlock = BigInt((await api.query.system.number()).toString());
+        const firstUpdateDeadline = firstUpdateBlock + epochLength * BigInt(2);
+        const fromSubnetMinSharesOut = await minimumSubnetDelegateSharesOut(
+            stakingContract,
+            fromSubnetId,
+            queuedBalance,
+            maxStakingSlippageBasisPoints,
+        );
         await updateSwapQueue(
             stakingContract,
             swapQueueId.toString(),
             "0",
+            "0",
             fromSubnetId.toString(),
-            "0"
+            fromSubnetMinSharesOut,
+            firstUpdateDeadline,
         );
 
         const swapCallQueueAfter = await api.query.network.swapCallQueue(nextSwapId);
@@ -344,7 +362,7 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
         expect(swapCallQueueAfter != undefined);
 
         const swapCallQueueAfterOpt = swapCallQueueAfter as Option<any>;
-        expect(swapCallQueueAfterOpt.isSome);
+        expect(swapCallQueueAfterOpt.isSome).to.equal(true);
 
         swapQueueId = 0;
 
@@ -353,46 +371,58 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
             const human = swapCallQueue.toHuman();
             const callType = Object.keys(human.call);
             expect(callType[0]).to.be.equal("SwapToSubnetDelegateStake");
-            const swapCallQueueId = human.id;
-            swapQueueId = swapCallQueueId;
+            const swapCallQueueId = parseHumanNumber(human.id);
+            swapQueueId = Number(swapCallQueueId);
             const accountIdHuman = human.call.SwapToSubnetDelegateStake.accountId;
             let toSubnetIdHuman = human.call.SwapToSubnetDelegateStake.toSubnetId;
             toSubnetIdHuman = toSubnetIdHuman.replace(/,/g, "");
             let balanceHuman = human.call.SwapToSubnetDelegateStake.balance;
             balanceHuman = balanceHuman.replace(/,/g, "");
-            expect(Number(swapCallQueueId.toString())).to.be.equal(Number(nextSwapId.toString()));
+            const queuedMinSharesOut = parseHumanNumber(
+                human.call.SwapToSubnetDelegateStake.minSharesOut,
+            );
+            const queuedExecuteBeforeBlock = parseHumanNumber(
+                human.call.SwapToSubnetDelegateStake.executeBeforeBlock,
+            );
+            expect(swapCallQueueId).to.equal(BigInt(nextSwapId.toString()));
             expect(accountIdHuman).to.be.equal(wallet1.address);
             expect(Number(toSubnetIdHuman)).to.be.equal(Number(fromSubnetId));
             expect(Number(balanceHuman.toString())).to.be.greaterThan(0);
+            expect(queuedMinSharesOut).to.equal(fromSubnetMinSharesOut);
+            expect(queuedExecuteBeforeBlock).to.equal(firstUpdateDeadline);
         }
 
         // Ensure `getQueuedSwapCall` works
         evmSwapQueue = await stakingContract.getQueuedSwapCall(swapQueueId);
-        _id = evmSwapQueue[0]
-        _account_id = evmSwapQueue[1]
-        _call_type = evmSwapQueue[2]
-        _to_subnet_id = evmSwapQueue[3]
-        _to_subnet_node_id = evmSwapQueue[4]
-        _balance = evmSwapQueue[5]
-        _queued_at_block = evmSwapQueue[6]
-        _execute_after_blocks = evmSwapQueue[7]
-        expect(Number(_id) == swapQueueId);
-        expect(_account_id == wallet1.address);
-        expect(Number(_call_type) == 0); // SwapToSubnetDelegateStake
-        expect(Number(_queued_at_block) > 0);
-        expect(Number(_execute_after_blocks) > 0);
-        expect(Number(_balance) > 0);
-        expect(Number(_to_subnet_id) == Number(fromSubnetId));
-        expect(Number(_to_subnet_node_id) == 0);
+        expect(Number(evmSwapQueue[0])).to.equal(swapQueueId);
+        expect(evmSwapQueue[1]).to.equal(wallet1.address);
+        expect(Number(evmSwapQueue[2])).to.equal(0); // SwapToSubnetDelegateStake
+        expect(Number(evmSwapQueue[3])).to.equal(0); // no validator destination
+        expect(Number(evmSwapQueue[4])).to.equal(Number(fromSubnetId));
+        expect(BigInt(evmSwapQueue[5]) > BigInt(0)).to.equal(true);
+        expect(BigInt(evmSwapQueue[6])).to.equal(fromSubnetMinSharesOut);
+        expect(BigInt(evmSwapQueue[7])).to.equal(firstUpdateDeadline);
+        expect(Number(evmSwapQueue[8])).to.be.greaterThan(0);
+        expect(Number(evmSwapQueue[9])).to.be.greaterThan(0);
 
         // Update the queue
-        // Update to to node delegate staking to node ID 
+        // Update to validator delegate staking.
+        const secondUpdateBlock = BigInt((await api.query.system.number()).toString());
+        const secondUpdateDeadline = secondUpdateBlock + epochLength * BigInt(2);
+        const validatorMinSharesOut = await minimumValidatorDelegateSharesOut(
+            stakingContract,
+            destinationValidatorId,
+            queuedBalance,
+            maxStakingSlippageBasisPoints,
+        );
         await updateSwapQueue(
             stakingContract,
             swapQueueId.toString(),
             "1",
-            fromSubnetId.toString(),
-            subnetNodeId.toString()
+            destinationValidatorId,
+            "0",
+            validatorMinSharesOut,
+            secondUpdateDeadline,
         );
 
         const swapCallQueueAfter2 = await api.query.network.swapCallQueue(nextSwapId);
@@ -400,46 +430,45 @@ describe("test swap and transfer delegate staking-0xrh2", () => {
         expect(swapCallQueueAfter2 != undefined);
 
         const swapCallQueueAfter2Opt = swapCallQueueAfter2 as Option<any>;
-        expect(swapCallQueueAfter2Opt.isSome);
+        expect(swapCallQueueAfter2Opt.isSome).to.equal(true);
 
 
         if (swapCallQueueAfter2Opt.isSome) {
             const swapCallQueue = swapCallQueueAfter2Opt.unwrap();
             const human = swapCallQueue.toHuman();
             const callType = Object.keys(human.call);
-            expect(callType[0]).to.be.equal("SwapToNodeDelegateStake");
-            const swapCallQueueId = human.id;
-            const accountIdHuman = human.call.SwapToNodeDelegateStake.accountId;
-            let toSubnetIdHuman = human.call.SwapToNodeDelegateStake.toSubnetId;
-            toSubnetIdHuman = toSubnetIdHuman.replace(/,/g, "");
-            let toSubnetNodeIdHuman = human.call.SwapToNodeDelegateStake.toSubnetNodeId;
-            toSubnetNodeIdHuman = toSubnetNodeIdHuman.replace(/,/g, "");
-            let balanceHuman = human.call.SwapToNodeDelegateStake.balance;
+            expect(callType[0]).to.be.equal("SwapToValidatorDelegateStake");
+            const swapCallQueueId = parseHumanNumber(human.id);
+            const accountIdHuman = human.call.SwapToValidatorDelegateStake.accountId;
+            let toValidatorIdHuman = human.call.SwapToValidatorDelegateStake.toValidatorId;
+            toValidatorIdHuman = toValidatorIdHuman.replace(/,/g, "");
+            let balanceHuman = human.call.SwapToValidatorDelegateStake.balance;
             balanceHuman = balanceHuman.replace(/,/g, "");
-            expect(Number(swapCallQueueId.toString())).to.be.equal(Number(nextSwapId.toString()));
+            const queuedMinSharesOut = parseHumanNumber(
+                human.call.SwapToValidatorDelegateStake.minSharesOut,
+            );
+            const queuedExecuteBeforeBlock = parseHumanNumber(
+                human.call.SwapToValidatorDelegateStake.executeBeforeBlock,
+            );
+            expect(swapCallQueueId).to.equal(BigInt(nextSwapId.toString()));
             expect(accountIdHuman).to.be.equal(wallet1.address);
-            expect(Number(toSubnetIdHuman)).to.be.equal(Number(fromSubnetId));
-            expect(Number(toSubnetNodeIdHuman)).to.be.equal(Number(subnetNodeId));
+            expect(Number(toValidatorIdHuman)).to.be.equal(Number(destinationValidatorId));
             expect(Number(balanceHuman.toString())).to.be.greaterThan(0);
+            expect(queuedMinSharesOut).to.equal(validatorMinSharesOut);
+            expect(queuedExecuteBeforeBlock).to.equal(secondUpdateDeadline);
         }
 
         evmSwapQueue = await stakingContract.getQueuedSwapCall(swapQueueId);
-        _id = evmSwapQueue[0]
-        _account_id = evmSwapQueue[1]
-        _call_type = evmSwapQueue[2]
-        _to_subnet_id = evmSwapQueue[3]
-        _to_subnet_node_id = evmSwapQueue[4]
-        _balance = evmSwapQueue[5]
-        _queued_at_block = evmSwapQueue[6]
-        _execute_after_blocks = evmSwapQueue[7]
-        expect(Number(_id) == swapQueueId);
-        expect(_account_id == wallet1.address);
-        expect(Number(_call_type) == 1); // SwapToSubnetDelegateStake
-        expect(Number(_queued_at_block) > 0);
-        expect(Number(_execute_after_blocks) > 0);
-        expect(Number(_balance) > 0);
-        expect(Number(_to_subnet_id) == Number(fromSubnetId));
-        expect(Number(_to_subnet_node_id) == Number(subnetNodeId));
+        expect(Number(evmSwapQueue[0])).to.equal(swapQueueId);
+        expect(evmSwapQueue[1]).to.equal(wallet1.address);
+        expect(Number(evmSwapQueue[2])).to.equal(1); // SwapToValidatorDelegateStake
+        expect(Number(evmSwapQueue[3])).to.equal(Number(destinationValidatorId));
+        expect(Number(evmSwapQueue[4])).to.equal(0); // no subnet destination
+        expect(BigInt(evmSwapQueue[5]) > BigInt(0)).to.equal(true);
+        expect(BigInt(evmSwapQueue[6])).to.equal(validatorMinSharesOut);
+        expect(BigInt(evmSwapQueue[7])).to.equal(secondUpdateDeadline);
+        expect(Number(evmSwapQueue[8])).to.be.greaterThan(0);
+        expect(Number(evmSwapQueue[9])).to.be.greaterThan(0);
 
         console.log("✅ Update delegate stake swap queue testing complete")
     })

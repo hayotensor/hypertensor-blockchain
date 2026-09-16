@@ -2,7 +2,7 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::Event;
 use crate::{
-    DelegateAccount, DelegateAccountStake, Error, MaxSubnetNodes, MaxSubnets,
+    ColdkeyValidatorId, DelegateAccount, DelegateAccountStake, Error, MaxSubnetNodes, MaxSubnets,
     MinActiveNodeStakeEpochs, MinSubnetMinStake, OverwatchMinStakeBalance, OverwatchNodeIdHotkey,
     OverwatchNodes, PeerInfo, StakeCooldownEpochs, StakeUnbondingLedger, SubnetName,
     SubnetNodeClass, SubnetState, TotalAccountDelegateStake, TotalActiveSubnets, TotalSubnetNodes,
@@ -10,6 +10,7 @@ use crate::{
 };
 use frame_support::traits::Currency;
 use frame_support::{assert_err, assert_ok};
+use sp_runtime::ArithmeticError;
 use sp_std::collections::btree_map::BTreeMap;
 
 #[test]
@@ -77,6 +78,41 @@ fn test_update_delegate_account_not_key_owner_error() {
             ),
             Error::<Test>::NotKeyOwner
         );
+    })
+}
+
+#[test]
+fn test_update_delegate_account_requires_canonical_validator_coldkey() {
+    new_test_ext().execute_with(|| {
+        let coldkey = account(0);
+        let hotkey = account(1);
+        let reward_rate = test_percent(1, 20); // 5%
+        assert_ok!(Network::do_register_validator(
+            RuntimeOrigin::signed(coldkey.clone()),
+            hotkey,
+            reward_rate,
+            None,
+            None,
+        ));
+
+        let current_id = TotalValidatorIds::<Test>::get();
+        let new_delegate_account_id = account(100);
+        let delegate_rate = test_percent(2, 5);
+
+        ColdkeyValidatorId::<Test>::remove(&coldkey);
+
+        assert_err!(
+            Network::update_validator_delegate_account(
+                RuntimeOrigin::signed(coldkey),
+                current_id,
+                Some(new_delegate_account_id),
+                Some(delegate_rate),
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+
+        let validator = ValidatorsData::<Test>::get(current_id);
+        assert_eq!(validator.delegate_account, None);
     })
 }
 
@@ -382,7 +418,7 @@ fn test_remove_delegate_account_balance() {
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
-        Network::increase_delegate_account_balance(&account_id, 100);
+        assert_ok!(Network::increase_delegate_account_balance(&account_id, 100));
 
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
@@ -405,14 +441,15 @@ fn test_remove_delegate_account_balance() {
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
-        let unbondings: BTreeMap<u32, u128> = StakeUnbondingLedger::<Test>::get(&account_id);
+        let unbondings = StakeUnbondingLedger::<Test>::get(&account_id);
         assert_eq!(unbondings.len(), 1);
         let (ledger_block, ledger_balance) = unbondings.iter().next().unwrap();
         assert_eq!(
             *ledger_block,
             &block + StakeCooldownEpochs::<Test>::get() * EpochLength::get()
         );
-        assert_eq!(*ledger_balance, 100);
+        assert_eq!(ledger_balance.network, 100);
+        assert_eq!(ledger_balance.overwatch, 0);
     })
 }
 
@@ -424,7 +461,7 @@ fn test_remove_delegate_account_balance_amount_zero_error() {
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
-        Network::increase_delegate_account_balance(&account_id, 100);
+        assert_ok!(Network::increase_delegate_account_balance(&account_id, 100));
 
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
@@ -447,7 +484,7 @@ fn test_remove_delegate_account_balance_not_enough_stake_error() {
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 0);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 0);
 
-        Network::increase_delegate_account_balance(&account_id, 100);
+        assert_ok!(Network::increase_delegate_account_balance(&account_id, 100));
 
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
@@ -463,4 +500,28 @@ fn test_remove_delegate_account_balance_not_enough_stake_error() {
         assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 100);
         assert_eq!(TotalAccountDelegateStake::<Test>::get(), 100);
     })
+}
+
+#[test]
+fn checked_delegate_account_mutations_do_not_partially_update_aggregate() {
+    new_test_ext().execute_with(|| {
+        let account_id = account(991);
+        DelegateAccountStake::<Test>::insert(&account_id, 10);
+        TotalAccountDelegateStake::<Test>::put(u128::MAX);
+
+        assert_err!(
+            Network::increase_delegate_account_balance(&account_id, 1),
+            ArithmeticError::Overflow
+        );
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 10);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), u128::MAX);
+
+        TotalAccountDelegateStake::<Test>::put(5);
+        assert_err!(
+            Network::decrease_delegate_account_balance(&account_id, 6),
+            ArithmeticError::Underflow
+        );
+        assert_eq!(DelegateAccountStake::<Test>::get(&account_id), 10);
+        assert_eq!(TotalAccountDelegateStake::<Test>::get(), 5);
+    });
 }

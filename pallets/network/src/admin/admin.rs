@@ -18,19 +18,35 @@ use frame_support::pallet_prelude::DispatchResultWithPostInfo;
 
 impl<T: Config> Pallet<T> {
     pub fn do_pause() -> DispatchResult {
+        if !TxPause::<T>::get() {
+            OverwatchTxPauseStartBlock::<T>::put(Self::get_current_block_as_u32());
+        }
         TxPause::<T>::put(true);
         Self::deposit_event(Event::SetTxPause());
         Ok(())
     }
     pub fn do_unpause() -> DispatchResult {
+        if TxPause::<T>::get() {
+            if let Some(pause_start_block) = OverwatchTxPauseStartBlock::<T>::take() {
+                let pause_duration =
+                    Self::get_current_block_as_u32().saturating_sub(pause_start_block);
+                let resumed_start_block = OverwatchEpochStartBlock::<T>::mutate(|start_block| {
+                    *start_block = (*start_block).saturating_add(pause_duration);
+                    *start_block
+                });
+                Self::deposit_event(Event::OverwatchEpochResumed {
+                    epoch: CurrentOverwatchEpoch::<T>::get(),
+                    start_block: resumed_start_block,
+                });
+            }
+        }
         TxPause::<T>::put(false);
         Self::deposit_event(Event::SetTxUnpause());
         Ok(())
     }
     pub fn do_set_subnet_owner_percentage(value: u128) -> DispatchResult {
-        // Ensure under 50%
         ensure!(
-            value <= Self::percentage_factor_as_u128() / 2,
+            value <= MAX_SUBNET_OWNER_PERCENTAGE,
             Error::<T>::InvalidPercent
         );
 
@@ -41,10 +57,13 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_max_subnets(value: u32) -> DispatchResult {
-        // Account for the first 3 block steps in an epoch
-        // Do not go over epoch length - 3 to ensure each subnet has a slot in each epoch
+        // Account for designated general-chain work and the temporary rotation capacity.
+        let available_slots = T::EpochLength::get()
+            .checked_sub(T::DesignatedEpochSlots::get())
+            .unwrap_or(0);
+        let bounded_slots = available_slots.min(T::MaxPhysicalSubnetsUpperBound::get());
         ensure!(
-            value <= T::EpochLength::get() - T::DesignatedEpochSlots::get(),
+            value <= bounded_slots.saturating_sub(SUBNET_ROTATION_ALLOWANCE),
             Error::<T>::InvalidMaxSubnets
         );
 
@@ -55,7 +74,10 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_max_bootnodes(value: u32) -> DispatchResult {
-        ensure!(value <= 256, Error::<T>::InvalidMaxBootnodes);
+        ensure!(
+            value <= T::MaxBootnodesUpperBound::get(),
+            Error::<T>::InvalidMaxBootnodes
+        );
 
         MaxBootnodes::<T>::set(value);
 
@@ -64,7 +86,10 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_max_subnet_bootnodes_access(value: u32) -> DispatchResult {
-        ensure!(value <= 256, Error::<T>::InvalidMaxSubnetBootnodeAccess);
+        ensure!(
+            value <= T::MaxSubnetBootnodeAccessUpperBound::get(),
+            Error::<T>::InvalidMaxSubnetBootnodeAccess
+        );
 
         MaxSubnetBootnodeAccess::<T>::set(value);
 
@@ -113,20 +138,19 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_max_min_delegate_stake_multiplier(value: u128) -> DispatchResult {
-        ensure!(
-            value >= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
-        );
-        MaxMinDelegateStakeMultiplier::<T>::set(value);
+    pub fn do_set_min_subnet_delegate_stake_balance(value: u128) -> DispatchResult {
+        MinSubnetDelegateStakeBalance::<T>::set(value);
 
-        Self::deposit_event(Event::SetMaxMinDelegateStakeMultiplier(value));
+        Self::deposit_event(Event::SetMinSubnetDelegateStakeBalance(value));
 
         Ok(())
     }
 
     pub fn do_set_churn_limits(min: u32, max: u32) -> DispatchResult {
-        ensure!(min < max, Error::<T>::InvalidValues);
+        ensure!(
+            min < max && max <= T::MaxChurnLimitUpperBound::get(),
+            Error::<T>::InvalidValues
+        );
 
         MinChurnLimit::<T>::set(min);
         MaxChurnLimit::<T>::set(max);
@@ -137,7 +161,10 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn do_set_churn_limit_multipliers(min: u32, max: u32) -> DispatchResult {
-        ensure!(min < max, Error::<T>::InvalidValues);
+        ensure!(
+            min >= MIN_CHURN_LIMIT_MULTIPLIER && min < max,
+            Error::<T>::InvalidValues
+        );
 
         MinChurnLimitMultiplier::<T>::set(min);
         MaxChurnLimitMultiplier::<T>::set(max);
@@ -215,6 +242,10 @@ impl<T: Config> Pallet<T> {
     }
     pub fn do_set_min_max_registered_nodes(min: u32, max: u32) -> DispatchResult {
         ensure!(min < max, Error::<T>::InvalidValues);
+        ensure!(
+            max <= T::MaxRegisteredNodesUpperBound::get(),
+            Error::<T>::InvalidMaxRegisteredNodes
+        );
 
         MinMaxRegisteredNodes::<T>::set(min);
         MaxMaxRegisteredNodes::<T>::set(max);
@@ -241,36 +272,6 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_min_attestation_percentage(value: u128) -> DispatchResult {
-        ensure!(
-            value <= Self::percentage_factor_as_u128()
-                && value > Self::percentage_factor_as_u128() / 2,
-            Error::<T>::InvalidPercent
-        );
-
-        MinAttestationPercentage::<T>::set(value);
-
-        Self::deposit_event(Event::SetMinAttestationPercentage(value));
-
-        Ok(())
-    }
-    pub fn do_set_super_majority_attestation_ratio(value: u128) -> DispatchResult {
-        ensure!(
-            value <= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
-        );
-
-        ensure!(
-            value >= MinAttestationPercentage::<T>::get(),
-            Error::<T>::InvalidSuperMajorityAttestationRatio
-        );
-
-        SuperMajorityAttestationRatio::<T>::set(value);
-
-        Self::deposit_event(Event::SetSuperMajorityAttestationRatio(value));
-
-        Ok(())
-    }
     pub fn do_set_base_validator_reward(value: u128) -> DispatchResult {
         BaseValidatorReward::<T>::set(value);
 
@@ -279,6 +280,11 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_base_slash_percentage(value: u128) -> DispatchResult {
+        ensure!(
+            value <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+
         BaseSlashPercentage::<T>::set(value);
 
         Self::deposit_event(Event::SetBaseSlashPercentage(value));
@@ -292,27 +298,32 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_reputation_increase_factor(value: u128) -> DispatchResult {
+    pub fn do_set_validator_delegate_stake_slash_config(
+        threshold: u128,
+        base_percentage: u128,
+        max_amount: u128,
+    ) -> DispatchResult {
+        let percentage_factor = Self::percentage_factor_as_u128();
+        let config_disabled = base_percentage == 0 && max_amount == 0;
+        let config_enabled = base_percentage > 0 && max_amount > 0;
+
         ensure!(
-            value <= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
+            threshold > 0
+                && threshold < T::MinAttestationPercentage::get()
+                && base_percentage <= percentage_factor
+                && (config_disabled || config_enabled),
+            Error::<T>::InvalidValidatorDelegateStakeSlashConfig
         );
 
-        ValidatorReputationIncreaseFactor::<T>::set(value);
+        ValidatorDelegateStakeSlashThreshold::<T>::set(threshold);
+        BaseValidatorDelegateStakeSlashPercentage::<T>::set(base_percentage);
+        MaxValidatorDelegateStakeSlashAmount::<T>::set(max_amount);
 
-        Self::deposit_event(Event::SetValidatorReputationIncreaseFactor(value));
-
-        Ok(())
-    }
-    pub fn do_set_reputation_decrease_factor(value: u128) -> DispatchResult {
-        ensure!(
-            value <= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
-        );
-
-        ValidatorReputationDecreaseFactor::<T>::set(value);
-
-        Self::deposit_event(Event::SetValidatorReputationDecreaseFactor(value));
+        Self::deposit_event(Event::SetValidatorDelegateStakeSlashConfig {
+            threshold,
+            base_percentage,
+            max_amount,
+        });
 
         Ok(())
     }
@@ -324,7 +335,10 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_min_delegate_stake_deposit(value: u128) -> DispatchResult {
-        ensure!(value >= 1000, Error::<T>::InvalidMinDelegateStakeDeposit);
+        ensure!(
+            value >= MIN_DELEGATE_STAKE_DEPOSIT_LOWER_BOUND,
+            Error::<T>::InvalidMinDelegateStakeDeposit
+        );
 
         MinDelegateStakeDeposit::<T>::set(value);
 
@@ -376,20 +390,47 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_min_max_consensus_node_attestation_percentage(
+    pub fn do_set_consensus_validator_stake_weight_power_update_interval(
+        value: u32,
+    ) -> DispatchResult {
+        ConsensusValidatorStakeWeightPowerUpdateInterval::<T>::set(value);
+
+        Self::deposit_event(Event::SetConsensusValidatorStakeWeightPowerUpdateInterval(
+            value,
+        ));
+
+        Ok(())
+    }
+    pub fn do_set_min_max_consensus_validator_stake_weight_power(
         min: u128,
         max: u128,
     ) -> DispatchResult {
-        ensure!(min > 0 && min <= max, Error::<T>::InvalidValues);
+        ensure!(min <= max, Error::<T>::InvalidValues);
         ensure!(
             max <= Self::percentage_factor_as_u128(),
             Error::<T>::InvalidPercent
         );
 
-        MinSubnetConsensusNodeAttestationPercentage::<T>::set(min);
-        MaxSubnetConsensusNodeAttestationPercentage::<T>::set(max);
+        MinConsensusValidatorStakeWeightPower::<T>::set(min);
+        MaxConsensusValidatorStakeWeightPower::<T>::set(max);
 
-        Self::deposit_event(Event::SetMinMaxConsensusNodeAttestationPercentage(min, max));
+        Self::deposit_event(Event::SetMinMaxConsensusValidatorStakeWeightPower(min, max));
+
+        Ok(())
+    }
+    pub fn do_set_consensus_validator_identity_attestation_percentage(
+        value: u128,
+    ) -> DispatchResult {
+        ensure!(
+            value > 0 && value <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+
+        ConsensusValidatorIdentityAttestationPercentage::<T>::set(value);
+
+        Self::deposit_event(Event::SetConsensusValidatorIdentityAttestationPercentage(
+            value,
+        ));
 
         Ok(())
     }
@@ -404,14 +445,11 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_inflation_sigmoid_steepness(value: u128) -> DispatchResult {
-        InflationSigmoidSteepness::<T>::set(value);
-
-        Self::deposit_event(Event::SetSigmoidSteepness(value));
-
-        Ok(())
-    }
     pub fn do_set_max_overwatch_nodes(value: u32) -> DispatchResult {
+        ensure!(
+            value <= T::MaxOverwatchNodesUpperBound::get(),
+            Error::<T>::MaxOverwatchNodes
+        );
         MaxOverwatchNodes::<T>::set(value);
 
         Self::deposit_event(Event::SetMaxOverwatchNodes(value));
@@ -419,8 +457,17 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_overwatch_epoch_length_multiplier(value: u32) -> DispatchResult {
-        // Ensure always at least  `1` to avoid modulo operator errors in `on_initialize`
         ensure!(value > 0, Error::<T>::InvalidOverwatchEpochLengthMultiplier);
+        ensure!(
+            T::EpochLength::get().checked_mul(value).is_some(),
+            Error::<T>::InvalidOverwatchEpochLengthMultiplier
+        );
+        ensure!(
+            T::OverwatchEpochEmissions::get()
+                .checked_mul(value as u128)
+                .is_some(),
+            Error::<T>::InvalidOverwatchEpochLengthMultiplier
+        );
 
         OverwatchEpochLengthMultiplier::<T>::set(value);
 
@@ -430,41 +477,13 @@ impl<T: Config> Pallet<T> {
     }
     pub fn do_set_overwatch_commit_cutoff_percent(value: u128) -> DispatchResult {
         ensure!(
-            value <= 950000000000000000, // 95%
+            Self::is_usable_overwatch_commit_cutoff_percent(value),
             Error::<T>::InvalidPercent
         );
 
         OverwatchCommitCutoffPercent::<T>::set(value);
 
         Self::deposit_event(Event::SetOverwatchCommitCutoffPercent(value));
-
-        Ok(())
-    }
-    pub fn do_set_overwatch_min_diversification_ratio(value: u128) -> DispatchResult {
-        OverwatchMinDiversificationRatio::<T>::set(value);
-
-        Self::deposit_event(Event::SetOverwatchMinDiversificationRatio(value));
-
-        Ok(())
-    }
-    pub fn do_set_overwatch_min_rep_score(value: u128) -> DispatchResult {
-        OverwatchMinRepScore::<T>::set(value);
-
-        Self::deposit_event(Event::SetOverwatchMinRepScore(value));
-
-        Ok(())
-    }
-    pub fn do_set_overwatch_min_avg_attestation_ratio(value: u128) -> DispatchResult {
-        OverwatchMinAvgAttestationRatio::<T>::set(value);
-
-        Self::deposit_event(Event::SetOverwatchMinAvgAttestationRatio(value));
-
-        Ok(())
-    }
-    pub fn do_set_overwatch_min_age(value: u32) -> DispatchResult {
-        OverwatchMinAge::<T>::set(value);
-
-        Self::deposit_event(Event::SetOverwatchMinAge(value));
 
         Ok(())
     }
@@ -478,6 +497,10 @@ impl<T: Config> Pallet<T> {
 
     pub fn do_set_min_max_subnet_node(min: u32, max: u32) -> DispatchResult {
         ensure!(min < max && min > 0, Error::<T>::InvalidValues);
+        ensure!(
+            max <= T::MaxSubnetNodesUpperBound::get(),
+            Error::<T>::InvalidMaxSubnetNodes
+        );
 
         MinSubnetNodes::<T>::set(min);
         MaxSubnetNodes::<T>::set(max);
@@ -506,27 +529,22 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_collective_remove_subnet(subnet_id: u32) -> DispatchResultWithPostInfo {
-        let weight = Self::do_remove_subnet(subnet_id, SubnetRemovalReason::Council);
-        Ok(Some(weight).into())
+        ensure!(
+            !PendingConsensusRoundSettlementEpoch::<T>::contains_key(subnet_id),
+            Error::<T>::ConsensusRoundPendingSettlement
+        );
+        let _ = Self::do_remove_subnet(subnet_id, SubnetRemovalReason::Council);
+        // Keep the declared benchmark weight. The manual cleanup accumulator does not include
+        // proof-size or the complete variable-prefix model and is not safe as a refund value.
+        Ok(None.into())
     }
     pub fn do_collective_remove_subnet_node(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
         Self::deposit_event(Event::CollectiveRemoveSubnetNode(subnet_id, subnet_node_id));
         Self::do_remove_subnet_node_v2(subnet_id, subnet_node_id)
     }
     pub fn do_collective_remove_overwatch_node(overwatch_node_id: u32) -> DispatchResult {
-        Self::perform_remove_overwatch_node(overwatch_node_id);
+        Self::perform_remove_overwatch_node(overwatch_node_id)?;
         Self::deposit_event(Event::CollectiveRemoveOverwatchNode(overwatch_node_id));
-        Ok(())
-    }
-    /// Temporary solution until network maturity
-    pub fn do_collective_set_coldkey_overwatch_node_eligibility(
-        coldkey: T::AccountId,
-        value: bool,
-    ) -> DispatchResult {
-        OverwatchNodeBlacklist::<T>::insert(&coldkey, value);
-
-        Self::deposit_event(Event::OverwatchNodeBlacklist(coldkey.clone(), value));
-
         Ok(())
     }
     pub fn do_set_min_subnet_registration_epochs(value: u32) -> DispatchResult {
@@ -594,34 +612,14 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
     pub fn do_set_max_unbondings(value: u32) -> DispatchResult {
-        ensure!(value <= 256, Error::<T>::InvalidMaxUnbondings);
+        ensure!(
+            value <= T::MaxUnbondingsUpperBound::get(),
+            Error::<T>::InvalidMaxUnbondings
+        );
 
         MaxUnbondings::<T>::set(value);
 
         Self::deposit_event(Event::SetMaxUnbondings(value));
-
-        Ok(())
-    }
-    pub fn do_set_sigmoid_midpoint(value: u128) -> DispatchResult {
-        ensure!(
-            value <= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
-        );
-
-        InflationSigmoidMidpoint::<T>::put(value);
-
-        Self::deposit_event(Event::SetInflationSigmoidMidpoint(value));
-
-        Ok(())
-    }
-    pub fn do_set_maximum_hooks_weight(value: u32) -> DispatchResult {
-        ensure!(value > 0 && value <= 100, Error::<T>::InvalidPerbillPercent);
-
-        let new_value = sp_runtime::Perbill::from_percent(value) * T::BlockWeights::get().max_block;
-
-        MaximumHooksWeightV2::<T>::put(new_value);
-
-        Self::deposit_event(Event::SetMaximumHooksWeight(value));
 
         Ok(())
     }
@@ -636,7 +634,7 @@ impl<T: Config> Pallet<T> {
         ensure!(min < max && min > 0, Error::<T>::InvalidValues);
 
         ensure!(
-            max <= Self::percentage_factor_as_u128(),
+            max <= DefaultMaxNodeBurnRate::get(),
             Error::<T>::InvalidPercent
         );
 
@@ -659,17 +657,27 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_subnet_removal_intervals(min: u32, max: u32) -> DispatchResult {
-        ensure!(min < max, Error::<T>::InvalidValues);
+    pub fn do_set_subnet_removal_intervals(
+        activation_cooldown_epochs: u32,
+        check_interval_epochs: u32,
+    ) -> DispatchResult {
+        ensure!(
+            check_interval_epochs > 0,
+            Error::<T>::InvalidSubnetRemovalCheckInterval
+        );
 
-        MinSubnetRemovalInterval::<T>::put(min);
-        MaxSubnetRemovalInterval::<T>::put(max);
+        SubnetRemovalActivationCooldown::<T>::put(activation_cooldown_epochs);
+        SubnetRemovalCheckInterval::<T>::put(check_interval_epochs);
 
-        Self::deposit_event(Event::SetSubnetRemovalIntervals(min, max));
+        Self::deposit_event(Event::SetSubnetRemovalIntervals(
+            activation_cooldown_epochs,
+            check_interval_epochs,
+        ));
 
         Ok(())
     }
     pub fn do_set_subnet_pause_cooldown_epochs(value: u32) -> DispatchResult {
+        ensure!(value > 0, Error::<T>::InvalidSubnetPauseCooldownEpochs);
         SubnetPauseCooldownEpochs::<T>::put(value);
 
         Self::deposit_event(Event::SetSubnetPauseCooldownEpochs(value));
@@ -678,7 +686,7 @@ impl<T: Config> Pallet<T> {
     }
     pub fn do_set_max_swap_queue_calls_per_block(value: u32) -> DispatchResult {
         ensure!(
-            value <= T::MaxSwapQueueLength::get(),
+            value <= T::MaxSwapCallsPerBlockUpperBound::get(),
             Error::<T>::InvalidValues
         );
 
@@ -890,7 +898,8 @@ impl<T: Config> Pallet<T> {
 
     pub fn do_set_max_emergency_subnet_nodes(value: u32) -> DispatchResult {
         ensure!(
-            value >= MinSubnetNodes::<T>::get(),
+            value >= MinSubnetNodes::<T>::get()
+                && value <= T::MaxEmergencySubnetNodesUpperBound::get(),
             Error::<T>::InvalidMaxEmergencySubnetNodes
         );
 
@@ -910,9 +919,11 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn do_set_overwatch_stake_weight_factor(value: u128) -> DispatchResult {
-        // Must be greater than or equal to 1.0
+        let max_value = Self::percentage_factor_as_u128();
+
+        // The exponent may range from the 0.9 dampening floor to linear weighting at 1.0.
         ensure!(
-            value > 0 && value >= Self::percentage_factor_as_u128(),
+            value >= MIN_OVERWATCH_STAKE_WEIGHT_FACTOR && value <= max_value,
             Error::<T>::InvalidPercent
         );
 
@@ -968,7 +979,20 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn do_set_overwatch_validator_whitelist(validator_id: u32, value: bool) -> DispatchResult {
-        OverwatchValidatorWhitelist::<T>::insert(validator_id, value);
+        ensure!(
+            ValidatorsData::<T>::contains_key(validator_id),
+            Error::<T>::InvalidValidatorId
+        );
+
+        if value {
+            OverwatchValidatorWhitelist::<T>::insert(validator_id, ());
+        } else {
+            ensure!(
+                !ValidatorOverwatchNodeId::<T>::contains_key(validator_id),
+                Error::<T>::ActiveOverwatchNodeCannotBeUnwhitelisted
+            );
+            OverwatchValidatorWhitelist::<T>::remove(validator_id);
+        }
 
         Self::deposit_event(Event::SetOverwatchValidatorWhitelist(validator_id, value));
 

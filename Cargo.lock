@@ -4189,7 +4189,6 @@ dependencies = [
  "pallet-evm-precompile-sha3fips",
  "pallet-evm-precompile-simple",
  "pallet-network",
- "pallet-template",
  "precompile-utils",
  "sp-core",
  "sp-runtime",
@@ -4215,6 +4214,7 @@ dependencies = [
  "hex-literal",
  "hypertensor-precompiles",
  "network-custom-rpc-runtime-api",
+ "network-rpc-types",
  "pallet-atomic-swap",
  "pallet-aura",
  "pallet-author-subsidy",
@@ -4236,7 +4236,6 @@ dependencies = [
  "pallet-proxy",
  "pallet-scheduler",
  "pallet-sudo",
- "pallet-template",
  "pallet-timestamp",
  "pallet-transaction-payment",
  "pallet-transaction-payment-rpc-runtime-api",
@@ -6305,6 +6304,7 @@ dependencies = [
  "frame-support",
  "jsonrpsee 0.24.9",
  "network-custom-rpc-runtime-api",
+ "network-rpc-types",
  "pallet-network",
  "parity-scale-codec",
  "serde",
@@ -6320,10 +6320,10 @@ version = "0.0.1"
 dependencies = [
  "fp-account",
  "frame-support",
+ "network-rpc-types",
  "pallet-network",
  "serde",
  "sp-api",
- "sp-std",
 ]
 
 [[package]]
@@ -6336,6 +6336,17 @@ dependencies = [
  "libc",
  "thiserror 1.0.69",
  "winapi",
+]
+
+[[package]]
+name = "network-rpc-types"
+version = "0.1.0"
+dependencies = [
+ "impl-serde 0.5.0",
+ "parity-scale-codec",
+ "scale-info",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -6587,12 +6598,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "42f5e15c9953c5e4ccceeb2e7382a716482c34515315f7b03532b8b4e8393d2d"
 
 [[package]]
-name = "oorandom"
-version = "11.1.5"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6790f58c7ff633d8771f42965289203411a5e5c68388703c06e14f24770b41e"
-
-[[package]]
 name = "opaque-debug"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6738,6 +6743,7 @@ dependencies = [
  "scale-info",
  "sp-core",
  "sp-io",
+ "sp-keystore",
  "sp-runtime",
 ]
 
@@ -6962,6 +6968,7 @@ dependencies = [
  "frame-system",
  "libm",
  "log",
+ "network-rpc-types",
  "pallet-balances",
  "pallet-collective",
  "pallet-evm",
@@ -7053,21 +7060,6 @@ dependencies = [
  "frame-system",
  "parity-scale-codec",
  "scale-info",
- "sp-io",
- "sp-runtime",
-]
-
-[[package]]
-name = "pallet-template"
-version = "0.1.0"
-dependencies = [
- "frame-benchmarking",
- "frame-support",
- "frame-system",
- "oorandom",
- "parity-scale-codec",
- "scale-info",
- "sp-core",
  "sp-io",
  "sp-runtime",
 ]

@@ -13,12 +13,14 @@ import {
     getMinSubnetDelegateStakeBalance,
     registerSubnet,
     registerSubnetNode,
+    registerValidator,
     transferBalanceFromSudo
 } from "../src/network"
 import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
 import { PublicClient } from "viem";
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { expect } from "chai";
+import { minimumSubnetDelegateSharesOut } from "../src/balance-math";
 
 // npm test -- -g "Test subnet register activate-0xuhnrfvok"
 describe("Test subnet register activate-0xuhnrfvok", () => {
@@ -39,61 +41,13 @@ describe("Test subnet register activate-0xuhnrfvok", () => {
         [wallet7, wallet8],
     ]);
 
-    const ALL_ACCOUNTS = [
-        wallet1.address,
-        wallet2.address,
-        wallet3.address,
-        wallet4.address,
-        wallet5.address,
-        wallet6.address,
-        wallet7.address,
-        wallet8.address,
-    ]
-    const initialColdkeys = [
-        {
-            coldkey: wallet1.address,
-            count: 1
-        },
-        {
-            coldkey: wallet2.address,
-            count: 1
-        },
-        {
-            coldkey: wallet3.address,
-            count: 1
-        },
-        {
-            coldkey: wallet4.address,
-            count: 1
-        },
-        {
-            coldkey: wallet5.address,
-            count: 1
-        },
-        {
-            coldkey: wallet6.address,
-            count: 1
-        },
-        {
-            coldkey: wallet7.address,
-            count: 1
-        },
-        {
-            coldkey: wallet8.address,
-            count: 1
-        },
-    ];
-
-    const BOOTNODES = [
-        generateRandomString(6),
-        generateRandomString(6)
-    ]
-
     let publicClient: PublicClient;
     let papiApi: TypedApi<typeof dev>
     let api: ApiPromise
 
     const sudoTransferAmount = BigInt(1000e18)
+    const validatorIds = new Map<string, string>();
+    let initialValidators: Array<{ validatorId: string; count: number }>;
 
     // sudo account alice as signer
     let alice: PolkadotSigner;
@@ -113,6 +67,31 @@ describe("Test subnet register activate-0xuhnrfvok", () => {
             wallet1.address,
             sudoTransferAmount,
         )
+
+        const coldkeys = Array.from(ALL_WALLETS.keys());
+        await batchTransferBalanceFromSudo(
+            api,
+            papiApi,
+            coldkeys.map(wallet => ({
+                address: wallet.address,
+                balance: sudoTransferAmount,
+            })),
+        );
+        for (const [coldkey, hotkey] of ALL_WALLETS.entries()) {
+            const validatorContract = new ethers.Contract(
+                SUBNET_CONTRACT_ADDRESS,
+                SUBNET_CONTRACT_ABI,
+                coldkey,
+            );
+            await registerValidator(validatorContract, hotkey.address);
+            const validatorIdOption = await api.query.network.coldkeyValidatorId(coldkey.address) as Option<any>;
+            expect(validatorIdOption.isSome).to.equal(true);
+            validatorIds.set(coldkey.address, validatorIdOption.unwrap().toString());
+        }
+        initialValidators = [...validatorIds.values()].map(validatorId => ({
+            validatorId,
+            count: 1,
+        }));
     })
 
     // Status: passing
@@ -146,9 +125,8 @@ describe("Test subnet register activate-0xuhnrfvok", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         const palletSubnetId = await api.query.network.subnetName(subnetName);
@@ -221,9 +199,8 @@ describe("Test subnet register activate-0xuhnrfvok", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         console.log("registered subnet")
@@ -235,8 +212,6 @@ describe("Test subnet register activate-0xuhnrfvok", () => {
         expect(BigInt(subnetId)).to.not.equal(BigInt(0))
 
         const minStakeAmount = (await api.query.network.minSubnetMinStake()).toString();
-        const delegateRewardRate = "0";
-
         const coldkeys = Array.from(ALL_WALLETS.keys());
         const recipients = coldkeys.map(wallet => ({
             address: wallet.address,
@@ -268,25 +243,20 @@ describe("Test subnet register activate-0xuhnrfvok", () => {
                 multiaddr: new Uint8Array()
             }
 
-            let delegateAccount = {
-                accountId: wallet1.address,
-                rate: BigInt(0)
-            }
             const unique = generateRandomString(5)
             const nonUnique = generateRandomString(5)
 
             await registerSubnetNode(
                 accountSubnetContract,
+                validatorIds.get(coldkey.address)!,
                 subnetId,
                 hotkey.address,
                 peer_info_1,
                 peer_info_2,
                 peer_info_3,
-                delegateRewardRate,
                 BigInt(minStakeAmount),
                 unique,
                 nonUnique,
-                delegateAccount,
                 "1000000000000000000"
             );
         }));
@@ -321,7 +291,12 @@ describe("Test subnet register activate-0xuhnrfvok", () => {
                 stakingContract,
                 subnetId,
                 minDelegateStake,
-                BigInt(0)
+                await minimumSubnetDelegateSharesOut(
+                    stakingContract,
+                    subnetId,
+                    minDelegateStake,
+                    BigInt(100),
+                )
             );
         }
 

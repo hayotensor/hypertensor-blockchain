@@ -15,10 +15,10 @@ frame-support.workspace = true
 serde = { features = [
 	"derive",
 ], workspace = true }
-sp-std.workspace = true
 fp-account = { workspace = true, features = ["serde"] }
 
 pallet-network.workspace = true
+network-rpc-types.workspace = true
 
 [features]
 default = ["std"]
@@ -26,5 +26,6 @@ std = [
   "sp-api/std",
   "frame-support/std",
   "pallet-network/std",
+  "network-rpc-types/std",
   "serde/std",
 ]

@@ -2,7 +2,14 @@
 
 Consensus is the per-subnet process that turns an elected validator node's view of subnet performance into on-chain rewards, reputation changes, queue decisions, and penalties.
 
-Consensus is not global block production. It is a subnet-level incentives and attestation system. Each active subnet runs its own epoch schedule, elects one subnet node to propose consensus data for that subnet epoch, and asks the eligible validator-class subnet nodes to attest to that proposal.
+Consensus is not global block production. It is a subnet-level incentives and attestation system.
+Each consensus-live active subnet attempts an election on its own epoch schedule. When its
+effective candidate set is nonempty and internally consistent, one subnet node is elected to
+propose consensus data and the eligible validator-class subnet nodes can attest to that proposal.
+
+Each subnet stores a `ConsensusMechanism` selector for future mechanism-specific routing. The only
+supported variant is currently `Attestation`, it is assigned automatically during registration,
+and subnet owners cannot change it.
 
 At a high level, consensus answers four questions for each subnet epoch:
 
@@ -32,7 +39,7 @@ The validator identity itself is not elected. A specific subnet node owned by th
 
 ### Subnet Owners
 
-Subnet owners configure subnet-level policy inside network bounds. For consensus, the most important owner controls are the minimum node-count attestation percentage, validator node-count decay, reputation factors, classification timing, queue settings, and emergency validator sets.
+Subnet owners configure subnet-level policy inside network bounds. For consensus, the most important owner controls are validator node-count decay, per-node validator stake-weight power, reputation factors, classification timing, queue settings, and emergency validator sets. The admin collective separately controls the network-wide validator-identity attestation percentage.
 
 ### Delegators
 
@@ -42,16 +49,132 @@ Delegators can stake to validators. Validator delegate stake is the stake source
 
 Each subnet has an assigned slot inside the chain epoch. When the chain reaches that subnet's slot, the pallet processes that subnet's consensus step.
 
-The normal flow for a subnet epoch is:
+The normal flow at a subnet's slot is:
 
-1. The previous subnet epoch's proposal is prechecked.
-2. Attestation ratios are calculated from the stored proposal and attestation snapshot.
-3. Rewards or penalties are applied for the previous epoch.
-4. A validator-class subnet node is elected for the new subnet epoch.
-5. The subnet registration queue is processed.
-6. The subnet burn-rate state is updated.
+1. If the exact previous round has an emission allocation, its proposal is prechecked; a missing
+   proposal follows the allocated-round absence penalty path.
+2. For a present proposal, attestation ratios are calculated from its stored snapshots.
+3. Rewards or penalties are applied to that allocated round when its precheck yields settlement
+   data.
+4. If the subnet is active and consensus-live, it attempts to elect a validator-class node for the
+   new subnet epoch. An election is stored only when the effective candidate set is nonempty and
+   every candidate resolves to a validator identity.
+5. If the subnet is active, its registration queue is processed.
+6. If the subnet is active and block weight permits, its burn-rate state is updated.
 
-The elected node for the new subnet epoch is then responsible for submitting the consensus proposal for that epoch.
+An elected node for the new subnet epoch is then responsible for submitting that epoch's consensus
+proposal.
+
+A successful step 4 stores the epoch-keyed elected node, candidate set, and round policy snapshots.
+Outcome-dependent subnet and node reputation updates occur only if that round receives an
+allocation and reaches settlement at the following subnet slot; a missing proposal follows step
+1, while a submitted proposal follows steps 2 and 3. Consequently, an allocated settlement in
+epoch `E` evaluates epoch `E - 1`.
+
+Consensus eligibility and reward eligibility are separate. An active, live subnet attempts an
+election at its slot even when it has no emission allocation; a valid effective candidate set can
+therefore produce an election independently of allocation. Emission weights for general epoch `G`
+only include subnets with an elected validator for subnet epoch `G - 1`, the exact epoch being
+settled. This lets a new or resumed subnet complete its first consensus round before it can affect
+reward normalization. Once that exact election exists it remains eligible for its following
+allocation and settlement if the owner pauses; pausing only prevents new elections and operational
+maintenance.
+
+Each subnet's epoch changes at its own assigned slot. If an owner unpauses while that subnet's
+phase-aware epoch is `E`, `consensus_eligible_from_subnet_epoch` is set to `E + 2`. The remainder of `E`
+is extra preparation time and all of `E + 1` is a complete local preparation epoch. Queue processing
+and burn-rate maintenance continue during preparation, but no validator is elected and no new
+consensus round begins. At the assigned slot starting `E + 2`, the subnet becomes consensus-live
+and attempts its first post-unpause election. If a valid effective candidate set produces an
+election, it can first receive an emission allocation at the following general epoch and is settled
+at the next assigned subnet slot.
+
+General-epoch preliminary processing runs at slot zero, before subnet slots. Ordinary reputation,
+minimum-node, and stake checks skip an active subnet whose phase-aware local epoch has not reached
+`consensus_eligible_from_subnet_epoch`. The global boundary immediately before the first `E + 2` subnet slot therefore
+cannot penalize the preparing subnet; those checks resume at the following global boundary, after
+the subnet has reached its first live slot.
+
+The minimum subnet delegation needed for activation and continued survival is shared across the
+consensus-live subnet cohort. A subnet enters that cohort only after it is Active and its phase-aware
+local epoch reaches `consensus_eligible_from_subnet_epoch`; Registered, Paused, and preparation-period
+subnets are excluded. The common requirement is:
+
+```text
+max(
+    MinSubnetDelegateStakeBalance,
+    MinSubnetDelegateStakeFactor * total live subnet delegation / live subnet count,
+)
+```
+
+There is no node-count weighting. The initial absolute floor is 100 tokens and the default factor is
+50%. If no subnet is live, the absolute floor applies. Activation compares a candidate with the
+current live-cohort requirement; the candidate begins contributing to the average once it becomes
+consensus-live. On a delegate-stake removal epoch, preliminary processing snapshots every live
+subnet's delegation before iterating, so all subnets are evaluated against the same total, count,
+and boundary even if an earlier subnet is removed. Equality satisfies the requirement; only a
+balance below it is underfunded.
+
+Pausing uses both clocks for different purposes. The phase-aware subnet epoch records skipped local
+slots for queue compensation, and the global pause-start epoch governs maximum-pause reputation
+decay and removal. Paused subnets remain eligible for lowest-stake capacity removal when the network
+exceeds `MaxSubnets`. Re-pause cooldowns are local, count only from the first consensus-eligible epoch, and
+must be at least one subnet epoch. Because subnet-slot `on_initialize` runs before extrinsics, the
+round satisfying the cooldown is settled before the owner can pause again.
+
+### Overwatch Epochs
+
+Overwatch scoring runs on a slower, global schedule so Overwatch nodes do not have to perform and
+submit their off-chain work during every general blockchain epoch. An Overwatch epoch has its own
+monotonic ID and anchored start block. Its length and commit cutoff are fixed for the active round
+by `ActiveOverwatchEpochLengthMultiplier` and `ActiveOverwatchCommitCutoffPercent`. The active
+length is the active multiplier times the general epoch length.
+
+A registered validator identity may register an Overwatch node only after a 2/3 collective vote
+places it on the whitelist. Registration also enforces a live Overwatch epoch, the member cap, the
+minimum stake, and one active Overwatch node per validator. A 2/3 attempt to clear the whitelist
+while its node remains active fails atomically; the validator owner or a 4/5 collective vote can
+instead structurally remove the node, which also clears the whitelist and requires a fresh vote
+before re-registration.
+
+Collective updates write `OverwatchEpochLengthMultiplier` and
+`OverwatchCommitCutoffPercent` as configuration for the next Overwatch epoch. They do not extend,
+shorten, or change the phase of the active round. At normal rollover, the pallet snapshots the
+latest configured values into the active fields and advances the epoch ID and anchored start block.
+
+When an Overwatch epoch closes, the pallet queues a compact settlement header and a separate
+epoch-keyed snapshot. The snapshot freezes the stake-weight exponent, exact interval reward
+budget, and each active revealing node's raw stake. Only nodes with the canonical active
+validator-to-Overwatch-node relation at close are included, and an epoch with no revealers stores
+an explicit empty snapshot. The snapshot is assembled completely before rollover changes any epoch
+state; if bounded construction fails, the old epoch remains active and unchanged.
+
+Rollover is aligned with general epoch slot zero and settlement runs in reserved slot one, normally
+the following block. If global transaction pause skips a boundary, the active Overwatch clock is
+frozen by shifting its anchored start block by the pause duration. Nodes therefore retain the same
+commit or reveal time that remained when pause began. Any shifted end is then rounded forward to
+the next slot-zero boundary, keeping Overwatch work away from subnet slots.
+
+A delayed settlement uses its matching close-time snapshot and reveal rows: it never falls back to
+live stake or a live exponent. A missing snapshot leaves the pending header queued. Removing an
+Overwatch node purges its active-round commits and reveals and, if an epoch is pending, removes its
+pending reveal row and snapshot entry before scoring. The node is therefore treated as if it never
+participated in either unsettled round and cannot receive a pending reward. If removal empties the
+pending snapshot, the epoch finalizes explicitly empty. Successful finalization consumes the
+header and snapshot exactly once. `LastFinalizedOverwatchEpoch` distinguishes a processed empty
+epoch from one that has not been processed.
+
+`OverwatchEpochEmissions` is the budget for one general blockchain epoch. A completed Overwatch
+epoch spanning `M` general epochs therefore snapshots the exact saturating product
+`M * OverwatchEpochEmissions` at close and distributes no more than that captured budget.
+Finalization preserves immutable epoch-keyed subnet weights and node scores for history, while also
+publishing a separate latest effective signal and its reproducible close-time inputs. Future
+general emission allocations consume only that effective signal. Removing a node recomputes it
+from the retained raw inputs without the node; already-written `FinalSubnetEmissionWeights`,
+historical Overwatch outputs, and credited rewards do not change. If the retained inputs are
+missing or inconsistent, the effective signal becomes invalid and every subnet uses the configured
+default Overwatch weight until a later finalization publishes a valid replacement. Historical
+weights are never used as a fallback.
 
 ## Becoming Electable
 
@@ -63,7 +186,9 @@ When a node graduates to Validator, it is inserted into `SubnetNodeElectionSlots
 
 ## Validator Election
 
-At the subnet's slot, the pallet randomly selects one node from the current election set for the new subnet epoch.
+At the subnet's slot, the pallet randomly selects one node from the effective election set for the
+new subnet epoch. If that set is empty or any candidate lacks its node-to-validator attribution,
+the attempt stores no election.
 
 Election probability is per eligible subnet node, not stake-weighted. If a validator operates multiple validator-class nodes in the same subnet, each eligible node is separately present in the election list unless removed or replaced by an emergency validator set.
 
@@ -77,12 +202,15 @@ The proposal includes:
 
 - score data for subnet nodes;
 - optional queue priority or queue removal decisions;
-- optional subnet-specific arguments;
-- optional attestation data for the proposer's automatic self-attestation.
+- optional subnet-specific arguments.
 
-The proposer must sign with the hotkey associated with the elected subnet node. Only the elected node for the current subnet epoch can submit the proposal, and only one proposal can be stored for a subnet epoch.
+The `propose_attestation` call must originate from the hotkey associated with the elected subnet
+node. Only the elected node for the current subnet epoch can submit the proposal, and only one
+proposal can be stored for a subnet epoch.
 
-The proposer automatically attests to its own proposal.
+Submitting a proposal automatically records the elected validator's attestation. The successful
+extrinsic call therefore records both authorship and endorsement of the submitted consensus data;
+there is no separate proposal-signature or attestation-signature payload.
 
 ### Score Data
 
@@ -103,7 +231,7 @@ After a proposal exists, validator-class subnet nodes can call `attest` for the 
 
 An attesting node must:
 
-- sign with the hotkey associated with that subnet node;
+- submit the `attest` extrinsic from the hotkey associated with that subnet node;
 - currently have `Validator` classification;
 - be part of the proposal's snapshotted validator set;
 - not have attested already for that proposal.
@@ -124,7 +252,7 @@ For each eligible attestor node, the pallet snapshots an attestor weight:
 allocated_weight = validator_delegate_stake * node_allocation
 ```
 
-`validator_delegate_stake` is the total delegated stake assigned to the validator identity. `node_allocation` is the validator-defined percentage allocation for that specific `(subnet_id, subnet_node_id)`. A validator's node allocations are normalized to a complete 100% allocation across its owned subnet nodes, so the same delegated stake is not counted in full for every node.
+`validator_delegate_stake` is the total delegated stake assigned to the validator identity. `node_allocation` is the validator-defined percentage allocation for that specific `(subnet_id, subnet_node_id)`. A validator's node allocations must form a complete 100% allocation across all nodes it owns, including nodes in different subnets, so the same delegated stake is not counted in full for every node. The validator controls this allocation; the subnet owner controls the optional node-count decay and stake-weight power applied afterward.
 
 If the validator has multiple nodes in the same subnet, the subnet's validator node-count decay can reduce each node's effective attestor weight:
 
@@ -132,9 +260,76 @@ If the validator has multiple nodes in the same subnet, the subnet's validator n
 effective_weight = allocated_weight / node_count ^ (1 - node_count_decay)
 ```
 
-`node_count_decay` is a subnet owner setting in the same fixed-point percentage format. The default is `1.0`, which means no decay. A lower value applies stronger reduction to validators with multiple nodes in the subnet.
+`node_count` is the number of nodes the validator owns in that subnet, with the snapshotted eligible node count used as a floor. `node_count_decay` is a subnet owner setting in the same fixed-point percentage format. The default is `1e18` (1.0), which means no decay. A lower value applies stronger reduction to validators with multiple nodes in the subnet.
 
-The attestation ratio is:
+### Configuring Validator Node-Count Decay
+
+The on-chain name for this optional diminishing factor is `ConsensusValidatorNodeCountDecay`. There is no separate feature flag. The subnet owner sets or disables the policy by submitting the signed pallet extrinsic:
+
+```text
+owner_update_consensus_validator_node_count_decay(subnet_id, value)
+```
+
+The extrinsic accepts an integer `value` between `0` and `1e18`, inclusive. Convert a decimal or percentage factor before submitting it:
+
+```text
+value = decimal_factor * 1e18
+      = percentage_factor * 1e16
+```
+
+- `1000000000000000000` (100%) is the default and disables decay;
+- `500000000000000000` (50%) divides allocated weight by `sqrt(node_count)`;
+- `0` applies the strongest decay and divides allocated weight by `node_count`.
+
+Any value below `1e18` enables the policy, and lower values diminish a multi-node validator's effective consensus weight more strongly. A validator with only one node in the subnet is not diminished, even when the value is `0`. The setting changes only how validator delegate stake contributes to the stake-weighted quorum; it does not reduce the validator's actual delegated stake balance or change the validator-identity participation floor.
+
+Owner updates are rate-limited by `ConsensusValidatorNodeCountDecayUpdateInterval`, which defaults to one global epoch. A successful update is scheduled for the next subnet epoch: if it is submitted in subnet epoch `S`, the live value remains unchanged for `S` and the pending value is used beginning with subnet epoch `S + 1`. This is a next-epoch boundary, not a guaranteed full epoch of elapsed notice: depending on where the call lands in `S`, activation is between roughly one block and one epoch away. The owner may replace a future schedule before it becomes effective, but cannot replace it during its activation epoch. On a later update, the pallet materializes the already-effective value before scheduling the replacement for the following subnet epoch.
+
+The global-epoch rate limit and subnet-epoch activation delay are separate checks. Scheduling never rewrites an attestor-weight snapshot that was already stored for a proposal.
+
+### Configuring Per-Node Validator Stake-Weight Power
+
+`ConsensusValidatorStakeWeightPower` is a separate, optional subnet policy. It does not depend on how many nodes a validator owns. Instead, it applies the subnet's exponent independently to each eligible node's existing effective weight after allocation and node-count decay.
+
+The pallet first converts the existing effective weights into shares, applies the power, and then uses the powered weights in the final attestation normalization:
+
+```text
+base_share_i = effective_weight_i / sum(effective_weight of all eligible nodes)
+powered_weight_i = base_share_i ^ stake_weight_power
+
+attestation_ratio = sum(powered_weight of attesting nodes)
+                  / sum(powered_weight of all eligible nodes)
+```
+
+Both normalization steps are automatic. Applying the power to shares makes the result independent of the stake unit, while the final attested-to-total division ensures the powered shares sum to 100%. No stake is transferred: diminishing a dominant node increases the other positive-weight nodes' relative consensus shares through normalization.
+
+The subnet owner configures the exponent with:
+
+```text
+owner_update_consensus_validator_stake_weight_power(subnet_id, value)
+```
+
+`value` uses the same `1e18` fixed-point format. The default is `1000000000000000000` (1.0), so `share ^ 1` preserves the current stake-weighted result exactly and the feature has no impact unless the owner changes it. Lower powers flatten the distribution among nodes with positive effective weight:
+
+- with positive effective weights in a 90/10 split and power `500000000000000000` (0.5), the powered values are `sqrt(0.9)` and `sqrt(0.1)`; final normalization changes their shares to 75/25;
+- with power `0`, every positive base share becomes the same powered weight, so the same two nodes normalize to 50/50. A zero effective weight remains zero.
+
+Subnet owner values must be within the inclusive `MinConsensusValidatorStakeWeightPower` and `MaxConsensusValidatorStakeWeightPower` bounds. These collective-controlled bounds default to `0` and `1e18`. A supermajority collective updates them with `set_min_max_consensus_validator_stake_weight_power(min, max)`.
+
+Owner updates are rate-limited by `ConsensusValidatorStakeWeightPowerUpdateInterval`, which defaults to one global epoch. A supermajority collective can change that interval with `set_consensus_validator_stake_weight_power_update_interval(value)`. A successful update is scheduled for the next subnet epoch: an update submitted in subnet epoch `S` leaves the live value unchanged in `S` and becomes the effective power in `S + 1`. As with node-count decay, this means the remainder of `S`, not a guaranteed full epoch of elapsed notice. A future schedule may be replaced before activation, is locked during its activation epoch, and is materialized before a later replacement is scheduled.
+
+The global-epoch rate limit and subnet-epoch activation delay are independent. The scheduled power is selected by the subnet epoch when a proposal's attestor weights are snapshotted, and an existing snapshot is never rewritten.
+
+### Final Attestation Normalization
+
+After applying node-count decay and the optional stake-weight power, the pallet automatically normalizes weights across the eligible attestor snapshot:
+
+```text
+normalized_weight = powered_weight / sum(powered_weight of all eligible attestor nodes)
+attestation_ratio = sum(normalized_weight of attesting nodes)
+```
+
+Normalization is always part of stake-weighted attestation and does not require another owner call. It converts the configured weights into relative quorum shares; it does not restore the amount removed by node-count decay or move stake between accounts. When the stake-weight power is the default `1e18`, the attestation ratio is equivalently:
 
 ```text
 attestation_ratio = sum(effective_weight of attesting nodes)
@@ -143,42 +338,121 @@ attestation_ratio = sum(effective_weight of attesting nodes)
 
 If the total snapshotted attestor weight is zero, the stake-weighted attestation ratio is zero.
 
-## Node-Count Attestation
+## Validator-Identity Participation
 
-The pallet also enforces a node-count quorum. This prevents one large stake position from being the only meaningful signal.
+The pallet also enforces participation by distinct validator identities. Multiple subnet nodes
+owned by the same validator identity count once. This prevents one large stake position from being
+the only meaningful signal.
 
-The subnet owner sets a minimum consensus-node attestation percentage within network bounds. The default subnet value is 20%, with network-level minimum and maximum bounds.
+At least three eligible validator identities are required for normal settlement. The admin
+collective controls the network-wide identity-attestation percentage stored in
+`ConsensusValidatorIdentityAttestationPercentage`. Its default is 10%, and each election snapshots
+the active value so an update affects newly elected rounds without changing rounds in progress.
 
-The required attestor count is:
+For three eligible identities, two must attest. For larger sets, the required count is:
 
 ```text
-required_nodes = ceil(eligible_validator_count * min_node_attestation_percentage)
+required_identities = max(3, ceil(eligible_identity_count * identity_attestation_percentage))
 ```
 
-For validator sets larger than one, at least two nodes are required. For a one-node validator set, one node is required. The required count is capped at the eligible validator count.
+The required count is capped at the eligible identity count. Thus the default rule requires three
+of four identities, three of seventeen, four of thirty-one, and ten of one hundred. A set with
+fewer than three eligible identities cannot enter normal settlement.
 
 A proposal must satisfy both quorum checks:
 
 - stake-weighted attestation ratio must be at least `MinAttestationPercentage`;
-- node attestation count must be at least the required node-count quorum.
+- the eligible set must contain at least three distinct validator identities;
+- identity attestation count must be at least the required participation floor.
 
-## The 66% Threshold
+## The Two-Thirds Threshold
 
-`MinAttestationPercentage` is the network-level stake-weighted consensus threshold. Its default value is `0.66e18`, or 66%.
+`MinAttestationPercentage` is the runtime-level stake-weighted consensus threshold. Its current
+value is `0.666666666666666666e18`, the fixed-point representation of two-thirds.
 
-A proposal with attestation below this threshold is not in consensus, even if the proposer submitted validly. When the stake-weighted threshold fails, rewards are skipped and penalties are applied.
+A proposal with attestation below this threshold is not in consensus, even if the proposer
+submitted validly. When the stake-weighted threshold fails, rewards are skipped and the pallet
+computes the elected proposer's direct-stake penalty from the selected normalized quorum shortfall.
 
-The node-count quorum can also fail independently. If either quorum fails, the epoch is treated as not in consensus.
+The validator-identity participation requirement can also fail independently. If either
+participation threshold fails, the epoch is treated as not in consensus.
 
 ## Supermajority Threshold
 
-Some actions require a stronger signal than the normal 66% consensus threshold. `SuperMajorityAttestationRatio` defaults to `0.875e18`, or 87.5%.
+Some actions require a stronger signal than the normal two-thirds consensus threshold. The
+runtime-level `SuperMajorityAttestationRatio` is currently `0.875e18`, or 87.5%.
 
-The supermajority threshold is used for queue mutations and non-attestor reputation penalties. For example, prioritizing or removing a queued node only executes if the proposal reaches supermajority attestation.
+The same snapshotted threshold supplies two separate supermajority gates:
+
+- queue prioritization or removal requires the **stake-weighted** attestation ratio to be at least
+  the threshold;
+- proposal-derived reputation-score and Included-to-Validator classification changes require the
+  **distinct-validator-identity** attestation ratio to be at least the threshold.
+
+Equality qualifies for both gates. The identity ratio is:
+
+```text
+identity_attestation_ratio =
+  unique eligible validator identities that attested
+  / unique eligible validator identities
+```
+
+The eligible nodes and their parent validator identities are fixed by the proposal-time snapshot,
+while the threshold comes from the elected round's policy snapshot. Multiple attesting nodes owned
+by one validator identity contribute one identity to the numerator. The proposer's automatic
+attestation contributes its identity once. A proposal meeting this identity gate is
+**identity-verified**. The identity ratio gates reputation-score and classification consequences; it
+does not replace either normal consensus quorum and does not gate rewards.
+
+## Inflation and subnet emission budget
+
+The inflation mechanism defines one annual budget for the foundation and subnet rewards. It is
+independent of subnet count, node count, and node utilization. Network demand therefore does not
+change the issuance schedule.
+
+For global epoch `E`, let `Y = floor(E / EpochsPerYear)`. The annual schedule is the integer
+recurrence:
+
+```text
+annual_emissions(0) = max(initial_annual_emissions, terminal_annual_emissions)
+annual_emissions(Y) = max(
+  terminal_annual_emissions,
+  floor(annual_emissions(Y - 1) * 90 / 100)
+) for Y > 0
+```
+
+The current source placeholders are 100,000 tokens initially, a 75,000-token terminal floor, and
+90% retention, corresponding to 10% geometric decay after each full year. The two token amounts
+can be finalized before launch without changing the formula.
+
+The annual budget is split before subnet weighting:
+
+```text
+annual_foundation_emissions = floor(annual_emissions(Y) * 5 / 100)
+annual_subnet_emissions = annual_emissions(Y) - annual_foundation_emissions
+
+epoch_foundation_emissions = floor(annual_foundation_emissions / EpochsPerYear)
+epoch_subnet_emissions = floor(annual_subnet_emissions / EpochsPerYear)
+```
+
+All calculations use deterministic integer arithmetic. The foundation allocation is 5% before
+indivisible atomic-unit rounding and has no separate term or time-based cutoff. Dividing the two
+annual pools independently can leave at most one atomic unit of the per-epoch budget unissued. The
+remaining subnet budget is subsequently normalized across eligible subnets and distributed by the
+existing owner, delegate, and consensus-weight rules. The elected proposer's configured base
+validator reward is separate from this decaying budget.
+
+Normalized subnet weights are cumulatively capped at 100%, so floating-point normalization cannot
+allocate more than the subnet emissions budget.
+
+These values are issuance ceilings, not a promise that the full budget is minted. If an epoch has
+no eligible subnet emission weights, neither the subnet allocation nor the foundation allocation is
+issued, and there is no carry-forward.
 
 ## Rewards
 
-When both quorum checks pass, the subnet is in consensus for the evaluated epoch.
+For an allocated submitted round at settlement, the subnet is in consensus when both quorum checks
+pass.
 
 The elected proposer can receive the base validator reward, scaled by its proposal timing factor. Earlier proposals receive a better factor than late proposals.
 
@@ -187,8 +461,10 @@ Subnet rewards are then calculated from the subnet's emission weight. The reward
 - the subnet owner reward is paid;
 - the subnet delegate-stake reward pool receives its configured share;
 - the remaining subnet-node rewards are distributed by normalized consensus score;
-- validator delegate stake pools and delegate accounts receive their configured shares from node rewards;
-- final node rewards are added to node stake.
+- a validator delegate stake pool with existing shares first receives its configured percentage
+  of that validator's node reward;
+- a configured delegate account then receives its percentage of the remaining node reward;
+- the final remainder is added to node stake.
 
 For each scored validator-class node:
 
@@ -197,35 +473,73 @@ node_score_share = node_score / total_score
 node_reward = subnet_node_rewards * node_score_share * reward_factor
 ```
 
-If the canonical score sum is zero but consensus is reached, subnet rewards are held in the rewards capacitor for a future epoch. In that case the proposer reward has already been handled, but normal owner, delegate, and node reward distribution is skipped for that epoch.
+If the canonical score sum is zero but consensus is reached, the proposer reward has already been handled, but normal owner, delegate, and node rewards are forfeited for that epoch. No rewards are carried into a future epoch.
 
 ## Reputation Updates
 
-Consensus also drives subnet and node reputation.
+Settlement of allocated rounds also drives subnet and node reputation.
 
-When consensus succeeds:
+When consensus succeeds, proposal contents affect reputation scores only if the proposal is
+identity-verified. At or above the snapshotted identity-supermajority threshold:
 
-- subnet reputation can increase;
-- nodes included in consensus data can gain reputation;
-- nodes absent from consensus data can lose reputation;
-- included nodes can progress toward validator classification;
-- nodes below the minimum reputation can be removed;
-- nodes whose score share is below the subnet's minimum weight threshold can lose reputation;
-- validator-class nodes that fail to attest while the proposal reaches supermajority can lose reputation.
+- subnet reputation can increase when its existing minimum-node precondition is met, scaled by the
+  distinct-identity support ratio rather than stake support;
+- `included_increase` can increase the reputation of nodes present in the score vector;
+- `absent_decrease` can decrease nodes omitted from that vector and reset an omitted Included
+  node's consecutive-inclusion count;
+- `below_min_weight_decrease` can decrease scored Validator-class nodes below the configured
+  score-share threshold;
+- Included nodes present in the score vector can advance their consecutive-inclusion count and
+  progress toward Validator classification;
+- scored Validator-class nodes without their own attestation can receive the full configured
+  `non_attestor_decrease`.
+
+These are full configured factors except for the subnet increase, whose existing multiplier is
+now the identity-support ratio. They are not strengthened by stake concentration or by identity
+support above the gate. Identity deduplication controls the gate only: reputation, score-vector
+presence, score share, attestation duty, and classification remain node-level. A non-attesting or
+omitted sibling can therefore be penalized even when another node owned by the same validator
+attested.
+
+An accepted proposal between the ordinary quorum and the identity-supermajority gate can still
+distribute rewards, but its subjective score vector is neutral for reputation scores and
+Included-to-Validator classification.
+Queue actions remain independently stake-supermajority gated. Idle-to-Included time progression,
+minimum-reputation removal, and other lifecycle checks are objective and remain independent of
+identity verification. The existing zero-score early return also remains: it skips the per-node
+distribution loop. In an emergency-validator round, the identity gate uses only the snapshotted
+emergency identities, non-attestor accountability is limited to the emergency nodes, and normal
+classification progression remains disabled.
 
 When consensus fails:
 
-- subnet reputation decreases;
-- the elected proposer loses node reputation;
-- the proposer's validator identity reputation decreases;
-- attestors to the failed proposal can lose reputation;
+- subnet reputation decreases only below the strong-rejection identity threshold;
+- the elected proposer loses node reputation only when distinct validator-identity support is
+  strictly below the round's snapshotted strong-rejection threshold;
+- every attesting node, including the proposer's automatic attestation, loses node reputation only
+  when distinct validator-identity support is strictly below the round's snapshotted
+  strong-rejection threshold;
 - nodes that fall below the minimum reputation can be removed.
 
-Reputation decreases generally scale with configured reputation factors. Several owner-controlled factors are resolved for the evaluated subnet epoch so parameter changes do not unexpectedly rewrite the current consensus period.
+All submitted-proposal reputation decreases use the same identity shortfall:
+
+```text
+identity_shortfall =
+  1 - identity_attestation_ratio / strong_rejection_threshold
+```
+
+At the threshold the loss is zero; below it, each configured maximum factor is multiplied by the
+shortfall and reaches full severity at 0% identity support. A proposal rejected only because of
+stake support therefore causes no reputation loss when identity support is at or above the
+round's snapshotted strong-rejection threshold, although its existing proposer economic penalties
+still apply. Several owner-controlled factors are resolved for the evaluated subnet epoch so later
+parameter changes do not rewrite the round.
 
 ## Penalties and Slashing
 
-The elected proposer is economically penalized when the proposal fails quorum.
+For an allocated submitted round at settlement, if either quorum fails, rewards are skipped. The
+ordinary direct-stake penalty uses the worse normalized ratio shortfall among the failed stake and
+validator-identity participation thresholds.
 
 The shortfall is calculated against the failed threshold:
 
@@ -233,7 +547,12 @@ The shortfall is calculated against the failed threshold:
 shortfall = 1 - actual_ratio / required_ratio
 ```
 
-If both stake quorum and node-count quorum fail, the pallet uses the worse shortfall for the proposer penalty.
+The selected failure ratio and threshold drive the direct-stake penalty only. Submitted-proposal
+node and subnet reputation losses instead use the distinct-identity strong-rejection curve.
+
+The minimum eligible identity-set size is a separate rejection condition, but it does not create
+an artificial ratio shortfall. If every identity in an undersized eligible set attests and the
+stake quorum passes, settlement is rejected while the direct node stake remains unchanged.
 
 The stake slash is:
 
@@ -242,11 +561,97 @@ base_slash = node_stake * BaseSlashPercentage
 slash_amount = min(MaxSlashAmount, base_slash * shortfall)
 ```
 
-By default, `BaseSlashPercentage` is 3.125%. `MaxSlashAmount` caps any single slash.
+By default, `BaseSlashPercentage` is 3.125%. `MaxSlashAmount` caps any single direct-node slash.
 
-Slashing reduces the proposer's direct node stake. It does not directly slash validator delegate stake. The same failure also decreases node reputation and validator identity reputation. If the node's reputation falls below the subnet's minimum, the node can be removed from the active subnet and election set.
+Strong rejection has a separate, governance-controlled validator delegate-pool penalty. It applies
+only when the stake-weighted attestation rate is strictly below the round's snapshotted
+`ValidatorDelegateStakeSlashThreshold`, which defaults to the fixed-point representation of
+one-third. This economic penalty applies only to the elected proposer's validator identity; an
+attesting node is not slashed merely for attesting to the proposal.
 
-If no proposal is submitted for an epoch where a validator was elected, the pallet treats the proposer as absent. The subnet reputation decreases, and the elected node loses reputation. There is no successful consensus data to reward.
+The same snapshotted configurable threshold also gates all submitted-proposal reputation decreases
+based solely on distinct validator-identity support rather than stake-weighted support. This
+includes the subnet, proposer node, and supporting attestors. The proposal-time validator snapshot
+fixes the eligible identity denominator. Each validator identity with one or more attesting nodes
+contributes exactly one supporter, and the proposer contributes one through its automatic
+attestation.
+
+The proposer-role decrease uses the subnet's snapshotted `validator_non_consensus_decrease` as its
+maximum loss factor. The supporter decrease uses the separately snapshotted
+`non_consensus_attestor_decrease`:
+
+```text
+identity_support = distinct attesting validator identities
+  / distinct eligible validator identities
+identity_shortfall = 1 - identity_support / strong_rejection_threshold
+proposer_reputation_loss = current_reputation
+  * validator_non_consensus_decrease
+  * identity_shortfall
+supporter_reputation_loss = current_reputation
+  * non_consensus_attestor_decrease
+  * identity_shortfall
+```
+
+Both curves are zero at the strict threshold and reach their respective configured maximum
+percentages at 0% identity support. At or above the threshold, a failed submitted proposal does not
+apply either node-reputation decrease. Below it, the elected proposer first receives the
+proposer-role decrease. Every attesting node then receives the supporter decrease; this includes
+the proposer because proposal submission creates its automatic attestation. If several nodes
+belonging to one validator identity attest, that identity still counts once when calculating
+support, but every attesting node is processed. The attestor rule does not slash those nodes'
+direct stake or validator delegate pools; proposer economic slashing remains role-specific. For
+the proposer, the supporter decrease is applied to the reputation remaining after the
+proposer-role decrease, and the minimum-reputation removal check runs after both.
+
+The delegate-pool shortfall and slash are:
+
+```text
+delegate_shortfall = 1 - attestation_rate / delegate_slash_threshold
+
+pool_slash = min(
+  snapshotted_pool_balance,
+  current_pool_balance,
+  max_pool_slash_amount,
+  snapshotted_pool_balance * base_pool_slash_percentage * delegate_shortfall
+)
+```
+
+The curve is linear: the pool slash is zero at the threshold and reaches the configured base
+percentage at 0% attestation. The election snapshots the threshold, base percentage, maximum
+amount, and validator-pool balance. Governance changes therefore apply to later elections, while
+rewards or incoming stake after election cannot increase an in-progress round's liability. The
+live balance cap prevents a settlement from taking more than remains in the pool.
+
+Pool slashing reduces `ValidatorDelegateStakeBalance` and the network-wide validator delegate
+stake total without burning shares. Every share consequently loses the same proportional
+redemption value. The whole validator identity pool is exposed, not merely the delegate weight
+allocated to the elected subnet node.
+
+Delegate-pool slashing is enabled only when both
+`BaseValidatorDelegateStakeSlashPercentage` and `MaxValidatorDelegateStakeSlashAmount` are
+nonzero. Both launch as zero, which disables only the delegate-pool balance loss and protects
+delegator principal. The threshold continues to govern the distinct-identity-support reputation
+curves even while pool slashing is disabled. A supermajority collective can later enable,
+reconfigure, or atomically disable the economic tier. The configured threshold must remain above
+zero and below `MinAttestationPercentage`; the base percentage cannot exceed 100%.
+
+When an enabled round is elected, outgoing removals and swaps from that validator pool are locked
+until the round's settlement slot, `election_block + EpochLength`. Incoming delegation and
+transfers of pool shares remain available because neither removes value from the slashable pool.
+Overlapping elected rounds extend the lock to the latest settlement block.
+
+Only a strongly identity-rejected submitted proposal decreases the subnet, the proposer node under
+`validator_non_consensus_decrease`, and each recorded attestor under
+`non_consensus_attestor_decrease`. All use the identity-support curve above. The proposer is
+included among attestors through automatic attestation. Attestors receive no attestor-specific
+economic slash. If a node's reputation falls below the subnet's minimum, it can be removed from
+the active subnet and election set.
+
+If no proposal is submitted for an allocated elected round when it reaches settlement, the pallet
+treats the attestation rate as 0% for both economic formulas. It does not apply the
+submitted-proposal strong-rejection reputation curves. The objective `validator_absent_decrease`
+and `ValidatorAbsentSubnetReputationFactor` penalties apply exactly once. There is no proposal
+content, attestor set, or successful consensus data to reward.
 
 ## Queue Decisions
 
@@ -255,7 +660,19 @@ The proposer can include two optional queue decisions:
 - prioritize a queued node by moving it to the front of the queue;
 - remove a queued node that has passed the queue immunity period.
 
-These decisions are validated when submitted and only executed if the proposal reaches the supermajority threshold. Emergency validator-set consensus cannot mutate the normal registration queue.
+These decisions are validated when submitted. During allocated settlement they are executed only
+if the proposal's stake-weighted attestation ratio is at least the snapshotted supermajority
+threshold. This queue gate remains stake-weighted and is independent of the distinct-identity gate
+for proposal-derived reputation scores and classification. Emergency validator-set consensus
+cannot mutate the normal registration queue.
+
+Queue duration and immunity changes become effective at the next subnet epoch. Both periods use the same strict elapsed-period boundary:
+
+```text
+period_has_elapsed = start_epoch + configured_epochs < evaluated_subnet_epoch
+```
+
+Equality is still the final waiting or immune epoch. With equal queue-duration and immunity values, the node becomes activation-eligible by duration no later than removal becomes valid. Actual activation can still wait for queue capacity and churn cadence. Saturating epoch arithmetic keeps an overflowed deadline from becoming prematurely eligible.
 
 ## Emergency Validator Sets
 
@@ -267,6 +684,8 @@ Emergency sets are bounded by size, duration, expiration rules, and cooldowns. T
 
 ## Consensus Boundaries
 
-On-chain consensus verifies participation, stake-weighted agreement, node-count quorum, score normalization, reward distribution, and penalties. It does not run the subnet's off-chain evaluation logic itself.
+On-chain consensus verifies participation, stake-weighted agreement, validator-identity breadth,
+score normalization, reward distribution, and penalties. It does not run the subnet's off-chain
+evaluation logic itself.
 
 Each subnet is responsible for defining how its nodes produce scores and how validators decide whether to attest. The chain enforces the economic result once enough eligible validator-class nodes attest under the configured thresholds.

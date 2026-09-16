@@ -19,8 +19,11 @@ use frame_support::pallet_prelude::DispatchError;
 impl<T: Config> Pallet<T> {
     pub fn get_available_subnet_slot() -> Result<u32, DispatchError> {
         let epoch_length = T::EpochLength::get();
-        // See `on_initialize` for why there are 3 epoch designated
-        let max_slots = epoch_length - T::DesignatedEpochSlots::get();
+        // Network-wide hook work owns the leading designated slots; subnet work may only use the
+        // remaining schedule. See the named `NETWORK_*_SLOT` constants and `on_initialize`.
+        // Saturation makes an invalid runtime configuration fail closed with
+        // `NoAvailableSlots` instead of underflowing while calculating capacity.
+        let max_slots = epoch_length.saturating_sub(T::DesignatedEpochSlots::get());
 
         // Get currently assigned slots
         let assigned_slots = AssignedSlots::<T>::get();
@@ -30,11 +33,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NoAvailableSlots
         );
 
-        // Find first free slot [3..epoch_length)
-        // Slot 0: Electing validators
-        // Slot 1: Overwatch weights
-        // Slot 2: Generating weights
-        // See `on_initialize`
+        // Find the first free subnet-specific slot after the network-wide hook schedule.
         let free_slot = (T::DesignatedEpochSlots::get()..epoch_length)
             .find(|slot| !assigned_slots.contains(slot))
             .ok_or(Error::<T>::NoAvailableSlots)?;
@@ -43,6 +42,14 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn assign_subnet_slot(subnet_id: u32) -> Result<u32, DispatchError> {
+        // A second assignment would overwrite the forward lookup while leaving the old reverse
+        // lookup and occupied-slot marker behind. Reject it before selecting another free slot so
+        // the three slot indexes remain a bijection.
+        ensure!(
+            !SubnetSlot::<T>::contains_key(subnet_id),
+            Error::<T>::SubnetSlotAlreadyAssigned
+        );
+
         let free_slot = Self::get_available_subnet_slot()?;
         Self::insert_subnet_slot_assignment(subnet_id, free_slot);
 
@@ -143,15 +150,18 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    pub fn is_subnet_active_and_live(subnet_id: u32, epoch: u32) -> Option<bool> {
+    pub fn is_subnet_active_and_live(subnet_id: u32, subnet_epoch: u32) -> Option<bool> {
         match SubnetsData::<T>::try_get(subnet_id) {
-            Ok(subnet) => Some(Self::_is_subnet_active_and_live(&subnet, epoch)),
+            Ok(subnet) => Some(Self::_is_subnet_active_and_live(&subnet, subnet_epoch)),
             Err(()) => None,
         }
     }
 
-    pub fn _is_subnet_active_and_live(subnet: &SubnetData, epoch: u32) -> bool {
-        subnet.state == SubnetState::Active && subnet.start_epoch <= epoch
+    pub fn _is_subnet_active_and_live(subnet: &SubnetData, subnet_epoch: u32) -> bool {
+        subnet.state == SubnetState::Active
+            && subnet
+                .consensus_eligible_from_subnet_epoch
+                .is_some_and(|eligible_from_epoch| eligible_from_epoch <= subnet_epoch)
     }
 
     pub fn is_subnet_paused(subnet_id: u32) -> Option<bool> {
@@ -294,6 +304,14 @@ impl<T: Config> Pallet<T> {
         Self::ensure_subnet_repo_bounded(&subnet_registration_data.repo)?;
         Self::ensure_subnet_description_bounded(&subnet_registration_data.description)?;
         Self::ensure_subnet_misc_bounded(&subnet_registration_data.misc)?;
+        // Check the caller-controlled map cardinality before any later path iterates its values.
+        // The stored whitelist and `InitialValidatorData` are removed as whole values, so their
+        // proof size must remain within the same compile-time domain used by removal benchmarks.
+        ensure!(
+            subnet_registration_data.initial_validators.len()
+                <= T::MaxRegisteredNodesUpperBound::get() as usize,
+            Error::<T>::InvalidSubnetRegistrationInitialColdkeys
+        );
         Self::ensure_bootnodes_bounded(&subnet_registration_data.bootnodes)
     }
 

@@ -27,11 +27,15 @@ impl<T: Config> Pallet<T> {
     /// * `to_subnet_id` - Subnet ID staking to in relation to subnet node ID .
     /// * `delegate_stake_shares_to_swap` - Shares to remove (from node) to (to subnet) then be added as converted balance.
     ///
-    pub fn do_swap_from_validator_to_subnet(
+    #[frame_support::transactional]
+    pub(crate) fn do_swap_from_validator_to_subnet(
         origin: T::RuntimeOrigin,
         from_validator_id: u32,
         to_subnet_id: u32,
         delegate_stake_shares_to_swap: u128,
+        min_balance_out: u128,
+        min_shares_out: u128,
+        execute_before_block: u32,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
@@ -41,18 +45,30 @@ impl<T: Config> Pallet<T> {
             &account_id,
             from_validator_id,
             delegate_stake_shares_to_swap,
+            min_balance_out,
             false,
         );
 
         result?;
+        ensure!(balance > 0, Error::<T>::ZeroSwapBalance);
 
         let call = QueuedSwapCall::SwapToSubnetDelegateStake {
             account_id: account_id.clone(),
             to_subnet_id,
             balance,
+            min_shares_out,
+            execute_before_block,
         };
 
-        Self::queue_swap(account_id.clone(), call)?;
+        Self::queue_swap(
+            account_id.clone(),
+            QueuedSwapSource::ValidatorDelegate,
+            call,
+        )?;
+
+        // A swap debits the same stake position as an unstake. Record it in the shared limiter so
+        // callers cannot bypass the configured transaction interval through the queued path.
+        Self::set_last_tx_block(&account_id, Self::get_current_block_as_u32());
 
         // Self::deposit_event(Event::ValidatorToSubnetQueuedSwapCall {
         //     account_id: account_id.clone(),
@@ -64,11 +80,15 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn do_swap_from_subnet_to_validator(
+    #[frame_support::transactional]
+    pub(crate) fn do_swap_from_subnet_to_validator(
         origin: T::RuntimeOrigin,
         from_subnet_id: u32,
         to_validator_id: u32,
         delegate_stake_shares_to_swap: u128,
+        min_balance_out: u128,
+        min_shares_out: u128,
+        execute_before_block: u32,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
@@ -76,18 +96,24 @@ impl<T: Config> Pallet<T> {
             &account_id,
             from_subnet_id,
             delegate_stake_shares_to_swap,
+            min_balance_out,
             false,
         );
 
         result?;
+        ensure!(balance > 0, Error::<T>::ZeroSwapBalance);
 
         let call = QueuedSwapCall::SwapToValidatorDelegateStake {
             account_id: account_id.clone(),
             to_validator_id,
             balance,
+            min_shares_out,
+            execute_before_block,
         };
 
-        Self::queue_swap(account_id.clone(), call)?;
+        Self::queue_swap(account_id.clone(), QueuedSwapSource::SubnetDelegate, call)?;
+
+        Self::set_last_tx_block(&account_id, Self::get_current_block_as_u32());
 
         // Self::deposit_event(Event::SubnetToValidatorQueuedSwapCall {
         //     account_id: account_id,
@@ -99,11 +125,15 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn do_swap_from_subnet_to_subnet(
+    #[frame_support::transactional]
+    pub(crate) fn do_swap_from_subnet_to_subnet(
         origin: T::RuntimeOrigin,
         from_subnet_id: u32,
         to_subnet_id: u32,
         delegate_stake_shares_to_swap: u128,
+        min_balance_out: u128,
+        min_shares_out: u128,
+        execute_before_block: u32,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
@@ -113,18 +143,24 @@ impl<T: Config> Pallet<T> {
             &account_id,
             from_subnet_id,
             delegate_stake_shares_to_swap,
+            min_balance_out,
             false,
         );
 
         result?;
+        ensure!(balance > 0, Error::<T>::ZeroSwapBalance);
 
         let call = QueuedSwapCall::SwapToSubnetDelegateStake {
             account_id: account_id.clone(),
             to_subnet_id,
             balance,
+            min_shares_out,
+            execute_before_block,
         };
 
-        Self::queue_swap(account_id.clone(), call)?;
+        Self::queue_swap(account_id.clone(), QueuedSwapSource::SubnetDelegate, call)?;
+
+        Self::set_last_tx_block(&account_id, Self::get_current_block_as_u32());
 
         // Self::deposit_event(Event::SubnetToSubnetQueuedSwapCall {
         //     account_id: account_id,
@@ -136,11 +172,15 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn do_swap_from_validator_to_validator(
+    #[frame_support::transactional]
+    pub(crate) fn do_swap_from_validator_to_validator(
         origin: T::RuntimeOrigin,
         from_validator_id: u32,
         to_validator_id: u32,
         delegate_stake_shares_to_swap: u128,
+        min_balance_out: u128,
+        min_shares_out: u128,
+        execute_before_block: u32,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
@@ -150,18 +190,28 @@ impl<T: Config> Pallet<T> {
             &account_id,
             from_validator_id,
             delegate_stake_shares_to_swap,
+            min_balance_out,
             false,
         );
 
         result?;
+        ensure!(balance > 0, Error::<T>::ZeroSwapBalance);
 
         let call = QueuedSwapCall::SwapToValidatorDelegateStake {
             account_id: account_id.clone(),
             to_validator_id,
             balance,
+            min_shares_out,
+            execute_before_block,
         };
 
-        Self::queue_swap(account_id.clone(), call)?;
+        Self::queue_swap(
+            account_id.clone(),
+            QueuedSwapSource::ValidatorDelegate,
+            call,
+        )?;
+
+        Self::set_last_tx_block(&account_id, Self::get_current_block_as_u32());
 
         // Self::deposit_event(Event::ValidatorToValidatorQueuedSwapCall {
         //     account_id: account_id,

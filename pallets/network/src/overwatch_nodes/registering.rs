@@ -28,8 +28,13 @@ impl<T: Config> Pallet<T> {
         let validator_id = Self::get_canonical_validator_id_for_coldkey(&coldkey)?;
 
         ensure!(
-            OverwatchValidatorWhitelist::<T>::get(validator_id),
-            Error::<T>::ColdkeyBlacklisted
+            OverwatchValidatorWhitelist::<T>::contains_key(validator_id),
+            Error::<T>::ValidatorNotOverwatchWhitelisted
+        );
+
+        ensure!(
+            !ValidatorOverwatchNodeId::<T>::contains_key(validator_id),
+            Error::<T>::ValidatorAlreadyHasOverwatchNode
         );
 
         ensure!(
@@ -44,13 +49,18 @@ impl<T: Config> Pallet<T> {
             Error::<T>::MaxOverwatchNodes
         );
 
-        // ⸺ Ensure qualifies via reputation
-        ensure!(
-            Self::is_validator_overwatch_qualified_read_only(validator_id),
-            Error::<T>::ColdkeyNotOverwatchQualified
-        );
+        let current_uid = TotalOverwatchNodeUids::<T>::get()
+            .checked_add(1)
+            .ok_or(Error::<T>::OverwatchNodeIdExhausted)?;
 
-        let current_uid = TotalOverwatchNodeUids::<T>::get().saturating_add(1);
+        // IDs are monotonic and the historical owner mapping is intentionally retained after
+        // removal. Refuse to overwrite either active or historical state if the counter is ever
+        // inconsistent.
+        ensure!(
+            !OverwatchNodes::<T>::contains_key(current_uid)
+                && !OverwatchNodeValidatorId::<T>::contains_key(current_uid),
+            Error::<T>::OverwatchNodeIdExhausted
+        );
 
         ensure!(stake_to_be_added != 0, Error::<T>::InvalidAmount);
 
@@ -61,9 +71,11 @@ impl<T: Config> Pallet<T> {
 
         let account_stake_balance: u128 = OverwatchNodeStakeBalance::<T>::get(current_uid);
 
+        let next_account_stake_balance = account_stake_balance
+            .checked_add(stake_to_be_added)
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
         ensure!(
-            account_stake_balance.saturating_add(stake_to_be_added)
-                >= OverwatchMinStakeBalance::<T>::get(),
+            next_account_stake_balance >= OverwatchMinStakeBalance::<T>::get(),
             Error::<T>::MinStakeNotReached
         );
 
@@ -77,17 +89,13 @@ impl<T: Config> Pallet<T> {
             Self::remove_balance_from_coldkey_account(&coldkey, balance) == true,
             Error::<T>::BalanceWithdrawalError
         );
-        Self::increase_overwatch_node_stake(current_uid, stake_to_be_added);
-
-        let overwatch_node: OverwatchNode<T::AccountId> = OverwatchNode {
-            id: current_uid,
-            hotkey: coldkey.clone(),
-        };
+        Self::increase_overwatch_node_stake(current_uid, stake_to_be_added)?;
 
         // ⸺ Register
         TotalOverwatchNodeUids::<T>::put(current_uid);
         OverwatchNodeValidatorId::<T>::insert(current_uid, validator_id);
-        OverwatchNodes::<T>::insert(current_uid, overwatch_node);
+        ValidatorOverwatchNodeId::<T>::insert(validator_id, current_uid);
+        OverwatchNodes::<T>::insert(current_uid, ());
 
         TotalOverwatchNodes::<T>::mutate(|n: &mut u32| *n += 1);
 
@@ -136,96 +144,37 @@ impl<T: Config> Pallet<T> {
 
         ensure!(Self::validate_peer_id(&peer_id), Error::<T>::InvalidPeerId);
 
-        // Ensure no one owns the peer Id and we don't already own it
+        // Preserve peer-ID uniqueness without treating a subnet-node ID as Overwatch identity.
         ensure!(
-            Self::is_owner_of_peer_or_ownerless(subnet_id, 0, 0, &peer_id),
+            Self::is_overwatch_peer_owner_or_ownerless(subnet_id, overwatch_node_id, &peer_id),
             Error::<T>::PeerIdExist
         );
+
+        // Whole-subnet removal clears the subnet-keyed reverse index but deliberately does not
+        // scan every Overwatch node. Repair only this owner's bounded forward index when they next
+        // update a peer ID.
+        let mut peer_ids = OverwatchNodeIndex::<T>::get(overwatch_node_id);
+        peer_ids.retain(|stored_subnet_id, _| SubnetsData::<T>::contains_key(*stored_subnet_id));
+
+        let previous_peer_id = peer_ids.get(&subnet_id).cloned();
+
+        // A node has at most one peer ID per subnet. Remove the prior reverse entry when replacing
+        // it, but only if that reverse entry still belongs to this Overwatch node.
+        if let Some(previous_peer_id) = previous_peer_id {
+            if previous_peer_id != peer_id
+                && PeerIdOverwatchNodeId::<T>::try_get(subnet_id, &previous_peer_id)
+                    == Ok(overwatch_node_id)
+            {
+                PeerIdOverwatchNodeId::<T>::remove(subnet_id, previous_peer_id);
+            }
+        }
 
         PeerIdOverwatchNodeId::<T>::insert(subnet_id, &peer_id, overwatch_node_id);
 
         // Add or replace PeerID under subnet ID
-        OverwatchNodeIndex::<T>::mutate(overwatch_node_id, |map| {
-            map.insert(subnet_id, peer_id);
-        });
+        peer_ids.insert(subnet_id, peer_id);
+        OverwatchNodeIndex::<T>::insert(overwatch_node_id, peer_ids);
 
         Ok(Pays::No.into())
-    }
-
-    pub fn is_council_qualified(validator_id: u32) -> bool {
-        false
-    }
-
-    pub fn is_validator_overwatch_qualified(validator_id: u32) -> bool {
-        Self::clean_validator_subnet_nodes(validator_id);
-        Self::is_validator_overwatch_qualified_read_only(validator_id)
-    }
-
-    pub fn is_validator_overwatch_qualified_read_only(validator_id: u32) -> bool {
-        let reputation = match ValidatorReputation::<T>::try_get(validator_id) {
-            Ok(value) => value,
-            Err(_) => return false,
-        };
-        let min_diversification_ratio = OverwatchMinDiversificationRatio::<T>::get();
-        let min_score = OverwatchMinRepScore::<T>::get();
-        let min_avg_attestation = OverwatchMinAvgAttestationRatio::<T>::get();
-        let min_age = OverwatchMinAge::<T>::get();
-
-        let current_epoch = Self::get_current_epoch_as_u32();
-
-        // - No one can be an Overwatch Node yet
-        if current_epoch <= min_age {
-            return false;
-        }
-
-        let age = current_epoch.saturating_sub(reputation.start_epoch);
-
-        if age < min_age {
-            return false;
-        }
-
-        if reputation.score < min_score {
-            return false;
-        }
-
-        // Get number of nodes under coldkey
-        let mut active_unique_node_count = 0;
-        let node_map = ValidatorSubnetNodes::<T>::get(validator_id);
-        for (subnet_id, nodes) in node_map.iter() {
-            let subnet_epoch = Self::get_current_subnet_epoch_as_u32(*subnet_id);
-
-            let node_ids: Vec<u32> = nodes.iter().copied().collect();
-
-            // Process each node_id one by one
-            for node_id in node_ids {
-                if !Self::get_validator_classified_subnet_node(*subnet_id, node_id, subnet_epoch)
-                    .is_none()
-                {
-                    active_unique_node_count += 1;
-                    // `break` to next subnet
-                    // We are only checking for subnet uniqueness. We only need to verify
-                    // there is one node per subnet to get the uniquness ratio
-                    break;
-                }
-            }
-        }
-
-        let diversification = match active_unique_node_count >= TotalActiveSubnets::<T>::get() {
-            true => Self::percentage_factor_as_u128(),
-            false => Self::percent_div(
-                active_unique_node_count as u128,
-                TotalActiveSubnets::<T>::get() as u128,
-            ),
-        };
-
-        if diversification < min_diversification_ratio {
-            return false;
-        }
-
-        if reputation.average_attestation < min_avg_attestation {
-            return false;
-        }
-
-        true
     }
 }

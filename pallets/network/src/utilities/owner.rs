@@ -21,6 +21,19 @@ use libm::{ceil, log};
 
 impl<T: Config> Pallet<T> {
     pub const MAX_EMERGENCY_VALIDATOR_DURATION_STEPS: u32 = 10_000;
+    pub const MIN_EMERGENCY_VALIDATOR_DURATION_STEPS: u32 = 1;
+    pub const EMERGENCY_VALIDATOR_EXPIRY_BUFFER_EPOCHS: u32 = 1;
+    pub const UNPAUSE_CONSENSUS_ELIGIBILITY_DELAY_EPOCHS: u32 = 2;
+
+    pub(crate) fn get_unpause_consensus_eligible_from_subnet_epoch(
+        current_subnet_epoch: u32,
+    ) -> u32 {
+        current_subnet_epoch.saturating_add(Self::UNPAUSE_CONSENSUS_ELIGIBILITY_DELAY_EPOCHS)
+    }
+
+    fn next_owner_parameter_effective_subnet_epoch(current_subnet_epoch: u32) -> u32 {
+        current_subnet_epoch.saturating_add(OWNER_PARAMETER_ACTIVATION_DELAY_EPOCHS)
+    }
 
     fn prepare_pending_owner_u32_update(
         current_subnet_epoch: u32,
@@ -101,21 +114,18 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    pub fn get_min_consensus_node_attestation_percentage_for_epoch(
-        subnet_id: u32,
-        subnet_epoch: u32,
-    ) -> u128 {
-        Self::pending_owner_u128_value_for_epoch(
-            SubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id),
-            PendingSubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id),
-            subnet_epoch,
-        )
-    }
-
     pub fn get_idle_classification_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
         Self::pending_owner_u32_value_for_epoch(
             IdleClassificationEpochs::<T>::get(subnet_id),
             PendingIdleClassificationEpochs::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
+    pub fn get_subnet_node_queue_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
+        Self::pending_owner_u32_value_for_epoch(
+            SubnetNodeQueueEpochs::<T>::get(subnet_id),
+            PendingSubnetNodeQueueEpochs::<T>::get(subnet_id),
             subnet_epoch,
         )
     }
@@ -136,9 +146,41 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    pub fn get_subnet_delegate_stake_rewards_percentage_for_epoch(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> u128 {
+        PendingSubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id)
+            .filter(|pending| pending.effective_subnet_epoch <= subnet_epoch)
+            .map(|pending| pending.value)
+            .unwrap_or_else(|| SubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id))
+    }
+
+    pub fn get_consensus_validator_node_count_decay_for_epoch(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> u128 {
+        Self::pending_owner_u128_value_for_epoch(
+            ConsensusValidatorNodeCountDecay::<T>::get(subnet_id),
+            PendingConsensusValidatorNodeCountDecay::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
+    pub fn get_consensus_validator_stake_weight_power_for_epoch(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> u128 {
+        Self::pending_owner_u128_value_for_epoch(
+            ConsensusValidatorStakeWeightPower::<T>::get(subnet_id),
+            PendingConsensusValidatorStakeWeightPower::<T>::get(subnet_id),
+            subnet_epoch,
+        )
+    }
+
     /// Owner pause subnet for up to max period
     ///
-    /// This will pause the following logic on the next subnet epoch start block step:
+    /// This immediately prevents the following work at the subnet's next assigned slot:
     /// - Elect validator
     /// - Activate nodes from the queue
     /// - Update the node burn rate
@@ -153,39 +195,44 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
+        let subnet =
+            SubnetsData::<T>::try_get(subnet_id).map_err(|_| Error::<T>::InvalidSubnetId)?;
         ensure!(
-            Self::is_subnet_active(subnet_id).unwrap_or(false),
+            subnet.state == SubnetState::Active,
             Error::<T>::SubnetMustBeActive
         );
 
-        let epoch = Self::get_current_epoch_as_u32();
+        let consensus_eligible_from_subnet_epoch = subnet
+            .consensus_eligible_from_subnet_epoch
+            .ok_or(Error::<T>::SubnetMustBeActive)?;
+        let global_epoch = Self::get_current_epoch_as_u32();
+        let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
-        // Ensure subnet pause period has been reached to pause again
+        // Cooldown is measured in completed epochs of this subnet. Because the subnet epoch
+        // advances in on_initialize at its assigned slot, an extrinsic that first satisfies this
+        // check runs after that slot's settlement attempt.
         ensure!(
-            PreviousSubnetPauseEpoch::<T>::get(subnet_id)
+            consensus_eligible_from_subnet_epoch
                 .saturating_add(SubnetPauseCooldownEpochs::<T>::get())
-                <= epoch,
+                <= subnet_epoch,
             Error::<T>::SubnetPauseCooldownActive
         );
 
         SubnetsData::<T>::try_mutate_exists(subnet_id, |maybe_params| -> DispatchResult {
             let params = maybe_params.as_mut().ok_or(Error::<T>::InvalidSubnetId)?;
 
-            // Update state
             params.state = SubnetState::Paused;
-
-            // We use the current epoch as the `start_epoch` when pausing
-            // This enables us to know the delta when reactivating for updating the node registration pool node start epochs
-            // see `do_owner_unpause_subnet`
-            params.start_epoch = epoch;
+            params.consensus_eligible_from_subnet_epoch = None;
+            params.pause = Some(SubnetPauseData {
+                started_global_epoch: global_epoch,
+                started_subnet_epoch: subnet_epoch,
+            });
 
             Ok(())
         })?;
 
-        // ---
-        // We don't need to remove SubnetConsensusSubmission here because
-        // precheck_subnet_consensus_submission already checks if the subnet is active and not paused
-        // ---
+        // Preserve the already-elected round so its historical allocation can still settle.
+        // The active/live gate prevents any new election while the subnet is paused.
 
         Self::deposit_event(Event::SubnetPaused {
             subnet_id: subnet_id,
@@ -203,13 +250,19 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotSubnetOwner
         );
 
+        let subnet =
+            SubnetsData::<T>::try_get(subnet_id).map_err(|_| Error::<T>::InvalidSubnetId)?;
         ensure!(
-            Self::is_subnet_paused(subnet_id).unwrap_or(false),
+            subnet.state == SubnetState::Paused,
             Error::<T>::SubnetMustBePaused
         );
+        let pause = subnet.pause.ok_or(Error::<T>::SubnetMustBePaused)?;
 
-        let epoch = Self::get_current_epoch_as_u32();
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        // The next local epoch is preparation-only; consensus resumes at the following
+        // assigned slot regardless of whether this call occurs before or after today's slot.
+        let consensus_eligible_from_subnet_epoch =
+            Self::get_unpause_consensus_eligible_from_subnet_epoch(subnet_epoch);
 
         Self::maybe_finish_expired_emergency_validator_set(subnet_id, subnet_epoch);
 
@@ -227,39 +280,38 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        // If the subnet is passed the max pause epochs, validators via on_initialize already
-        // unpaused it. If not, we allow the owner to unpause
-
         // A subnet can only pause if it's active, so we re-activate it back in the Active state
         SubnetsData::<T>::try_mutate_exists(subnet_id, |maybe_params| -> DispatchResult {
             let params = maybe_params.as_mut().ok_or(Error::<T>::InvalidSubnetId)?;
 
-            let pause_epoch = params.start_epoch;
+            // Count only subnet slots that were actually skipped while paused. The G + 1
+            // preparation slot runs queue maintenance, so it is intentionally not added.
+            let delta = subnet_epoch.saturating_sub(pause.started_subnet_epoch);
 
-            // Epochs the subnet was paused for
-            let delta = epoch.saturating_sub(pause_epoch).saturating_add(1); // Add +1 to offset the subnet slots
-
-            // Update each registration queued node
-            // Move each nodes start_epoch forward by the amount of epochs the subnet was paused
+            // RegisteredSubnetNodesData is the canonical lookup, while SubnetNodeQueue owns
+            // clones used by queue activation. Shift both so they cannot disagree.
             for (uid, _) in RegisteredSubnetNodesData::<T>::iter_prefix(subnet_id) {
                 RegisteredSubnetNodesData::<T>::mutate(subnet_id, uid, |subnet_node| {
                     let curr_start_epoch = subnet_node.classification.start_epoch;
                     subnet_node.classification.start_epoch = curr_start_epoch.saturating_add(delta);
                 });
             }
+            SubnetNodeQueue::<T>::mutate(subnet_id, |queue| {
+                for subnet_node in queue.iter_mut() {
+                    subnet_node.classification.start_epoch =
+                        subnet_node.classification.start_epoch.saturating_add(delta);
+                }
+            });
 
-            // Update state
             params.state = SubnetState::Active;
-
-            // We start them on the next epoch following the current epoch
-            // This protects the network against an owner pausing a subnet and then unpausing it in a single epoch to manipulate
-            // the attestation ratios (see ``precheck_subnet_consensus_submission`` `max_attestors`)
-            params.start_epoch = epoch.saturating_add(1);
+            params.consensus_eligible_from_subnet_epoch =
+                Some(consensus_eligible_from_subnet_epoch);
+            // Unpausing ends maximum-pause enforcement immediately. The local cooldown above
+            // prevents another pause until complete subnet rounds have elapsed.
+            params.pause = None;
 
             Ok(())
         })?;
-
-        PreviousSubnetPauseEpoch::<T>::insert(subnet_id, epoch);
 
         // Activate a pending emergency validator set. Active emergency data is intentionally
         // not reset on later pause/unpause cycles.
@@ -272,9 +324,11 @@ impl<T: Config> Pallet<T> {
                     )
                     .min(u32::MAX as u128) as u32;
                     data.activated = true;
-                    data.started_subnet_epoch = subnet_epoch;
+                    // The emergency duration starts with the first consensus-eligible epoch, not
+                    // while the subnet is in its preparation period.
+                    data.started_subnet_epoch = consensus_eligible_from_subnet_epoch;
                     data.max_emergency_validators_epoch =
-                        subnet_epoch.saturating_add(max_emergency_delta);
+                        consensus_eligible_from_subnet_epoch.saturating_add(max_emergency_delta);
                 }
             }
         });
@@ -378,7 +432,8 @@ impl<T: Config> Pallet<T> {
         );
 
         if absent_decrease_factor >= one || min_reputation >= one {
-            return Ok(1u32.saturating_add(1));
+            return Ok(Self::MIN_EMERGENCY_VALIDATOR_DURATION_STEPS
+                .saturating_add(Self::EMERGENCY_VALIDATOR_EXPIRY_BUFFER_EPOCHS));
         }
 
         let retained_ratio = (one.saturating_sub(absent_decrease_factor)) as f64 / one as f64;
@@ -387,12 +442,12 @@ impl<T: Config> Pallet<T> {
         let steps = ceil(log(threshold_ratio) / log(retained_ratio));
         ensure!(
             steps.is_finite()
-                && steps >= 1.0
+                && steps >= Self::MIN_EMERGENCY_VALIDATOR_DURATION_STEPS as f64
                 && steps <= Self::MAX_EMERGENCY_VALIDATOR_DURATION_STEPS as f64,
             Error::<T>::InvalidEmergencyValidatorDuration
         );
 
-        Ok((steps as u32).saturating_add(1))
+        Ok((steps as u32).saturating_add(Self::EMERGENCY_VALIDATOR_EXPIRY_BUFFER_EPOCHS))
     }
 
     fn validate_emergency_validator_ids(
@@ -471,6 +526,123 @@ impl<T: Config> Pallet<T> {
             .collect()
     }
 
+    /// Return every subnet node that is logically quarantined while physical cleanup is pending.
+    ///
+    /// Callers that scan more than one node should take this single snapshot and filter in memory,
+    /// rather than decoding both bounded pending-removal sets once per candidate.
+    pub(crate) fn pending_subnet_node_removal_ids(subnet_id: u32) -> BTreeSet<u32> {
+        let pending_active = PendingActiveNodeRemovals::<T>::get(subnet_id);
+        let pending_registered = PendingRegisteredNodeRemovals::<T>::get(subnet_id);
+        let mut pending_ids = BTreeSet::new();
+
+        pending_ids.extend(pending_active.iter().copied());
+        pending_ids.extend(pending_registered.iter().copied());
+        pending_ids
+    }
+
+    pub(crate) fn filter_pending_subnet_node_ids(
+        subnet_node_ids: Vec<u32>,
+        pending_ids: &BTreeSet<u32>,
+    ) -> Vec<u32> {
+        subnet_node_ids
+            .into_iter()
+            .filter(|subnet_node_id| !pending_ids.contains(subnet_node_id))
+            .collect()
+    }
+
+    /// Resolve the validator nodes that are effective for a subnet epoch.
+    ///
+    /// Pending and expired emergency sets never replace the regular election slots. Keeping this
+    /// decision in one helper prevents election, proposal snapshots, and runtime queries from
+    /// exposing different validator sets for the same epoch.
+    pub fn effective_consensus_validator_ids(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> (Vec<u32>, bool) {
+        let pending_ids = Self::pending_subnet_node_removal_ids(subnet_id);
+        let (validator_ids, emergency, _) = Self::resolve_consensus_validator_ids_with_pending(
+            subnet_id,
+            subnet_epoch,
+            &pending_ids,
+        );
+        (
+            Self::filter_pending_subnet_node_ids(validator_ids, &pending_ids),
+            emergency,
+        )
+    }
+
+    /// Return the candidate cardinality used to reserve election weight before election mutates
+    /// storage.
+    ///
+    /// Do not decode `EmergencySubnetNodeElectionData` merely to select a weight: its vector is
+    /// itself variable-sized work that would happen before generated weight is reserved. Callers
+    /// compose this regular cardinality with the separately measured active-emergency and expired
+    /// cleanup branches.
+    pub fn elect_validator_weight_component(subnet_id: u32) -> u32 {
+        let regular_nodes = TotalSubnetElectableNodes::<T>::get(subnet_id);
+        regular_nodes
+            .min(T::MaxSubnetNodesUpperBound::get())
+            .max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES)
+    }
+
+    /// Resolve the effective validator IDs and report whether an activated emergency set expired.
+    ///
+    /// The active emergency IDs are computed at most once. Election uses the third return value to
+    /// perform lifecycle cleanup without re-reading and re-scanning every emergency subnet node.
+    pub fn resolve_consensus_validator_ids(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> (Vec<u32>, bool, bool) {
+        let pending_ids = Self::pending_subnet_node_removal_ids(subnet_id);
+        Self::resolve_consensus_validator_ids_with_pending(subnet_id, subnet_epoch, &pending_ids)
+    }
+
+    pub(crate) fn resolve_consensus_validator_ids_with_pending(
+        subnet_id: u32,
+        subnet_epoch: u32,
+        pending_ids: &BTreeSet<u32>,
+    ) -> (Vec<u32>, bool, bool) {
+        if let Some(data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id) {
+            if data.activated {
+                let expired_by_duration = data.total_epochs
+                    >= data.target_emergency_validators_epochs
+                    || subnet_epoch > data.max_emergency_validators_epoch;
+
+                if !expired_by_duration {
+                    let validator_ids =
+                        Self::active_emergency_validator_ids(&data, subnet_id, subnet_epoch);
+                    let healthy_validator_count = validator_ids
+                        .iter()
+                        .filter(|subnet_node_id| !pending_ids.contains(subnet_node_id))
+                        .count() as u32;
+                    if healthy_validator_count >= MinSubnetNodes::<T>::get() {
+                        return (
+                            Self::canonicalize_consensus_validator_ids(validator_ids),
+                            true,
+                            false,
+                        );
+                    }
+                }
+
+                return (
+                    Self::canonicalize_consensus_validator_ids(SubnetNodeElectionSlots::<T>::get(
+                        subnet_id,
+                    )),
+                    false,
+                    true,
+                );
+            }
+        }
+
+        (
+            Self::canonicalize_consensus_validator_ids(SubnetNodeElectionSlots::<T>::get(
+                subnet_id,
+            )),
+            false,
+            false,
+        )
+    }
+
     pub fn is_emergency_validator_set_expired(
         data: &EmergencySubnetValidatorData,
         subnet_id: u32,
@@ -479,9 +651,14 @@ impl<T: Config> Pallet<T> {
         data.activated
             && (data.total_epochs >= data.target_emergency_validators_epochs
                 || subnet_epoch > data.max_emergency_validators_epoch
-                || (Self::active_emergency_validator_ids(data, subnet_id, subnet_epoch).len()
-                    as u32)
-                    < MinSubnetNodes::<T>::get())
+                || {
+                    let pending_ids = Self::pending_subnet_node_removal_ids(subnet_id);
+                    (Self::active_emergency_validator_ids(data, subnet_id, subnet_epoch)
+                        .iter()
+                        .filter(|subnet_node_id| !pending_ids.contains(subnet_node_id))
+                        .count() as u32)
+                        < MinSubnetNodes::<T>::get()
+                })
     }
 
     pub fn maybe_finish_expired_emergency_validator_set(subnet_id: u32, subnet_epoch: u32) -> bool {
@@ -497,9 +674,10 @@ impl<T: Config> Pallet<T> {
 
     pub fn emergency_consensus_snapshot(
         data: &EmergencySubnetValidatorData,
+        effective_subnet_node_ids: Vec<u32>,
     ) -> EmergencyConsensusSnapshot {
         EmergencyConsensusSnapshot {
-            subnet_node_ids: data.subnet_node_ids.clone(),
+            subnet_node_ids: effective_subnet_node_ids,
             reputation_factors: data.reputation_factors,
             min_subnet_node_reputation: data.min_subnet_node_reputation,
             min_weight_decrease_reputation_threshold: data.min_weight_decrease_reputation_threshold,
@@ -579,6 +757,10 @@ impl<T: Config> Pallet<T> {
         ensure!(
             SubnetsData::<T>::contains_key(subnet_id),
             Error::<T>::InvalidSubnetId
+        );
+        ensure!(
+            !PendingConsensusRoundSettlementEpoch::<T>::contains_key(subnet_id),
+            Error::<T>::ConsensusRoundPendingSettlement
         );
 
         Self::do_remove_subnet(subnet_id, SubnetRemovalReason::Owner);
@@ -787,7 +969,8 @@ impl<T: Config> Pallet<T> {
         );
 
         ensure!(
-            value >= MinChurnLimitMultiplier::<T>::get()
+            value >= MIN_CHURN_LIMIT_MULTIPLIER
+                && value >= MinChurnLimitMultiplier::<T>::get()
                 && value <= MaxChurnLimitMultiplier::<T>::get(),
             Error::<T>::InvalidChurnLimitMultiplier
         );
@@ -820,12 +1003,28 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidRegistrationQueueEpochs
         );
 
-        SubnetNodeQueueEpochs::<T>::insert(subnet_id, value);
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::prepare_pending_owner_u32_update(
+            current_subnet_epoch,
+            PendingSubnetNodeQueueEpochs::<T>::get(subnet_id),
+            |value| SubnetNodeQueueEpochs::<T>::insert(subnet_id, value),
+        )?;
+        let effective_subnet_epoch =
+            Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
+        PendingSubnetNodeQueueEpochs::<T>::insert(
+            subnet_id,
+            PendingOwnerU32Update {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
 
-        Self::deposit_event(Event::RegistrationQueueEpochsUpdate {
+        Self::deposit_event(Event::RegistrationQueueEpochsUpdateScheduled {
             subnet_id: subnet_id,
             owner: coldkey,
             value: value,
+            effective_subnet_epoch,
         });
 
         Ok(())
@@ -855,7 +1054,8 @@ impl<T: Config> Pallet<T> {
             PendingIdleClassificationEpochs::<T>::get(subnet_id),
             |value| IdleClassificationEpochs::<T>::insert(subnet_id, value),
         )?;
-        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        let effective_subnet_epoch =
+            Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingIdleClassificationEpochs::<T>::insert(
             subnet_id,
             PendingOwnerU32Update {
@@ -899,7 +1099,8 @@ impl<T: Config> Pallet<T> {
             PendingIncludedClassificationEpochs::<T>::get(subnet_id),
             |value| IncludedClassificationEpochs::<T>::insert(subnet_id, value),
         )?;
-        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        let effective_subnet_epoch =
+            Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingIncludedClassificationEpochs::<T>::insert(
             subnet_id,
             PendingOwnerU32Update {
@@ -937,18 +1138,54 @@ impl<T: Config> Pallet<T> {
         );
 
         ensure!(
-            validators.values().all(|&value| value >= 1),
+            validators.len() <= T::MaxRegisteredNodesUpperBound::get() as usize,
             Error::<T>::InvalidSubnetRegistrationInitialColdkeys
         );
 
-        NodeRegistrationInitialValidatorIds::<T>::mutate(subnet_id, |maybe_validators| {
-            let validators_set = maybe_validators.get_or_insert_with(BTreeMap::new);
-            validators_set.extend(
-                validators
-                    .iter()
-                    .map(|(&validator_id, &max_registrations)| (validator_id, max_registrations)),
-            );
-        });
+        ensure!(
+            validators
+                .values()
+                .all(|&value| value >= MIN_INITIAL_VALIDATOR_REGISTRATIONS),
+            Error::<T>::InvalidSubnetRegistrationInitialColdkeys
+        );
+
+        NodeRegistrationInitialValidatorIds::<T>::try_mutate(
+            subnet_id,
+            |maybe_validators| -> DispatchResult {
+                let validators_set = maybe_validators.get_or_insert_with(BTreeMap::new);
+                validators_set.extend(
+                    validators
+                        .iter()
+                        .map(|(&validator_id, &max_registrations)| {
+                            (validator_id, max_registrations)
+                        }),
+                );
+                ensure!(
+                    validators_set.len() <= T::MaxRegisteredNodesUpperBound::get() as usize,
+                    Error::<T>::InvalidSubnetRegistrationInitialColdkeys
+                );
+
+                // Registration counters deliberately survive whitelist removals. Bound the
+                // cumulative identity union so repeatedly rotating whitelist entries cannot grow
+                // `InitialValidatorData` beyond the proof-size domain used by cleanup weights.
+                let tracked_validators = InitialValidatorData::<T>::get(subnet_id);
+                let cumulative_identity_count = validators_set
+                    .keys()
+                    .chain(
+                        tracked_validators
+                            .iter()
+                            .flat_map(|registrations| registrations.keys()),
+                    )
+                    .copied()
+                    .collect::<BTreeSet<_>>()
+                    .len();
+                ensure!(
+                    cumulative_identity_count <= T::MaxRegisteredNodesUpperBound::get() as usize,
+                    Error::<T>::InvalidSubnetRegistrationInitialColdkeys
+                );
+                Ok(())
+            },
+        )?;
 
         Self::deposit_event(Event::AddSubnetRegistrationInitialValidators {
             subnet_id: subnet_id,
@@ -974,6 +1211,13 @@ impl<T: Config> Pallet<T> {
         ensure!(
             Self::is_subnet_registered(subnet_id).unwrap_or(false),
             Error::<T>::SubnetMustBeRegistering
+        );
+
+        // A fixed-weight call must reject an oversized caller-supplied set before its removal
+        // loop, including when every supplied validator ID is absent from the stored whitelist.
+        ensure!(
+            validators.len() <= T::MaxRegisteredNodesUpperBound::get() as usize,
+            Error::<T>::InvalidSubnetRegistrationInitialColdkeys
         );
 
         NodeRegistrationInitialValidatorIds::<T>::mutate(subnet_id, |maybe_validators| {
@@ -1090,7 +1334,8 @@ impl<T: Config> Pallet<T> {
         );
 
         let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
-        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        let effective_subnet_epoch =
+            Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
 
         LastSubnetDelegateStakeRewardsUpdate::<T>::insert(subnet_id, block);
         PendingSubnetDelegateStakeRewardsPercentage::<T>::insert(
@@ -1415,7 +1660,8 @@ impl<T: Config> Pallet<T> {
             PendingQueueImmunityEpochs::<T>::get(subnet_id),
             |value| QueueImmunityEpochs::<T>::insert(subnet_id, value),
         )?;
-        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        let effective_subnet_epoch =
+            Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingQueueImmunityEpochs::<T>::insert(
             subnet_id,
             PendingOwnerU32Update {
@@ -1462,19 +1708,35 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        ConsensusValidatorNodeCountDecay::<T>::insert(subnet_id, value);
+        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
+        Self::prepare_pending_owner_u128_update(
+            current_subnet_epoch,
+            PendingConsensusValidatorNodeCountDecay::<T>::get(subnet_id),
+            |value| ConsensusValidatorNodeCountDecay::<T>::insert(subnet_id, value),
+        )?;
+        let effective_subnet_epoch =
+            Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
+        PendingConsensusValidatorNodeCountDecay::<T>::insert(
+            subnet_id,
+            PendingOwnerU128Update {
+                value,
+                effective_subnet_epoch,
+                owner: coldkey.clone(),
+            },
+        );
         LastConsensusValidatorNodeCountDecayUpdate::<T>::insert(subnet_id, current_epoch);
 
-        Self::deposit_event(Event::ConsensusValidatorNodeCountDecayUpdate {
+        Self::deposit_event(Event::ConsensusValidatorNodeCountDecayUpdateScheduled {
             subnet_id,
             owner: coldkey,
             value,
+            effective_subnet_epoch,
         });
 
         Ok(())
     }
 
-    pub fn do_owner_update_min_consensus_node_attestation_percentage(
+    pub fn do_owner_update_consensus_validator_stake_weight_power(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
         value: u128,
@@ -1487,19 +1749,31 @@ impl<T: Config> Pallet<T> {
         );
 
         ensure!(
-            value >= MinSubnetConsensusNodeAttestationPercentage::<T>::get()
-                && value <= MaxSubnetConsensusNodeAttestationPercentage::<T>::get(),
+            value >= MinConsensusValidatorStakeWeightPower::<T>::get()
+                && value <= MaxConsensusValidatorStakeWeightPower::<T>::get(),
             Error::<T>::InvalidPercent
         );
+
+        let current_epoch = Self::get_current_epoch_as_u32();
+        let update_interval = ConsensusValidatorStakeWeightPowerUpdateInterval::<T>::get();
+
+        if let Some(last_update) = LastConsensusValidatorStakeWeightPowerUpdate::<T>::get(subnet_id)
+        {
+            ensure!(
+                last_update.saturating_add(update_interval) <= current_epoch,
+                Error::<T>::ConsensusValidatorStakeWeightPowerUpdateTooSoon
+            );
+        }
 
         let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
         Self::prepare_pending_owner_u128_update(
             current_subnet_epoch,
-            PendingSubnetMinConsensusNodeAttestationPercentage::<T>::get(subnet_id),
-            |value| SubnetMinConsensusNodeAttestationPercentage::<T>::insert(subnet_id, value),
+            PendingConsensusValidatorStakeWeightPower::<T>::get(subnet_id),
+            |value| ConsensusValidatorStakeWeightPower::<T>::insert(subnet_id, value),
         )?;
-        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
-        PendingSubnetMinConsensusNodeAttestationPercentage::<T>::insert(
+        let effective_subnet_epoch =
+            Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
+        PendingConsensusValidatorStakeWeightPower::<T>::insert(
             subnet_id,
             PendingOwnerU128Update {
                 value,
@@ -1507,15 +1781,14 @@ impl<T: Config> Pallet<T> {
                 owner: coldkey.clone(),
             },
         );
+        LastConsensusValidatorStakeWeightPowerUpdate::<T>::insert(subnet_id, current_epoch);
 
-        Self::deposit_event(
-            Event::MinConsensusNodeAttestationPercentageUpdateScheduled {
-                subnet_id,
-                owner: coldkey,
-                value,
-                effective_subnet_epoch,
-            },
-        );
+        Self::deposit_event(Event::ConsensusValidatorStakeWeightPowerUpdateScheduled {
+            subnet_id,
+            owner: coldkey,
+            value,
+            effective_subnet_epoch,
+        });
 
         Ok(())
     }
@@ -1559,7 +1832,8 @@ impl<T: Config> Pallet<T> {
             PendingMinSubnetNodeReputation::<T>::get(subnet_id),
             |value| MinSubnetNodeReputation::<T>::insert(subnet_id, value),
         )?;
-        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        let effective_subnet_epoch =
+            Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingMinSubnetNodeReputation::<T>::insert(
             subnet_id,
             PendingOwnerU128Update {
@@ -1612,7 +1886,8 @@ impl<T: Config> Pallet<T> {
             PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
             |value| SubnetNodeMinWeightDecreaseReputationThreshold::<T>::insert(subnet_id, value),
         )?;
-        let effective_subnet_epoch = current_subnet_epoch.saturating_add(1);
+        let effective_subnet_epoch =
+            Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::insert(
             subnet_id,
             PendingOwnerU128Update {
@@ -1726,7 +2001,8 @@ impl<T: Config> Pallet<T> {
             next_factors.validator_non_consensus_decrease = value;
         }
 
-        let cooldown = SubnetOwnerFactorCooldownEpochs::<T>::get().max(1);
+        let cooldown =
+            SubnetOwnerFactorCooldownEpochs::<T>::get().max(MIN_OWNER_FACTOR_COOLDOWN_EPOCHS);
         let effective_subnet_epoch = current_subnet_epoch.saturating_add(cooldown);
         schedule.pending = Some(PendingSubnetReputationFactors {
             effective_subnet_epoch,

@@ -34,7 +34,6 @@ where
     <<R as frame_system::Config>::Lookup as StaticLookup>::Source: From<R::AccountId>,
 {
     #[precompile::public("registerOverwatchNode(uint256)")]
-    #[precompile::payable]
     fn register_overwatch_node(
         handle: &mut impl PrecompileHandle,
         stake_to_be_added: U256,
@@ -182,13 +181,15 @@ where
 
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
 
-        let reveals: Vec<OverwatchReveal> = reveals
+        let reveals: Vec<OverwatchReveal<R>> = reveals
             .into_iter()
             .map(|(subnet_id, weight, salt)| {
-                Ok::<_, PrecompileFailure>(OverwatchReveal {
+                Ok::<_, PrecompileFailure>(OverwatchReveal::<R> {
                     subnet_id: try_u256_to_u32(subnet_id)?,
                     weight: try_u256_to_u128(weight)?,
-                    salt,
+                    salt: salt
+                        .try_into()
+                        .map_err(|_| revert("Overwatch reveal salt too long"))?,
                 })
             })
             .collect::<Result<_, _>>()?;
@@ -211,7 +212,6 @@ where
     }
 
     #[precompile::public("addOverwatchStake(uint256,uint256)")]
-    #[precompile::payable]
     fn add_overwatch_node_stake(
         handle: &mut impl PrecompileHandle,
         overwatch_node_id: U256,
@@ -287,18 +287,22 @@ where
         Ok(total_stake)
     }
 
-    #[precompile::public("overwatchNodeBlacklist(address)")]
+    #[precompile::public("validatorOverwatchNodeId(uint256)")]
     #[precompile::view]
-    fn overwatch_node_blacklist(
+    fn validator_overwatch_node_id(
         handle: &mut impl PrecompileHandle,
-        coldkey: Address,
-    ) -> EvmResult<bool> {
-        let coldkey = R::AddressMapping::into_account_id(coldkey.into());
+        validator_id: U256,
+    ) -> EvmResult<(bool, U256)> {
+        let validator_id = try_u256_to_u32(validator_id)?;
 
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let blacklisted = pallet_network::OverwatchNodeBlacklist::<R>::get(coldkey);
+        let Some(overwatch_node_id) =
+            pallet_network::ValidatorOverwatchNodeId::<R>::get(validator_id)
+        else {
+            return Ok((false, U256::from(0u8)));
+        };
 
-        Ok(blacklisted)
+        Ok((true, try_u32_to_u256(overwatch_node_id)?))
     }
 
     #[precompile::public("maxOverwatchNodes()")]
@@ -332,16 +336,25 @@ where
     #[precompile::view]
     fn overwatch_epoch_length_multiplier(handle: &mut impl PrecompileHandle) -> EvmResult<u32> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let epoch_multiplier = pallet_network::OverwatchEpochLengthMultiplier::<R>::get();
+        let epoch_multiplier = pallet_network::ActiveOverwatchEpochLengthMultiplier::<R>::get();
 
         Ok(epoch_multiplier)
+    }
+
+    #[precompile::public("overwatchEpochStartBlock()")]
+    #[precompile::view]
+    fn overwatch_epoch_start_block(handle: &mut impl PrecompileHandle) -> EvmResult<u32> {
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
+        let start_block = pallet_network::OverwatchEpochStartBlock::<R>::get();
+
+        Ok(start_block)
     }
 
     #[precompile::public("overwatchCommitCutoffPercent()")]
     #[precompile::view]
     fn overwatch_commit_cutoff_percent(handle: &mut impl PrecompileHandle) -> EvmResult<u128> {
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let percent: u128 = pallet_network::OverwatchCommitCutoffPercent::<R>::get();
+        let percent: u128 = pallet_network::ActiveOverwatchCommitCutoffPercent::<R>::get();
 
         Ok(percent)
     }
@@ -354,13 +367,14 @@ where
     ) -> EvmResult<(U256, Address)> {
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
 
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let overwatch_node = pallet_network::OverwatchNodes::<R>::get(overwatch_node_id)
-            .ok_or(revert("Overwatch node not found"))?;
-
-        // Convert AccountId to Address
-        let hotkey = Address(sp_core::H160::from(overwatch_node.hotkey.into()));
-        let overwatch_node_id = try_u32_to_u256(overwatch_node.id)?;
+        // Active identity validation reads the active node, both validator/node directions, the
+        // optional node hotkey, and (when there is no override) the validator hotkey.
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost().saturating_mul(5))?;
+        let hotkey =
+            pallet_network::Pallet::<R>::get_overwatch_node_associated_hotkey(overwatch_node_id)
+                .map_err(|_| revert("Overwatch node identity is inconsistent"))?;
+        let hotkey = Address(sp_core::H160::from(hotkey.into()));
+        let overwatch_node_id = try_u32_to_u256(overwatch_node_id)?;
 
         Ok((overwatch_node_id, hotkey))
     }
@@ -373,10 +387,12 @@ where
     ) -> EvmResult<Address> {
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
 
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
+        // Return the operational hotkey. A node-specific override is optional; otherwise this is
+        // the hotkey of the validator identity that owns the active Overwatch node.
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost().saturating_mul(5))?;
         let overwatch_node_hotkey =
-            pallet_network::OverwatchNodeIdHotkey::<R>::get(overwatch_node_id)
-                .ok_or(revert("Overwatch node ID hotkey not found"))?;
+            pallet_network::Pallet::<R>::get_overwatch_node_associated_hotkey(overwatch_node_id)
+                .map_err(|_| revert("Overwatch node identity is inconsistent"))?;
 
         // Convert AccountId to Address
         let hotkey = Address(sp_core::H160::from(overwatch_node_hotkey.into()));
@@ -415,12 +431,10 @@ where
         let subnet_id = try_u256_to_u32(subnet_id)?;
 
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let commit = pallet_network::OverwatchCommits::<R>::get((
-            overwatch_epoch,
-            overwatch_node_id,
-            subnet_id,
-        ))
-        .ok_or(revert("Peer ID overwatch node ID not found"))?;
+        let commit = pallet_network::OverwatchCommits::<R>::get(overwatch_epoch, overwatch_node_id)
+            .get(&subnet_id)
+            .copied()
+            .ok_or(revert("Overwatch commit not found"))?;
 
         let hash_bytes = commit.as_ref();
         let commit_as_h256 = H256::from_slice(hash_bytes);
@@ -441,12 +455,10 @@ where
         let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
 
         handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let reveal = pallet_network::OverwatchReveals::<R>::get((
-            overwatch_epoch,
-            subnet_id,
-            overwatch_node_id,
-        ))
-        .ok_or(revert("Peer ID overwatch node ID not found"))?;
+        let reveal = pallet_network::OverwatchReveals::<R>::get(overwatch_epoch, overwatch_node_id)
+            .get(&subnet_id)
+            .copied()
+            .ok_or(revert("Overwatch reveal not found"))?;
 
         let reveal_as_u256 = try_u128_to_u256(reveal)?;
 
@@ -493,48 +505,54 @@ where
         Ok(overwatch_node_weight)
     }
 
-    #[precompile::public("overwatchMinDiversificationRatio()")]
+    #[precompile::public("effectiveOverwatchSignalMeta()")]
     #[precompile::view]
-    fn overwatch_min_diversification_ratio(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let value = pallet_network::OverwatchMinDiversificationRatio::<R>::get();
+    fn effective_overwatch_signal_meta(
+        handle: &mut impl PrecompileHandle,
+    ) -> EvmResult<(bool, U256, U256, bool)> {
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost().saturating_mul(2))?;
+        let signal = pallet_network::LatestEffectiveOverwatchSignal::<R>::get();
+        let revision = pallet_network::LatestOverwatchSignalRevision::<R>::get();
 
-        let value = try_u128_to_u256(value)?;
-
-        Ok(value)
+        Ok((
+            signal.is_some(),
+            U256::from(signal.as_ref().map_or(0, |signal| signal.source_epoch)),
+            U256::from(revision),
+            signal.is_some_and(|signal| signal.valid),
+        ))
     }
 
-    #[precompile::public("overwatchMinRepScore()")]
+    #[precompile::public("effectiveOverwatchSubnetWeight(uint256)")]
     #[precompile::view]
-    fn overwatch_min_rep_score(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let value = pallet_network::OverwatchMinRepScore::<R>::get();
+    fn effective_overwatch_subnet_weight(
+        handle: &mut impl PrecompileHandle,
+        subnet_id: U256,
+    ) -> EvmResult<(bool, U256, U256)> {
+        let subnet_id = try_u256_to_u32(subnet_id)?;
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost().saturating_mul(3))?;
 
-        let value = try_u128_to_u256(value)?;
+        let signal = pallet_network::LatestEffectiveOverwatchSignal::<R>::get();
+        let raw_weight = signal
+            .as_ref()
+            .and_then(|signal| signal.subnet_weights.get(&subnet_id).copied());
+        let default_weight = pallet_network::DefaultOverwatchSubnetWeight::<R>::get();
+        let overwatch_weight_factor = pallet_network::OverwatchWeightFactor::<R>::get();
+        let resolved_weight = if signal.as_ref().is_some_and(|signal| signal.valid) {
+            raw_weight
+                .map(|weight| {
+                    pallet_network::Pallet::<R>::percent_mul(weight, overwatch_weight_factor)
+                        .min(pallet_network::Pallet::<R>::PERCENTAGE_FACTOR_U128)
+                })
+                .unwrap_or(default_weight)
+        } else {
+            default_weight
+        };
 
-        Ok(value)
-    }
-
-    #[precompile::public("overwatchMinAvgAttestationRatio()")]
-    #[precompile::view]
-    fn overwatch_min_avg_attestation_ratio(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let value = pallet_network::OverwatchMinAvgAttestationRatio::<R>::get();
-
-        let value = try_u128_to_u256(value)?;
-
-        Ok(value)
-    }
-
-    #[precompile::public("overwatchMinAge()")]
-    #[precompile::view]
-    fn overwatch_min_age(handle: &mut impl PrecompileHandle) -> EvmResult<U256> {
-        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
-        let value = pallet_network::OverwatchMinAge::<R>::get();
-
-        let value = try_u32_to_u256(value)?;
-
-        Ok(value)
+        Ok((
+            raw_weight.is_some(),
+            try_u128_to_u256(raw_weight.unwrap_or_default())?,
+            try_u128_to_u256(resolved_weight)?,
+        ))
     }
 
     #[precompile::public("overwatchMinStakeBalance()")]
@@ -557,6 +575,19 @@ where
         let value = try_u32_to_u256(overwatch_epoch)?;
 
         Ok(value)
+    }
+
+    #[precompile::public("lastFinalizedOverwatchEpoch()")]
+    #[precompile::view]
+    fn last_finalized_overwatch_epoch(
+        handle: &mut impl PrecompileHandle,
+    ) -> EvmResult<(bool, U256)> {
+        handle.record_cost(RuntimeHelper::<R>::db_read_gas_cost())?;
+        let Some(epoch) = pallet_network::LastFinalizedOverwatchEpoch::<R>::get() else {
+            return Ok((false, U256::from(0u8)));
+        };
+
+        Ok((true, try_u32_to_u256(epoch)?))
     }
 }
 

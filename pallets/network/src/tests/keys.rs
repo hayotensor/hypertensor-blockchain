@@ -78,8 +78,6 @@ use sp_std::collections::btree_map::BTreeMap;
 //             misc.clone(),
 //         ));
 
-//         let starting_rep = ColdkeyReputation::<Test>::get(coldkey.clone());
-
 //         //
 //         //
 //         // Coldkey = same
@@ -154,9 +152,6 @@ use sp_std::collections::btree_map::BTreeMap;
 //         let coldkey_identity = ColdkeyIdentity::<Test>::try_get(coldkey.clone());
 //         assert_eq!(coldkey_identity, Err(()));
 
-//         let rep = ColdkeyReputation::<Test>::try_get(coldkey.clone());
-//         assert_eq!(rep, Err(()));
-
 //         //
 //         // Check new coldkey
 //         //
@@ -184,9 +179,6 @@ use sp_std::collections::btree_map::BTreeMap;
 //         assert_eq!(coldkey_identity.hugging_face, hugging_face);
 //         assert_eq!(coldkey_identity.description, description);
 //         assert_eq!(coldkey_identity.misc, misc);
-
-//         let rep = ColdkeyReputation::<Test>::get(new_coldkey.clone());
-//         assert_eq!(rep, starting_rep);
 
 //         //
 //         // Coldkey is updated, shouldn't be able to make changes anywhere using coldkey
@@ -459,7 +451,5 @@ use sp_std::collections::btree_map::BTreeMap;
 //         let overwatch_node_hotkey = OverwatchNodeIdHotkey::<Test>::get(overwatch_node_id);
 //         assert_eq!(overwatch_node_hotkey, Some(ow_new_hotkey.clone()));
 
-//         let overwatch_node = OverwatchNodes::<Test>::get(overwatch_node_id);
-//         assert_eq!(overwatch_node.unwrap().hotkey, ow_new_hotkey.clone());
 //     })
 // }

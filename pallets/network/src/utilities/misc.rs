@@ -16,6 +16,19 @@
 use super::*;
 
 impl<T: Config> Pallet<T> {
+    /// Returns `true` only after a complete epoch period has elapsed.
+    ///
+    /// The boundary epoch (`start_epoch + period_epochs`) is still part of the
+    /// waiting period. Saturating addition prevents an overflowing deadline
+    /// from wrapping around and becoming immediately mature.
+    pub(crate) fn has_epoch_period_elapsed(
+        start_epoch: u32,
+        period_epochs: u32,
+        current_epoch: u32,
+    ) -> bool {
+        start_epoch.saturating_add(period_epochs) < current_epoch
+    }
+
     pub fn get_tx_rate_limit() -> u32 {
         TxRateLimit::<T>::get()
     }
@@ -34,7 +47,9 @@ impl<T: Config> Pallet<T> {
             return false;
         }
 
-        return current_block - prev_tx_block <= rate_limit;
+        // Block numbers are expected to be monotonic, but fail closed if corrupted state or a
+        // test/runtime transition presents them out of order instead of panicking on subtraction.
+        current_block.saturating_sub(prev_tx_block) <= rate_limit
     }
 
     pub fn balance_to_u128(
@@ -45,28 +60,27 @@ impl<T: Config> Pallet<T> {
         input.try_into().ok()
     }
 
-    /// Get total tokens in circulation
-    pub fn get_total_network_issuance() -> u128 {
-        // Balance in accounts
-        let total_issuance_as_balance = T::Currency::total_issuance();
-        let total_issuance: u128 = total_issuance_as_balance.try_into().unwrap_or(0);
-        // Balance staked as nodes
-        let total_staked: u128 = TotalStake::<T>::get();
-        // Balance delegated
-        let total_delegate_staked: u128 = TotalDelegateStake::<T>::get();
-        // Balance node delegate staked
-        let total_node_delegate_staked: u128 = TotalNodeDelegateStake::<T>::get();
-        // Balance unbonding
-        let unbonding_balance = TotalUnbondingBalance::<T>::get();
-        // Balance delegate accounts
-        let delegate_account_balance = TotalAccountDelegateStake::<T>::get();
-
-        total_issuance
-            .saturating_add(total_staked)
-            .saturating_add(total_delegate_staked)
-            .saturating_add(total_node_delegate_staked)
-            .saturating_add(unbonding_balance)
-            .saturating_add(delegate_account_balance)
+    /// Returns all locked, non-Overwatch capital for informational TVL accounting.
+    /// Subnet survival depends only on live subnet delegate balances.
+    ///
+    /// Liquid currency and active or unbonding Overwatch stake are intentionally excluded. Queued
+    /// swap principal, queued-swap refunds, and ordinary network unbonding remain included so
+    /// moving capital between live network pools cannot temporarily lower the minimum stake
+    /// required to keep a subnet alive. Arithmetic overflow fails closed at `u128::MAX` rather
+    /// than lowering that minimum.
+    pub fn get_total_network_tvl() -> u128 {
+        [
+            TotalStake::<T>::get(),
+            TotalDelegateStake::<T>::get(),
+            TotalValidatorDelegateStakeBalance::<T>::get(),
+            TotalAccountDelegateStake::<T>::get(),
+            TotalNetworkUnbondingBalance::<T>::get(),
+            TotalQueuedSwapPrincipal::<T>::get(),
+            TotalQueuedSwapRefundBalance::<T>::get(),
+        ]
+        .into_iter()
+        .try_fold(0u128, u128::checked_add)
+        .unwrap_or(u128::MAX)
     }
 
     pub fn get_avg_nodes_per_subnet() -> u128 {
@@ -75,7 +89,7 @@ impl<T: Config> Pallet<T> {
         Self::percent_div(nodes as u128, subnets as u128)
     }
 
-    pub fn send_to_treasury(
+    pub(crate) fn send_to_treasury(
         who: &T::AccountId,
         amount: <<T as pallet::Config>::Currency as Currency<
             <T as frame_system::Config>::AccountId,
@@ -95,16 +109,16 @@ impl<T: Config> Pallet<T> {
 
     /// Add balance to treasury
     /// Used for epoch inflation
-    pub fn add_balance_to_treasury(
+    pub(crate) fn add_balance_to_treasury(
         amount: <<T as pallet::Config>::Currency as Currency<
             <T as frame_system::Config>::AccountId,
         >>::Balance,
-    ) {
+    ) -> DispatchResult {
         let treasury_account = T::TreasuryAccount::get();
-        T::Currency::deposit_creating(&treasury_account, amount);
+        Self::deposit_balance_exact(&treasury_account, amount)
     }
 
-    pub fn burn(
+    pub(crate) fn burn(
         who: T::AccountId,
         amount: <<T as pallet::Config>::Currency as Currency<
             <T as frame_system::Config>::AccountId,

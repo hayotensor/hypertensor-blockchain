@@ -17,6 +17,11 @@ import { forceSetBalance } from "../src/test";
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { expect } from "chai";
 import { Option } from '@polkadot/types';
+import {
+    minimumOutputAfterSlippage,
+    minimumSubnetDelegateSharesOut,
+} from "../src/balance-math";
+import { registerCanonicalValidators } from "../src/validator-fixtures";
 
 // npm test -- -g "test swap and transfer delegate staking-0x454v5v3fc23rh2"
 describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
@@ -40,40 +45,7 @@ describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
         wallet7.address,
         wallet8.address,
     ]
-    const initialColdkeys = [
-        {
-            coldkey: wallet1.address,
-            count: 1
-        },
-        {
-            coldkey: wallet2.address,
-            count: 1
-        },
-        {
-            coldkey: wallet3.address,
-            count: 1
-        },
-        {
-            coldkey: wallet4.address,
-            count: 1
-        },
-        {
-            coldkey: wallet5.address,
-            count: 1
-        },
-        {
-            coldkey: wallet6.address,
-            count: 1
-        },
-        {
-            coldkey: wallet7.address,
-            count: 1
-        },
-        {
-            coldkey: wallet8.address,
-            count: 1
-        },
-    ];
+    const validatorColdkeys = [wallet1, wallet2, wallet3];
 
     let publicClient: PublicClient;
 
@@ -82,6 +54,7 @@ describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
 
     const sudoTransferAmount = BigInt(10000e18)
     const stakeAmount = BigInt(100e18)
+    const maxStakingSlippageBasisPoints = BigInt(100)
 
     const subnetContract = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet1);
     let fromSubnetId: string;
@@ -117,9 +90,23 @@ describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
             api,
             papiApi,
             SUB_LOCAL_URL,
+            wallet3.address,
+            sudoTransferAmount,
+        )
+
+        await transferBalanceFromSudo(
+            api,
+            papiApi,
+            SUB_LOCAL_URL,
             wallet2.address,
             sudoTransferAmount,
         )
+
+        const initialValidators = await registerCanonicalValidators(
+            subnetContract,
+            validatorColdkeys,
+            api,
+        );
 
         // ==============
         // Register subnet
@@ -143,9 +130,8 @@ describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         fromSubnetId = await subnetContract.getSubnetId(subnetName);
@@ -166,9 +152,8 @@ describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
 
@@ -194,26 +179,51 @@ describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
             stakingContract,
             fromSubnetId,
             stakeAmount,
-            BigInt(0)
+            await minimumSubnetDelegateSharesOut(
+                stakingContract,
+                fromSubnetId,
+                stakeAmount,
+                maxStakingSlippageBasisPoints,
+            )
         );
 
         const sharesAfter = await stakingContract.accountSubnetDelegateStakeShares(wallet1.address, fromSubnetId);
         const balanceAfter = await stakingContract.accountSubnetDelegateStakeBalance(wallet1.address, fromSubnetId);
 
         expect(sharesBefore).to.be.lessThan(sharesAfter);
-        expect(sharesBefore).to.not.equal(0);
+        expect(sharesBefore).to.equal(BigInt(0));
         expect(balanceBefore).to.be.lessThan(balanceAfter);
 
         // ==================
         // Swap delegate stake
         // ==================
         const nextSwapId = await api.query.network.nextSwapQueueId();
+        const quotedBalanceOut = await stakingContract.previewSubnetDelegateStakeRedeem(
+            fromSubnetId,
+            sharesAfter,
+        );
+        const minBalanceOut = minimumOutputAfterSlippage(
+            quotedBalanceOut,
+            maxStakingSlippageBasisPoints,
+        );
+        const minSharesOut = await minimumSubnetDelegateSharesOut(
+            stakingContract,
+            toSubnetId,
+            quotedBalanceOut,
+            maxStakingSlippageBasisPoints,
+        );
+        const currentBlock = BigInt((await api.query.system.number()).toString());
+        const epochLength = BigInt(api.consts.network.epochLength.toString());
+        const executeBeforeBlock = currentBlock + epochLength * BigInt(2);
 
         await swapDelegateStake(
             stakingContract,
             fromSubnetId,
             toSubnetId,
-            sharesAfter
+            sharesAfter,
+            minBalanceOut,
+            minSharesOut,
+            executeBeforeBlock,
         );
 
         // Ensure in the queue
@@ -234,10 +244,16 @@ describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
             toSubnetIdHuman = toSubnetIdHuman.replace(/,/g, "");
             let balanceHuman = human.call.SwapToSubnetDelegateStake.balance;
             balanceHuman = balanceHuman.replace(/,/g, "");
+            let minSharesOutHuman = human.call.SwapToSubnetDelegateStake.minSharesOut;
+            minSharesOutHuman = minSharesOutHuman.replace(/,/g, "");
+            let executeBeforeBlockHuman = human.call.SwapToSubnetDelegateStake.executeBeforeBlock;
+            executeBeforeBlockHuman = executeBeforeBlockHuman.replace(/,/g, "");
             expect(Number(swapCallQueueId.toString())).to.be.equal(Number(nextSwapId.toString()));
             expect(accountIdHuman).to.be.equal(wallet1.address);
             expect(Number(toSubnetIdHuman)).to.be.equal(Number(toSubnetId));
-            expect(Number(balanceHuman.toString())).to.be.equal(Number(balanceAfter));
+            expect(BigInt(balanceHuman)).to.equal(balanceAfter);
+            expect(BigInt(minSharesOutHuman)).to.be.equal(minSharesOut);
+            expect(BigInt(executeBeforeBlockHuman)).to.be.equal(executeBeforeBlock);
         }
 
         // Ensure shares decreased
@@ -269,7 +285,12 @@ describe("test swap and transfer delegate staking-0x454v5v3fc23rh2", () => {
             stakingContract,
             fromSubnetId,
             stakeAmount,
-            BigInt(0)
+            await minimumSubnetDelegateSharesOut(
+                stakingContract,
+                fromSubnetId,
+                stakeAmount,
+                maxStakingSlippageBasisPoints,
+            )
         );
 
         // =======================

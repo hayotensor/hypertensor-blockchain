@@ -16,10 +16,11 @@
 // Delegate accounts are the accounts nodes can allocate emissions to
 
 use super::*;
-use sp_runtime::Saturating;
+use sp_runtime::ArithmeticError;
 
 impl<T: Config> Pallet<T> {
-    pub fn do_remove_delegate_account_balance(
+    #[frame_support::transactional]
+    pub(crate) fn do_remove_delegate_account_balance(
         origin: T::RuntimeOrigin,
         amount_to_remove: u128,
     ) -> DispatchResult {
@@ -43,24 +44,20 @@ impl<T: Config> Pallet<T> {
         };
 
         let block: u32 = Self::get_current_block_as_u32();
-        let cooldown_blocks = StakeCooldownEpochs::<T>::get() * T::EpochLength::get();
+        let cooldown_blocks = StakeCooldownEpochs::<T>::get()
+            .checked_mul(T::EpochLength::get())
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
 
-        Self::prepare_unbonding_ledger_entry(
-            &account_id,
-            amount_to_remove,
-            cooldown_blocks,
-            block,
-        )?;
-
-        Self::decrease_delegate_account_balance(&account_id, amount_to_remove);
+        Self::decrease_delegate_account_balance(&account_id, amount_to_remove)?;
 
         // Add to ledger and always match the stake cooldown epochs (or greater cooldown)
-        Self::insert_balance_to_unbonding_ledger(
+        Self::add_balance_to_unbonding_ledger(
             &account_id,
             amount_to_remove,
             cooldown_blocks,
             block,
-        );
+            UnbondingSource::Network,
+        )?;
 
         Self::deposit_event(Event::DelegateBalanceRemoved {
             account_id,
@@ -70,19 +67,37 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn increase_delegate_account_balance(account_id: &T::AccountId, amount: u128) {
-        // -- increase delegate account balance
-        DelegateAccountStake::<T>::mutate(account_id, |mut n| n.saturating_accrue(amount));
+    /// Increase a delegate-account position and its aggregate only when both additions fit.
+    pub(crate) fn increase_delegate_account_balance(
+        account_id: &T::AccountId,
+        amount: u128,
+    ) -> DispatchResult {
+        let next_account_stake = DelegateAccountStake::<T>::get(account_id)
+            .checked_add(amount)
+            .ok_or(ArithmeticError::Overflow)?;
+        let next_total_stake = TotalAccountDelegateStake::<T>::get()
+            .checked_add(amount)
+            .ok_or(ArithmeticError::Overflow)?;
 
-        // -- increase total account delegate stake
-        TotalAccountDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(amount));
+        DelegateAccountStake::<T>::insert(account_id, next_account_stake);
+        TotalAccountDelegateStake::<T>::put(next_total_stake);
+        Ok(())
     }
 
-    pub fn decrease_delegate_account_balance(account_id: &T::AccountId, amount: u128) {
-        // -- decrease delegate account balance
-        DelegateAccountStake::<T>::mutate(account_id, |mut n| n.saturating_reduce(amount));
+    /// Decrease a delegate-account position and its aggregate only when both contain the amount.
+    pub(crate) fn decrease_delegate_account_balance(
+        account_id: &T::AccountId,
+        amount: u128,
+    ) -> DispatchResult {
+        let next_account_stake = DelegateAccountStake::<T>::get(account_id)
+            .checked_sub(amount)
+            .ok_or(ArithmeticError::Underflow)?;
+        let next_total_stake = TotalAccountDelegateStake::<T>::get()
+            .checked_sub(amount)
+            .ok_or(ArithmeticError::Underflow)?;
 
-        // -- decrease total account delegate stake
-        TotalAccountDelegateStake::<T>::mutate(|mut n| n.saturating_reduce(amount));
+        DelegateAccountStake::<T>::insert(account_id, next_account_stake);
+        TotalAccountDelegateStake::<T>::put(next_total_stake);
+        Ok(())
     }
 }

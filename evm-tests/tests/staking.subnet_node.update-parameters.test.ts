@@ -9,20 +9,22 @@ import {
     getCurrentRegistrationCost,
     registerSubnet,
     registerSubnetNode,
-    updateBootnodePeerInfo,
-    updateClientPeerInfo,
-    updateColdkey,
-    updateDelegateRewardRate,
-    updateHotkey,
+    updateNodeBootnodePeerInfo,
+    updateNodeClientPeerInfo,
+    updateNodeHotkey,
+    updateNodePeerInfo,
+    updateNodeUnique,
     updateNonUnique,
-    updatePeerInfo,
-    updateUnique,
+    updateValidatorColdkey,
+    updateValidatorDelegateRewardRate,
+    updateValidatorHotkey,
 } from "../src/network"
 import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
 import { PublicClient } from "viem";
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { expect } from "chai";
 import { Option } from '@polkadot/types';
+import { registerCanonicalValidators } from "../src/validator-fixtures";
 
 // npm test -- -g "test node update parameters-0xdgahRTH"
 describe("test node update parameters-0xdgahRTH", () => {
@@ -48,40 +50,7 @@ describe("test node update parameters-0xdgahRTH", () => {
         wallet7.address,
         wallet8.address,
     ]
-    const initialColdkeys = [
-        {
-            coldkey: wallet1.address,
-            count: 1
-        },
-        {
-            coldkey: wallet2.address,
-            count: 1
-        },
-        {
-            coldkey: wallet3.address,
-            count: 1
-        },
-        {
-            coldkey: wallet4.address,
-            count: 1
-        },
-        {
-            coldkey: wallet5.address,
-            count: 1
-        },
-        {
-            coldkey: wallet6.address,
-            count: 1
-        },
-        {
-            coldkey: wallet7.address,
-            count: 1
-        },
-        {
-            coldkey: wallet8.address,
-            count: 1
-        },
-    ];
+    const validatorColdkeys = [wallet1, wallet2, wallet3];
 
     let publicClient: PublicClient;
     // init substrate part
@@ -97,6 +66,7 @@ describe("test node update parameters-0xdgahRTH", () => {
 
     let subnetId: string;
     let subnetNodeId1: string;
+    let validatorId: string;
 
     // sudo account alice as signer
     let alice: PolkadotSigner;
@@ -126,6 +96,12 @@ describe("test node update parameters-0xdgahRTH", () => {
             recipients
         )
 
+        const initialValidators = await registerCanonicalValidators(
+            subnetContract,
+            validatorColdkeys,
+            api,
+        );
+
         // ==============
         // Register subnet
         // ==============
@@ -148,9 +124,8 @@ describe("test node update parameters-0xdgahRTH", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         subnetId = await subnetContract.getSubnetId(subnetName);
@@ -176,80 +151,62 @@ describe("test node update parameters-0xdgahRTH", () => {
             multiaddr: new Uint8Array()
         }
 
-        let delegateAccount = {
-            accountId: wallet1.address,
-            rate: BigInt(0)
-        }
-        const delegateRewardRate = "0";
+        validatorId = initialValidators[0].validatorId;
 
         const unique = generateRandomString(16)
         const nonUnique = generateRandomString(16)
 
         await registerSubnetNode(
             subnetContract1,
+            validatorId,
             subnetId,
             wallet4.address,
             peer_info_1,
             peer_info_2,
             peer_info_3,
-            delegateRewardRate,
             BigInt(minStake.toString()),
             unique,
             nonUnique,
-            delegateAccount,
             "1000000000000000000"
         )
 
-        let subnetNodeId1Fetched = await api.query.network.hotkeySubnetNodeId(subnetId, wallet4.address);
-
-        const subnetNodeId1Opt = subnetNodeId1Fetched as Option<any>;
-        expect(subnetNodeId1Opt.isSome);
-
-        let subnetNode1Exists: boolean = false;
-        if (subnetNodeId1Opt.isSome) {
-            subnetNode1Exists = true;
-            const subnetNodeId2Unwrapped = subnetNodeId1Opt.unwrap();
-            const human = subnetNodeId2Unwrapped.toHuman();
-            subnetNodeId1 = human?.toString();
-            expect(Number(subnetNodeId1)).to.be.greaterThan(0);
-        }
-        expect(subnetNode1Exists);
+        subnetNodeId1 = (
+            await api.query.network.totalSubnetNodeUids(subnetId)
+        ).toString();
+        expect(Number(subnetNodeId1)).to.be.greaterThan(0);
     })
 
     // Status: passing
     // npm test -- -g "testing update node parameters-0xpdgaa663uF"
     it("testing update node parameters-0xpdgaa663uF", async () => {
         const newDelegateRewardRate = "1"
-        await updateDelegateRewardRate(
-            subnetContract1,
-            subnetId,
-            subnetNodeId1,
-            newDelegateRewardRate
-        )
-        let nodeData = await api.query.network.subnetNodesData(subnetId, subnetNodeId1);
-        let nodeDataOpt = nodeData as Option<any>;
-        expect(nodeDataOpt.isSome);
-        if (nodeDataOpt.isSome) {
-            const nodeData = nodeDataOpt.unwrap();
-            const human = nodeData.toHuman();
-            expect(Number(human.delegateRewardRate)).to.equal(Number(newDelegateRewardRate));
+        const currentBlock = Number((await api.query.system.number()).toString());
+        const rewardRateUpdatePeriod = Number((await api.query.network.nodeRewardRateUpdatePeriod()).toString());
+        if (currentBlock >= rewardRateUpdatePeriod) {
+            await updateValidatorDelegateRewardRate(
+                subnetContract1,
+                validatorId,
+                newDelegateRewardRate
+            )
+            const validatorData = (await api.query.network.validatorsData(validatorId)).toHuman() as any;
+            expect(Number(validatorData.delegateRewardRate)).to.equal(Number(newDelegateRewardRate));
+        } else {
+            await assert.rejects(() => updateValidatorDelegateRewardRate(
+                subnetContract1,
+                validatorId,
+                newDelegateRewardRate
+            ));
         }
 
         const newUnique = generateRandomString(16)
-        await updateUnique(
+        await updateNodeUnique(
             subnetContract1,
             subnetId,
             subnetNodeId1,
             newUnique
         )
-        nodeData = await api.query.network.subnetNodesData(subnetId, subnetNodeId1);
-        nodeDataOpt = nodeData as Option<any>;
-        expect(nodeDataOpt.isSome);
-        if (nodeDataOpt.isSome) {
-            const nodeData = nodeDataOpt.unwrap();
-            const human = nodeData.toHuman();
-            expect(human.unique == newUnique);
-        }
+        let nodeData = (await api.query.network.subnetNodesData(subnetId, subnetNodeId1)).toHuman() as any;
+        expect(nodeData.unique).to.equal(newUnique);
 
         const newNonUnique = generateRandomString(16)
         await updateNonUnique(
@@ -258,18 +215,12 @@ describe("test node update parameters-0xdgahRTH", () => {
             subnetNodeId1,
             newNonUnique
         )
-        nodeData = await api.query.network.subnetNodesData(subnetId, subnetNodeId1);
-        nodeDataOpt = nodeData as Option<any>;
-        expect(nodeDataOpt.isSome);
-        if (nodeDataOpt.isSome) {
-            const nodeData = nodeDataOpt.unwrap();
-            const human = nodeData.toHuman();
-            expect(human.nonUnique == newNonUnique);
-        }
+        nodeData = (await api.query.network.subnetNodesData(subnetId, subnetNodeId1)).toHuman() as any;
+        expect(nodeData.nonUnique).to.equal(newNonUnique);
 
         let newPeerId = await generateRandomEd25519PeerId()
         const newPeerMultiaddr = await generateRandomMultiaddr(newPeerId)
-        await updatePeerInfo(
+        await updateNodePeerInfo(
             subnetContract1,
             subnetId,
             subnetNodeId1,
@@ -278,10 +229,12 @@ describe("test node update parameters-0xdgahRTH", () => {
                 multiaddr: newPeerMultiaddr
             }
         )
+        nodeData = (await api.query.network.subnetNodesData(subnetId, subnetNodeId1)).toHuman() as any;
+        expect(nodeData.peerInfo.peerId).to.equal(newPeerId);
 
         newPeerId = await generateRandomEd25519PeerId()
         const newBootnodeMultiaddr = await generateRandomMultiaddr(newPeerId)
-        await updateBootnodePeerInfo(
+        await updateNodeBootnodePeerInfo(
             subnetContract1,
             subnetId,
             subnetNodeId1,
@@ -290,18 +243,12 @@ describe("test node update parameters-0xdgahRTH", () => {
                 multiaddr: newBootnodeMultiaddr
             }
         )
-        nodeData = await api.query.network.subnetNodesData(subnetId, subnetNodeId1);
-        nodeDataOpt = nodeData as Option<any>;
-        expect(nodeDataOpt.isSome);
-        if (nodeDataOpt.isSome) {
-            const nodeData = nodeDataOpt.unwrap();
-            const human = nodeData.toHuman();
-            expect(human.bootnodePeerId == newPeerId);
-        }
+        nodeData = (await api.query.network.subnetNodesData(subnetId, subnetNodeId1)).toHuman() as any;
+        expect(nodeData.bootnodePeerInfo.peerId).to.equal(newPeerId);
 
         newPeerId = await generateRandomEd25519PeerId()
         const newClientMultiaddr = await generateRandomMultiaddr(newPeerId)
-        await updateClientPeerInfo(
+        await updateNodeClientPeerInfo(
             subnetContract1,
             subnetId,
             subnetNodeId1,
@@ -310,32 +257,33 @@ describe("test node update parameters-0xdgahRTH", () => {
                 multiaddr: newClientMultiaddr
             }
         )
-        nodeData = await api.query.network.subnetNodesData(subnetId, subnetNodeId1);
-        nodeDataOpt = nodeData as Option<any>;
-        expect(nodeDataOpt.isSome);
-        if (nodeDataOpt.isSome) {
-            const nodeData = nodeDataOpt.unwrap();
-            const human = nodeData.toHuman();
-            expect(human.clientePeerId == newPeerId);
-        }
+        nodeData = (await api.query.network.subnetNodesData(subnetId, subnetNodeId1)).toHuman() as any;
+        expect(nodeData.clientPeerInfo.peerId).to.equal(newPeerId);
 
-        const newHotkey = generateRandomEthersWallet();
-        await updateHotkey(
+        const newNodeHotkey = generateRandomEthersWallet();
+        await updateNodeHotkey(
             subnetContract1,
-            wallet4.address,
-            newHotkey.address,
+            subnetId,
+            subnetNodeId1,
+            newNodeHotkey.address,
         )
-        let hotkeyOwner = await api.query.network.hotkeyOwner(newHotkey.address);
-        expect(hotkeyOwner.toHuman() == wallet4.address);
+        expect((await api.query.network.subnetNodeIdHotkey(subnetId, subnetNodeId1)).toString()).to.equal(newNodeHotkey.address);
+
+        const newValidatorHotkey = generateRandomEthersWallet();
+        await updateValidatorHotkey(
+            subnetContract1,
+            validatorId,
+            newValidatorHotkey.address,
+        )
+        expect((await api.query.network.validatorIdHotkey(validatorId)).toString()).to.equal(newValidatorHotkey.address);
 
         const newColdkey = generateRandomEthersWallet();
-        await updateColdkey(
+        await updateValidatorColdkey(
             subnetContract1,
-            newHotkey.address,
+            validatorId,
             newColdkey.address,
         )
-        hotkeyOwner = await api.query.network.hotkeyOwner(newHotkey.address);
-        expect(hotkeyOwner.toHuman() == newColdkey.address);
+        expect((await api.query.network.validatorColdkey(validatorId)).toString()).to.equal(newColdkey.address);
 
         console.log("✅ Updating node parameters testing complete")
     })

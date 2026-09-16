@@ -70,18 +70,6 @@ where
         )
     }
 
-    #[precompile::public("collectiveRemoveOverwatchNode(uint256)")]
-    fn collective_remove_overwatch_node(
-        handle: &mut impl PrecompileHandle,
-        overwatch_node_id: U256,
-    ) -> EvmResult<()> {
-        let overwatch_node_id = try_u256_to_u32(overwatch_node_id)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::collective_remove_overwatch_node { overwatch_node_id },
-        )
-    }
-
     #[precompile::public("setMinSubnetDelegateStakeFactor(uint256)")]
     fn set_min_subnet_delegate_stake_factor(
         handle: &mut impl PrecompileHandle,
@@ -157,14 +145,17 @@ where
     #[precompile::public("setSubnetRemovalIntervals(uint256,uint256)")]
     fn set_subnet_removal_intervals(
         handle: &mut impl PrecompileHandle,
-        min: U256,
-        max: U256,
+        activation_cooldown_epochs: U256,
+        check_interval_epochs: U256,
     ) -> EvmResult<()> {
-        let min = try_u256_to_u32(min)?;
-        let max = try_u256_to_u32(max)?;
+        let activation_cooldown_epochs = try_u256_to_u32(activation_cooldown_epochs)?;
+        let check_interval_epochs = try_u256_to_u32(check_interval_epochs)?;
         dispatch_call::<R>(
             handle,
-            pallet_network::Call::<R>::set_subnet_removal_intervals { min, max },
+            pallet_network::Call::<R>::set_subnet_removal_intervals {
+                activation_cooldown_epochs,
+                check_interval_epochs,
+            },
         )
     }
 
@@ -225,15 +216,15 @@ where
         )
     }
 
-    #[precompile::public("setMaxMinDelegateStakeMultiplier(uint256)")]
-    fn set_max_min_delegate_stake_multiplier(
+    #[precompile::public("setMinSubnetDelegateStakeBalance(uint256)")]
+    fn set_min_subnet_delegate_stake_balance(
         handle: &mut impl PrecompileHandle,
         value: U256,
     ) -> EvmResult<()> {
         let value = try_u256_to_u128(value)?;
         dispatch_call::<R>(
             handle,
-            pallet_network::Call::<R>::set_max_min_delegate_stake_multiplier { value },
+            pallet_network::Call::<R>::set_min_subnet_delegate_stake_balance { value },
         )
     }
 
@@ -387,30 +378,6 @@ where
         )
     }
 
-    #[precompile::public("setMinAttestationPercentage(uint256)")]
-    fn set_min_attestation_percentage(
-        handle: &mut impl PrecompileHandle,
-        value: U256,
-    ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_min_attestation_percentage { value },
-        )
-    }
-
-    #[precompile::public("setSuperMajorityAttestationRatio(uint256)")]
-    fn set_super_majority_attestation_ratio(
-        handle: &mut impl PrecompileHandle,
-        value: U256,
-    ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_super_majority_attestation_ratio { value },
-        )
-    }
-
     #[precompile::public("setBaseValidatorReward(uint256)")]
     fn set_base_validator_reward(handle: &mut impl PrecompileHandle, value: U256) -> EvmResult<()> {
         let value = try_u256_to_u128(value)?;
@@ -438,27 +405,23 @@ where
         )
     }
 
-    #[precompile::public("setReputationIncreaseFactor(uint256)")]
-    fn set_reputation_increase_factor(
+    #[precompile::public("setValidatorDelegateStakeSlashConfig(uint256,uint256,uint256)")]
+    fn set_validator_delegate_stake_slash_config(
         handle: &mut impl PrecompileHandle,
-        value: U256,
+        threshold: U256,
+        base_percentage: U256,
+        max_amount: U256,
     ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
+        let threshold = try_u256_to_u128(threshold)?;
+        let base_percentage = try_u256_to_u128(base_percentage)?;
+        let max_amount = try_u256_to_u128(max_amount)?;
         dispatch_call::<R>(
             handle,
-            pallet_network::Call::<R>::set_reputation_increase_factor { value },
-        )
-    }
-
-    #[precompile::public("setReputationDecreaseFactor(uint256)")]
-    fn set_reputation_decrease_factor(
-        handle: &mut impl PrecompileHandle,
-        value: U256,
-    ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_reputation_decrease_factor { value },
+            pallet_network::Call::<R>::set_validator_delegate_stake_slash_config {
+                threshold,
+                base_percentage,
+                max_amount,
+            },
         )
     }
 
@@ -534,18 +497,6 @@ where
         )
     }
 
-    #[precompile::public("setInflationSigmoidSteepness(uint256)")]
-    fn set_inflation_sigmoid_steepness(
-        handle: &mut impl PrecompileHandle,
-        value: U256,
-    ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_inflation_sigmoid_steepness { value },
-        )
-    }
-
     #[precompile::public("setMaxOverwatchNodes(uint256)")]
     fn set_max_overwatch_nodes(handle: &mut impl PrecompileHandle, value: U256) -> EvmResult<()> {
         let value = try_u256_to_u32(value)?;
@@ -576,51 +527,6 @@ where
         dispatch_call::<R>(
             handle,
             pallet_network::Call::<R>::set_overwatch_commit_cutoff_percent { value },
-        )
-    }
-
-    #[precompile::public("setOverwatchMinDiversificationRatio(uint256)")]
-    fn set_overwatch_min_diversification_ratio(
-        handle: &mut impl PrecompileHandle,
-        value: U256,
-    ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_overwatch_min_diversification_ratio { value },
-        )
-    }
-
-    #[precompile::public("setOverwatchMinRepScore(uint256)")]
-    fn set_overwatch_min_rep_score(
-        handle: &mut impl PrecompileHandle,
-        value: U256,
-    ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_overwatch_min_rep_score { value },
-        )
-    }
-
-    #[precompile::public("setOverwatchMinAvgAttestationRatio(uint256)")]
-    fn set_overwatch_min_avg_attestation_ratio(
-        handle: &mut impl PrecompileHandle,
-        value: U256,
-    ) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_overwatch_min_avg_attestation_ratio { value },
-        )
-    }
-
-    #[precompile::public("setOverwatchMinAge(uint256)")]
-    fn set_overwatch_min_age(handle: &mut impl PrecompileHandle, value: U256) -> EvmResult<()> {
-        let value = try_u256_to_u32(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_overwatch_min_age { value },
         )
     }
 
@@ -656,22 +562,6 @@ where
         dispatch_call::<R>(
             handle,
             pallet_network::Call::<R>::set_tx_rate_limit { value },
-        )
-    }
-
-    #[precompile::public("collectiveSetColdkeyOverwatchNodeEligibility(address,bool)")]
-    fn collective_set_coldkey_overwatch_node_eligibility(
-        handle: &mut impl PrecompileHandle,
-        coldkey: Address,
-        value: bool,
-    ) -> EvmResult<()> {
-        let coldkey = R::AddressMapping::into_account_id(coldkey.into());
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::collective_set_coldkey_overwatch_node_eligibility {
-                coldkey,
-                value,
-            },
         )
     }
 
@@ -753,24 +643,6 @@ where
         dispatch_call::<R>(
             handle,
             pallet_network::Call::<R>::set_max_unbondings { value },
-        )
-    }
-
-    #[precompile::public("setSigmoidMidpoint(uint256)")]
-    fn set_sigmoid_midpoint(handle: &mut impl PrecompileHandle, value: U256) -> EvmResult<()> {
-        let value = try_u256_to_u128(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_sigmoid_midpoint { value },
-        )
-    }
-
-    #[precompile::public("setMaximumHooksWeight(uint256)")]
-    fn set_maximum_hooks_weight(handle: &mut impl PrecompileHandle, value: U256) -> EvmResult<()> {
-        let value = try_u256_to_u32(value)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_maximum_hooks_weight { value },
         )
     }
 
@@ -1068,22 +940,6 @@ where
         dispatch_call::<R>(
             handle,
             pallet_network::Call::<R>::set_default_overwatch_subnet_weight { value },
-        )
-    }
-
-    #[precompile::public("setOverwatchValidatorWhitelist(uint256,bool)")]
-    fn set_overwatch_validator_whitelist(
-        handle: &mut impl PrecompileHandle,
-        validator_id: U256,
-        value: bool,
-    ) -> EvmResult<()> {
-        let validator_id = try_u256_to_u32(validator_id)?;
-        dispatch_call::<R>(
-            handle,
-            pallet_network::Call::<R>::set_overwatch_validator_whitelist {
-                validator_id,
-                value,
-            },
         )
     }
 }

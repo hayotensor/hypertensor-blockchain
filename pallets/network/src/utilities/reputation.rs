@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Handles all reputation based logic for coldkeys, subnets, and subnet nodes
+// Handles all reputation based logic for subnets and subnet nodes
 // Note: All calls to update reputation must first check if the entity exists
 // before calling these functions.
 //
@@ -29,112 +29,6 @@ impl<T: Config> Pallet<T> {
     ) -> SubnetReputationFactors {
         SubnetReputationFactorSchedules::<T>::get(subnet_id)
             .factors_for_epoch(evaluated_subnet_epoch)
-    }
-
-    pub fn increase_validator_reputation(
-        validator_id: u32,
-        attestation_percentage: u128,
-        min_attestation_percentage: u128,
-        increase_weight_factor: u128,
-        epoch: u32,
-    ) {
-        if !ValidatorReputation::<T>::contains_key(validator_id) {
-            return;
-        }
-
-        if attestation_percentage < min_attestation_percentage {
-            return;
-        }
-
-        // Safe get, has Default value
-        let mut validator_reputation = ValidatorReputation::<T>::get(validator_id);
-        let current_score = validator_reputation.score;
-
-        let new_score = Self::increase_rep(current_score, increase_weight_factor, None);
-
-        // Update fields
-        validator_reputation.score = new_score;
-        validator_reputation.total_increases += 1;
-        validator_reputation.last_validator_epoch = epoch;
-
-        if validator_reputation.start_epoch == 0 {
-            validator_reputation.start_epoch = epoch;
-        }
-
-        // Update average attestation
-        let prev_total = validator_reputation
-            .total_increases
-            .saturating_add(validator_reputation.total_decreases)
-            .saturating_sub(1) as u128;
-
-        validator_reputation.average_attestation = if prev_total == 0 {
-            attestation_percentage
-        } else {
-            (validator_reputation
-                .average_attestation
-                .saturating_mul(prev_total)
-                .saturating_add(attestation_percentage))
-            .saturating_div(prev_total + 1)
-        };
-
-        ValidatorReputation::<T>::insert(validator_id, validator_reputation);
-    }
-
-    /// Decrease coldkey reptuation
-    ///
-    /// # Arguments
-    ///
-    /// * `coldkey` - Nodes coldkey
-    /// * `attestation_percentage` - The attestation ratio of the validator nodes consensus
-    /// * `min_attestation_percentage` - Blockchains minimum attestation percentage (66%)
-    /// * `decrease_weight_factor` - `ValidatorReputationDecreaseFactor`.
-    /// * `epoch`: The blockchains general epoch
-    pub fn decrease_validator_reputation(
-        validator_id: u32,
-        attestation_percentage: u128,
-        min_attestation_percentage: u128,
-        decrease_weight_factor: u128, // <- slope/steepness control
-        epoch: u32,
-    ) {
-        if !ValidatorReputation::<T>::contains_key(validator_id) {
-            return;
-        }
-
-        if attestation_percentage >= min_attestation_percentage {
-            return;
-        }
-
-        // Safe get, has Default value
-        let mut validator_reputation = ValidatorReputation::<T>::get(validator_id);
-        let current_score = validator_reputation.score;
-
-        // Penalty increases as score increases (same pattern as reward logic)
-        let new_score = Self::decrease_rep(current_score, decrease_weight_factor, None);
-
-        validator_reputation.score = new_score;
-        validator_reputation.total_decreases += 1;
-        validator_reputation.last_validator_epoch = epoch;
-
-        if validator_reputation.start_epoch == 0 {
-            validator_reputation.start_epoch = epoch;
-        }
-
-        let prev_total = validator_reputation
-            .total_increases
-            .saturating_add(validator_reputation.total_decreases)
-            .saturating_sub(1) as u128;
-
-        validator_reputation.average_attestation = if prev_total == 0 {
-            attestation_percentage
-        } else {
-            (validator_reputation
-                .average_attestation
-                .saturating_mul(prev_total)
-                .saturating_add(attestation_percentage))
-            .saturating_div(prev_total + 1)
-        };
-
-        ValidatorReputation::<T>::insert(validator_id, validator_reputation);
     }
 
     pub fn increase_subnet_reputation(subnet_id: u32, factor_1: u128, factor_2: u128) {
@@ -297,30 +191,5 @@ impl<T: Config> Pallet<T> {
         let factor = Self::percent_mul(factor_1, factor_2.unwrap_or(one));
         let delta = Self::percent_mul(prev_reputation, factor);
         prev_reputation.saturating_sub(delta).min(one)
-    }
-
-    /// Get the non consensus attestor factor
-    ///
-    /// # Arguments
-    /// * `non_consensus_attestor_decrease_factor` - The resolved factor for the evaluated epoch
-    /// * `attestation_ratio` - The attestation ratio
-    /// * `min_attestation_percentage` - The minimum attestation percentage
-    /// * `percentage_factor` - The percentage factor (1e18)
-    ///
-    /// # Returns
-    /// The non consensus attestor factor
-    pub fn get_non_consensus_attestor_factor(
-        non_consensus_attestor_decrease_factor: u128,
-        attestation_ratio: u128,
-        min_attestation_percentage: u128,
-        percentage_factor: u128,
-    ) -> u128 {
-        Self::percent_mul(
-            non_consensus_attestor_decrease_factor,
-            percentage_factor.saturating_sub(Self::percent_div(
-                attestation_ratio,
-                min_attestation_percentage,
-            )),
-        )
     }
 }

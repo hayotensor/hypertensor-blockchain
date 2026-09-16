@@ -14,20 +14,20 @@
 // limitations under the License.
 
 use super::*;
-use sp_runtime::Saturating;
+use sp_runtime::ArithmeticError;
 
 impl<T: Config> Pallet<T> {
-    pub fn do_add_overwatch_node_stake(
+    #[frame_support::transactional]
+    pub(crate) fn do_add_overwatch_node_stake(
         origin: T::RuntimeOrigin,
         overwatch_node_id: u32,
         stake_to_be_added: u128,
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
-        // Resolve the validator that owns this subnet node, then ensure the caller is that
-        // validator's coldkey. Only the owner is allowed to add stake.
-        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
-            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
+        // Resolve the validator identity that owns this Overwatch node, then ensure the caller is
+        // that validator's coldkey. Subnet-node ownership is not involved.
+        let validator_id = Self::get_active_overwatch_validator_id(overwatch_node_id)?;
 
         let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
             .map_err(|_| Error::<T>::InvalidValidatorId)?;
@@ -43,9 +43,12 @@ impl<T: Config> Pallet<T> {
 
         let account_stake_balance: u128 = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
 
+        let next_account_stake_balance = account_stake_balance
+            .checked_add(stake_to_be_added)
+            .ok_or(ArithmeticError::Overflow)?;
+
         ensure!(
-            account_stake_balance.saturating_add(stake_to_be_added)
-                >= OverwatchMinStakeBalance::<T>::get(),
+            next_account_stake_balance >= OverwatchMinStakeBalance::<T>::get(),
             Error::<T>::MinStakeNotReached
         );
 
@@ -61,14 +64,15 @@ impl<T: Config> Pallet<T> {
             Error::<T>::BalanceWithdrawalError
         );
 
-        Self::increase_overwatch_node_stake(overwatch_node_id, stake_to_be_added);
+        Self::increase_overwatch_node_stake(overwatch_node_id, stake_to_be_added)?;
 
         // Self::deposit_event(Event::StakeAdded(subnet_id, coldkey, hotkey, stake_to_be_added));
 
         Ok(())
     }
 
-    pub fn do_remove_overwatch_node_stake(
+    #[frame_support::transactional]
+    pub(crate) fn do_remove_overwatch_node_stake(
         origin: T::RuntimeOrigin,
         overwatch_node_id: u32,
         is_overwatch_node: bool,
@@ -76,15 +80,22 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let coldkey: T::AccountId = ensure_signed(origin)?;
 
-        // Resolve the validator that owns this subnet node, then ensure the caller is that
-        // validator's coldkey. Only the owner is allowed to add stake.
-        let validator_id = OverwatchNodeValidatorId::<T>::try_get(overwatch_node_id)
-            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
+        // The historical node-to-validator identity remains available after node removal so its
+        // owner can withdraw stake. Active ownership is additionally checked against the
+        // validator-to-node index below.
+        let validator_id = Self::get_historical_overwatch_validator_id(overwatch_node_id)?;
 
         let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
             .map_err(|_| Error::<T>::InvalidValidatorId)?;
 
         ensure!(coldkey == validator_coldkey, Error::<T>::NotKeyOwner);
+
+        if is_overwatch_node {
+            ensure!(
+                ValidatorOverwatchNodeId::<T>::get(validator_id) == Some(overwatch_node_id),
+                Error::<T>::InvalidOverwatchNodeId
+            );
+        }
 
         // --- Ensure that the stake amount to be removed is above zero.
         ensure!(stake_to_be_removed > 0, Error::<T>::AmountZero);
@@ -99,9 +110,11 @@ impl<T: Config> Pallet<T> {
 
         // if user is still an overwatch node they must keep the required minimum balance
         if is_overwatch_node {
+            let remaining_account_stake = account_stake_balance
+                .checked_sub(stake_to_be_removed)
+                .ok_or(ArithmeticError::Underflow)?;
             ensure!(
-                account_stake_balance.saturating_sub(stake_to_be_removed)
-                    >= OverwatchMinStakeBalance::<T>::get(),
+                remaining_account_stake >= OverwatchMinStakeBalance::<T>::get(),
                 Error::<T>::MinStakeNotReached
             );
         }
@@ -113,48 +126,59 @@ impl<T: Config> Pallet<T> {
         };
 
         let block: u32 = Self::get_current_block_as_u32();
-        let cooldown_blocks = StakeCooldownEpochs::<T>::get() * T::EpochLength::get();
-
-        Self::prepare_unbonding_ledger_entry(
-            &coldkey,
-            stake_to_be_removed,
-            cooldown_blocks,
-            block,
-        )?;
+        let cooldown_blocks = StakeCooldownEpochs::<T>::get()
+            .checked_mul(T::EpochLength::get())
+            .ok_or(sp_runtime::ArithmeticError::Overflow)?;
 
         // --- 7. We remove the balance from the hotkey.
-        Self::decrease_overwatch_node_stake(overwatch_node_id, stake_to_be_removed);
+        Self::decrease_overwatch_node_stake(overwatch_node_id, stake_to_be_removed)?;
 
-        // --- 9. We add the balancer to the coldkey.  If the above fails we will not credit this coldkey.
-        Self::insert_balance_to_unbonding_ledger(
+        // Keep the source debit and ledger credit atomic. Overwatch principal remains excluded
+        // from the network TVL while it cools down.
+        Self::add_balance_to_unbonding_ledger(
             &coldkey,
             stake_to_be_removed,
             cooldown_blocks,
             block,
-        );
+            UnbondingSource::Overwatch,
+        )?;
 
         // Self::deposit_event(Event::StakeRemoved(subnet_id, coldkey, hotkey, stake_to_be_removed));
 
         Ok(())
     }
 
-    pub fn increase_overwatch_node_stake(overwatch_node_id: u32, amount: u128) {
-        // -- increase account overwatch staking balance
-        OverwatchNodeStakeBalance::<T>::mutate(overwatch_node_id, |mut n| {
-            n.saturating_accrue(amount)
-        });
+    /// Increase an Overwatch position and its aggregate only after both additions succeed.
+    pub(crate) fn increase_overwatch_node_stake(
+        overwatch_node_id: u32,
+        amount: u128,
+    ) -> DispatchResult {
+        let next_node_stake = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id)
+            .checked_add(amount)
+            .ok_or(ArithmeticError::Overflow)?;
+        let next_total_stake = TotalOverwatchNodeStakeBalance::<T>::get()
+            .checked_add(amount)
+            .ok_or(ArithmeticError::Overflow)?;
 
-        // -- increase total overwatch stake
-        TotalOverwatchNodeStakeBalance::<T>::mutate(|mut n| n.saturating_accrue(amount));
+        OverwatchNodeStakeBalance::<T>::insert(overwatch_node_id, next_node_stake);
+        TotalOverwatchNodeStakeBalance::<T>::put(next_total_stake);
+        Ok(())
     }
 
-    pub fn decrease_overwatch_node_stake(overwatch_node_id: u32, amount: u128) {
-        // -- decrease account overwatch staking balance
-        OverwatchNodeStakeBalance::<T>::mutate(overwatch_node_id, |mut n| {
-            n.saturating_reduce(amount)
-        });
+    /// Decrease an Overwatch position and its aggregate only after both subtractions succeed.
+    pub(crate) fn decrease_overwatch_node_stake(
+        overwatch_node_id: u32,
+        amount: u128,
+    ) -> DispatchResult {
+        let next_node_stake = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id)
+            .checked_sub(amount)
+            .ok_or(ArithmeticError::Underflow)?;
+        let next_total_stake = TotalOverwatchNodeStakeBalance::<T>::get()
+            .checked_sub(amount)
+            .ok_or(ArithmeticError::Underflow)?;
 
-        // -- decrease total overwatch stake
-        TotalOverwatchNodeStakeBalance::<T>::mutate(|mut n| n.saturating_reduce(amount));
+        OverwatchNodeStakeBalance::<T>::insert(overwatch_node_id, next_node_stake);
+        TotalOverwatchNodeStakeBalance::<T>::put(next_total_stake);
+        Ok(())
     }
 }

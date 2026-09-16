@@ -1,0 +1,28 @@
+[package]
+name = "network-rpc-types"
+description = "Shared SCALE and JSON wire types for the Hypertensor network RPC"
+version = "0.1.0"
+license.workspace = true
+authors.workspace = true
+homepage.workspace = true
+repository.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+codec = { features = ["derive"], workspace = true }
+impl-serde.workspace = true
+scale-info = { features = ["derive"], workspace = true }
+serde = { features = ["derive"], workspace = true }
+
+[dev-dependencies]
+serde_json = { features = ["std"], workspace = true }
+
+[features]
+default = ["std"]
+std = [
+	"codec/std",
+	"impl-serde/std",
+	"scale-info/std",
+	"serde/std",
+]

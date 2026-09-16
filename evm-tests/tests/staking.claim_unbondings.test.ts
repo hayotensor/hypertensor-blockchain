@@ -17,6 +17,11 @@ import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
 import { PublicClient } from "viem";
 import { ApiPromise, WsProvider } from "@polkadot/api";
 import { expect } from "chai";
+import {
+    minimumOutputAfterSlippage,
+    minimumSubnetDelegateSharesOut,
+} from "../src/balance-math";
+import { registerCanonicalValidators } from "../src/validator-fixtures";
 
 // Status: passing
 // npm test -- -g "test claim unbondings-0x310crc12"
@@ -41,40 +46,7 @@ describe("test claim unbondings-0x310crc12", () => {
         wallet7.address,
         wallet8.address,
     ]
-    const initialColdkeys = [
-        {
-            coldkey: wallet1.address,
-            count: 1
-        },
-        {
-            coldkey: wallet2.address,
-            count: 1
-        },
-        {
-            coldkey: wallet3.address,
-            count: 1
-        },
-        {
-            coldkey: wallet4.address,
-            count: 1
-        },
-        {
-            coldkey: wallet5.address,
-            count: 1
-        },
-        {
-            coldkey: wallet6.address,
-            count: 1
-        },
-        {
-            coldkey: wallet7.address,
-            count: 1
-        },
-        {
-            coldkey: wallet8.address,
-            count: 1
-        },
-    ];
+    const validatorColdkeys = [wallet1, wallet2, wallet3];
 
     let publicClient: PublicClient;
     let papiApi: TypedApi<typeof dev>
@@ -82,6 +54,7 @@ describe("test claim unbondings-0x310crc12", () => {
 
     const sudoTransferAmount = BigInt(10000e18)
     const stakeAmount = BigInt(100e18)
+    const maxStakingSlippageBasisPoints = BigInt(100)
 
     const subnetContract = new ethers.Contract(SUBNET_CONTRACT_ADDRESS, SUBNET_CONTRACT_ABI, wallet1);
     let subnetId: string;
@@ -112,6 +85,28 @@ describe("test claim unbondings-0x310crc12", () => {
             sudoTransferAmount,
         )
 
+        await transferBalanceFromSudo(
+            api,
+            papiApi,
+            SUB_LOCAL_URL,
+            wallet2.address,
+            sudoTransferAmount,
+        )
+
+        await transferBalanceFromSudo(
+            api,
+            papiApi,
+            SUB_LOCAL_URL,
+            wallet3.address,
+            sudoTransferAmount,
+        )
+
+        const initialValidators = await registerCanonicalValidators(
+            subnetContract,
+            validatorColdkeys,
+            api,
+        );
+
         // ==============
         // Register subnet
         // ==============
@@ -134,9 +129,8 @@ describe("test claim unbondings-0x310crc12", () => {
             minStake.toString(),
             maxStake.toString(),
             delegateStakePercentage.toString(),
-            initialColdkeys,
+            initialValidators,
             BOOTNODES,
-            cost,
         )
 
         subnetId = await subnetContract.getSubnetId(subnetName);
@@ -164,7 +158,12 @@ describe("test claim unbondings-0x310crc12", () => {
             stakingContract,
             subnetId,
             stakeAmount,
-            BigInt(stakeAmount)
+            await minimumSubnetDelegateSharesOut(
+                stakingContract,
+                subnetId,
+                stakeAmount,
+                maxStakingSlippageBasisPoints,
+            )
         )
 
         // =====================
@@ -184,7 +183,11 @@ describe("test claim unbondings-0x310crc12", () => {
         await removeDelegateStake(
             stakingContract,
             subnetId,
-            sharesAfterDelegateStake
+            sharesAfterDelegateStake,
+            minimumOutputAfterSlippage(
+                balanceAfterDelegateStake,
+                maxStakingSlippageBasisPoints,
+            )
         )
 
         const sharesAfterRemove = await stakingContract.accountSubnetDelegateStakeShares(wallet1.address, subnetId);
@@ -194,13 +197,20 @@ describe("test claim unbondings-0x310crc12", () => {
         expect(sharesAfterDelegateStake).to.be.greaterThan(sharesAfterRemove);
         expect(balanceAfterDelegateStake).to.be.greaterThan(balanceAfterRemove);
 
-        const unbondings = (await api.query.network.stakeUnbondingLedger(wallet1.address)).toHuman();
+        const unbondings = await api.query.network.stakeUnbondingLedger(wallet1.address);
+        expect(unbondings.isEmpty).to.equal(false);
 
-        const beforeFinalizedBalance = await waitForFinalizedBalance(
-            papiApi,
-            wallet1.address,
-            (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
-        );
+        // Delegate-stake withdrawals are intentionally unavailable until the configured
+        // cooldown has elapsed.  Claiming immediately used to make this fixture depend on
+        // obsolete zero-cooldown behavior and correctly fails with NoUnbondings.
+        const cooldownBlocks =
+            Number((await api.query.network.delegateStakeCooldownEpochs()).toString())
+            * Number(api.consts.network.epochLength.toString());
+        await waitForBlocks(api, cooldownBlocks + 1);
+
+        const beforeFinalizedBalance = (
+            await papiApi.query.System.Account.getValue(wallet1.address)
+        ).data.free;
 
         await claimUnbondings(
             stakingContract
@@ -209,7 +219,7 @@ describe("test claim unbondings-0x310crc12", () => {
         const afterFinalizedBalance = await waitForFinalizedBalance(
             papiApi,
             wallet1.address,
-            (await papiApi.query.System.Account.getValue(wallet1.address)).data.free
+            beforeFinalizedBalance,
         );
 
         expect(Number(afterFinalizedBalance)).to.be.greaterThan(Number(beforeFinalizedBalance));

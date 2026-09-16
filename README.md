@@ -176,9 +176,8 @@ template and note the following:
 
 The runtime in this project is constructed using many FRAME pallets that ship
 with [the Substrate
-repository](https://github.com/paritytech/polkadot-sdk/tree/master/substrate/frame) and a
-template pallet that is [defined in the
-`pallets`](./pallets/template/src/lib.rs) directory.
+repository](https://github.com/paritytech/polkadot-sdk/tree/master/substrate/frame) and
+custom pallets defined in the [`pallets`](./pallets) directory.
 
 A FRAME pallet is comprised of a number of blockchain primitives, including:
 

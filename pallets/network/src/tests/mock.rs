@@ -76,11 +76,8 @@ pub const TARGET_MAX_TOTAL_SUPPLY: u128 = 2_800_000_000_000_000_000_000_000;
 pub const INITIAL_REWARD_PER_BLOCK: u128 =
     (TARGET_MAX_TOTAL_SUPPLY / 2) / BLOCKS_PER_HALVING as u128;
 
-pub const SECS_PER_BLOCK: u32 = 6000 / 1000;
-
 pub const EPOCH_LENGTH: u32 = 100;
-pub const BLOCKS_PER_EPOCH: u32 = SECS_PER_BLOCK * EPOCH_LENGTH;
-pub const EPOCHS_PER_YEAR: u32 = (YEAR as u32) / BLOCKS_PER_EPOCH;
+pub const EPOCHS_PER_YEAR: u32 = (YEAR as u32) / EPOCH_LENGTH;
 
 pub const OVERWATCH_YEARLY_EMISSIONS: u128 = 10_000_000_000_000_000_000_000; // 10,000
 pub const OVERWATCH_EPOCH_EMISSIONS: u128 = OVERWATCH_YEARLY_EMISSIONS / (EPOCHS_PER_YEAR as u128);
@@ -129,7 +126,7 @@ impl pallet_balances::Config for Test {
 #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
 impl frame_system::Config for Test {
     type BaseCallFilter = Everything;
-    type BlockWeights = ();
+    type BlockWeights = BlockWeights;
     type BlockLength = ();
     type Block = Block;
     type DbWeight = ();
@@ -213,11 +210,28 @@ parameter_types! {
     pub const OverwatchEpochEmissions: u128 = OVERWATCH_EPOCH_EMISSIONS;
     pub MaximumHooksWeight: Weight = Perbill::from_percent(50) *
         BlockWeights::get().max_block;
-    pub const DesignatedEpochSlots: u32 = 3;
+    pub const NetworkMinAttestationPercentage: u128 = 666_666_666_666_666_666;
+    pub const NetworkSuperMajorityAttestationRatio: u128 = 875_000_000_000_000_000;
+    pub const NetworkInitialSubnetUid: u32 = 128_000;
+    pub const NetworkMaxPhysicalSubnetsUpperBound: u32 =
+        crate::physical_subnet_upper_bound(EPOCH_LENGTH);
+    pub const NetworkMaxSubnetNodesUpperBound: u32 = 512;
+    pub const NetworkMaxValidatorNodesUpperBound: u32 = 512;
+    pub const NetworkMaxOverwatchNodesUpperBound: u32 = 64;
+    pub const NetworkMaxOverwatchCommitCutoffPercent: u128 = 950_000_000_000_000_000;
+    pub const NetworkMaxBootnodesUpperBound: u32 = 256;
+    pub const NetworkMaxSubnetBootnodeAccessUpperBound: u32 = 256;
+    pub const NetworkMaxChurnLimitUpperBound: u32 = 64;
+    pub const NetworkMaxRegisteredNodesUpperBound: u32 = 64;
+    pub const NetworkMaxUnbondingsUpperBound: u32 = 256;
+    pub const NetworkMaxSwapCallsPerBlockUpperBound: u32 = 1_000;
+    pub const NetworkMaxEmergencySubnetNodesUpperBound: u32 = 64;
+    pub const DesignatedEpochSlots: u32 = crate::NETWORK_DESIGNATED_EPOCH_SLOTS;
     pub const NetworkMaxVectorLength: u32 = 1024;
     pub const NetworkMaxUrlLength: u32 = 1024;
     pub const NetworkMaxSocialIdLength: u32 = 255;
     pub const NetworkValidatorArgsLimit: u32 = 4096;
+    pub const NetworkMaxOverwatchRevealSaltLength: u32 = 64;
     pub const NetworkMaxSwapQueueLength: u32 = 1000;
 }
 
@@ -232,16 +246,33 @@ impl Config for Test {
     type EpochLength = EpochLength;
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = ConstU32<0>;
+    type InitialMinSubnetDelegateStakeBalance = ConstU128<100_000_000_000_000_000_000>;
     type Randomness = InsecureRandomnessCollectiveFlip;
     type PalletId = NetworkPalletId;
     type TreasuryAccount = TreasuryAccount;
     type OverwatchEpochEmissions = OverwatchEpochEmissions;
     type MaximumHooksWeight = MaximumHooksWeight;
+    type MinAttestationPercentage = NetworkMinAttestationPercentage;
+    type SuperMajorityAttestationRatio = NetworkSuperMajorityAttestationRatio;
+    type InitialSubnetUid = NetworkInitialSubnetUid;
+    type MaxPhysicalSubnetsUpperBound = NetworkMaxPhysicalSubnetsUpperBound;
+    type MaxSubnetNodesUpperBound = NetworkMaxSubnetNodesUpperBound;
+    type MaxValidatorNodesUpperBound = NetworkMaxValidatorNodesUpperBound;
+    type MaxOverwatchNodesUpperBound = NetworkMaxOverwatchNodesUpperBound;
+    type MaxOverwatchCommitCutoffPercent = NetworkMaxOverwatchCommitCutoffPercent;
+    type MaxBootnodesUpperBound = NetworkMaxBootnodesUpperBound;
+    type MaxSubnetBootnodeAccessUpperBound = NetworkMaxSubnetBootnodeAccessUpperBound;
+    type MaxChurnLimitUpperBound = NetworkMaxChurnLimitUpperBound;
+    type MaxRegisteredNodesUpperBound = NetworkMaxRegisteredNodesUpperBound;
+    type MaxUnbondingsUpperBound = NetworkMaxUnbondingsUpperBound;
+    type MaxSwapCallsPerBlockUpperBound = NetworkMaxSwapCallsPerBlockUpperBound;
+    type MaxEmergencySubnetNodesUpperBound = NetworkMaxEmergencySubnetNodesUpperBound;
     type DesignatedEpochSlots = DesignatedEpochSlots;
     type MaxVectorLength = NetworkMaxVectorLength;
     type MaxUrlLength = NetworkMaxUrlLength;
     type MaxSocialIdLength = NetworkMaxSocialIdLength;
     type ValidatorArgsLimit = NetworkValidatorArgsLimit;
+    type MaxOverwatchRevealSaltLength = NetworkMaxOverwatchRevealSaltLength;
     type MaxSwapQueueLength = NetworkMaxSwapQueueLength;
 }
 

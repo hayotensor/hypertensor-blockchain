@@ -21,7 +21,7 @@ use frame_support::{
     assert_noop, assert_ok, derive_impl,
     dispatch::Pays,
     parameter_types,
-    traits::{ConstU32, ConstU64, StorageVersion},
+    traits::{ConstU128, ConstU32, ConstU64, StorageVersion},
     Hashable, PalletId,
 };
 use frame_system::{EnsureRoot, EventRecord, Phase};
@@ -123,11 +123,28 @@ parameter_types! {
     pub const NetworkPalletId: PalletId = PalletId(*b"/network");
     pub const OverwatchEpochEmissions: u128 = OVERWATCH_EPOCH_EMISSIONS;
     pub MaximumHooksWeight: Weight = sp_runtime::Perbill::from_percent(50) * BlockWeights::get().max_block;
-    pub const DesignatedEpochSlots: u32 = 3;
+    pub const NetworkMinAttestationPercentage: u128 = 666_666_666_666_666_666;
+    pub const NetworkSuperMajorityAttestationRatio: u128 = 875_000_000_000_000_000;
+    pub const NetworkInitialSubnetUid: u32 = 128_000;
+    pub const NetworkMaxPhysicalSubnetsUpperBound: u32 =
+        pallet_network::physical_subnet_upper_bound(EPOCH_LENGTH);
+    pub const NetworkMaxSubnetNodesUpperBound: u32 = 256;
+    pub const NetworkMaxValidatorNodesUpperBound: u32 = 512;
+    pub const NetworkMaxOverwatchNodesUpperBound: u32 = 64;
+    pub const NetworkMaxOverwatchCommitCutoffPercent: u128 = 950_000_000_000_000_000;
+    pub const NetworkMaxBootnodesUpperBound: u32 = 256;
+    pub const NetworkMaxSubnetBootnodeAccessUpperBound: u32 = 256;
+    pub const NetworkMaxChurnLimitUpperBound: u32 = 64;
+    pub const NetworkMaxRegisteredNodesUpperBound: u32 = 64;
+    pub const NetworkMaxUnbondingsUpperBound: u32 = 256;
+    pub const NetworkMaxSwapCallsPerBlockUpperBound: u32 = 1_000;
+    pub const NetworkMaxEmergencySubnetNodesUpperBound: u32 = 64;
+    pub const DesignatedEpochSlots: u32 = pallet_network::NETWORK_DESIGNATED_EPOCH_SLOTS;
     pub const NetworkMaxVectorLength: u32 = 1024;
     pub const NetworkMaxUrlLength: u32 = 1024;
     pub const NetworkMaxSocialIdLength: u32 = 255;
     pub const NetworkValidatorArgsLimit: u32 = 4096;
+    pub const NetworkMaxOverwatchRevealSaltLength: u32 = 64;
     pub const NetworkMaxSwapQueueLength: u32 = 1000;
 }
 
@@ -142,16 +159,33 @@ impl pallet_network::Config for Test {
     type EpochLength = EpochLength;
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = ConstU32<0>;
+    type InitialMinSubnetDelegateStakeBalance = ConstU128<100_000_000_000_000_000_000>;
     type Randomness = InsecureRandomnessCollectiveFlip;
     type PalletId = NetworkPalletId;
     type TreasuryAccount = ();
     type OverwatchEpochEmissions = OverwatchEpochEmissions;
     type MaximumHooksWeight = MaximumHooksWeight;
+    type MinAttestationPercentage = NetworkMinAttestationPercentage;
+    type SuperMajorityAttestationRatio = NetworkSuperMajorityAttestationRatio;
+    type InitialSubnetUid = NetworkInitialSubnetUid;
+    type MaxPhysicalSubnetsUpperBound = NetworkMaxPhysicalSubnetsUpperBound;
+    type MaxSubnetNodesUpperBound = NetworkMaxSubnetNodesUpperBound;
+    type MaxValidatorNodesUpperBound = NetworkMaxValidatorNodesUpperBound;
+    type MaxOverwatchNodesUpperBound = NetworkMaxOverwatchNodesUpperBound;
+    type MaxOverwatchCommitCutoffPercent = NetworkMaxOverwatchCommitCutoffPercent;
+    type MaxBootnodesUpperBound = NetworkMaxBootnodesUpperBound;
+    type MaxSubnetBootnodeAccessUpperBound = NetworkMaxSubnetBootnodeAccessUpperBound;
+    type MaxChurnLimitUpperBound = NetworkMaxChurnLimitUpperBound;
+    type MaxRegisteredNodesUpperBound = NetworkMaxRegisteredNodesUpperBound;
+    type MaxUnbondingsUpperBound = NetworkMaxUnbondingsUpperBound;
+    type MaxSwapCallsPerBlockUpperBound = NetworkMaxSwapCallsPerBlockUpperBound;
+    type MaxEmergencySubnetNodesUpperBound = NetworkMaxEmergencySubnetNodesUpperBound;
     type DesignatedEpochSlots = DesignatedEpochSlots;
     type MaxVectorLength = NetworkMaxVectorLength;
     type MaxUrlLength = NetworkMaxUrlLength;
     type MaxSocialIdLength = NetworkMaxSocialIdLength;
     type ValidatorArgsLimit = NetworkValidatorArgsLimit;
+    type MaxOverwatchRevealSaltLength = NetworkMaxOverwatchRevealSaltLength;
     type MaxSwapQueueLength = NetworkMaxSwapQueueLength;
 }
 
@@ -169,6 +203,7 @@ parameter_types! {
 impl frame_system::Config for Test {
     type Block = Block;
     type AccountData = pallet_balances::AccountData<u64>;
+    type BlockWeights = BlockWeights;
 }
 
 // #[derive_impl(frame_system::config_preludes::TestDefaultConfig)]
@@ -1741,15 +1776,16 @@ fn genesis_build_panics_with_duplicate_members() {
 
 // Admin pallet requires 2/3s approvals for function calls
 
-// Make admin pallet function call with 100% approval
+// Make an admin pallet function call with the required 2/3 approval.
 #[test]
 fn proposal_network_pallet_vote_2_3() {
     ExtBuilder::default().build_and_execute(|| {
-        let min = pallet_network::MinSubnetRemovalInterval::<Test>::get() + 2;
-        let max = pallet_network::MaxSubnetRemovalInterval::<Test>::get() + 2;
+        let activation_cooldown_epochs =
+            pallet_network::SubnetRemovalActivationCooldown::<Test>::get() + 2;
+        let check_interval_epochs = pallet_network::SubnetRemovalCheckInterval::<Test>::get() + 2;
         let proposal = RuntimeCall::Network(pallet_network::Call::set_subnet_removal_intervals {
-            min: min,
-            max: max,
+            activation_cooldown_epochs,
+            check_interval_epochs,
         });
         let proposal_len: u32 = proposal.using_encoded(|p| p.len() as u32);
         let proposal_weight = proposal.get_dispatch_info().call_weight;
@@ -1774,19 +1810,26 @@ fn proposal_network_pallet_vote_2_3() {
             proposal_len
         ));
 
-        assert_ne!(pallet_network::MinSubnetRemovalInterval::<Test>::get(), min);
-        assert_ne!(pallet_network::MaxSubnetRemovalInterval::<Test>::get(), max);
+        assert_eq!(
+            pallet_network::SubnetRemovalActivationCooldown::<Test>::get(),
+            activation_cooldown_epochs
+        );
+        assert_eq!(
+            pallet_network::SubnetRemovalCheckInterval::<Test>::get(),
+            check_interval_epochs
+        );
     })
 }
 
 #[test]
 fn proposal_network_pallet_vote_1_3() {
     ExtBuilder::default().build_and_execute(|| {
-        let min = pallet_network::MinSubnetRemovalInterval::<Test>::get();
-        let max = pallet_network::MaxSubnetRemovalInterval::<Test>::get();
+        let activation_cooldown_epochs =
+            pallet_network::SubnetRemovalActivationCooldown::<Test>::get() + 2;
+        let check_interval_epochs = pallet_network::SubnetRemovalCheckInterval::<Test>::get() + 2;
         let proposal = RuntimeCall::Network(pallet_network::Call::set_subnet_removal_intervals {
-            min: min,
-            max: max,
+            activation_cooldown_epochs,
+            check_interval_epochs,
         });
         let proposal_len: u32 = proposal.using_encoded(|p| p.len() as u32);
         let proposal_weight = proposal.get_dispatch_info().call_weight;
@@ -1810,8 +1853,14 @@ fn proposal_network_pallet_vote_1_3() {
             proposal_weight,
             proposal_len
         ));
-        assert_eq!(pallet_network::MinSubnetRemovalInterval::<Test>::get(), min);
-        assert_eq!(pallet_network::MaxSubnetRemovalInterval::<Test>::get(), max);
+        assert_ne!(
+            pallet_network::SubnetRemovalActivationCooldown::<Test>::get(),
+            activation_cooldown_epochs
+        );
+        assert_ne!(
+            pallet_network::SubnetRemovalCheckInterval::<Test>::get(),
+            check_interval_epochs
+        );
     })
 }
 
@@ -1883,6 +1932,76 @@ fn proposal_network_pallet_vote_1_5() {
         // no change should not work
         let value_call = pallet_network::MinSubnetDelegateStakeFactor::<Test>::get();
         assert_eq!(value, value_call);
+    })
+}
+
+#[test]
+fn proposal_network_min_subnet_delegate_stake_balance_vote_4_5() {
+    ExtBuilder::default().build_and_execute(|| {
+        let previous = pallet_network::MinSubnetDelegateStakeBalance::<Test>::get();
+        let value = previous.saturating_add(1);
+        let proposal = RuntimeCall::Network(
+            pallet_network::Call::set_min_subnet_delegate_stake_balance { value },
+        );
+        let proposal_len: u32 = proposal.using_encoded(|p| p.len() as u32);
+        let proposal_weight = proposal.get_dispatch_info().call_weight;
+        let hash = BlakeTwo256::hash_of(&proposal);
+        assert_ok!(Collective::propose(
+            RuntimeOrigin::signed(1),
+            2,
+            Box::new(proposal.clone()),
+            proposal_len
+        ));
+        assert_ok!(Collective::vote(RuntimeOrigin::signed(1), hash, 0, true));
+        assert_ok!(Collective::vote(RuntimeOrigin::signed(2), hash, 0, true));
+        assert_ok!(Collective::vote(RuntimeOrigin::signed(3), hash, 0, true));
+
+        System::set_block_number(4);
+        assert_ok!(Collective::close(
+            RuntimeOrigin::signed(4),
+            hash,
+            0,
+            proposal_weight,
+            proposal_len
+        ));
+        assert_eq!(
+            pallet_network::MinSubnetDelegateStakeBalance::<Test>::get(),
+            value
+        );
+    })
+}
+
+#[test]
+fn proposal_network_min_subnet_delegate_stake_balance_vote_1_5() {
+    ExtBuilder::default().build_and_execute(|| {
+        let previous = pallet_network::MinSubnetDelegateStakeBalance::<Test>::get();
+        let value = previous.saturating_add(1);
+        let proposal = RuntimeCall::Network(
+            pallet_network::Call::set_min_subnet_delegate_stake_balance { value },
+        );
+        let proposal_len: u32 = proposal.using_encoded(|p| p.len() as u32);
+        let proposal_weight = proposal.get_dispatch_info().call_weight;
+        let hash = BlakeTwo256::hash_of(&proposal);
+        assert_ok!(Collective::propose(
+            RuntimeOrigin::signed(1),
+            2,
+            Box::new(proposal.clone()),
+            proposal_len
+        ));
+        assert_ok!(Collective::vote(RuntimeOrigin::signed(1), hash, 0, true));
+
+        System::set_block_number(4);
+        assert_ok!(Collective::close(
+            RuntimeOrigin::signed(4),
+            hash,
+            0,
+            proposal_weight,
+            proposal_len
+        ));
+        assert_eq!(
+            pallet_network::MinSubnetDelegateStakeBalance::<Test>::get(),
+            previous
+        );
     })
 }
 

@@ -16,6 +16,9 @@
 use super::*;
 use sp_runtime::traits::Hash;
 
+const U32_BYTE_COUNT: usize = core::mem::size_of::<u32>();
+const U64_BYTE_COUNT: usize = core::mem::size_of::<u64>();
+
 impl<T: Config> Pallet<T> {
     pub fn get_random_number_v2(seed: u32) -> u32 {
         let mut random_number = Self::generate_random_number(seed);
@@ -53,10 +56,10 @@ impl<T: Config> Pallet<T> {
     pub fn generate_random_number(seed: u32) -> u32 {
         let (random_seed, _) = T::Randomness::random(&(T::PalletId::get(), seed).encode());
 
-        // Take first 4 bytes and interpret as u32
+        // Take the first encoded u32 and interpret it in little-endian order.
         let bytes = random_seed.as_ref();
-        let mut array = [0u8; 4];
-        array.copy_from_slice(&bytes[0..4]);
+        let mut array = [0u8; U32_BYTE_COUNT];
+        array.copy_from_slice(&bytes[..U32_BYTE_COUNT]);
 
         u32::from_le_bytes(array)
     }
@@ -101,7 +104,7 @@ impl<T: Config> Pallet<T> {
     }
 
     fn first_u64_from_hash(hash: T::Hash) -> u64 {
-        let mut array = [0u8; 8];
+        let mut array = [0u8; U64_BYTE_COUNT];
         for (dst, src) in array.iter_mut().zip(hash.as_ref().iter()) {
             *dst = *src;
         }

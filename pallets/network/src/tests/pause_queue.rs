@@ -6,12 +6,12 @@ use crate::{
     MaxDelegateStakePercentage, MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes,
     MaxSubnets, MinSubnetNodes, MinSubnetRegistrationEpochs, MultiaddrSubnetNodeId,
     NodeRewardRateUpdatePeriod, NodeSlotIndex, PeerIdSubnetNodeId, PeerInfo,
-    RegisteredSubnetNodesData, Reputation, SubnetElectedValidator, SubnetMinStakeBalance,
+    RegisteredSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance,
     SubnetName, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
     SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetOwner, SubnetState, SubnetsData,
     TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes,
-    TotalNodeDelegateStakeBalance, TotalNodes, TotalStake, TotalSubnetElectableNodes,
-    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, UniqueParamSubnetNodeId,
+    TotalNodes, TotalStake, TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes,
+    TotalSubnetStake, UniqueParamSubnetNodeId,
 };
 use frame_support::traits::Currency;
 use frame_support::traits::ExistenceRequirement;

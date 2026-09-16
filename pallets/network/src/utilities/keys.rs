@@ -16,14 +16,16 @@
 
 use super::*;
 
+const MIN_PEER_ID_LENGTH: usize = 32;
+const MAX_PEER_ID_LENGTH: usize = 128;
+
 impl<T: Config> Pallet<T> {
     // Loosely validates Node ID
     pub fn validate_peer_id(peer_id: &PeerId) -> bool {
         let peer_id_0 = &peer_id.0;
         let len = peer_id_0.len();
 
-        // Length must be between 32 and 128 bytes
-        if len < 32 || len > 128 {
+        if !(MIN_PEER_ID_LENGTH..=MAX_PEER_ID_LENGTH).contains(&len) {
             return false;
         }
 
@@ -33,11 +35,11 @@ impl<T: Config> Pallet<T> {
         match (first, second) {
             // (ed25519, using the "identity" multihash) encoded as a raw base58btc multihash
             // '1' → base58btc identity multihash (ed25519)
-            (49, _) => true,
+            (b'1', _) => true,
             // (sha256) encoded as a raw base58btc multihash - 'Qm' → SHA256 base58 multihash
-            (81, 109) => true,
+            (b'Q', b'm') => true,
             // (sha256) encoded as a CID - 'f', 'b', 'z', 'm' → CID/base multibase prefixes
-            (102, _) | (98, _) | (122, _) | (109, _) => true,
+            (b'f', _) | (b'b', _) | (b'z', _) | (b'm', _) => true,
             _ => false,
         }
     }

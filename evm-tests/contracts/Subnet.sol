@@ -58,17 +58,17 @@ interface Subnet {
         string memory huggingFace,
         string memory description,
         string memory misc
-    ) external payable;
+    ) external;
 
     function updateValidatorColdkey(
         uint256 validatorId,
         address newColdkey
-    ) external payable;
+    ) external;
 
     function updateValidatorHotkey(
         uint256 validatorId,
         address newHotkey
-    ) external payable;
+    ) external;
 
     function updateValidatorDelegateAccount(
         uint256 validatorId,
@@ -76,7 +76,7 @@ interface Subnet {
         address delegateAccountId,
         bool hasDelegateRate,
         uint256 delegateRate
-    ) external payable;
+    ) external;
 
     function updateValidatorIdentity(
         uint256 validatorId,
@@ -91,7 +91,7 @@ interface Subnet {
         string memory huggingFace,
         string memory description,
         string memory misc
-    ) external payable;
+    ) external;
 
     function registerSubnet(
         uint256 maxCost,
@@ -104,13 +104,13 @@ interface Subnet {
         uint256 delegateStakePercentage,
         InitialValidator[] calldata initialValidators,
         Bootnode[] calldata bootnodes
-    ) external payable;
+    ) external;
 
     function getCurrentRegistrationCost(
         uint256 blockNumber
     ) external view returns (uint256);
 
-    function activateSubnet(uint256 subnetId) external payable;
+    function activateSubnet(uint256 subnetId) external;
 
     function getSubnetId(string memory name) external view returns (uint256);
 
@@ -129,57 +129,56 @@ interface Subnet {
         string memory unique,
         string memory nonUnique,
         uint256 maxBurnAmount
-    ) external payable;
+    ) external;
 
     function removeSubnetNode(
         uint256 subnetId,
         uint256 subnetNodeId
-    ) external payable;
+    ) external;
 
     function updateValidatorDelegateRewardRate(
         uint256 validatorId,
         uint256 newDelegateRewardRate
-    ) external payable;
+    ) external;
 
     function updateNodeUnique(
         uint256 subnetId,
         uint256 subnetNodeId,
         string memory unique
-    ) external payable;
+    ) external;
 
     function updateNonUnique(
         uint256 subnetId,
         uint256 subnetNodeId,
         string memory nonUnique
-    ) external payable;
+    ) external;
 
     function updateNodeHotkey(
         uint256 subnetId,
         uint256 subnetNodeId,
         address newHotkey
-    ) external payable;
+    ) external;
 
     function updateNodePeerInfo(
         uint256 subnetId,
         uint256 subnetNodeId,
         PeerInfo calldata newPeerInfo
-    ) external payable;
+    ) external;
 
     function updateNodeBootnodePeerInfo(
         uint256 subnetId,
         uint256 subnetNodeId,
         PeerInfo calldata newPeerInfo
-    ) external payable;
+    ) external;
 
     function updateNodeClientPeerInfo(
         uint256 subnetId,
         uint256 subnetNodeId,
         PeerInfo calldata newPeerInfo
-    ) external payable;
+    ) external;
 
     function proposeAttestation(
         uint256 subnetId,
-        uint256 subnetNodeId,
         ConsensusData[] calldata data,
         bool hasPrioritizeQueueNodeId,
         uint256 prioritizeQueueNodeId,
@@ -187,13 +186,13 @@ interface Subnet {
         uint256 removeQueueNodeId,
         bytes calldata args,
         bytes calldata attestData
-    ) external payable;
+    ) external;
 
     function attest(
         uint256 subnetId,
         uint256 subnetNodeId,
         bytes calldata data
-    ) external payable;
+    ) external;
 
     function ownerPauseSubnet(uint256 subnetId) external;
 
@@ -302,11 +301,6 @@ interface Subnet {
     ) external;
 
     function ownerUpdateMinSubnetNodeReputation(
-        uint256 subnetId,
-        uint256 value
-    ) external;
-
-    function ownerUpdateMinConsensusNodeAttestationPercentage(
         uint256 subnetId,
         uint256 value
     ) external;
@@ -443,15 +437,21 @@ interface Subnet {
         uint256 subnetId
     ) external view returns (uint256);
 
-    function getPrevPauseEpoch(
+    function getConsensusEligibleFromSubnetEpoch(
+        uint256 subnetId
+    ) external view returns (uint256);
+
+    function getPauseStartedGlobalEpoch(
+        uint256 subnetId
+    ) external view returns (uint256);
+
+    function getPauseStartedSubnetEpoch(
         uint256 subnetId
     ) external view returns (uint256);
 
     function getSlotIndex(uint256 subnetId) external view returns (uint256);
 
-    function getSlotAssignment(
-        uint256 subnetId
-    ) external view returns (uint256);
+    function getSubnetAtSlot(uint256 slot) external view returns (uint256);
 
     function getSubnetNodeMinWeightDecreaseReputationThreshold(
         uint256 subnetId
