@@ -12,7 +12,7 @@ import {
   advanceToRevealBlock,
   batchTransferBalanceFromSudoManual,
   commitOverwatchSubnetWeights,
-  createAndFinalizeBlock,
+  waitForBlock,
   getCurrentRegistrationCost,
   whitelistOverwatchValidatorForDevnet,
   registerOverwatchNode,
@@ -143,7 +143,7 @@ describe("Overwatch validator-hotkey commit and reveal", () => {
     papiApi = await getDevnetApi();
     api = await ApiPromise.create({ provider: new WsProvider(SUB_LOCAL_URL) });
     provider = new ethers.JsonRpcProvider(ETH_LOCAL_URL);
-    await createAndFinalizeBlock(provider);
+    await waitForBlock(provider);
 
     const funding = BigInt("10000000000000000000000");
     await batchTransferBalanceFromSudoManual(api, papiApi, provider, [

@@ -1,4 +1,4 @@
-//! Benchmarks include Aura lookup, ownership verification and the largest payout record.
+//! Benchmarks include Babe lookup, ownership verification and the largest payout record.
 #![cfg(feature = "runtime-benchmarks")]
 use super::*;
 use frame_benchmarking::v2::*;
@@ -8,7 +8,7 @@ use frame_system::RawOrigin;
 fn setup<T: Config>() -> (sr25519::Public, H160) {
     frame_system::Pallet::<T>::set_block_number(2u32.into());
     let key = sp_io::crypto::sr25519_generate(
-        sp_core::crypto::KeyTypeId(*b"aura"),
+        sp_core::crypto::KeyTypeId(*b"babe"),
         Some(b"//AuthorSubsidyBenchmark".to_vec()),
     );
     T::BenchmarkHelper::setup_author(key);
@@ -16,7 +16,7 @@ fn setup<T: Config>() -> (sr25519::Public, H160) {
 }
 fn signature<T: Config>(key: &sr25519::Public, address: H160, nonce: u64) -> sr25519::Signature {
     let payload = Pallet::<T>::reward_address_payload(key, address, nonce, 100u32.into());
-    sp_io::crypto::sr25519_sign(sp_core::crypto::KeyTypeId(*b"aura"), key, &payload).unwrap()
+    sp_io::crypto::sr25519_sign(sp_core::crypto::KeyTypeId(*b"babe"), key, &payload).unwrap()
 }
 
 #[benchmarks]

@@ -22,7 +22,13 @@ frame-system-benchmarking = { optional = true, workspace = true }
 frame-system-rpc-runtime-api.workspace = true
 frame-system.workspace = true
 frame-try-runtime = { optional = true, workspace = true }
-pallet-aura.workspace = true
+pallet-babe.workspace = true
+pallet-session = { workspace = true, features = ["historical"] }
+pallet-staking.workspace = true
+pallet-authorship.workspace = true
+pallet-offences.workspace = true
+frame-election-provider-support.workspace = true
+sp-staking.workspace = true
 pallet-balances.workspace = true
 pallet-grandpa.workspace = true
 pallet-sudo.workspace = true
@@ -48,7 +54,7 @@ scale-info = { features = ["derive", "serde"], workspace = true }
 serde_json = { workspace = true, default-features = false, features = ["alloc"] }
 sp-api.workspace = true
 sp-block-builder.workspace = true
-sp-consensus-aura = { features = ["serde"], workspace = true }
+sp-consensus-babe = { features = ["serde"], workspace = true }
 sp-consensus-grandpa = { features = ["serde"], workspace = true }
 sp-core = { features = ["serde"], workspace = true }
 sp-genesis-builder.workspace = true
@@ -84,11 +90,21 @@ hex-literal = { workspace = true }
 [build-dependencies]
 substrate-wasm-builder = { optional = true, workspace = true, default-features = true }
 
+[dev-dependencies]
+ethereum = { workspace = true, features = ["std"] }
+
 [features]
 default = ["std", "with-rocksdb-weights"]
 with-rocksdb-weights = []
 with-paritydb-weights = []
 std = [
+	"pallet-session/std",
+	"pallet-staking/std",
+	"pallet-authorship/std",
+	"pallet-offences/std",
+	"frame-election-provider-support/std",
+	"sp-staking/std",
+
 	"codec/std",
 	"frame-benchmarking?/std",
 	"frame-executive/std",
@@ -98,7 +114,7 @@ std = [
 	"frame-system-rpc-runtime-api/std",
 	"frame-system/std",
 	"frame-try-runtime?/std",
-	"pallet-aura/std",
+	"pallet-babe/std",
 	"pallet-balances/std",
 	"pallet-grandpa/std",
 	"pallet-sudo/std",
@@ -124,7 +140,7 @@ std = [
 	"serde_json/std",
 	"sp-api/std",
 	"sp-block-builder/std",
-	"sp-consensus-aura/std",
+	"sp-consensus-babe/std",
 	"sp-consensus-grandpa/std",
 	"sp-core/std",
 	"sp-genesis-builder/std",
@@ -154,6 +170,12 @@ std = [
 ]
 
 runtime-benchmarks = [
+	"pallet-babe/runtime-benchmarks",
+	"pallet-staking/runtime-benchmarks",
+	"pallet-offences/runtime-benchmarks",
+	"frame-election-provider-support/runtime-benchmarks",
+	"sp-staking/runtime-benchmarks",
+
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-support/runtime-benchmarks",
 	"frame-system-benchmarking/runtime-benchmarks",
@@ -172,11 +194,18 @@ runtime-benchmarks = [
 ]
 
 try-runtime = [
+	"fp-self-contained/try-runtime",
+	"pallet-session/try-runtime",
+	"pallet-staking/try-runtime",
+	"pallet-authorship/try-runtime",
+	"pallet-offences/try-runtime",
+	"frame-election-provider-support/try-runtime",
+
 	"frame-executive/try-runtime",
 	"frame-support/try-runtime",
 	"frame-system/try-runtime",
 	"frame-try-runtime/try-runtime",
-	"pallet-aura/try-runtime",
+	"pallet-babe/try-runtime",
 	"pallet-balances/try-runtime",
 	"pallet-grandpa/try-runtime",
 	"pallet-sudo/try-runtime",

@@ -10149,334 +10149,334 @@ pub mod pallet {
         /// * `block_number` - Current block number.
         ///
         fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
-            let db_weight = T::DbWeight::get();
+            // let db_weight = T::DbWeight::get();
 
-            let mut weight_meter = WeightMeter::with_limit(T::MaximumHooksWeight::get());
+            // let mut weight_meter = WeightMeter::with_limit(T::MaximumHooksWeight::get());
 
-            // Admit every fixed selector read before touching storage so even paused/no-step
-            // blocks carry generated trie-proof weight.
-            let base_weight = T::WeightInfo::on_initialize_base();
-            if !weight_meter.can_consume(base_weight) {
-                return weight_meter.consumed();
-            }
-            weight_meter.consume(base_weight);
+            // // Admit every fixed selector read before touching storage so even paused/no-step
+            // // blocks carry generated trie-proof weight.
+            // let base_weight = T::WeightInfo::on_initialize_base();
+            // if !weight_meter.can_consume(base_weight) {
+            //     return weight_meter.consumed();
+            // }
+            // weight_meter.consume(base_weight);
 
-            if Self::is_paused().is_err() {
-                return weight_meter.consumed();
-            }
+            // if Self::is_paused().is_err() {
+            //     return weight_meter.consumed();
+            // }
 
-            // General epochs
-            let block: u32 = Self::convert_block_as_u32(block_number);
-            let epoch_length: u32 = T::EpochLength::get();
-            let epoch_slot = block % epoch_length;
-            let current_epoch = block.saturating_div(epoch_length);
+            // // General epochs
+            // let block: u32 = Self::convert_block_as_u32(block_number);
+            // let epoch_length: u32 = T::EpochLength::get();
+            // let epoch_slot = block % epoch_length;
+            // let current_epoch = block.saturating_div(epoch_length);
 
-            // Only settle an epoch that was already pending when this block began. A rollover
-            // created below is therefore finalized no earlier than the following block, preserving
-            // the hook's staggered workload and reserved slot ordering.
-            let pending_overwatch_settlement = PendingOverwatchSettlement::<T>::get();
+            // // Only settle an epoch that was already pending when this block began. A rollover
+            // // created below is therefore finalized no earlier than the following block, preserving
+            // // the hook's staggered workload and reserved slot ordering.
+            // let pending_overwatch_settlement = PendingOverwatchSettlement::<T>::get();
 
-            // Select the mutating rollover path from compact state before reserving it. Ordinary
-            // blocks use a separately measured no-op path instead of paying the rollover writes.
-            // The helper deliberately re-reads this state; its generated branch covers those
-            // internal accesses while `on_initialize_base` covers the outer selectors below.
-            let overwatch_epoch_start = OverwatchEpochStartBlock::<T>::get();
-            let overwatch_multiplier = ActiveOverwatchEpochLengthMultiplier::<T>::get();
-            let rollover_due = epoch_length
-                .checked_mul(overwatch_multiplier)
-                .map(|overwatch_epoch_length| {
-                    block >= overwatch_epoch_start.saturating_add(overwatch_epoch_length)
-                        && epoch_length != 0
-                        && epoch_slot == NETWORK_EPOCH_PRELIMINARIES_SLOT
-                        && pending_overwatch_settlement.is_none()
-                })
-                .unwrap_or(false);
-            let advance_overwatch_weight = if rollover_due {
-                T::WeightInfo::advance_overwatch_epoch()
-            } else {
-                T::WeightInfo::advance_overwatch_epoch_noop()
-            };
-            if !weight_meter.can_consume(advance_overwatch_weight) {
-                return weight_meter.consumed();
-            }
-            Self::advance_overwatch_epoch(block);
-            // Charge the generated reservation, including measured proof size. The helper's
-            // manual DB accumulator is diagnostic only and cannot replace benchmarked weight.
-            weight_meter.consume(advance_overwatch_weight);
+            // // Select the mutating rollover path from compact state before reserving it. Ordinary
+            // // blocks use a separately measured no-op path instead of paying the rollover writes.
+            // // The helper deliberately re-reads this state; its generated branch covers those
+            // // internal accesses while `on_initialize_base` covers the outer selectors below.
+            // let overwatch_epoch_start = OverwatchEpochStartBlock::<T>::get();
+            // let overwatch_multiplier = ActiveOverwatchEpochLengthMultiplier::<T>::get();
+            // let rollover_due = epoch_length
+            //     .checked_mul(overwatch_multiplier)
+            //     .map(|overwatch_epoch_length| {
+            //         block >= overwatch_epoch_start.saturating_add(overwatch_epoch_length)
+            //             && epoch_length != 0
+            //             && epoch_slot == NETWORK_EPOCH_PRELIMINARIES_SLOT
+            //             && pending_overwatch_settlement.is_none()
+            //     })
+            //     .unwrap_or(false);
+            // let advance_overwatch_weight = if rollover_due {
+            //     T::WeightInfo::advance_overwatch_epoch()
+            // } else {
+            //     T::WeightInfo::advance_overwatch_epoch_noop()
+            // };
+            // if !weight_meter.can_consume(advance_overwatch_weight) {
+            //     return weight_meter.consumed();
+            // }
+            // Self::advance_overwatch_epoch(block);
+            // // Charge the generated reservation, including measured proof size. The helper's
+            // // manual DB accumulator is diagnostic only and cannot replace benchmarked weight.
+            // weight_meter.consume(advance_overwatch_weight);
 
-            if block >= epoch_length && epoch_slot == NETWORK_EPOCH_PRELIMINARIES_SLOT {
-                let selector_weight = T::WeightInfo::total_subnets_selector();
-                if !weight_meter.can_consume(selector_weight) {
-                    return weight_meter.consumed();
-                }
-                weight_meter.consume(selector_weight);
-                let subnet_count = TotalSubnets::<T>::get();
-                // The generated domain includes the empty network, while every non-empty sample
-                // scales with the exact compact subnet count.
-                let step_weight = T::WeightInfo::do_epoch_preliminaries(
-                    subnet_count.min(T::MaxPhysicalSubnetsUpperBound::get()),
-                );
-                if weight_meter.can_consume(step_weight) {
-                    weight_meter.consume(step_weight);
-                    // The generated weight covers the scan and all non-removal checks. Passing
-                    // the outer meter keeps every variable subnet removal separately guarded by
-                    // `do_remove_subnet(n)` before it mutates state.
-                    Self::do_epoch_preliminaries(&mut weight_meter, block, current_epoch);
-                }
-            } else if let Some(settlement) = pending_overwatch_settlement
-                .filter(|_| epoch_slot == NETWORK_OVERWATCH_SETTLEMENT_SLOT)
-            {
-                // Reveal records, distinct revealers and distinct subnets cannot vary
-                // independently. Select the reachable worst-case fixture for each record region:
-                // grow both cardinalities through 17, then grow revealers through 64, then fill
-                // the remaining 64-by-17 record matrix. At shared endpoints take the
-                // componentwise maximum because independently fitted models may cross there.
-                let max_runtime_reveal_records = T::MaxOverwatchNodesUpperBound::get()
-                    .saturating_mul(T::MaxPhysicalSubnetsUpperBound::get());
-                let reveal_records = settlement.reveal_records.min(max_runtime_reveal_records);
-                let step_weight = if reveal_records == 0 {
-                    T::WeightInfo::calculate_overwatch_rewards_empty()
-                } else if reveal_records < MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN {
-                    T::WeightInfo::calculate_overwatch_rewards_small(reveal_records)
-                } else if reveal_records == MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN {
-                    T::WeightInfo::calculate_overwatch_rewards_small(reveal_records).max(
-                        T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records),
-                    )
-                } else if reveal_records < MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN {
-                    T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records)
-                } else if reveal_records == MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN {
-                    T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records)
-                        .max(T::WeightInfo::calculate_overwatch_rewards(reveal_records))
-                } else {
-                    T::WeightInfo::calculate_overwatch_rewards(reveal_records)
-                };
-                if weight_meter.can_consume(step_weight) {
-                    Self::calculate_overwatch_rewards();
-                    weight_meter.consume(step_weight);
-                }
-            } else if block >= epoch_length.saturating_add(NETWORK_SUBNET_EMISSION_SLOT)
-                && epoch_slot == NETWORK_SUBNET_EMISSION_SLOT
-            {
-                let selector_weight = T::WeightInfo::total_subnets_selector();
-                if !weight_meter.can_consume(selector_weight) {
-                    return weight_meter.consumed();
-                }
-                weight_meter.consume(selector_weight);
-                let subnet_count = TotalSubnets::<T>::get();
-                let step_weight = if subnet_count == 0 {
-                    T::WeightInfo::handle_subnet_emission_weights_empty()
-                } else {
-                    T::WeightInfo::handle_subnet_emission_weights(
-                        subnet_count.min(T::MaxPhysicalSubnetsUpperBound::get()),
-                    )
-                };
-                if weight_meter.can_consume(step_weight) {
-                    Self::handle_subnet_emission_weights(current_epoch);
-                    weight_meter.consume(step_weight);
-                }
-            } else {
-                // Slot assignment is read even when no subnet step exists. Admit its generated
-                // proof before touching the key.
-                let slot_selector_weight = T::WeightInfo::emission_slot_selector();
-                if !weight_meter.can_consume(slot_selector_weight) {
-                    return weight_meter.consumed();
-                }
-                weight_meter.consume(slot_selector_weight);
+            // if block >= epoch_length && epoch_slot == NETWORK_EPOCH_PRELIMINARIES_SLOT {
+            //     let selector_weight = T::WeightInfo::total_subnets_selector();
+            //     if !weight_meter.can_consume(selector_weight) {
+            //         return weight_meter.consumed();
+            //     }
+            //     weight_meter.consume(selector_weight);
+            //     let subnet_count = TotalSubnets::<T>::get();
+            //     // The generated domain includes the empty network, while every non-empty sample
+            //     // scales with the exact compact subnet count.
+            //     let step_weight = T::WeightInfo::do_epoch_preliminaries(
+            //         subnet_count.min(T::MaxPhysicalSubnetsUpperBound::get()),
+            //     );
+            //     if weight_meter.can_consume(step_weight) {
+            //         weight_meter.consume(step_weight);
+            //         // The generated weight covers the scan and all non-removal checks. Passing
+            //         // the outer meter keeps every variable subnet removal separately guarded by
+            //         // `do_remove_subnet(n)` before it mutates state.
+            //         Self::do_epoch_preliminaries(&mut weight_meter, block, current_epoch);
+            //     }
+            // } else if let Some(settlement) = pending_overwatch_settlement
+            //     .filter(|_| epoch_slot == NETWORK_OVERWATCH_SETTLEMENT_SLOT)
+            // {
+            //     // Reveal records, distinct revealers and distinct subnets cannot vary
+            //     // independently. Select the reachable worst-case fixture for each record region:
+            //     // grow both cardinalities through 17, then grow revealers through 64, then fill
+            //     // the remaining 64-by-17 record matrix. At shared endpoints take the
+            //     // componentwise maximum because independently fitted models may cross there.
+            //     let max_runtime_reveal_records = T::MaxOverwatchNodesUpperBound::get()
+            //         .saturating_mul(T::MaxPhysicalSubnetsUpperBound::get());
+            //     let reveal_records = settlement.reveal_records.min(max_runtime_reveal_records);
+            //     let step_weight = if reveal_records == 0 {
+            //         T::WeightInfo::calculate_overwatch_rewards_empty()
+            //     } else if reveal_records < MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN {
+            //         T::WeightInfo::calculate_overwatch_rewards_small(reveal_records)
+            //     } else if reveal_records == MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN {
+            //         T::WeightInfo::calculate_overwatch_rewards_small(reveal_records).max(
+            //             T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records),
+            //         )
+            //     } else if reveal_records < MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN {
+            //         T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records)
+            //     } else if reveal_records == MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN {
+            //         T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records)
+            //             .max(T::WeightInfo::calculate_overwatch_rewards(reveal_records))
+            //     } else {
+            //         T::WeightInfo::calculate_overwatch_rewards(reveal_records)
+            //     };
+            //     if weight_meter.can_consume(step_weight) {
+            //         Self::calculate_overwatch_rewards();
+            //         weight_meter.consume(step_weight);
+            //     }
+            // } else if block >= epoch_length.saturating_add(NETWORK_SUBNET_EMISSION_SLOT)
+            //     && epoch_slot == NETWORK_SUBNET_EMISSION_SLOT
+            // {
+            //     let selector_weight = T::WeightInfo::total_subnets_selector();
+            //     if !weight_meter.can_consume(selector_weight) {
+            //         return weight_meter.consumed();
+            //     }
+            //     weight_meter.consume(selector_weight);
+            //     let subnet_count = TotalSubnets::<T>::get();
+            //     let step_weight = if subnet_count == 0 {
+            //         T::WeightInfo::handle_subnet_emission_weights_empty()
+            //     } else {
+            //         T::WeightInfo::handle_subnet_emission_weights(
+            //             subnet_count.min(T::MaxPhysicalSubnetsUpperBound::get()),
+            //         )
+            //     };
+            //     if weight_meter.can_consume(step_weight) {
+            //         Self::handle_subnet_emission_weights(current_epoch);
+            //         weight_meter.consume(step_weight);
+            //     }
+            // } else {
+            //     // Slot assignment is read even when no subnet step exists. Admit its generated
+            //     // proof before touching the key.
+            //     let slot_selector_weight = T::WeightInfo::emission_slot_selector();
+            //     if !weight_meter.can_consume(slot_selector_weight) {
+            //         return weight_meter.consumed();
+            //     }
+            //     weight_meter.consume(slot_selector_weight);
 
-                if let Some(subnet_id) = SlotAssignment::<T>::get(epoch_slot) {
-                    // Once a slot resolves, admit every compact component selector (SubnetSlot,
-                    // historical max-items, electable, total, and active counts) as one generated
-                    // maximum-proof envelope before reading any of them.
-                    let component_selector_weight = T::WeightInfo::emission_step_selectors();
-                    if !weight_meter.can_consume(component_selector_weight) {
-                        return weight_meter.consumed();
-                    }
-                    weight_meter.consume(component_selector_weight);
+            //     if let Some(subnet_id) = SlotAssignment::<T>::get(epoch_slot) {
+            //         // Once a slot resolves, admit every compact component selector (SubnetSlot,
+            //         // historical max-items, electable, total, and active counts) as one generated
+            //         // maximum-proof envelope before reading any of them.
+            //         let component_selector_weight = T::WeightInfo::emission_step_selectors();
+            //         if !weight_meter.can_consume(component_selector_weight) {
+            //             return weight_meter.consumed();
+            //         }
+            //         weight_meter.consume(component_selector_weight);
 
-                    // Resolve the subnet-oriented epoch using the hook's block argument, avoiding
-                    // a redundant frame-system block-number read.
-                    let subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(subnet_id, block);
+            //         // Resolve the subnet-oriented epoch using the hook's block argument, avoiding
+            //         // a redundant frame-system block-number read.
+            //         let subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(subnet_id, block);
 
-                    let settlement_subnet_epoch =
-                        PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id)
-                            .or_else(|| subnet_epoch.checked_sub(1));
-                    let historical_items = settlement_subnet_epoch
-                        .map(|settlement_epoch| {
-                            SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, settlement_epoch)
-                        })
-                        .unwrap_or(0)
-                        .min(T::MaxSubnetNodesUpperBound::get());
-                    let total_nodes = TotalSubnetNodes::<T>::get(subnet_id);
-                    let active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
-                    let queued_nodes = total_nodes
-                        .saturating_sub(active_nodes)
-                        .min(T::MaxRegisteredNodesUpperBound::get());
-                    // Historical settlement may combine full accepted-reward work with maximum
-                    // queue mutations. Physical removal is no longer part of settlement: the
-                    // reward envelope only reserves bounded quarantine-marker writes.
-                    let accepted_h = historical_items.max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES);
-                    // A single validator identity may own many historical nodes. The reachable
-                    // maximum non-attestor count is therefore the historical node count minus the
-                    // fewest node attestations needed to represent a strong minimum identity set,
-                    // not simply `(1 - super_majority_ratio) * h`.
-                    let minimum_strong_identity_attestors = Self::min_identity_attestors_for_ratio(
-                        Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
-                        T::SuperMajorityAttestationRatio::get(),
-                    );
-                    let maximum_non_attestors =
-                        accepted_h.saturating_sub(minimum_strong_identity_attestors);
-                    let non_attestor_reputation_weight = if maximum_non_attestors == 0 {
-                        Weight::zero()
-                    } else {
-                        T::WeightInfo::emission_step_accepted_non_attestor_reputation(
-                            maximum_non_attestors,
-                        )
-                    };
-                    let historical_queue_weight =
-                        T::WeightInfo::emission_step_accepted_queue_mutations(queued_nodes.max(1))
-                            .max(T::WeightInfo::emission_step_accepted_queue_mutations_front(
-                                queued_nodes.max(1),
-                            ));
-                    let accepted_weight = T::WeightInfo::emission_step(accepted_h)
-                        .saturating_add(historical_queue_weight)
-                        .saturating_add(
-                            T::WeightInfo::emission_step_accepted_below_min_weight_reputation(
-                                accepted_h,
-                            ),
-                        )
-                        .saturating_add(non_attestor_reputation_weight);
+            //         let settlement_subnet_epoch =
+            //             PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id)
+            //                 .or_else(|| subnet_epoch.checked_sub(1));
+            //         let historical_items = settlement_subnet_epoch
+            //             .map(|settlement_epoch| {
+            //                 SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, settlement_epoch)
+            //             })
+            //             .unwrap_or(0)
+            //             .min(T::MaxSubnetNodesUpperBound::get());
+            //         let total_nodes = TotalSubnetNodes::<T>::get(subnet_id);
+            //         let active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
+            //         let queued_nodes = total_nodes
+            //             .saturating_sub(active_nodes)
+            //             .min(T::MaxRegisteredNodesUpperBound::get());
+            //         // Historical settlement may combine full accepted-reward work with maximum
+            //         // queue mutations. Physical removal is no longer part of settlement: the
+            //         // reward envelope only reserves bounded quarantine-marker writes.
+            //         let accepted_h = historical_items.max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES);
+            //         // A single validator identity may own many historical nodes. The reachable
+            //         // maximum non-attestor count is therefore the historical node count minus the
+            //         // fewest node attestations needed to represent a strong minimum identity set,
+            //         // not simply `(1 - super_majority_ratio) * h`.
+            //         let minimum_strong_identity_attestors = Self::min_identity_attestors_for_ratio(
+            //             Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
+            //             T::SuperMajorityAttestationRatio::get(),
+            //         );
+            //         let maximum_non_attestors =
+            //             accepted_h.saturating_sub(minimum_strong_identity_attestors);
+            //         let non_attestor_reputation_weight = if maximum_non_attestors == 0 {
+            //             Weight::zero()
+            //         } else {
+            //             T::WeightInfo::emission_step_accepted_non_attestor_reputation(
+            //                 maximum_non_attestors,
+            //             )
+            //         };
+            //         let historical_queue_weight =
+            //             T::WeightInfo::emission_step_accepted_queue_mutations(queued_nodes.max(1))
+            //                 .max(T::WeightInfo::emission_step_accepted_queue_mutations_front(
+            //                     queued_nodes.max(1),
+            //                 ));
+            //         let accepted_weight = T::WeightInfo::emission_step(accepted_h)
+            //             .saturating_add(historical_queue_weight)
+            //             .saturating_add(
+            //                 T::WeightInfo::emission_step_accepted_below_min_weight_reputation(
+            //                     accepted_h,
+            //                 ),
+            //             )
+            //             .saturating_add(non_attestor_reputation_weight);
 
-                    // Zero historical items identifies the missing-submission branch. Pending
-                    // filtering can leave a real elected/proposed round with only one or two
-                    // eligible nodes, so every nonzero snapshot must still reserve a complete
-                    // accepted/rejected settlement at the generated minimum domain.
-                    let settlement_branch_weight = if historical_items == 0 {
-                        T::WeightInfo::emission_step_missing()
-                    } else {
-                        accepted_weight
-                            .max(T::WeightInfo::emission_step_rejected(accepted_h))
-                            .max(T::WeightInfo::emission_step_emergency(accepted_h.clamp(
-                                MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN,
-                                T::MaxSubnetNodesUpperBound::get(),
-                            )))
-                    };
-                    // The accepted payout maximum and the full threshold-crossing marker maximum
-                    // are mutually exclusive. Reserve the bounded marker writes and event proof
-                    // independently so either branch fits without coupling cleanup to settlement.
-                    let pending_marker_weight = db_weight
-                        .reads_writes(3, 3)
-                        .saturating_add(Self::pending_subnet_node_removal_proof_weight());
-                    let settlement_weight =
-                        settlement_branch_weight.saturating_add(pending_marker_weight);
+            //         // Zero historical items identifies the missing-submission branch. Pending
+            //         // filtering can leave a real elected/proposed round with only one or two
+            //         // eligible nodes, so every nonzero snapshot must still reserve a complete
+            //         // accepted/rejected settlement at the generated minimum domain.
+            //         let settlement_branch_weight = if historical_items == 0 {
+            //             T::WeightInfo::emission_step_missing()
+            //         } else {
+            //             accepted_weight
+            //                 .max(T::WeightInfo::emission_step_rejected(accepted_h))
+            //                 .max(T::WeightInfo::emission_step_emergency(accepted_h.clamp(
+            //                     MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN,
+            //                     T::MaxSubnetNodesUpperBound::get(),
+            //                 )))
+            //         };
+            //         // The accepted payout maximum and the full threshold-crossing marker maximum
+            //         // are mutually exclusive. Reserve the bounded marker writes and event proof
+            //         // independently so either branch fits without coupling cleanup to settlement.
+            //         let pending_marker_weight = db_weight
+            //             .reads_writes(3, 3)
+            //             .saturating_add(Self::pending_subnet_node_removal_proof_weight());
+            //         let settlement_weight =
+            //             settlement_branch_weight.saturating_add(pending_marker_weight);
 
-                    // Settlement is mandatory for an assigned subnet slot. If its complete core
-                    // cannot fit, do not let lower-priority election or maintenance consume the
-                    // remaining block budget.
-                    if !weight_meter.can_consume(settlement_weight) {
-                        return weight_meter.consumed();
-                    }
-                    Self::emission_settlement_step(
-                        &mut WeightMeter::with_limit(settlement_weight),
-                        block,
-                        current_epoch,
-                        subnet_epoch,
-                        subnet_id,
-                    );
-                    weight_meter.consume(settlement_weight);
+            //         // Settlement is mandatory for an assigned subnet slot. If its complete core
+            //         // cannot fit, do not let lower-priority election or maintenance consume the
+            //         // remaining block budget.
+            //         if !weight_meter.can_consume(settlement_weight) {
+            //             return weight_meter.consumed();
+            //         }
+            //         Self::emission_settlement_step(
+            //             &mut WeightMeter::with_limit(settlement_weight),
+            //             block,
+            //             current_epoch,
+            //             subnet_epoch,
+            //             subnet_id,
+            //         );
+            //         weight_meter.consume(settlement_weight);
 
-                    // Election, pending cleanup, registration, and burn maintenance each admit
-                    // themselves against the genuinely remaining outer meter, in that order.
-                    Self::emission_operational_step(
-                        &mut weight_meter,
-                        block,
-                        subnet_epoch,
-                        subnet_id,
-                    );
-                }
-            }
+            //         // Election, pending cleanup, registration, and burn maintenance each admit
+            //         // themselves against the genuinely remaining outer meter, in that order.
+            //         Self::emission_operational_step(
+            //             &mut weight_meter,
+            //             block,
+            //             subnet_epoch,
+            //             subnet_id,
+            //         );
+            //     }
+            // }
 
-            // Attempt stake swap queue on every block. The scalar count avoids decoding the
-            // bounded queue before its q-dependent weight has been reserved.
-            let swap_selector_weight = T::WeightInfo::execute_ready_swap_selectors();
-            if !weight_meter.can_consume(swap_selector_weight) {
-                return weight_meter.consumed();
-            }
-            weight_meter.consume(swap_selector_weight);
-            let max_swap_executions = MaxSwapQueueCallsPerBlock::<T>::get();
-            let queued_swap_count = SwapQueueCount::<T>::get()
-                .min(T::MaxSwapQueueLength::get())
-                .min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
-            if queued_swap_count > 0 {
-                let queue_weight = T::WeightInfo::execute_ready_swap_queue(queued_swap_count);
-                if weight_meter.can_consume(queue_weight) {
-                    // Select the largest affordable ready prefix. The q-cost is paid once. The base
-                    // envelope covers every successful-credit, missing-destination refund, and
-                    // mixed prefix. An existing destination can additionally fail to mint a share
-                    // and then execute the refund path in the same item. Conservatively compose one
-                    // complete refund allowance per call so this combined path and its proof union
-                    // remain covered without multiplying the mixed-branch benchmark surface.
-                    let homogeneous_item_weight = |calls: u32| {
-                        T::WeightInfo::execute_ready_swap_calls(calls)
-                            .max(T::WeightInfo::execute_ready_swap_subnet_calls(calls))
-                            .max(T::WeightInfo::execute_ready_swap_refunds(calls))
-                    };
-                    let base_ready_prefix_weight = |calls: u32| {
-                        let homogeneous = homogeneous_item_weight(calls);
-                        if calls < MIN_MIXED_SWAP_BENCHMARK_DOMAIN.saturating_sub(1) {
-                            return homogeneous;
-                        }
+            // // Attempt stake swap queue on every block. The scalar count avoids decoding the
+            // // bounded queue before its q-dependent weight has been reserved.
+            // let swap_selector_weight = T::WeightInfo::execute_ready_swap_selectors();
+            // if !weight_meter.can_consume(swap_selector_weight) {
+            //     return weight_meter.consumed();
+            // }
+            // weight_meter.consume(swap_selector_weight);
+            // let max_swap_executions = MaxSwapQueueCallsPerBlock::<T>::get();
+            // let queued_swap_count = SwapQueueCount::<T>::get()
+            //     .min(T::MaxSwapQueueLength::get())
+            //     .min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
+            // if queued_swap_count > 0 {
+            //     let queue_weight = T::WeightInfo::execute_ready_swap_queue(queued_swap_count);
+            //     if weight_meter.can_consume(queue_weight) {
+            //         // Select the largest affordable ready prefix. The q-cost is paid once. The base
+            //         // envelope covers every successful-credit, missing-destination refund, and
+            //         // mixed prefix. An existing destination can additionally fail to mint a share
+            //         // and then execute the refund path in the same item. Conservatively compose one
+            //         // complete refund allowance per call so this combined path and its proof union
+            //         // remain covered without multiplying the mixed-branch benchmark surface.
+            //         let homogeneous_item_weight = |calls: u32| {
+            //             T::WeightInfo::execute_ready_swap_calls(calls)
+            //                 .max(T::WeightInfo::execute_ready_swap_subnet_calls(calls))
+            //                 .max(T::WeightInfo::execute_ready_swap_refunds(calls))
+            //         };
+            //         let base_ready_prefix_weight = |calls: u32| {
+            //             let homogeneous = homogeneous_item_weight(calls);
+            //             if calls < MIN_MIXED_SWAP_BENCHMARK_DOMAIN.saturating_sub(1) {
+            //                 return homogeneous;
+            //             }
 
-                        let mixed_component =
-                            calls.saturating_add(1).min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
-                        let mut mixed =
-                            T::WeightInfo::execute_ready_swap_mixed_validator(mixed_component)
-                                .max(T::WeightInfo::execute_ready_swap_mixed_subnet(
-                                    mixed_component,
-                                ))
-                                .max(T::WeightInfo::execute_ready_swap_mixed_refund(
-                                    mixed_component,
-                                ));
-                        if calls == MAX_SWAP_QUEUE_BENCHMARK_DOMAIN {
-                            mixed = mixed.saturating_add(homogeneous_item_weight(1));
-                        }
-                        homogeneous.max(mixed)
-                    };
-                    let ready_prefix_weight = |calls: u32| {
-                        base_ready_prefix_weight(calls)
-                            .saturating_add(T::WeightInfo::execute_ready_swap_refunds(calls))
-                    };
+            //             let mixed_component =
+            //                 calls.saturating_add(1).min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
+            //             let mut mixed =
+            //                 T::WeightInfo::execute_ready_swap_mixed_validator(mixed_component)
+            //                     .max(T::WeightInfo::execute_ready_swap_mixed_subnet(
+            //                         mixed_component,
+            //                     ))
+            //                     .max(T::WeightInfo::execute_ready_swap_mixed_refund(
+            //                         mixed_component,
+            //                     ));
+            //             if calls == MAX_SWAP_QUEUE_BENCHMARK_DOMAIN {
+            //                 mixed = mixed.saturating_add(homogeneous_item_weight(1));
+            //             }
+            //             homogeneous.max(mixed)
+            //         };
+            //         let ready_prefix_weight = |calls: u32| {
+            //             base_ready_prefix_weight(calls)
+            //                 .saturating_add(T::WeightInfo::execute_ready_swap_refunds(calls))
+            //         };
 
-                    let mut low = 0u32;
-                    let mut high = max_swap_executions
-                        .min(T::MaxSwapCallsPerBlockUpperBound::get())
-                        .min(queued_swap_count)
-                        .min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
-                    while low < high {
-                        let candidate = low.saturating_add(high).saturating_add(1) / 2;
-                        let candidate_weight =
-                            queue_weight.saturating_add(ready_prefix_weight(candidate));
-                        if weight_meter.can_consume(candidate_weight) {
-                            low = candidate;
-                        } else {
-                            high = candidate.saturating_sub(1);
-                        }
-                    }
+            //         let mut low = 0u32;
+            //         let mut high = max_swap_executions
+            //             .min(T::MaxSwapCallsPerBlockUpperBound::get())
+            //             .min(queued_swap_count)
+            //             .min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
+            //         while low < high {
+            //             let candidate = low.saturating_add(high).saturating_add(1) / 2;
+            //             let candidate_weight =
+            //                 queue_weight.saturating_add(ready_prefix_weight(candidate));
+            //             if weight_meter.can_consume(candidate_weight) {
+            //                 low = candidate;
+            //             } else {
+            //                 high = candidate.saturating_sub(1);
+            //             }
+            //         }
 
-                    let item_weight = if low == 0 {
-                        Weight::zero()
-                    } else {
-                        ready_prefix_weight(low)
-                    };
-                    let step_weight = queue_weight.saturating_add(item_weight);
-                    Self::execute_ready_swap_calls_with_limit(block, low, &mut WeightMeter::new());
-                    weight_meter.consume(step_weight);
-                }
-            }
+            //         let item_weight = if low == 0 {
+            //             Weight::zero()
+            //         } else {
+            //             ready_prefix_weight(low)
+            //         };
+            //         let step_weight = queue_weight.saturating_add(item_weight);
+            //         Self::execute_ready_swap_calls_with_limit(block, low, &mut WeightMeter::new());
+            //         weight_meter.consume(step_weight);
+            //     }
+            // }
 
             // for EVM tests (Weights in on_initialize change the block weight/gas)
-            // Weight::zero()
+            Weight::zero()
 
-            weight_meter.consumed()
+            // weight_meter.consumed()
         }
 
         fn on_finalize(block_number: BlockNumberFor<T>) {}

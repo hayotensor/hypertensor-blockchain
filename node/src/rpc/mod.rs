@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use futures::channel::mpsc;
 use jsonrpsee::RpcModule;
 // Substrate
 use sc_client_api::{
@@ -10,18 +9,17 @@ use sc_client_api::{
     client::BlockchainEvents,
     AuxStore, UsageProvider,
 };
-use sc_consensus_manual_seal::rpc::EngineCommand;
 use sc_rpc::SubscriptionTaskExecutor;
 use sc_service::TransactionPool;
 use sp_api::{CallApiAt, ProvideRuntimeApi};
 use sp_blockchain::{Error as BlockChainError, HeaderBackend, HeaderMetadata};
-use sp_consensus_aura::sr25519::AuthorityId as AuraId;
 use sp_inherents::CreateInherentDataProviders;
 use sp_runtime::traits::Block as BlockT;
 // Runtime
-use hypertensor_runtime::{AccountId, Balance, Hash, Nonce};
+use hypertensor_runtime::{AccountId, Balance, Nonce};
 
 mod eth;
+mod pending;
 pub use self::eth::{create_eth, EthDeps};
 
 /// Full client dependencies.
@@ -30,8 +28,6 @@ pub struct FullDeps<B: BlockT, C, P, CT, CIDP> {
     pub client: Arc<C>,
     /// Transaction pool instance.
     pub pool: Arc<P>,
-    /// Manual seal command sink
-    pub command_sink: Option<mpsc::Sender<EngineCommand<Hash>>>,
     /// Ethereum-compatibility specific dependencies.
     pub eth: EthDeps<B, C, P, CT, CIDP>,
 }
@@ -63,7 +59,7 @@ where
     B: BlockT,
     C: CallApiAt<B> + ProvideRuntimeApi<B>,
     C::Api: sp_block_builder::BlockBuilder<B>,
-    C::Api: sp_consensus_aura::AuraApi<B, AuraId>,
+    C::Api: sp_consensus_babe::BabeApi<B>,
     C::Api: substrate_frame_rpc_system::AccountNonceApi<B, AccountId, Nonce>,
     C::Api: pallet_transaction_payment_rpc::TransactionPaymentRuntimeApi<B, Balance>,
     C::Api: network_custom_rpc_runtime_api::NetworkRuntimeApi<B>, // network
@@ -78,28 +74,14 @@ where
 {
     use network_custom_rpc::{NetworkCustom, NetworkCustomApiServer};
     use pallet_transaction_payment_rpc::{TransactionPayment, TransactionPaymentApiServer};
-    use sc_consensus_manual_seal::rpc::{ManualSeal, ManualSealApiServer};
     use substrate_frame_rpc_system::{System, SystemApiServer};
 
     let mut io = RpcModule::new(());
-    let FullDeps {
-        client,
-        pool,
-        command_sink,
-        eth,
-    } = deps;
+    let FullDeps { client, pool, eth } = deps;
 
     io.merge(System::new(client.clone(), pool).into_rpc())?;
     io.merge(TransactionPayment::new(client.clone()).into_rpc())?;
     io.merge(NetworkCustom::new(client).into_rpc())?;
-
-    if let Some(command_sink) = command_sink {
-        io.merge(
-            // We provide the rpc handler with the sending end of the channel to allow the rpc
-            // send EngineCommands to the background block authorship task.
-            ManualSeal::new(command_sink).into_rpc(),
-        )?;
-    }
 
     // Ethereum compatibility RPCs
     let io = create_eth::<_, _, _, _, _, _, DefaultEthConfig<C, BE>>(

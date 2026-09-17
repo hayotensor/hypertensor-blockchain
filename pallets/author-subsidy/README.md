@@ -2,7 +2,7 @@
 
 For setup instructions, see [Set your block reward address](SET_REWARD_ADDRESS.md).
 
-This pallet pays block subsidies to verified EVM accounts. Aura authorities remain
+This pallet pays block subsidies to verified EVM accounts. Babe authorities remain
 sr25519 consensus keys; token balances remain `AccountId20` accounts shared with EVM.
 No token account is created from an SS58 address.
 
@@ -12,11 +12,11 @@ Submit the native pallet call `authorSubsidy.setRewardAddress` with:
 
 | Argument | Type | Meaning |
 | --- | --- | --- |
-| `aura_key` | 32-byte sr25519 public key | A member of the current Aura authority set |
+| `babe_key` | 32-byte sr25519 public key | A member of the current Babe authority set |
 | `reward_address` | `H160` | Receiving EVM account; must be nonzero |
-| `nonce` | `u64` | Next ownership-proof nonce for this Aura key |
+| `nonce` | `u64` | Next ownership-proof nonce for this Babe key |
 | `valid_until` | Runtime block number (`u32`) | Last block in which this proof can be accepted, inclusive |
-| `aura_signature` | 64-byte sr25519 signature | Signature of the exact payload below |
+| `babe_signature` | 64-byte sr25519 signature | Signature of the exact payload below |
 
 The receiving EVM account must sign the enclosing transaction and have enough
 native balance to pay its fee. This is a **native Substrate pallet extrinsic** using
@@ -25,21 +25,21 @@ this chain's `EthereumSignature` scheme. It is not a Solidity call or an
 native extrinsics. No new precompile, RPC, or node command is introduced.
 
 1. Read the chain's genesis block hash, current block number, and
-   `authorSubsidy.rewardAddresses(aura_key)` using current runtime metadata.
+   `authorSubsidy.rewardAddresses(babe_key)` using current runtime metadata.
 2. If no record exists, use nonce `0`; otherwise use the record's `next_nonce`.
    This is separate from the transaction sender's normal account nonce.
 3. Choose the receiving EVM address and an expiry that leaves enough time for
    inclusion (for example, current block plus 100).
-4. Encode and sign the Aura proof described below.
+4. Encode and sign the Babe proof described below.
 5. Submit `setRewardAddress` signed by the receiving EVM account with the same
-   Aura key, destination, proof nonce, expiry, and proof signature.
+   Babe key, destination, proof nonce, expiry, and proof signature.
 6. Wait for successful inclusion and the `RewardAddressScheduled` event. Its
    `activation_block` is the first block eligible to pay the new destination.
 
 The proof authorizes an association between two accounts. The keys may come from
 the same secret or different secrets; neither secret is submitted to the chain.
 
-## Exact Aura proof encoding
+## Exact Babe proof encoding
 
 Sign the SCALE encoding of this tuple, in this order:
 
@@ -47,7 +47,7 @@ Sign the SCALE encoding of this tuple, in this order:
 (
     Vec<u8>(ASCII "hypertensor/author-subsidy/set-reward-address/v1"),
     genesis_hash: H256,
-    aura_key: sr25519::Public,
+    babe_key: sr25519::Public,
     reward_address: H160,
     nonce: u64,
     valid_until: u32
@@ -67,9 +67,9 @@ locally from the genesis hash and storage data.
 
 ```rust,ignore
 let payload = AuthorSubsidy::reward_address_payload(
-    &aura_pair.public(), reward_address, nonce, valid_until,
+    &babe_pair.public(), reward_address, nonce, valid_until,
 );
-let aura_signature = aura_pair.sign(&payload);
+let babe_signature = babe_pair.sign(&payload);
 ```
 
 The receiving account then signs the **native extrinsic's** normal `SignedPayload`
@@ -83,16 +83,16 @@ let signature = payload.using_encoded(|bytes| {
 });
 ```
 
-This outer signature is distinct from the attached Aura signature. A working
+This outer signature is distinct from the attached Babe signature. A working
 end-to-end example, including the signed extensions, is in
 [`runtime/src/author_subsidy_tests.rs`](../../runtime/src/author_subsidy_tests.rs).
 
 ## Updates and block rewards
 
-Every successful call increments the Aura key's proof nonce and schedules the
-address for the next block. An update requires a fresh Aura proof and authorization
+Every successful call increments the Babe key's proof nonce and schedules the
+address for the next block. An update requires a fresh Babe proof and authorization
 from the **new** receiving account. Approval from the old receiving account is not
-required: the Aura key controls the choice of payout destination.
+required: the Babe key controls the choice of payout destination.
 
 The record contains `current_address`, `pending_address`, `activation_block`, and
 `next_nonce`. At block numbers below `activation_block`, resolve `current_address`;
@@ -103,16 +103,16 @@ not the lifetime of an accepted payout address.
 
 Both the subsidy hook and EVM author lookup use `FindAuthorRewardAddress`. The
 original `FindAuthorTruncated` struct is retained but is not configured for these
-lookups. Lookup validates the Aura digest and safely indexes the current authority
+lookups. Lookup validates the Babe digest and safely indexes the current authority
 set. It never falls back to a truncated key.
 
 Before the first configuration activates, the validator earns no block subsidy.
-Missing/malformed Aura digests and missing mappings also produce no subsidy, no
+Missing/malformed Babe digests and missing mappings also produce no subsidy, no
 issuance increase, and no `AuthorSubsidy` event. Unpaid subsidies do not accumulate.
 The configured subsidy amount is unchanged. Frontier's existing fee handling when
 no author resolves is unchanged; this pallet does not add a deferred tip balance.
 
-Multiple Aura authorities may select the same EVM account. Configuration is only
+Multiple Babe authorities may select the same EVM account. Configuration is only
 accepted for current authorities. Records and nonces are retained if a key leaves
 the authority set; they are not used for rewards while that authority is absent.
 There is no root bypass, legacy-address recovery, genesis preconfiguration, or
@@ -132,5 +132,5 @@ frame-omni-bencher v1 benchmark pallet \
 ```
 
 Benchmarks cover first configuration, updates, successful payouts, and skipped
-payouts. Runtime setup supplies a real Aura slot digest and the maximum authority
+payouts. Runtime setup supplies a real Babe slot digest and the maximum authority
 set, placing the signing authority last to exercise the full membership scan.

@@ -9,7 +9,7 @@ import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
 import {
   addToOverwatchStake,
   batchTransferBalanceFromSudoManual,
-  createAndFinalizeBlock,
+  waitForBlock,
   whitelistOverwatchValidatorForDevnet,
   registerOverwatchNode,
   registerValidator,
@@ -50,7 +50,7 @@ describe("Overwatch node-ID stake calls", () => {
     papiApi = await getDevnetApi();
     api = await ApiPromise.create({ provider: new WsProvider(SUB_LOCAL_URL) });
     provider = new ethers.JsonRpcProvider(ETH_LOCAL_URL);
-    await createAndFinalizeBlock(provider);
+    await waitForBlock(provider);
 
     await batchTransferBalanceFromSudoManual(api, papiApi, provider, [
       {

@@ -6,7 +6,7 @@ import { AbiItem } from "web3-utils";
 import StateOverrideTest from "../build/contracts/StateOverrideTest.json";
 import Test from "../build/contracts/Test.json";
 import { EXISTENTIAL_DEPOSIT, GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, customRequest, describeWithFrontier } from "./util";
+import { waitForReceipt, customRequest, describeWithFrontier } from "./util";
 
 chaiUse(chaiAsPromised);
 
@@ -17,7 +17,7 @@ describeWithFrontier("Frontier RPC (StateOverride)", (context) => {
 	let contract;
 	let contractAddress;
 	before("create the contract", async function () {
-		this.timeout(15000);
+		this.timeout(180000);
 		contract = new context.web3.eth.Contract(StateOverrideTest.abi as AbiItem[]);
 		const data = contract
 			.deploy({
@@ -35,8 +35,7 @@ describeWithFrontier("Frontier RPC (StateOverride)", (context) => {
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		const { result } = await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
-		const receipt = await context.web3.eth.getTransactionReceipt(result);
+		const receipt = await waitForReceipt(context.web3, result);
 		contractAddress = receipt.contractAddress;
 
 		const txSetAllowance = await context.web3.eth.accounts.signTransaction(
@@ -51,7 +50,7 @@ describeWithFrontier("Frontier RPC (StateOverride)", (context) => {
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		await customRequest(context.web3, "eth_sendRawTransaction", [txSetAllowance.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
+		await waitForReceipt(context.web3, txSetAllowance.transactionHash);
 	});
 
 	it("should have balance above 1000 tether without state override", async function () {

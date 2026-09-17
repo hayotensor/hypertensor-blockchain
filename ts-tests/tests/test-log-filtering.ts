@@ -3,7 +3,7 @@ import { step } from "mocha-steps";
 import { TransactionReceipt } from "web3-core";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, describeWithFrontier, customRequest } from "./util";
+import { waitForReceipt, describeWithFrontier, customRequest } from "./util";
 
 describeWithFrontier("Frontier RPC (Log filtering)", (context) => {
 	const TEST_CONTRACT_BYTECODE =
@@ -58,8 +58,7 @@ describeWithFrontier("Frontier RPC (Log filtering)", (context) => {
 
 	step("EthFilterApi::getFilterLogs - should filter out non-matching cases.", async function () {
 		let tx = await sendTransaction(context);
-		await createAndFinalizeBlock(context.web3);
-		let receipt = await context.web3.eth.getTransactionReceipt(tx.transactionHash);
+		let receipt = await waitForReceipt(context.web3, tx.transactionHash);
 
 		const nonMatchingCases = getNonMatchingCases(receipt);
 
@@ -73,8 +72,7 @@ describeWithFrontier("Frontier RPC (Log filtering)", (context) => {
 
 	step("EthApi::getLogs - should filter out non-matching cases.", async function () {
 		let tx = await sendTransaction(context);
-		await createAndFinalizeBlock(context.web3);
-		let receipt = await context.web3.eth.getTransactionReceipt(tx.transactionHash);
+		let receipt = await waitForReceipt(context.web3, tx.transactionHash);
 
 		const nonMatchingCases = getNonMatchingCases(receipt);
 

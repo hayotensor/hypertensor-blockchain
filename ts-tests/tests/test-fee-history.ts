@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { step } from "mocha-steps";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY, CHAIN_ID } from "./config";
-import { createAndFinalizeBlock, describeWithFrontier, customRequest } from "./util";
+import { waitForBlock, describeWithFrontier, customRequest } from "./util";
 
 // We use ethers library in this test as apparently web3js's types are not fully EIP-1559 compliant yet.
 describeWithFrontier("Frontier RPC (Fee History)", (context) => {
@@ -48,7 +48,7 @@ describeWithFrontier("Frontier RPC (Fee History)", (context) => {
 				});
 				nonce++;
 			}
-			await createAndFinalizeBlock(context.web3);
+			await waitForBlock(context.web3);
 		}
 	}
 

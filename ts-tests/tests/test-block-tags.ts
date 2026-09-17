@@ -1,29 +1,32 @@
 import { expect } from "chai";
-import { step } from "mocha-steps";
 
-import { createAndFinalizeBlock, describeWithFrontier } from "./util";
+import { waitForBlock, describeWithFrontier, customRequest } from "./util";
 
+// Consensus advances independently of RPC requests. Compare a tag to native
+// heads read around it so a block/finality update between calls is allowed.
 describeWithFrontier("Frontier RPC (BlockNumber tags)", (context) => {
-	before("Send some transactions across blocks", async function () {
-		// block #1 finalized
-		await createAndFinalizeBlock(context.web3);
-		// block #2 not finalized
-		await createAndFinalizeBlock(context.web3, false);
+	before("Wait for GRANDPA finality", async function () {
+		await waitForBlock(context.web3);
 	});
 
-	step("`earliest` returns genesis", async function () {
+	it("`earliest` returns genesis", async function () {
 		expect((await context.web3.eth.getBlock("earliest")).number).to.equal(0);
 	});
 
-	step("`latest` returns `BlockchainInfo::best_hash` number", async function () {
-		expect((await context.web3.eth.getBlock("latest")).number).to.equal(2);
-	});
+	async function nativeNumber(finalized: boolean) {
+		const params = finalized ? [(await customRequest(context.web3, "chain_getFinalizedHead", [])).result] : [];
+		const header = (await customRequest(context.web3, "chain_getHeader", params)).result;
+		return Number(BigInt(header.number));
+	}
 
-	step("`finalized` uses `BlockchainInfo::finalized_hash`  number", async function () {
-		expect((await context.web3.eth.getBlock("finalized")).number).to.equal(1);
-	});
-
-	step("`safe` is an alias for `finalized` in Polkadot", async function () {
-		expect((await context.web3.eth.getBlock("safe")).number).to.equal(1);
-	});
+	for (const tag of ["latest", "finalized", "safe"]) {
+		it(`\`${tag}\` follows the corresponding native head`, async function () {
+			const finalized = tag !== "latest";
+			const before = await nativeNumber(finalized);
+			const block = await context.web3.eth.getBlock(tag);
+			const after = await nativeNumber(finalized);
+			expect(block.number).to.be.within(before, after);
+			expect(block.number).to.be.greaterThan(0);
+		});
+	}
 });

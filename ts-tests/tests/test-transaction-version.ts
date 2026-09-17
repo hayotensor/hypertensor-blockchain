@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { step } from "mocha-steps";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY, CHAIN_ID } from "./config";
-import { createAndFinalizeBlock, describeWithFrontier } from "./util";
+import { waitForReceipt, describeWithFrontier } from "./util";
 
 // We use ethers library in this test as apparently web3js's types are not fully EIP-1559 compliant yet.
 describeWithFrontier("Frontier RPC (Transaction Version)", (context) => {
@@ -30,12 +30,11 @@ describeWithFrontier("Frontier RPC (Transaction Version)", (context) => {
 			chainId: CHAIN_ID,
 		};
 		const txHash = (await sendTransaction(context, tx)).hash;
-		await createAndFinalizeBlock(context.web3);
-		const latest = await context.web3.eth.getBlock("latest");
+		const receipt = await waitForReceipt(context.web3, txHash);
+		const latest = await context.web3.eth.getBlock(receipt.blockHash);
 		expect(latest.transactions.length).to.be.eq(1);
 		expect(latest.transactions[0]).to.be.eq(txHash);
 
-		let receipt = await context.web3.eth.getTransactionReceipt(txHash);
 		expect(receipt.transactionHash).to.be.eq(txHash);
 
 		let transaction_data = await context.web3.eth.getTransaction(txHash);
@@ -57,12 +56,11 @@ describeWithFrontier("Frontier RPC (Transaction Version)", (context) => {
 			chainId: CHAIN_ID,
 		};
 		const txHash = (await sendTransaction(context, tx)).hash;
-		await createAndFinalizeBlock(context.web3);
-		const latest = await context.web3.eth.getBlock("latest");
+		const receipt = await waitForReceipt(context.web3, txHash);
+		const latest = await context.web3.eth.getBlock(receipt.blockHash);
 		expect(latest.transactions.length).to.be.eq(1);
 		expect(latest.transactions[0]).to.be.eq(txHash);
 
-		let receipt = await context.web3.eth.getTransactionReceipt(txHash);
 		expect(receipt.transactionHash).to.be.eq(txHash);
 
 		let transaction_data = await context.web3.eth.getTransaction(txHash);
@@ -85,12 +83,11 @@ describeWithFrontier("Frontier RPC (Transaction Version)", (context) => {
 			chainId: CHAIN_ID,
 		};
 		const txHash = (await sendTransaction(context, tx)).hash;
-		await createAndFinalizeBlock(context.web3);
-		const latest = await context.web3.eth.getBlock("latest");
+		const receipt = await waitForReceipt(context.web3, txHash);
+		const latest = await context.web3.eth.getBlock(receipt.blockHash);
 		expect(latest.transactions.length).to.be.eq(1);
 		expect(latest.transactions[0]).to.be.eq(txHash);
 
-		let receipt = await context.web3.eth.getTransactionReceipt(txHash);
 		expect(receipt.transactionHash).to.be.eq(txHash);
 
 		let transaction_data = await context.web3.eth.getTransaction(txHash);

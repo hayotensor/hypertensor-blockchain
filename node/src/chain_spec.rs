@@ -13,7 +13,7 @@ fn properties() -> Properties {
     properties
 }
 
-pub fn development_chain_spec(enable_manual_seal: bool) -> Result<ChainSpec, String> {
+pub fn development_chain_spec() -> Result<ChainSpec, String> {
     Ok(ChainSpec::builder(
         WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
         None,
@@ -26,7 +26,7 @@ pub fn development_chain_spec(enable_manual_seal: bool) -> Result<ChainSpec, Str
     .build())
 }
 
-pub fn eth_development_chain_spec(enable_manual_seal: bool) -> Result<ChainSpec, String> {
+pub fn eth_development_chain_spec() -> Result<ChainSpec, String> {
     Ok(ChainSpec::builder(
         WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
         None,

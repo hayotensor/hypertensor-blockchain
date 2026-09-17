@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { step } from "mocha-steps";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, customRequest, describeWithFrontierWs } from "./util";
+import { waitForBlock, customRequest, describeWithFrontierWs } from "./util";
 
 describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 	let subscription;
@@ -28,11 +28,11 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 	}
 
 	step("should connect", async function () {
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		// @ts-ignore
 		const connected = context.web3.currentProvider.connected;
 		expect(connected).to.equal(true);
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should subscribe", async function () {
 		subscription = context.web3.eth.subscribe("newBlockHeaders", function (error, result) {});
@@ -51,7 +51,7 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 		subscription.unsubscribe();
 		expect(connected).to.equal(true);
 		expect(subscriptionId).not.empty;
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should get newHeads stream", async function (done) {
 		subscription = context.web3.eth.subscribe("newBlockHeaders", function (error, result) {});
@@ -66,7 +66,7 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 			dataResolve();
 		});
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		await dataPromise;
 
 		expect(data).to.include({
@@ -110,7 +110,7 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 		expect(tx["transactionHash"]).to.be.eq(data);
 
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should subscribe to all logs", async function (done) {
 		subscription = context.web3.eth.subscribe("logs", {}, function (error, result) {});
@@ -133,11 +133,11 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 			dataResolve();
 		});
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		await dataPromise;
 
 		subscription.unsubscribe();
-		const block = await context.web3.eth.getBlock("latest");
+		const block = await context.web3.eth.getBlock(data.blockHash);
 		expect(data).to.include({
 			blockHash: block.hash,
 			blockNumber: block.number,
@@ -149,7 +149,7 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 			transactionLogIndex: "0x0",
 		});
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should subscribe to logs by multiple addresses", async function (done) {
 		subscription = context.web3.eth.subscribe(
@@ -183,13 +183,13 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 			dataResolve();
 		});
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		await dataPromise;
 
 		subscription.unsubscribe();
 		expect(data).to.not.be.null;
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should subscribe to logs by topic", async function (done) {
 		subscription = context.web3.eth.subscribe(
@@ -219,13 +219,13 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 			dataResolve();
 		});
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		await dataPromise;
 
 		subscription.unsubscribe();
 		expect(data).to.not.be.null;
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should get past events #1: by topic", async function (done) {
 		subscription = context.web3.eth.subscribe(
@@ -248,7 +248,7 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 
 		expect(data).to.not.be.empty;
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should get past events #2: by address", async function (done) {
 		subscription = context.web3.eth.subscribe(
@@ -271,7 +271,7 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 
 		expect(data).to.not.be.empty;
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should get past events #3: by address + topic", async function (done) {
 		subscription = context.web3.eth.subscribe(
@@ -295,7 +295,7 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 
 		expect(data).to.not.be.empty;
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should get past events #4: multiple addresses", async function (done) {
 		subscription = context.web3.eth.subscribe(
@@ -325,7 +325,7 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 
 		expect(data).to.not.be.empty;
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should support topic wildcards", async function (done) {
 		subscription = context.web3.eth.subscribe(
@@ -355,13 +355,13 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 			dataResolve();
 		});
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		await dataPromise;
 
 		subscription.unsubscribe();
 		expect(data).to.not.be.null;
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should support single values wrapped around a sequence", async function (done) {
 		subscription = context.web3.eth.subscribe(
@@ -394,13 +394,13 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 			dataResolve();
 		});
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		await dataPromise;
 
 		subscription.unsubscribe();
 		expect(data).to.not.be.null;
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should support topic conditional parameters", async function (done) {
 		subscription = context.web3.eth.subscribe(
@@ -436,13 +436,13 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 			dataResolve();
 		});
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		await dataPromise;
 
 		subscription.unsubscribe();
 		expect(data).to.not.be.null;
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should support multiple topic conditional parameters", async function (done) {
 		subscription = context.web3.eth.subscribe(
@@ -481,13 +481,13 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 			dataResolve();
 		});
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		await dataPromise;
 
 		subscription.unsubscribe();
 		expect(data).to.not.be.null;
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 
 	step("should combine topic wildcards and conditional parameters", async function (done) {
 		subscription = context.web3.eth.subscribe(
@@ -523,11 +523,11 @@ describeWithFrontierWs("Frontier RPC (Subscription)", (context) => {
 			dataResolve();
 		});
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		await dataPromise;
 
 		subscription.unsubscribe();
 		expect(data).to.not.be.null;
 		done();
-	}).timeout(20000);
+	}).timeout(180000);
 });

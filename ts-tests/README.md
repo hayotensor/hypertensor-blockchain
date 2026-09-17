@@ -7,7 +7,7 @@ It is written in typescript, using Mocha/Chai as Test framework.
 ## Test flow
 
 Tests are separated depending on their genesis requirements.
-Each group will start a `frontier template test node` with a given `spec` before executing the tests.
+Each group starts a BABE development node with its own temporary database. Block helpers wait for actual authoring and GRANDPA finality. `waitForBlock` returns the requested block; use `waitForReceipt` for transaction inclusion, since a session-boundary block can contain no user transactions. Assert transaction data against the receipt’s block hash and compare moving head tags with native heads read around the request. Some older pool/load tests still need timing-aware assertions; the migration smoke test is `../evm-tests/npos-smoke.cjs`.
 
 ## Build the node for tests
 
@@ -33,4 +33,4 @@ You can also add the Frontier Node logs to the output using the `FRONTIER_LOG` e
 FRONTIER_LOG="warn,rpc=trace" npm run test
 ```
 
-(The frontier node be listening for RPC on port 19933, mostly to avoid conflict with already running substrate node)
+The test node defaults to RPC port 19932 and P2P port 19931; override them with `FRONTIER_RPC_PORT` and `FRONTIER_P2P_PORT` when running independent suites concurrently. For a debug node build, allow extra time for first-time Wasm compilation with `FRONTIER_BUILD=debug FRONTIER_SPAWNING_TIME=300000`.

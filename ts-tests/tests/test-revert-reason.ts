@@ -3,7 +3,7 @@ import { AbiItem } from "web3-utils";
 
 import ExplicitRevertReason from "../build/contracts/ExplicitRevertReason.json";
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, customRequest, describeWithFrontier } from "./util";
+import { waitForReceipt, customRequest, describeWithFrontier } from "./util";
 
 describeWithFrontier("Frontier RPC (Revert Reason)", (context) => {
 	let contractAddress;
@@ -13,7 +13,7 @@ describeWithFrontier("Frontier RPC (Revert Reason)", (context) => {
 	const TEST_CONTRACT_ABI = ExplicitRevertReason.abi as AbiItem[];
 
 	before("create the contract", async function () {
-		this.timeout(15000);
+		this.timeout(180000);
 		const tx = await context.web3.eth.accounts.signTransaction(
 			{
 				from: GENESIS_ACCOUNT,
@@ -25,8 +25,7 @@ describeWithFrontier("Frontier RPC (Revert Reason)", (context) => {
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		const r = await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
-		const receipt = await context.web3.eth.getTransactionReceipt(r.result);
+		const receipt = await waitForReceipt(context.web3, r.result);
 		contractAddress = receipt.contractAddress;
 	});
 

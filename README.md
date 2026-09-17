@@ -1,6 +1,8 @@
 # Hypertensor Blockchain
 
-A fresh [Hypertensor](https://substrate.io/) node, ready for hacking :rocket:
+Hypertensor is a standalone BABE + GRANDPA NPoS chain with Frontier EVM and Ethereum H160 accounts.
+
+See the [validator guide](docs/validators.md), [migration inventory](docs/npos-migration.md), and [validation report](docs/npos-validation.md).
 
 ## Getting Started
 
@@ -19,7 +21,7 @@ cd hypertensor
 🔨 Use the following command to build the node without launching it:
 
 ```sh
-cargo build --release
+cargo build --release --locked
 ```
 
 ### Embedded Docs
@@ -63,8 +65,8 @@ RUST_BACKTRACE=1 ./target/release/hypertensor-node -ldebug --dev
 Development chains:
 
 - Maintain state in a `tmp` folder while the node is running.
-- Use the **Alice** and **Bob** accounts as default validator authorities.
-- Use the **Alice** account as the default `sudo` account.
+- Use **Alice** consensus keys for `--dev`; local uses **Alice** and **Bob**.
+- Use the Ethereum **Alith** account as the default `sudo` account.
 - Are preconfigured with a genesis state (`/node/src/chain_spec.rs`) that
   includes several pre-funded development accounts.
 
@@ -145,7 +147,7 @@ following:
   forks](https://docs.substrate.io/fundamentals/consensus/#finalization-and-forks)
   and other [consensus
   mechanisms](https://docs.substrate.io/fundamentals/consensus/#default-consensus-models)
-  such as Aura for block authoring and GRANDPA for finality.
+  with BABE for block authoring, GRANDPA for finality, and staking/session for NPoS validator selection.
 
 
 ### Runtime
@@ -235,11 +237,7 @@ To execute the chain, run:
 $ ./target/release/hypertensor-node --dev
 ```
 
-The node also supports to use manual seal (to produce block manually through RPC). This is also used by the `ts-tests`:
-
-```sh
-$ ./target/release/hypertensor-node --dev --sealing=manual
-```
+Blocks are authored by BABE and finalized by GRANDPA. See the [NPoS validator guide](docs/validators.md) for a two-validator network and smoke test.
 
 The output shows the following logs:
 

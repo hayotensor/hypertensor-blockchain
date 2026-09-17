@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { step } from "mocha-steps";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, customRequest, describeWithFrontierAllPools } from "./util";
+import { waitForBlock, customRequest, describeWithFrontierAllPools } from "./util";
 
 describeWithFrontierAllPools("Frontier RPC (TxPoolApi)", (context) => {
 	const TEST_CONTRACT_BYTECODE =
@@ -27,11 +27,11 @@ describeWithFrontierAllPools("Frontier RPC (TxPoolApi)", (context) => {
 		return tx;
 	}
 
-	// This is needed due to behaviour of fatp in manual seal conensus
+	// Allow the fork-aware pool to observe the newly finalized block
 	// Before the first block is created, the pool will wrongly report as empty
 	// https://github.com/paritytech/polkadot-sdk/issues/8402
 	before("create and finalize a block 1", async function () {
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 	});
 
 	step("txpool_status should return correct result", async function () {

@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { step } from "mocha-steps";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, createAndFinalizeBlockNowait, describeWithFrontier, customRequest } from "./util";
+import { waitForReceipt, waitForBlock, describeWithFrontier, customRequest } from "./util";
 
 describeWithFrontier("Frontier RPC (EthFilterApi)", (context) => {
 	const TEST_CONTRACT_BYTECODE =
@@ -60,32 +60,25 @@ describeWithFrontier("Frontier RPC (EthFilterApi)", (context) => {
 		expect(createFilter.result).to.be.eq("0x4");
 	});
 
-	step("should return responses for Block filter polling.", async function () {
-		let block = await context.web3.eth.getBlock(0);
-		let poll = await customRequest(context.web3, "eth_getFilterChanges", ["0x3"]);
-
-		expect(poll.result.length).to.be.eq(1);
-		expect(poll.result[0]).to.be.eq(block.hash);
-
-		await createAndFinalizeBlock(context.web3);
-
-		block = await context.web3.eth.getBlock(1);
-		poll = await customRequest(context.web3, "eth_getFilterChanges", ["0x3"]);
-
-		expect(poll.result.length).to.be.eq(1);
-		expect(poll.result[0]).to.be.eq(block.hash);
-
-		await createAndFinalizeBlock(context.web3);
-		await createAndFinalizeBlock(context.web3);
-
-		block = await context.web3.eth.getBlock(2);
-		let block_b = await context.web3.eth.getBlock(3);
-		poll = await customRequest(context.web3, "eth_getFilterChanges", ["0x3"]);
-
-		expect(poll.result.length).to.be.eq(2);
-		expect(poll.result[0]).to.be.eq(block.hash);
-		expect(poll.result[1]).to.be.eq(block_b.hash);
-	});
+    step("should return responses for Block filter polling.", async function () {
+        const seen = new Set<string>();
+        async function pollBlocks(expected: string[]) {
+            const poll = await customRequest(context.web3, "eth_getFilterChanges", ["0x3"]);
+            expect(poll.result).to.be.an("array").that.includes.members(expected);
+            for (const hash of poll.result) {
+                expect(seen.has(hash)).to.be.false;
+                seen.add(hash);
+                const block = await context.web3.eth.getBlock(hash);
+                expect((await context.web3.eth.getBlock(block.number)).hash).to.equal(hash);
+            }
+        }
+        await pollBlocks([]);
+        const first = await waitForBlock(context.web3);
+        await pollBlocks([first.hash]);
+        const second = await waitForBlock(context.web3);
+        const third = await waitForBlock(context.web3);
+        await pollBlocks([second.hash, third.hash]);
+    });
 
 	step("should return responses for pending transaction polling.", async function () {
 		let poll = await customRequest(context.web3, "eth_getFilterChanges", ["0x4"]);
@@ -105,7 +98,7 @@ describeWithFrontier("Frontier RPC (EthFilterApi)", (context) => {
 		expect(poll.result).contains(tx1.transactionHash);
 		expect(poll.result).contains(tx2.transactionHash);
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 
 		// the last polling after finalized block
 		poll = await customRequest(context.web3, "eth_getFilterChanges", ["0x4"]);
@@ -115,8 +108,7 @@ describeWithFrontier("Frontier RPC (EthFilterApi)", (context) => {
 	step("should return responses for Log filter polling.", async function () {
 		// Create contract.
 		let tx = await sendTransaction(context);
-		await createAndFinalizeBlock(context.web3);
-		let receipt = await context.web3.eth.getTransactionReceipt(tx.transactionHash);
+		let receipt = await waitForReceipt(context.web3, tx.transactionHash);
 
 		expect(receipt.logs.length).to.be.eq(1);
 
@@ -143,8 +135,7 @@ describeWithFrontier("Frontier RPC (EthFilterApi)", (context) => {
 	step("should return response for raw Log filter request.", async function () {
 		// Create contract.
 		let tx = await sendTransaction(context);
-		await createAndFinalizeBlock(context.web3);
-		let receipt = await context.web3.eth.getTransactionReceipt(tx.transactionHash);
+		let receipt = await waitForReceipt(context.web3, tx.transactionHash);
 
 		expect(receipt.logs.length).to.be.eq(1);
 
@@ -187,19 +178,21 @@ describeWithFrontier("Frontier RPC (EthFilterApi)", (context) => {
 	});
 
 	step("should drain the filter pool.", async function () {
-		this.timeout(15000);
 		const blockLifespanThreshold = 100;
+		this.timeout((blockLifespanThreshold + 10) * 12_000);
 
 		let createFilter = await customRequest(context.web3, "eth_newBlockFilter", []);
 		let filterId = createFilter.result;
 
-		for (let i = 0; i <= blockLifespanThreshold; i++) {
-			await createAndFinalizeBlockNowait(context.web3);
+		const createdAt = await context.web3.eth.getBlockNumber();
+		let finalized = await waitForBlock(context.web3);
+		while (finalized.number <= createdAt + blockLifespanThreshold) {
+			finalized = await waitForBlock(context.web3);
 		}
 
 		let r = await customRequest(context.web3, "eth_getFilterChanges", [filterId]);
 		expect(r.error).to.include({
-			message: "Filter id 7 does not exist.",
+			message: `Filter id ${BigInt(filterId)} does not exist.`,
 		});
 	});
 

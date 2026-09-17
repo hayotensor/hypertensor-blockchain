@@ -3,7 +3,7 @@ import { AbiItem } from "web3-utils";
 
 import ECRecoverTests from "../build/contracts/ECRecoverTests.json";
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY, FIRST_CONTRACT_ADDRESS } from "./config";
-import { createAndFinalizeBlock, customRequest, describeWithFrontier } from "./util";
+import { waitForBlock, customRequest, describeWithFrontier } from "./util";
 
 describeWithFrontier("Frontier RPC (Precompile)", (context) => {
 	const TEST_CONTRACT_BYTECODE = ECRecoverTests.bytecode;
@@ -24,7 +24,7 @@ describeWithFrontier("Frontier RPC (Precompile)", (context) => {
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		// ensure native web3 sending works as well as truffle provider
 		web3.eth.accounts.wallet.add(GENESIS_ACCOUNT_PRIVATE_KEY);
 		web3.eth.defaultAccount = web3.eth.accounts.wallet[0].address;

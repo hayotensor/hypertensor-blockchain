@@ -8,7 +8,7 @@ import { TypedApi } from "polkadot-api";
 import { ETH_LOCAL_URL, SUB_LOCAL_URL } from "../src/config";
 import {
   batchTransferBalanceFromSudoManual,
-  createAndFinalizeBlock,
+  waitForBlock,
   registerOverwatchNode,
   registerValidator,
   seedOverwatchSignalViewsForDevnet,
@@ -76,7 +76,7 @@ describe("Overwatch validator-only views", () => {
     papiApi = await getDevnetApi();
     api = await ApiPromise.create({ provider: new WsProvider(SUB_LOCAL_URL) });
     provider = new ethers.JsonRpcProvider(ETH_LOCAL_URL);
-    await createAndFinalizeBlock(provider);
+    await waitForBlock(provider);
 
     const funding = BigInt("10000000000000000000000");
     await batchTransferBalanceFromSudoManual(api, papiApi, provider, [

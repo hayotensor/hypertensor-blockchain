@@ -33,7 +33,7 @@ fn configuration_requires_both_accounts_and_activates_next_block() {
         assert_eq!(AuthorSubsidy::next_nonce(&key.public()), 1);
         assert_eq!(AuthorSubsidy::reward_address_at(&key.public(), 1), None);
         System::assert_last_event(RuntimeEvent::AuthorSubsidy(Event::RewardAddressScheduled {
-            aura_key: key.public(),
+            babe_key: key.public(),
             reward_address: address(1),
             activation_block: 2,
             nonce: 0,
@@ -98,7 +98,7 @@ fn rejects_wrong_origin_unknown_authority_zero_address_expiry_and_nonce() {
                 100,
                 sig
             ),
-            Error::<Test>::UnknownAuraAuthority
+            Error::<Test>::UnknownBabeAuthority
         );
         Authorities::set(&vec![key.public()]);
         assert_noop!(
@@ -129,7 +129,7 @@ fn rejects_wrong_origin_unknown_authority_zero_address_expiry_and_nonce() {
 }
 
 #[test]
-fn aura_proof_binds_every_payload_field_and_domain() {
+fn babe_proof_binds_every_payload_field_and_domain() {
     new_test_ext().execute_with(|| {
         let key = alice();
         let dest = address(1);
@@ -157,7 +157,7 @@ fn aura_proof_binds_every_payload_field_and_domain() {
                 100,
                 sig
             ),
-            Error::<Test>::InvalidAuraSignature
+            Error::<Test>::InvalidBabeSignature
         );
         assert_noop!(
             AuthorSubsidy::set_reward_address(
@@ -168,7 +168,7 @@ fn aura_proof_binds_every_payload_field_and_domain() {
                 100,
                 sig
             ),
-            Error::<Test>::InvalidAuraSignature
+            Error::<Test>::InvalidBabeSignature
         );
         assert_noop!(
             AuthorSubsidy::set_reward_address(
@@ -179,7 +179,7 @@ fn aura_proof_binds_every_payload_field_and_domain() {
                 101,
                 sig
             ),
-            Error::<Test>::InvalidAuraSignature
+            Error::<Test>::InvalidBabeSignature
         );
         let wrong_nonce_sig = proof(&key, dest, 1, 100);
         assert_noop!(
@@ -191,7 +191,7 @@ fn aura_proof_binds_every_payload_field_and_domain() {
                 100,
                 wrong_nonce_sig
             ),
-            Error::<Test>::InvalidAuraSignature
+            Error::<Test>::InvalidBabeSignature
         );
         let wrong_domain = (
             b"other-pallet".to_vec(),
@@ -211,7 +211,7 @@ fn aura_proof_binds_every_payload_field_and_domain() {
                 100,
                 key.sign(&wrong_domain)
             ),
-            Error::<Test>::InvalidAuraSignature
+            Error::<Test>::InvalidBabeSignature
         );
         frame_system::BlockHash::<Test>::insert(0, H256::repeat_byte(43));
         assert_noop!(
@@ -223,7 +223,7 @@ fn aura_proof_binds_every_payload_field_and_domain() {
                 100,
                 sig
             ),
-            Error::<Test>::InvalidAuraSignature
+            Error::<Test>::InvalidBabeSignature
         );
         assert_eq!(AuthorSubsidy::next_nonce(&key.public()), 0);
     });

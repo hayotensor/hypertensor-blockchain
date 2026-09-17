@@ -55,7 +55,7 @@ impl FindAuthor<H160> for MockFindAuthor {
         I: 'a + IntoIterator<Item = (ConsensusEngineId, &'a [u8])>,
     {
         for (engine, mut data) in digests {
-            if engine == *b"aura" {
+            if engine == *b"babe" {
                 let key = sr25519::Public::decode(&mut data).ok()?;
                 if !IsAuthority::contains(&key) {
                     return None;
@@ -86,7 +86,7 @@ impl Config for Test {
     type Currency = Balances;
     type FindAuthor = MockFindAuthor;
     type AddressMapping = pallet_evm::IdentityAddressMapping;
-    type IsAuraAuthority = IsAuthority;
+    type IsBabeAuthority = IsAuthority;
     type WeightInfo = TestWeightInfo;
     type AuthorBlockEmissions = AuthorBlockEmissions;
     #[cfg(feature = "runtime-benchmarks")]
@@ -105,7 +105,7 @@ pub fn author_digest(key: sr25519::Public) {
         &System::block_hash(System::block_number().saturating_sub(1)),
         &sp_runtime::generic::Digest {
             logs: vec![sp_runtime::generic::DigestItem::PreRuntime(
-                *b"aura",
+                *b"babe",
                 key.encode(),
             )],
         },

@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { step } from "mocha-steps";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, describeWithFrontier, customRequest } from "./util";
+import { waitForBlock, describeWithFrontier, customRequest } from "./util";
 
 describeWithFrontier("Frontier RPC (Nonce)", (context) => {
 	const TEST_ACCOUNT = "0x1111111111111111111111111111111111111111";
@@ -27,7 +27,7 @@ describeWithFrontier("Frontier RPC (Nonce)", (context) => {
 		expect(await context.web3.eth.getTransactionCount(GENESIS_ACCOUNT, "latest")).to.eq(0);
 		expect(await context.web3.eth.getTransactionCount(GENESIS_ACCOUNT, "pending")).to.eq(1);
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 
 		expect(await context.web3.eth.getTransactionCount(GENESIS_ACCOUNT, "latest")).to.eq(1);
 		expect(await context.web3.eth.getTransactionCount(GENESIS_ACCOUNT, "pending")).to.eq(1);
@@ -35,7 +35,7 @@ describeWithFrontier("Frontier RPC (Nonce)", (context) => {
 	});
 
 	step("staled nonce", async function () {
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		expect(await context.web3.eth.getTransactionCount(GENESIS_ACCOUNT, "latest")).to.eq(1);
 
 		const tx = await context.web3.eth.accounts.signTransaction(

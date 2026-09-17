@@ -1,8 +1,8 @@
 import { expect } from "chai";
 import { step } from "mocha-steps";
 
-import { BLOCK_TIMESTAMP, ETH_BLOCK_GAS_LIMIT, GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, describeWithFrontier, customRequest } from "./util";
+import { ETH_BLOCK_GAS_LIMIT, GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
+import { waitForBlock, waitForReceipt, describeWithFrontier, customRequest } from "./util";
 
 describeWithFrontier("Frontier RPC (Block)", (context) => {
 	let previousBlock;
@@ -10,13 +10,11 @@ describeWithFrontier("Frontier RPC (Block)", (context) => {
 	// The reason is to avoid having to restart the node each time
 	// Running them individually will result in failure
 
-	step("should be at block 0 at genesis", async function () {
-		expect(await context.web3.eth.getBlockNumber()).to.equal(0);
+	step("should retain the genesis block while authoring", async function () {
+		expect((await context.web3.eth.getBlock(0)).number).to.equal(0);
 	});
 
 	it("should return genesis block by number", async function () {
-		expect(await context.web3.eth.getBlockNumber()).to.equal(0);
-
 		const block = await context.web3.eth.getBlock(0);
 		expect(block).to.include({
 			author: "0x0000000000000000000000000000000000000000",
@@ -56,16 +54,19 @@ describeWithFrontier("Frontier RPC (Block)", (context) => {
 	});
 
 	let firstBlockCreated = false;
-	step("should be at block 1 after block production", async function () {
-		this.timeout(15000);
-		await createAndFinalizeBlock(context.web3);
-		expect(await context.web3.eth.getBlockNumber()).to.equal(1);
+	step("should advance and finalize after block production", async function () {
+		const before = await context.web3.eth.getBlockNumber();
+		const block = await waitForBlock(context.web3);
+		expect(block.number).to.be.greaterThan(before);
 		firstBlockCreated = true;
 	});
 
 	step("should have valid timestamp after block production", async function () {
 		const block = await context.web3.eth.getBlock("latest");
-		expect(block.timestamp).to.be.eq(BLOCK_TIMESTAMP);
+		expect(Number(block.timestamp)).to.be.within(
+			Math.floor(Date.now() / 1000) - 120,
+			Math.ceil(Date.now() / 1000) + 30,
+		);
 	});
 
 	it("genesis block should be already available by hash", async function () {
@@ -106,11 +107,8 @@ describeWithFrontier("Frontier RPC (Block)", (context) => {
 			logsBloom:
 				"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
 			miner: "0x0000000000000000000000000000000000000000",
-			number: 1,
 			//parentHash: "0x04540257811b46d103d9896e7807040e7de5080e285841c5430d1a81588a0ce4",
 			receiptsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
-			size: 507,
-			timestamp: BLOCK_TIMESTAMP,
 			totalDifficulty: "0",
 			//transactions: [],
 			transactionsRoot: "0x56e81f171bcc55a6ff8345e692c0f86e5b48e01b996cadc001622fb5e363b421",
@@ -137,12 +135,11 @@ describeWithFrontier("Frontier RPC (Block)", (context) => {
 		expect(block).not.null;
 	});
 
-	it.skip("should include previous block hash as parent", async function () {
-		this.timeout(15000);
-		await createAndFinalizeBlock(context.web3);
-		const block = await context.web3.eth.getBlock("latest");
-		expect(block.hash).to.not.equal(previousBlock.hash);
-		expect(block.parentHash).to.equal(previousBlock.hash);
+	it("should include previous block hash as parent", async function () {
+		const block = await waitForBlock(context.web3);
+		const parent = await context.web3.eth.getBlock(block.number - 1);
+		expect(block.hash).to.not.equal(parent.hash);
+		expect(block.parentHash).to.equal(parent.hash);
 	});
 });
 
@@ -161,23 +158,22 @@ describeWithFrontier("Frontier RPC (Pending Block)", (context) => {
 					gas: "0x100000",
 					nonce: nonce,
 				},
-				GENESIS_ACCOUNT_PRIVATE_KEY
+				GENESIS_ACCOUNT_PRIVATE_KEY,
 			);
 			nonce = nonce + 1;
 			return (await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction])).result;
 		};
 
-		// block 1 send 5 transactions
-		const expectedXtsNumber = 5;
-		for (var _ of Array(expectedXtsNumber)) {
-			await sendTransaction();
+		const hashes: string[] = [];
+		for (let i = 0; i < 5; i++) {
+			hashes.push(await sendTransaction());
 		}
 
 		// test still invalid future transactions can be safely applied (they are applied, just not overlayed)
 		nonce = nonce + 100;
-		await sendTransaction();
+		const futureHash = await sendTransaction();
 
-		// do not seal, get pending block
+		// Read the hypothetical pending block while BABE continues authoring.
 		let pending_transactions = [];
 		{
 			const pending = (await customRequest(context.web3, "eth_getBlockByNumber", ["pending", false])).result;
@@ -186,80 +182,76 @@ describeWithFrontier("Frontier RPC (Pending Block)", (context) => {
 			expect(pending.nonce).to.be.null;
 			expect(pending.totalDifficulty).to.be.null;
 			pending_transactions = pending.transactions;
-			expect(pending_transactions.length).to.be.eq(expectedXtsNumber);
+			expect(pending_transactions).not.to.include(futureHash);
+			expect(hashes).to.include.members(pending_transactions);
 		}
 
-		// seal and compare latest blocks transactions with the previously pending
-		await createAndFinalizeBlock(context.web3);
-		const latest_block = await context.web3.eth.getBlock("latest", false);
-		expect(pending_transactions).to.be.deep.eq(latest_block.transactions);
+		for (const hash of hashes) {
+			const receipt = await waitForReceipt(context.web3, hash);
+			const block = await context.web3.eth.getBlock(receipt.blockHash);
+			expect(block.transactions).to.include(hash);
+		}
+		expect(await context.web3.eth.getTransactionReceipt(futureHash)).to.be.null;
 	});
 });
 
 describeWithFrontier("Frontier RPC (BlockReceipts)", (context) => {
 	const TEST_ACCOUNT = "0x1111111111111111111111111111111111111111";
-	const N = 5;
+	let receiptBlock: number;
 
-	it("should return empty if block without transaction", async function () {
-		await createAndFinalizeBlock(context.web3);
-		expect(await context.web3.eth.getBlockNumber()).to.equal(1);
-
-		let result = await customRequest(context.web3, "eth_getBlockReceipts", [
-			await context.web3.eth.getBlockNumber(),
-		]);
-		expect(result.result.length).to.be.eq(0);
+	it("should return empty for a block without transactions", async function () {
+		const block = await waitForBlock(context.web3);
+		const result = await customRequest(context.web3, "eth_getBlockReceipts", [block.number]);
+		expect(result.result).to.be.an("array").that.is.empty;
 	});
 
-	it("should return multiple receipts", async function () {
-		var nonce = 0;
-		let sendTransaction = async () => {
+	it("should return every included transaction receipt", async function () {
+		const nonce = await context.web3.eth.getTransactionCount(GENESIS_ACCOUNT, "pending");
+		const hashes: string[] = [];
+		for (let i = 0; i < 5; i++) {
 			const tx = await context.web3.eth.accounts.signTransaction(
 				{
 					from: GENESIS_ACCOUNT,
 					to: TEST_ACCOUNT,
-					value: "0x200", // Must be higher than ExistentialDeposit
+					value: "0x200",
 					gasPrice: "0x3B9ACA00",
 					gas: "0x100000",
-					nonce: nonce,
+					nonce: nonce + i,
 				},
-				GENESIS_ACCOUNT_PRIVATE_KEY
+				GENESIS_ACCOUNT_PRIVATE_KEY,
 			);
-			nonce = nonce + 1;
-			return (await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction])).result;
-		};
-
-		// block 1 send 5 transactions
-		for (var _ of Array(N)) {
-			await sendTransaction();
+			hashes.push((await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction])).result);
 		}
-		await createAndFinalizeBlock(context.web3);
-		expect(await context.web3.eth.getBlockNumber()).to.equal(2);
-
-		let result = await customRequest(context.web3, "eth_getBlockReceipts", [2]);
-		expect(result.result.length).to.be.eq(N);
+		const receipts = await Promise.all(hashes.map((hash) => waitForReceipt(context.web3, hash)));
+		for (const number of new Set(receipts.map((receipt) => receipt.blockNumber))) {
+			const result = await customRequest(context.web3, "eth_getBlockReceipts", [number]);
+			expect(result.result.map((receipt) => receipt.transactionHash)).to.have.members(
+				receipts.filter((receipt) => receipt.blockNumber === number).map((receipt) => receipt.transactionHash),
+			);
+		}
+		receiptBlock = receipts[0].blockNumber;
 	});
 
 	it("should support block number, tag and hash", async function () {
-		let block_number = await context.web3.eth.getBlockNumber();
-
-		// block number
-		expect((await customRequest(context.web3, "eth_getBlockReceipts", [block_number])).result.length).to.be.eq(N);
-		// block hash
-		let block = await context.web3.eth.getBlock(block_number);
-		expect(
-			(
-				await customRequest(context.web3, "eth_getBlockReceipts", [
-					{
-						blockHash: block.hash,
-						requireCanonical: true,
-					},
-				])
-			).result.length
-		).to.be.eq(N);
-		// block tags
-		expect((await customRequest(context.web3, "eth_getBlockReceipts", ["earliest"])).result.length).to.be.eq(0);
-		// expect((await customRequest(context.web3, "eth_getBlockReceipts", ["pending"])).result).to.be.null;
-		expect((await customRequest(context.web3, "eth_getBlockReceipts", ["finalized"])).result.length).to.be.eq(N);
-		expect((await customRequest(context.web3, "eth_getBlockReceipts", ["latest"])).result.length).to.be.eq(N);
+		const block = await context.web3.eth.getBlock(receiptBlock);
+		const byNumber = (await customRequest(context.web3, "eth_getBlockReceipts", [receiptBlock])).result;
+		const byHash = (
+			await customRequest(context.web3, "eth_getBlockReceipts", [
+				{ blockHash: block.hash, requireCanonical: true },
+			])
+		).result;
+		expect(byHash).to.deep.equal(byNumber);
+		expect(byNumber).not.to.be.empty;
+		expect((await customRequest(context.web3, "eth_getBlockReceipts", ["earliest"])).result).to.be.empty;
+		// A tag can already refer to an empty successor of our transaction block.
+		for (const tag of ["finalized", "latest"]) {
+			const result = (await customRequest(context.web3, "eth_getBlockReceipts", [tag])).result;
+			expect(result).to.be.an("array");
+			for (const receipt of result) {
+				const canonical = await context.web3.eth.getBlock(Number(BigInt(receipt.blockNumber)));
+				expect(receipt.blockHash).to.equal(canonical.hash);
+				expect(canonical.transactions).to.include(receipt.transactionHash);
+			}
+		}
 	});
 });

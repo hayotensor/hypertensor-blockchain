@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { step } from "mocha-steps";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, customRequest, describeWithFrontier } from "./util";
+import { waitForReceipt, customRequest, describeWithFrontier } from "./util";
 
 describeWithFrontier("Frontier RPC (Bloom)", (context) => {
 	const TEST_CONTRACT_BYTECODE =
@@ -26,15 +26,14 @@ describeWithFrontier("Frontier RPC (Bloom)", (context) => {
 
 	step("receipt data should be in bloom", async function () {
 		let tx = await sendTransaction(context);
-		await createAndFinalizeBlock(context.web3);
 		// check transaction bloom
-		tx = await context.web3.eth.getTransactionReceipt(tx.transactionHash);
+		tx = await waitForReceipt(context.web3, tx.transactionHash);
 		expect(context.web3.utils.isInBloom(tx.logsBloom, tx.logs[0].address)).to.be.true;
 		for (var topic of tx.logs[0].topics) {
 			expect(context.web3.utils.isInBloom(tx.logsBloom, topic)).to.be.true;
 		}
 		// check block bloom
-		const block = await context.web3.eth.getBlock("latest");
+		const block = await context.web3.eth.getBlock(tx.blockHash);
 		expect(context.web3.utils.isInBloom(block.logsBloom, tx.logs[0].address)).to.be.true;
 		for (var topic of tx.logs[0].topics) {
 			expect(context.web3.utils.isInBloom(block.logsBloom, topic)).to.be.true;

@@ -1,4 +1,4 @@
-//! Integration tests for verified payouts using the real Aura resolver and signed extrinsics.
+//! Integration tests for verified payouts using the real Babe resolver and signed extrinsics.
 use super::*;
 use fp_account::EthereumSigner;
 use frame_support::{
@@ -18,7 +18,7 @@ fn wallet() -> ecdsa::Pair {
 fn account(key: &ecdsa::Pair) -> AccountId {
     EthereumSigner::from(key.public()).into_account()
 }
-fn aura() -> sr25519::Pair {
+fn babe() -> sr25519::Pair {
     sr25519::Pair::from_string("//Alice", None).unwrap()
 }
 fn new_ext() -> TestExternalities {
@@ -31,8 +31,10 @@ fn new_ext() -> TestExternalities {
     }
     .assimilate_storage(&mut storage)
     .unwrap();
-    pallet_aura::GenesisConfig::<Runtime> {
-        authorities: vec![aura().public().into()],
+    pallet_babe::GenesisConfig::<Runtime> {
+        authorities: vec![(babe().public().into(), 1)],
+        epoch_config: BABE_GENESIS_EPOCH_CONFIG,
+        ..Default::default()
     }
     .assimilate_storage(&mut storage)
     .unwrap();
@@ -45,20 +47,31 @@ fn start_block(number: u32, slot: Option<u64>) {
         &generic::Digest {
             logs: slot
                 .into_iter()
-                .map(|s| DigestItem::PreRuntime(sp_consensus_aura::AURA_ENGINE_ID, s.encode()))
+                .map(|s| {
+                    DigestItem::PreRuntime(
+                        sp_consensus_babe::BABE_ENGINE_ID,
+                        sp_consensus_babe::digests::PreDigest::SecondaryPlain(
+                            sp_consensus_babe::digests::SecondaryPlainPreDigest {
+                                authority_index: 0,
+                                slot: s.into(),
+                            },
+                        )
+                        .encode(),
+                    )
+                })
                 .collect(),
         },
     );
     System::note_finished_initialize();
 }
 fn configure_call(destination: H160, nonce: u64) -> RuntimeCall {
-    let proof = AuthorSubsidy::reward_address_payload(&aura().public(), destination, nonce, 100);
+    let proof = AuthorSubsidy::reward_address_payload(&babe().public(), destination, nonce, 100);
     RuntimeCall::AuthorSubsidy(pallet_author_subsidy::Call::set_reward_address {
-        aura_key: aura().public(),
+        babe_key: babe().public(),
         reward_address: destination,
         nonce,
         valid_until: 100,
-        aura_signature: aura().sign(&proof),
+        babe_signature: babe().sign(&proof),
     })
 }
 fn signed(
@@ -89,7 +102,7 @@ fn signed(
 }
 fn resolved() -> Option<H160> {
     let digest = System::digest();
-    FindAuthorRewardAddress::<Aura>::find_author(
+    FindAuthorRewardAddress::<Babe>::find_author(
         digest.logs.iter().filter_map(|d| d.as_pre_runtime()),
     )
 }
@@ -135,7 +148,7 @@ fn verified_alice_rewards_reach_alith_and_are_spendable_with_its_ethereum_key() 
         });
         assert_ok!(Executive::apply_extrinsic(signed(transfer, &key, who, 1)).unwrap());
         assert_eq!(Balances::free_balance(destination), AUTHOR_BLOCK_EMISSIONS);
-        let truncated = H160::from_slice(&aura().public().0[4..24]);
+        let truncated = H160::from_slice(&babe().public().0[4..24]);
         assert_eq!(Balances::free_balance(AccountId::from(truncated)), 0);
         assert_eq!(Balances::free_balance(AccountId::from(H160::zero())), 0);
     });
@@ -152,7 +165,7 @@ fn forged_ethereum_signature_is_rejected_before_payout_configuration() {
             Executive::apply_extrinsic(tx),
             Err(InvalidTransaction::BadProof.into())
         );
-        assert!(AuthorSubsidy::reward_addresses(aura().public()).is_none());
+        assert!(AuthorSubsidy::reward_addresses(babe().public()).is_none());
         assert_eq!(System::account_nonce(who), 0);
     });
 }
@@ -172,7 +185,7 @@ fn runtime_resolver_handles_missing_malformed_and_out_of_range_authors() {
         start_block(1, None);
         assert_eq!(resolved(), None);
         System::deposit_log(DigestItem::PreRuntime(
-            sp_consensus_aura::AURA_ENGINE_ID,
+            sp_consensus_babe::BABE_ENGINE_ID,
             vec![1],
         ));
         assert_eq!(resolved(), None);
@@ -182,8 +195,8 @@ fn runtime_resolver_handles_missing_malformed_and_out_of_range_authors() {
         );
         start_block(2, Some(2));
         assert_eq!(resolved(), None); // Author exists, payout is not configured.
-        pallet_aura::Authorities::<Runtime>::kill();
-        assert_eq!(resolved(), None); // No modulo-by-zero in Aura's index finder.
+        pallet_babe::Authorities::<Runtime>::kill();
+        assert_eq!(resolved(), None); // Empty authority sets cannot resolve an author.
     });
 }
 

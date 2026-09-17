@@ -15,7 +15,7 @@ import {
 	ETH_BLOCK_POV_LIMIT,
 	TEST_ERC20_BYTECODE,
 } from "./config";
-import { describeWithFrontier, createAndFinalizeBlock, customRequest } from "./util";
+import { describeWithFrontier, waitForBlock, waitForReceipt, customRequest } from "./util";
 
 const TEST_ACCOUNT = "0x1111111111111111111111111111111111111111";
 
@@ -152,7 +152,7 @@ describeWithFrontier("Frontier RPC (Gas)", (context) => {
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		const createReceipt = await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		expect((createReceipt as any).transactionHash).to.be.not.null;
 		expect((createReceipt as any).blockHash).to.be.not.null;
 	});
@@ -167,7 +167,7 @@ describeWithFrontier("Frontier RPC (Gas)", (context) => {
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		const createReceipt = await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		expect((createReceipt as any).transactionHash).to.be.not.null;
 		expect((createReceipt as any).blockHash).to.be.not.null;
 	});
@@ -182,7 +182,7 @@ describeWithFrontier("Frontier RPC (Gas)", (context) => {
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		const createReceipt = await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		expect((createReceipt as any).error.message).to.equal("exceeds block gas limit");
 	});
 });
@@ -216,11 +216,11 @@ describeWithFrontier("Frontier RPC (Gas limit Weightv2 ref time)", (context) => 
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 	});
 
 	step("gas limit bound works with ref time heavy txns", async function () {
-		this.timeout(10000);
+		this.timeout(180000);
 
 		const contract = new context.web3.eth.Contract(STORAGE_LOOP_CONTRACT_ABI, FIRST_CONTRACT_ADDRESS, {
 			from: GENESIS_ACCOUNT,
@@ -263,7 +263,7 @@ describeWithFrontier("Frontier RPC (Gas limit Weightv2 ref time)", (context) => 
 			nonce++;
 		}
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 
 		let latest = await context.web3.eth.getBlock("latest");
 		expect(latest.transactions.length).to.be.eq(CALLS_PER_BLOCK + TRANSFERS_PER_BLOCK);
@@ -315,15 +315,14 @@ describeWithFrontier("Frontier RPC (Gas limit Weightv2 pov size)", (context) => 
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		const { result } = await customRequest(context.web3, "eth_sendRawTransaction", [tx2.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
-		const receipt = await context.web3.eth.getTransactionReceipt(result);
+		const receipt = await waitForReceipt(context.web3, result);
 		contractAddress = receipt.contractAddress;
 	});
 
 	// This test fills a block with regular transfers + a transfer to a contract with big bytecode.
 	// We consider bytecode "big" when it consumes an effective gas greater than the legacy gas.
 	step("gas limit bound works with pov size heavy txns", async function () {
-		this.timeout(10000);
+		this.timeout(180000);
 
 		const contract = new context.web3.eth.Contract(STORAGE_LOOP_CONTRACT_ABI, FIRST_CONTRACT_ADDRESS, {
 			from: GENESIS_ACCOUNT,
@@ -381,7 +380,7 @@ describeWithFrontier("Frontier RPC (Gas limit Weightv2 pov size)", (context) => 
 			nonce++;
 		}
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 
 		let latest = await context.web3.eth.getBlock("latest");
 		// Expect all regular transfers to go through + contract transfer.
@@ -408,7 +407,7 @@ describeWithFrontier("Frontier RPC (Invalid opcode estimate gas)", (context) => 
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		const txHash = (await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction])).result;
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		contractAddess = (await context.web3.eth.getTransactionReceipt(txHash)).contractAddress;
 	});
 

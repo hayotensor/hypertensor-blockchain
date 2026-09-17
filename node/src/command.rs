@@ -42,14 +42,8 @@ impl SubstrateCli for Cli {
 
     fn load_spec(&self, id: &str) -> Result<Box<dyn ChainSpec>, String> {
         Ok(match id {
-            "dev" => {
-                let enable_manual_seal = self.sealing.map(|_| true).unwrap_or_default();
-                Box::new(chain_spec::development_chain_spec(enable_manual_seal)?)
-            }
-            "eth_dev" => {
-                let enable_manual_seal = self.sealing.map(|_| true).unwrap_or_default();
-                Box::new(chain_spec::eth_development_chain_spec(enable_manual_seal)?)
-            }
+            "dev" => Box::new(chain_spec::development_chain_spec()?),
+            "eth_dev" => Box::new(chain_spec::eth_development_chain_spec()?),
             "hoskinson" => Box::new(chain_spec::hoskinson_chain_spec()?),
             "" | "local" => Box::new(chain_spec::local_chain_spec()?),
             path => Box::new(chain_spec::ChainSpec::from_json_file(
@@ -153,10 +147,13 @@ pub fn run() -> sc_cli::Result<()> {
             runner.async_run(|mut config| {
                 let (client, backend, _, task_manager, _) =
                     service::new_chain_ops(&mut config, &cli.eth)?;
-                let aux_revert = Box::new(move |client, _, blocks| {
-                    sc_consensus_grandpa::revert(client, blocks)?;
-                    Ok(())
-                });
+                let aux_revert = Box::new(
+                    move |client: std::sync::Arc<service::Client>, backend, blocks| {
+                        sc_consensus_babe::revert(client.clone(), backend, blocks)?;
+                        sc_consensus_grandpa::revert(client, blocks)?;
+                        Ok(())
+                    },
+                );
                 Ok((cmd.run(client, backend, Some(aux_revert)), task_manager))
             })
         }
@@ -234,7 +231,7 @@ pub fn run() -> sc_cli::Result<()> {
         None => {
             let runner = cli.create_runner(&cli.run)?;
             runner.run_node_until_exit(|config| async move {
-                service::build_full(config, cli.eth, cli.sealing)
+                service::build_full(config, cli.eth)
                     .map_err(Into::into)
                     .await
             })

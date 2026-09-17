@@ -19,16 +19,16 @@ use hex_literal::hex;
 use scale_info::prelude::collections::BTreeMap;
 // Substrate
 use core::str::FromStr;
-use sp_consensus_aura::sr25519::AuthorityId as AuraId;
+use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::AuthorityId as GrandpaId;
 #[allow(unused_imports)]
 use sp_core::ecdsa;
-use sp_core::{crypto::Ss58Codec, OpaquePeerId, Pair, Public, H160, U256};
+use sp_core::{OpaquePeerId, Pair, Public, H160, U256};
 use sp_runtime::traits::{IdentifyAccount, Verify};
 // Frontier
+use crate::{npos, opaque::SessionKeys};
 use crate::{AccountId, Balance, SS58Prefix, Signature};
 use alloc::{format, vec, vec::Vec};
-use frame_support::build_struct_json_patch;
 use serde_json::Value;
 use sp_genesis_builder::{self, PresetId};
 
@@ -48,7 +48,8 @@ fn peer(id: u8) -> OpaquePeerId {
 type AccountPublic = <Signature as Verify>::Signer;
 
 /// Generate an account ID from seed.
-/// For use with `AccountId32`, `dead_code` if `AccountId20`.
+/// ECDSA public keys use Frontier EthereumSigner recovery/derivation.
+/// This generic helper is separate from the explicitly mapped dev validators.
 #[allow(dead_code)]
 pub fn get_account_id_from_seed<TPublic: Public>(seed: &str) -> AccountId
 where
@@ -57,23 +58,49 @@ where
     AccountPublic::from(get_from_seed::<TPublic>(seed)).into_account()
 }
 
-pub fn authority_keys_from_seed(s: &str) -> (AuraId, GrandpaId) {
-    (get_from_seed::<AuraId>(s), get_from_seed::<GrandpaId>(s))
-}
-
-pub fn authority_keys_from_ss58(s_aura: &str, s_grandpa: &str) -> (AuraId, GrandpaId) {
+/// Development consensus keys use SDK //Alice, //Bob, etc. The associated
+/// Ethereum wallets are the repository's existing Alith/Baltathar/etc accounts;
+/// they are NOT truncated sr25519 keys or newly derived Substrate ECDSA accounts.
+/// Their private keys/derivation remain those documented in evm-tests.
+pub fn authority_keys_from_seed(seed: &str) -> (AccountId, BabeId, GrandpaId) {
+    let wallet = match seed {
+        "Alice" => hex!("f24ff3a9cf04c71dbc94d0b566f7a27b94566cac"),
+        "Bob" => hex!("3cd0a705a2dc65e5b1e1205896baa2be8a07c6e0"),
+        "Charlie" => hex!("798d4ba9baf0064ec19eb4f0a1a45785ae9d6dfc"),
+        "Dave" => hex!("773539d4ac0e786233d90a233654ccee26a613d9"),
+        "Eve" => hex!("ff64d3f6efe2317ee2807d223a0bdc4c0c49dfdb"),
+        "Ferdie" => hex!("c0f0f4ab324c46e55d02d0033343b4be8a55532d"),
+        _ => panic!("unknown development validator; supply an explicit H160 and session keys"),
+    };
     (
-        aura_from_ss58_addr(s_aura),
-        grandpa_from_ss58_addr(s_grandpa),
+        wallet.into(),
+        get_from_seed::<BabeId>(seed),
+        get_from_seed::<GrandpaId>(seed),
     )
 }
 
-pub fn aura_from_ss58_addr(s: &str) -> AuraId {
-    Ss58Codec::from_ss58check(s).unwrap()
-}
-
-pub fn grandpa_from_ss58_addr(s: &str) -> GrandpaId {
-    Ss58Codec::from_ss58check(s).unwrap()
+fn consensus_genesis(initial_authorities: &[(AccountId, BabeId, GrandpaId)]) -> Value {
+    serde_json::json!({
+        "session": {
+            "keys": initial_authorities.iter().map(|(account, babe, grandpa)| (
+                account, account, SessionKeys { babe: babe.clone(), grandpa: grandpa.clone() }
+            )).collect::<Vec<_>>()
+        },
+        "staking": {
+            "validatorCount": initial_authorities.len() as u32,
+            "minimumValidatorCount": npos::MIN_VALIDATOR_COUNT,
+            "stakers": initial_authorities.iter().map(|(account, _, _)| (
+                account, account, npos::VALIDATOR_BOND, pallet_staking::StakerStatus::<AccountId>::Validator
+            )).collect::<Vec<_>>(),
+            "invulnerables": [],
+            "minValidatorBond": npos::VALIDATOR_BOND,
+            "minNominatorBond": npos::MIN_NOMINATOR_BOND,
+            "maxValidatorCount": npos::MAX_VALIDATORS,
+            "maxNominatorCount": npos::MAX_NOMINATORS,
+            "slashRewardFraction": sp_runtime::Perbill::from_percent(10),
+        },
+        "babe": { "epochConfig": npos::BABE_GENESIS_EPOCH_CONFIG },
+    })
 }
 
 const UNITS: Balance = 1_000_000_000_000_000_000;
@@ -82,9 +109,8 @@ const UNITS: Balance = 1_000_000_000_000_000_000;
 fn testnet_genesis(
     sudo_key: AccountId,
     endowed_accounts: Vec<AccountId>,
-    initial_authorities: Vec<(AuraId, GrandpaId)>,
+    initial_authorities: Vec<(AccountId, BabeId, GrandpaId)>,
     chain_id: u64,
-    enable_manual_seal: bool,
 ) -> serde_json::Value {
     let subnet_name: Vec<u8> = "subnet-name".into();
     let mut peer_index: u8 = 0;
@@ -131,7 +157,7 @@ fn testnet_genesis(
         map
     };
 
-    serde_json::json!({
+    let mut genesis = serde_json::json!({
         "sudo": { "key": Some(sudo_key) },
         "balances": {
             "balances": endowed_accounts
@@ -140,11 +166,8 @@ fn testnet_genesis(
                 .map(|k| (k, 1_000_000 * UNITS))
                 .collect::<Vec<_>>()
         },
-        "aura": { "authorities": initial_authorities.iter().map(|x| (x.0.clone())).collect::<Vec<_>>() },
-        "grandpa": { "authorities": initial_authorities.iter().map(|x| (x.1.clone(), 1)).collect::<Vec<_>>() },
         "evmChainId": { "chainId": chain_id },
         "evm": { "accounts": evm_accounts },
-        "manualSeal": { "enable": enable_manual_seal },
         "network": {
             "subnetName": subnet_name,
             "subnetNodes": endowed_accounts.iter().cloned().map(|k| {
@@ -155,16 +178,22 @@ fn testnet_genesis(
                 )
             }).collect::<Vec<_>>(),
         },
-    })
+    });
+    genesis.as_object_mut().unwrap().extend(
+        consensus_genesis(&initial_authorities)
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    genesis
 }
 
 // Development testing mainly for ts-tests
 fn ethereum_testnet_genesis(
     sudo_key: AccountId,
     endowed_accounts: Vec<AccountId>,
-    initial_authorities: Vec<(AuraId, GrandpaId)>,
+    initial_authorities: Vec<(AccountId, BabeId, GrandpaId)>,
     chain_id: u64,
-    enable_manual_seal: bool,
 ) -> serde_json::Value {
     let subnet_name: Vec<u8> = "subnet-name".into();
     let mut peer_index: u8 = 0;
@@ -213,7 +242,7 @@ fn ethereum_testnet_genesis(
         map
     };
 
-    serde_json::json!({
+    let mut genesis = serde_json::json!({
         "sudo": { "key": Some(sudo_key) },
         "balances": {
             "balances": endowed_accounts
@@ -222,11 +251,8 @@ fn ethereum_testnet_genesis(
                 .map(|k| (k, 1_000_000 * UNITS))
                 .collect::<Vec<_>>()
         },
-        "aura": { "authorities": initial_authorities.iter().map(|x| (x.0.clone())).collect::<Vec<_>>() },
-        "grandpa": { "authorities": initial_authorities.iter().map(|x| (x.1.clone(), 1)).collect::<Vec<_>>() },
         "evmChainId": { "chainId": chain_id },
         "evm": { "accounts": evm_accounts },
-        "manualSeal": { "enable": enable_manual_seal },
         "network": {
             "subnetName": subnet_name,
             "subnetNodes": endowed_accounts.iter().cloned().map(|k| {
@@ -237,11 +263,18 @@ fn ethereum_testnet_genesis(
                 )
             }).collect::<Vec<_>>(),
         },
-    })
+    });
+    genesis.as_object_mut().unwrap().extend(
+        consensus_genesis(&initial_authorities)
+            .as_object()
+            .unwrap()
+            .clone(),
+    );
+    genesis
 }
 
 /// Return the development genesis config.
-pub fn development_config_genesis(enable_manual_seal: bool) -> Value {
+pub fn development_config_genesis() -> Value {
     testnet_genesis(
         // Sudo account (Alith)
         AccountId::from(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")),
@@ -262,11 +295,10 @@ pub fn development_config_genesis(enable_manual_seal: bool) -> Value {
         ],
         vec![authority_keys_from_seed("Alice")],
         SS58Prefix::get() as u64,
-        enable_manual_seal,
     )
 }
 
-pub fn ethereum_development_config_genesis(enable_manual_seal: bool) -> Value {
+pub fn ethereum_development_config_genesis() -> Value {
     ethereum_testnet_genesis(
         // Sudo account (Alith)
         AccountId::from(hex!("f24FF3a9CF04c71Dbc94D0b566f7A27B94566cac")),
@@ -281,7 +313,6 @@ pub fn ethereum_development_config_genesis(enable_manual_seal: bool) -> Value {
         ],
         vec![authority_keys_from_seed("Alice")],
         SS58Prefix::get() as u64,
-        enable_manual_seal,
     )
 }
 
@@ -312,7 +343,6 @@ pub fn local_config_genesis() -> Value {
             // authority_keys_from_seed("Dave"),
         ],
         42,
-        false,
     )
 }
 
@@ -338,42 +368,22 @@ pub fn hoskinson_config_genesis() -> Value {
             AccountId::from(hex!("9B56943b126776b92458cd31FEB8d6cE5D13482c")), // Faucet
         ],
         vec![
-            // Hypertensor Team 1
-            authority_keys_from_ss58(
-                "5D7CuBKcrpkaoY7mB9HssDm4Qt6fhGLTRGvR4hTLF8hMPrQP",
-                "5H9ug49LNth7CKY8wdL8kwF53k4JRX1v5mAw4DGWKQiRKcN3",
-            ),
-            // // Hypertensor Team 2
-            // authority_keys_from_ss58(
-            //     "5C7y78j5qDW4gUGbgimMVdKckjbXgfSbE5Hqmk1M5p1KDjuP",
-            //     "5FQFszBdvLMi92SbYZLCrXZiHgRfKQXBFQSxCkyfapegk8Ux",
-            // ),
-            // Rizzo
-            authority_keys_from_ss58(
-                "5FeRDsozqUivqCufKfUNBQbztoMkCFkHYX6FAwSZvgXmmE4z",
-                "5D82ZPib1E1LPqsMtq5t9XkY3Rb8pgDDUE2YC1RQpfEdFu39",
-            ),
-            // Seeker
-            authority_keys_from_ss58(
-                "5Dy7ZDhb72g2ag8xGXtvsjJwrCooQkRXNNYE981aDqLT9CwW",
-                "5CMxfSAARev3X9qDFxR6xZyHjM5rUfr6FDqYHAcc5n7VwvHX",
-            ),
-            // RT
-            authority_keys_from_ss58(
-                "5GKcgkBqjXezP1MtwQ9GzTZNiLChzc48NHPGHFTq58r8wm6z",
-                "5G51nnSdBGVxyhHLKMrwZbVymTVLeKtrR7KKjkrdkrBgs1nb",
-            ),
+            // Regenerated, unlaunched preset: replace public development identities
+            // with operator-owned H160/BABE/GRANDPA tuples before distribution.
+            authority_keys_from_seed("Alice"),
+            authority_keys_from_seed("Bob"),
+            authority_keys_from_seed("Charlie"),
+            authority_keys_from_seed("Dave"),
         ],
         42,
-        false,
     )
 }
 
 /// Provides the JSON representation of predefined genesis config for given `id`.
 pub fn get_preset(id: &PresetId) -> Option<Vec<u8>> {
     let patch = match id.as_ref() {
-        "ETHEREUM_DEV_RUNTIME_PRESET" => ethereum_development_config_genesis(true),
-        sp_genesis_builder::DEV_RUNTIME_PRESET => development_config_genesis(false),
+        "ETHEREUM_DEV_RUNTIME_PRESET" => ethereum_development_config_genesis(),
+        sp_genesis_builder::DEV_RUNTIME_PRESET => development_config_genesis(),
         sp_genesis_builder::LOCAL_TESTNET_RUNTIME_PRESET => local_config_genesis(),
         "HOSKINSON_RUNTIME_PRESET" => hoskinson_config_genesis(),
         _ => return None,

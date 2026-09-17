@@ -48,21 +48,17 @@ cargo build --release
 npx papi add dev -w ws://127.0.0.1:9944
 ```
 
-## Run locally with manual sealing
-
-- Overwatch node testing
+## Run locally with BABE and GRANDPA
 
 ```bash
-./target/release/hypertensor-node --dev \
---tmp --log lalala=trace \
---chain=eth_dev \
---sealing=manual \
---validator \
---force-authoring \
---no-grandpa \
---execution=Native \
---unsafe-force-node-key-generation
+./target/release/hypertensor-node --chain eth_dev --alice --validator --tmp --unsafe-force-node-key-generation
 ```
+
+Blocks arrive approximately every six seconds. Helpers wait for actual blocks/finality.
+For the consensus migration integration test, start the two-validator `local` network
+from [the validator guide](../docs/validators.md), then run `node evm-tests/npos-smoke.cjs`.
+This submits real Ethereum and staking transactions and chills a development validator;
+use an isolated test chain. It waits for real era transitions and can take 15–25 minutes.
 
 ## Build smart contracts
 
@@ -94,5 +90,4 @@ test -- -g "testing register subnet-0xzmghoq5702"
 
 ## Todos
 
-- Convert all tests to manual sealing for faster testing
 - Auto-chain restart for tests

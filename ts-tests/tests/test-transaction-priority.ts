@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { step } from "mocha-steps";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, describeWithFrontier, customRequest } from "./util";
+import { waitForBlock, describeWithFrontier, customRequest } from "./util";
 
 describeWithFrontier("Frontier RPC (Priority)", (context) => {
 	const TEST_CONTRACT_BYTECODE =
@@ -26,7 +26,7 @@ describeWithFrontier("Frontier RPC (Priority)", (context) => {
 	}
 
 	step("should prioritize transaction with the higher gasPrice", async function () {
-		this.timeout(15000);
+		this.timeout(180000);
 		const gasPrices = [
 			"0x3B9ACA01",
 			"0x3B9ACA00",
@@ -41,7 +41,7 @@ describeWithFrontier("Frontier RPC (Priority)", (context) => {
 		for (var gasPrice of gasPrices) {
 			await sendTransaction(context, gasPrice);
 		}
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		const block = await context.web3.eth.getBlock("latest", true);
 		expect(block.transactions.length).to.be.eq(1);
 		expect(block.transactions[0].gasPrice).to.be.eq("1000000007");

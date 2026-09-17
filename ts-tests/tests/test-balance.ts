@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { step } from "mocha-steps";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY, GENESIS_ACCOUNT_BALANCE, EXISTENTIAL_DEPOSIT } from "./config";
-import { createAndFinalizeBlock, describeWithFrontier, customRequest } from "./util";
+import { waitForBlock, describeWithFrontier, customRequest } from "./util";
 
 describeWithFrontier("Frontier RPC (Balance)", (context) => {
 	const TEST_ACCOUNT = "0xdd33Af49c851553841E94066B54Fd28612522901";
@@ -18,8 +18,8 @@ describeWithFrontier("Frontier RPC (Balance)", (context) => {
 	});
 
 	step("balance to be updated after transfer", async function () {
-		await createAndFinalizeBlock(context.web3);
-		this.timeout(15000);
+		await waitForBlock(context.web3);
+		this.timeout(180000);
 
 		const tx = await context.web3.eth.accounts.signTransaction(
 			{
@@ -51,7 +51,7 @@ describeWithFrontier("Frontier RPC (Balance)", (context) => {
 		expect(await context.web3.eth.getBalance(GENESIS_ACCOUNT, "pending")).to.equal(expectedGenesisBalance);
 		expect(await context.web3.eth.getBalance(TEST_ACCOUNT, "pending")).to.equal(expectedTestBalance);
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 
 		expect(await context.web3.eth.getBalance(GENESIS_ACCOUNT)).to.equal(expectedGenesisBalance);
 		expect(await context.web3.eth.getBalance(TEST_ACCOUNT)).to.equal(expectedTestBalance);

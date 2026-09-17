@@ -116,7 +116,7 @@ export async function transferBalanceFromSudoManual(
 
   // Manually seal blocks until finalized
   while (!finalized) {
-    await createAndFinalizeBlock(provider);
+    await waitForBlock(provider);
     await new Promise((r) => setTimeout(r, 10)); // small delay to avoid tight loop
   }
 
@@ -240,7 +240,7 @@ export async function batchTransferBalanceFromSudoManual(
 
   // Manually seal blocks until finalized
   while (!finalized) {
-    await createAndFinalizeBlock(provider);
+    await waitForBlock(provider);
     await new Promise((r) => setTimeout(r, 10)); // small delay
   }
 
@@ -288,7 +288,7 @@ export async function registerValidator(
   if (manualSeal) {
     let receipt = null;
     while (!receipt) {
-      await createAndFinalizeBlock(provider!);
+      await waitForBlock(provider!);
       receipt = await provider!.getTransactionReceipt(tx.hash);
     }
   } else {
@@ -325,7 +325,7 @@ async function setStorageForDevnet(
   });
 
   while (!finalized) {
-    await createAndFinalizeBlock(provider);
+    await waitForBlock(provider);
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
 
@@ -478,7 +478,7 @@ export async function registerSubnet(
     let receipt = null;
     while (!receipt) {
       // Seal a new block
-      await createAndFinalizeBlock(provider!);
+      await waitForBlock(provider!);
 
       // Try to fetch the receipt
       receipt = await provider!.getTransactionReceipt(tx.hash);
@@ -552,7 +552,7 @@ export async function registerSubnetNode(
     let receipt = null;
     while (!receipt) {
       // Seal a new block
-      await createAndFinalizeBlock(provider!);
+      await waitForBlock(provider!);
 
       // Try to fetch the receipt
       receipt = await provider!.getTransactionReceipt(tx.hash);
@@ -1212,7 +1212,7 @@ export async function registerOverwatchNode(
     let receipt = null;
     while (!receipt) {
       // Seal a new block
-      await createAndFinalizeBlock(provider!);
+      await waitForBlock(provider!);
 
       // Try to fetch the receipt
       receipt = await provider!.getTransactionReceipt(tx.hash);
@@ -1234,7 +1234,7 @@ export async function removeOverwatchNode(
     let receipt = null;
     while (!receipt) {
       // Seal a new block
-      await createAndFinalizeBlock(provider!);
+      await waitForBlock(provider!);
 
       // Try to fetch the receipt
       receipt = await provider!.getTransactionReceipt(tx.hash);
@@ -1260,7 +1260,7 @@ export async function updateOverwatchHotkey(
   if (manualSeal) {
     let receipt = null;
     while (!receipt) {
-      await createAndFinalizeBlock(provider!);
+      await waitForBlock(provider!);
       receipt = await provider!.getTransactionReceipt(tx.hash);
     }
   } else {
@@ -1286,7 +1286,7 @@ export async function setOverwatchNodePeerId(
     let receipt = null;
     while (!receipt) {
       // Seal a new block
-      await createAndFinalizeBlock(provider!);
+      await waitForBlock(provider!);
 
       // Try to fetch the receipt
       receipt = await provider!.getTransactionReceipt(tx.hash);
@@ -1309,7 +1309,7 @@ export async function addToOverwatchStake(
     let receipt = null;
     while (!receipt) {
       // Seal a new block
-      await createAndFinalizeBlock(provider!);
+      await waitForBlock(provider!);
 
       // Try to fetch the receipt
       receipt = await provider!.getTransactionReceipt(tx.hash);
@@ -1335,7 +1335,7 @@ export async function removeOverwatchStake(
     let receipt = null;
     while (!receipt) {
       // Seal a new block
-      await createAndFinalizeBlock(provider!);
+      await waitForBlock(provider!);
 
       // Try to fetch the receipt
       receipt = await provider!.getTransactionReceipt(tx.hash);
@@ -1361,7 +1361,7 @@ export async function commitOverwatchSubnetWeights(
     let receipt = null;
     while (!receipt) {
       // Seal a new block
-      await createAndFinalizeBlock(provider!);
+      await waitForBlock(provider!);
 
       // Try to fetch the receipt
       receipt = await provider!.getTransactionReceipt(tx.hash);
@@ -1387,7 +1387,7 @@ export async function revealOverwatchSubnetWeights(
     let receipt = null;
     while (!receipt) {
       // Seal a new block
-      await createAndFinalizeBlock(provider!);
+      await waitForBlock(provider!);
 
       // Try to fetch the receipt
       receipt = await provider!.getTransactionReceipt(tx.hash);
@@ -1432,80 +1432,31 @@ export async function waitForFinalizedBalance(
   }
 }
 
-/**
- * Advance the chain by `numBlocks` blocks.
- * Requires the node to have the `manual-seal` pallet.
- *
- * @param api - Connected ApiPromise instance
- * @param numBlocks - Number of blocks to produce
- */
-export async function advanceBlocks(
-  api: ApiPromise,
-  numBlocks: number,
-): Promise<void> {
-  for (let i = 0; i < numBlocks; i++) {
-    // true, true => finalize block, include pending extrinsics
-    await api.rpc.engine.createBlock(true, true);
+/** Wait for BABE to produce and GRANDPA to finalize additional blocks. */
+export async function advanceBlocks(api: ApiPromise, numBlocks: number): Promise<void> {
+  const target = (await api.rpc.chain.getHeader()).number.toNumber() + numBlocks;
+  const deadline = Date.now() + (numBlocks + 10) * 12_000;
+  while (Date.now() < deadline) {
+    const hash = await api.rpc.chain.getFinalizedHead();
+    if ((await api.rpc.chain.getHeader(hash)).number.toNumber() >= target) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   }
-
-  const latestHash = await api.rpc.chain.getBlockHash();
-  const latestNumber = await api.rpc.chain
-    .getHeader(latestHash)
-    .then((h) => h.number.toNumber());
-
-  console.log(`Advanced ${numBlocks} blocks. Current block: ${latestNumber}`);
+  throw new Error(`Timed out waiting for finalized block ${target}`);
 }
 
-export async function createAndFinalizeBlock(
-  provider: JsonRpcProvider,
-  finalize = true,
-) {
-  const request = {
-    jsonrpc: "2.0",
-    id: Date.now(),
-    method: "engine_createBlock",
-    params: [true, finalize, null],
-  };
-
-  const response = await provider.send(request.method, request.params);
-
-  if (!response) {
-    throw new Error(`engine_createBlock failed: ${JSON.stringify(response)}`);
-  }
-
-  // optional delay to avoid tight loop
-  await new Promise<void>((resolve) => setTimeout(resolve, 500));
+export async function waitForBlock(provider: JsonRpcProvider, finalize = true) {
+  await waitForBlocks(provider, 1, finalize);
 }
 
-export async function createAndFinalizeBlocks(
-  provider: JsonRpcProvider,
-  numBlocks: number,
-  finalize = true,
-) {
-  for (let i = 0; i < numBlocks; i++) {
-    const request = {
-      jsonrpc: "2.0",
-      id: Date.now() + i, // Unique ID for each request
-      method: "engine_createBlock",
-      params: [true, finalize, null],
-    };
-
-    const response = await provider.send(request.method, request.params);
-
-    if (!response) {
-      throw new Error(
-        `engine_createBlock failed on block ${i + 1}: ${JSON.stringify(response)}`,
-      );
-    }
-
-    console.log(`Created block ${i + 1}/${numBlocks}`);
-
-    // Optional delay between blocks
-    if (i < numBlocks - 1) {
-      // Don't delay after the last block
-      await new Promise<void>((resolve) => setTimeout(resolve, 500));
-    }
+export async function waitForBlocks(provider: JsonRpcProvider, numBlocks: number, finalize = true) {
+  const target = BigInt(await provider.send("eth_blockNumber", [])) + BigInt(numBlocks);
+  const deadline = Date.now() + (numBlocks + 10) * 12_000;
+  while (Date.now() < deadline) {
+    const block = await provider.send("eth_getBlockByNumber", [finalize ? "finalized" : "latest", false]);
+    if (block && BigInt(block.number) >= target) return;
+    await new Promise<void>((resolve) => setTimeout(resolve, 1000));
   }
+  throw new Error(`Timed out waiting for Ethereum block ${target}`);
 }
 
 export async function calculateRevealBlock(
@@ -1591,7 +1542,7 @@ export async function advanceToRevealBlock(
   console.log(`Advancing ${blocksToAdvance} blocks...`);
 
   // Advance blocks
-  await createAndFinalizeBlocks(provider, blocksToAdvance);
+  await waitForBlocks(provider, blocksToAdvance);
 
   // Verify we reached the target
   const newBlock = Number((await api.query.system.number()).toString());

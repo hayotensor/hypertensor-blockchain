@@ -12,16 +12,15 @@ extern crate alloc;
 #[cfg(feature = "std")]
 include!(concat!(env!("OUT_DIR"), "/wasm_binary.rs"));
 
-use alloc::{borrow::Cow, vec, vec::Vec};
+#[cfg(any(test, feature = "runtime-benchmarks"))]
+use alloc::vec;
+use alloc::{borrow::Cow, vec::Vec};
 use codec::{Decode, Encode, MaxEncodedLen};
 use core::marker::PhantomData;
 use sp_api::impl_runtime_apis;
-use sp_consensus_aura::sr25519::AuthorityId as AuraId;
+use sp_consensus_babe::AuthorityId as BabeId;
 use sp_consensus_grandpa::{AuthorityId as GrandpaId, AuthorityList as GrandpaAuthorityList};
-use sp_core::{
-    crypto::{ByteArray, KeyTypeId},
-    ConstU128, OpaqueMetadata, H160, H256, U256,
-};
+use sp_core::{crypto::KeyTypeId, ConstU128, OpaqueMetadata, H160, H256, U256};
 use sp_runtime::{
     generic, impl_opaque_keys,
     traits::{
@@ -34,10 +33,10 @@ use sp_runtime::{
 };
 use sp_version::RuntimeVersion;
 // Substrate FRAME
-use frame_support::traits::Contains;
 use frame_support::traits::{
     fungible::HoldConsideration, EqualPrivilegeOnly, InstanceFilter, LinearStoragePrice,
 };
+use frame_support::traits::{Contains, KeyOwnerProofSystem};
 #[cfg(feature = "with-paritydb-weights")]
 use frame_support::weights::constants::ParityDbWeight as RuntimeDbWeight;
 #[cfg(feature = "with-rocksdb-weights")]
@@ -46,10 +45,9 @@ use frame_support::{
     derive_impl,
     genesis_builder_helper::{build_state, get_preset},
     parameter_types,
-    storage::bounded_vec::BoundedVec,
     traits::{
-        tokens::{Pay, PayFromAccount, PaymentStatus, UnityAssetBalanceConversion},
-        ConstBool, ConstU32, ConstU64, ConstU8, FindAuthor, OnFinalize, OnTimestampSet,
+        tokens::{PayFromAccount, UnityAssetBalanceConversion},
+        ConstU32, ConstU64, ConstU8, FindAuthor, OnFinalize,
     },
     weights::{constants::WEIGHT_REF_TIME_PER_MILLIS, IdentityFee, Weight},
     PalletId,
@@ -66,9 +64,16 @@ use pallet_evm::{
 };
 
 pub mod genesis_config_presets;
+// This module is compiled into this same runtime. It groups consensus/staking
+// configuration; pallet composition and runtime APIs remain in this file.
+pub mod npos;
+pub use npos::*;
 
 #[cfg(test)]
 mod author_subsidy_tests;
+
+#[cfg(test)]
+mod npos_tests;
 
 // A few exports that help ease life for downstream crates.
 pub use frame_system::Call as SystemCall;
@@ -199,7 +204,7 @@ pub mod opaque {
 
     impl_opaque_keys! {
         pub struct SessionKeys {
-            pub aura: Aura,
+            pub babe: Babe,
             pub grandpa: Grandpa,
         }
     }
@@ -210,7 +215,7 @@ pub const VERSION: RuntimeVersion = RuntimeVersion {
     spec_name: Cow::Borrowed("hypertensor-node"),
     impl_name: Cow::Borrowed("hypertensor-node"),
     authoring_version: 1,
-    spec_version: 2,
+    spec_version: 3,
     impl_version: 1,
     apis: RUNTIME_API_VERSIONS,
     transaction_version: 1,
@@ -277,41 +282,9 @@ impl frame_system::Config for Runtime {
     type MaxConsumers = ConstU32<16>;
 }
 
-impl pallet_aura::Config for Runtime {
-    type AuthorityId = AuraId;
-    type MaxAuthorities = ConstU32<32>;
-    type DisabledValidators = ();
-    type AllowMultipleBlocksPerSlot = ConstBool<false>;
-    type SlotDuration = pallet_aura::MinimumPeriodTimesTwo<Runtime>;
-}
-
-impl pallet_grandpa::Config for Runtime {
-    type RuntimeEvent = RuntimeEvent;
-    type WeightInfo = ();
-    type MaxAuthorities = ConstU32<32>;
-    type MaxNominators = ConstU32<0>;
-    type MaxSetIdSessionEntries = ConstU64<0>;
-    type KeyOwnerProof = sp_core::Void;
-    type EquivocationReportSystem = ();
-}
-
-parameter_types! {
-    pub storage EnableManualSeal: bool = false;
-}
-
-pub struct ConsensusOnTimestampSet<T>(PhantomData<T>);
-impl<T: pallet_aura::Config> OnTimestampSet<T::Moment> for ConsensusOnTimestampSet<T> {
-    fn on_timestamp_set(moment: T::Moment) {
-        if EnableManualSeal::get() {
-            return;
-        }
-        <pallet_aura::Pallet<T> as OnTimestampSet<T::Moment>>::on_timestamp_set(moment)
-    }
-}
-
 impl pallet_timestamp::Config for Runtime {
     type Moment = u64;
-    type OnTimestampSet = ConsensusOnTimestampSet<Self>;
+    type OnTimestampSet = Babe;
     type MinimumPeriod = ConstU64<{ SLOT_DURATION / 2 }>;
     type WeightInfo = ();
 }
@@ -703,9 +676,9 @@ parameter_types! {
 impl pallet_author_subsidy::Config for Runtime {
     type RuntimeEvent = RuntimeEvent;
     type Currency = Balances;
-    type FindAuthor = FindAuthorRewardAddress<Aura>;
+    type FindAuthor = FindAuthorRewardAddress<Babe>;
     type AddressMapping = IdentityAddressMapping;
-    type IsAuraAuthority = AuraRewardAuthority;
+    type IsBabeAuthority = BabeRewardAuthority;
     type WeightInfo = pallet_author_subsidy::weights::SubstrateWeight<Runtime>;
     type AuthorBlockEmissions = AuthorBlockEmissions;
     #[cfg(feature = "runtime-benchmarks")]
@@ -789,47 +762,30 @@ impl pallet_network::Config for Runtime {
 
 impl pallet_evm_chain_id::Config for Runtime {}
 
-pub struct FindAuthorTruncated<F>(PhantomData<F>);
-impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorTruncated<F> {
-    fn find_author<'a, I>(digests: I) -> Option<H160>
-    where
-        I: 'a + IntoIterator<Item = (ConsensusEngineId, &'a [u8])>,
-    {
-        if let Some(author_index) = F::find_author(digests) {
-            let authority_id =
-                pallet_aura::Authorities::<Runtime>::get()[author_index as usize].clone();
-            return Some(H160::from_slice(&authority_id.to_raw_vec()[4..24]));
-        }
-        None
-    }
-}
-
 /// Membership in consensus is read here, never changed by payout configuration.
-pub struct AuraRewardAuthority;
-impl Contains<sp_core::sr25519::Public> for AuraRewardAuthority {
+pub struct BabeRewardAuthority;
+impl Contains<sp_core::sr25519::Public> for BabeRewardAuthority {
     fn contains(key: &sp_core::sr25519::Public) -> bool {
-        let aura_key: AuraId = (*key).into();
-        pallet_aura::Authorities::<Runtime>::get()
+        let babe_key: BabeId = (*key).into();
+        pallet_babe::Authorities::<Runtime>::get()
             .iter()
-            .any(|authority| authority == &aura_key)
+            .any(|(authority, _)| authority == &babe_key)
     }
 }
 
-/// Resolve the Aura author to its verified EVM payout account. The original
-/// `FindAuthorTruncated` remains available, but is not used for reward routing.
+/// Resolve the BABE author to its verified EVM payout account.
 pub struct FindAuthorRewardAddress<F>(PhantomData<F>);
 impl<F: FindAuthor<u32>> FindAuthor<H160> for FindAuthorRewardAddress<F> {
     fn find_author<'a, I>(digests: I) -> Option<H160>
     where
         I: 'a + IntoIterator<Item = (ConsensusEngineId, &'a [u8])>,
     {
-        let authorities = pallet_aura::Authorities::<Runtime>::get();
-        // Aura's index finder uses modulo authority count, so guard it first.
+        let authorities = pallet_babe::Authorities::<Runtime>::get();
         if authorities.is_empty() {
             return None;
         }
         let index = F::find_author(digests)?;
-        let authority = authorities.get(index as usize)?;
+        let (authority, _) = authorities.get(index as usize)?;
         AuthorSubsidy::reward_address_at(authority.as_ref(), System::block_number())
     }
 }
@@ -839,20 +795,28 @@ pub struct AuthorSubsidyBenchmarkHelper;
 #[cfg(feature = "runtime-benchmarks")]
 impl pallet_author_subsidy::BenchmarkHelper for AuthorSubsidyBenchmarkHelper {
     fn setup_author(authority: sp_core::sr25519::Public) {
-        let max: u32 = <Runtime as pallet_aura::Config>::MaxAuthorities::get();
-        let mut authorities: Vec<AuraId> = (0..max - 1)
-            .map(|i| sp_core::sr25519::Public::from_raw([i as u8; 32]).into())
+        let max: u32 = <Runtime as pallet_babe::Config>::MaxAuthorities::get();
+        let mut authorities: Vec<(BabeId, u64)> = (0..max - 1)
+            .map(|i| (sp_core::sr25519::Public::from_raw([i as u8; 32]).into(), 1))
             .collect();
         // Exercise the entire membership scan and the largest authority proof.
-        authorities.push(authority.into());
-        pallet_aura::Authorities::<Runtime>::put(BoundedVec::try_from(authorities).unwrap());
+        authorities.push((authority.into(), 1));
+        pallet_babe::Authorities::<Runtime>::put(
+            sp_runtime::WeakBoundedVec::<_, MaxAuthorities>::force_from(authorities, None),
+        );
         System::initialize(
             &System::block_number(),
             &System::parent_hash(),
             &sp_runtime::generic::Digest {
                 logs: vec![DigestItem::PreRuntime(
-                    sp_consensus_aura::AURA_ENGINE_ID,
-                    (u64::from(max) - 1).encode(),
+                    sp_consensus_babe::BABE_ENGINE_ID,
+                    sp_consensus_babe::digests::PreDigest::SecondaryPlain(
+                        sp_consensus_babe::digests::SecondaryPlainPreDigest {
+                            authority_index: max - 1,
+                            slot: 1u64.into(),
+                        },
+                    )
+                    .encode(),
                 )],
             },
         );
@@ -890,7 +854,7 @@ impl pallet_evm::Config for Runtime {
     type Runner = pallet_evm::runner::stack::Runner<Self>;
     type OnChargeTransaction = ();
     type OnCreate = ();
-    type FindAuthor = FindAuthorRewardAddress<Aura>;
+    type FindAuthor = FindAuthorRewardAddress<Babe>;
     type GasLimitPovSizeRatio = GasLimitPovSizeRatio;
     type GasLimitStorageGrowthRatio = GasLimitStorageGrowthRatio;
     type Timestamp = Timestamp;
@@ -941,37 +905,13 @@ impl pallet_base_fee::Config for Runtime {
     type DefaultElasticity = DefaultElasticity;
 }
 
-#[frame_support::pallet]
-pub mod pallet_manual_seal {
-    use super::*;
-    use frame_support::pallet_prelude::*;
-
-    #[pallet::pallet]
-    pub struct Pallet<T>(PhantomData<T>);
-
-    #[pallet::config]
-    pub trait Config: frame_system::Config {}
-
-    #[pallet::genesis_config]
-    #[derive(frame_support::DefaultNoBound)]
-    pub struct GenesisConfig<T> {
-        pub enable: bool,
-        #[serde(skip)]
-        pub _config: PhantomData<T>,
-    }
-
-    #[pallet::genesis_build]
-    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
-        fn build(&self) {
-            EnableManualSeal::set(&self.enable);
-        }
-    }
-}
-
-impl pallet_manual_seal::Config for Runtime {}
-
 // Create the runtime by composing the FRAME pallets that were previously configured.
-#[frame_support::runtime]
+// Indices identify SCALE call/event variants; they need not be consecutive or
+// match declaration order. `legacy_ordering` is the SDK macro's option to retain
+// declaration order for genesis/hooks instead of sorting by index. Balances and
+// Staking must initialize before Session; Session must rotate before Authorship
+// and AuthorSubsidy resolve the author. This is not a state compatibility layer.
+#[frame_support::runtime(legacy_ordering)]
 mod runtime {
     #[runtime::runtime]
     #[runtime::derive(
@@ -993,8 +933,8 @@ mod runtime {
     #[runtime::pallet_index(1)]
     pub type Timestamp = pallet_timestamp;
 
-    #[runtime::pallet_index(2)]
-    pub type Aura = pallet_aura;
+    // Index 2 is unused after removing Aura. Keeping it unused is an index
+    // preservation choice, not a FRAME requirement or a placeholder pallet.
 
     #[runtime::pallet_index(3)]
     pub type Grandpa = pallet_grandpa;
@@ -1020,8 +960,7 @@ mod runtime {
     #[runtime::pallet_index(10)]
     pub type BaseFee = pallet_base_fee;
 
-    #[runtime::pallet_index(11)]
-    pub type ManualSeal = pallet_manual_seal;
+    // Index 11 is unused after removing ManualSeal; 12 was already unused.
 
     #[runtime::pallet_index(13)]
     pub type AtomicSwap = pallet_atomic_swap;
@@ -1055,6 +994,26 @@ mod runtime {
 
     #[runtime::pallet_index(23)]
     pub type Network = pallet_network;
+
+    #[runtime::pallet_index(25)]
+    pub type Babe = pallet_babe;
+
+    #[runtime::pallet_index(27)]
+    pub type Staking = pallet_staking;
+
+    #[runtime::pallet_index(28)]
+    pub type Session = pallet_session;
+
+    // A BABE boundary block is signed by the newly activated set. Resolve its
+    // author only after Session updates both validator indices and the active era.
+    #[runtime::pallet_index(26)]
+    pub type Authorship = pallet_authorship;
+
+    #[runtime::pallet_index(29)]
+    pub type Historical = pallet_session::historical;
+
+    #[runtime::pallet_index(30)]
+    pub type Offences = pallet_offences;
 
     #[runtime::pallet_index(24)]
     pub type AuthorSubsidy = pallet_author_subsidy;
@@ -1149,6 +1108,9 @@ mod benches {
         // [frame_system_extensions, SystemExtensionsBench::<Runtime>]
         [pallet_balances, Balances]
         [pallet_timestamp, Timestamp]
+        [pallet_babe, Babe]
+        [pallet_grandpa, Grandpa]
+        [pallet_staking, Staking]
         [pallet_sudo, Sudo]
         [pallet_evm, EVM]
         [pallet_collective, Collective]
@@ -1250,15 +1212,55 @@ impl_runtime_apis! {
         }
     }
 
-    impl sp_consensus_aura::AuraApi<Block, AuraId> for Runtime {
-        fn slot_duration() -> sp_consensus_aura::SlotDuration {
-            sp_consensus_aura::SlotDuration::from_millis(Aura::slot_duration())
+    impl sp_consensus_babe::BabeApi<Block> for Runtime {
+        fn configuration() -> sp_consensus_babe::BabeConfiguration {
+            let epoch_config = Babe::epoch_config().unwrap_or(BABE_GENESIS_EPOCH_CONFIG);
+            sp_consensus_babe::BabeConfiguration {
+                slot_duration: Babe::slot_duration(),
+                epoch_length: EpochDuration::get(),
+                c: epoch_config.c,
+                authorities: Babe::authorities().to_vec(),
+                randomness: Babe::randomness(),
+                allowed_slots: epoch_config.allowed_slots,
+            }
         }
 
-        fn authorities() -> Vec<AuraId> {
-            pallet_aura::Authorities::<Runtime>::get().into_inner()
+        fn current_epoch_start() -> sp_consensus_babe::Slot {
+            Babe::current_epoch_start()
+        }
+
+        fn current_epoch() -> sp_consensus_babe::Epoch {
+            Babe::current_epoch()
+        }
+
+        fn next_epoch() -> sp_consensus_babe::Epoch {
+            Babe::next_epoch()
+        }
+
+        fn generate_key_ownership_proof(
+            _slot: sp_consensus_babe::Slot,
+            authority_id: sp_consensus_babe::AuthorityId,
+        ) -> Option<sp_consensus_babe::OpaqueKeyOwnershipProof> {
+            use codec::Encode;
+
+            Historical::prove((sp_consensus_babe::KEY_TYPE, authority_id))
+                .map(|p| p.encode())
+                .map(sp_consensus_babe::OpaqueKeyOwnershipProof::new)
+        }
+
+        fn submit_report_equivocation_unsigned_extrinsic(
+            equivocation_proof: sp_consensus_babe::EquivocationProof<<Block as BlockT>::Header>,
+            key_owner_proof: sp_consensus_babe::OpaqueKeyOwnershipProof,
+        ) -> Option<()> {
+            let key_owner_proof = key_owner_proof.decode()?;
+
+            Babe::submit_unsigned_equivocation_report(
+                equivocation_proof,
+                key_owner_proof,
+            )
         }
     }
+
 
     impl sp_consensus_grandpa::GrandpaApi<Block> for Runtime {
         fn grandpa_authorities() -> GrandpaAuthorityList {
@@ -1270,23 +1272,21 @@ impl_runtime_apis! {
         }
 
         fn submit_report_equivocation_unsigned_extrinsic(
-            _equivocation_proof: sp_consensus_grandpa::EquivocationProof<
+            equivocation_proof: sp_consensus_grandpa::EquivocationProof<
                 <Block as BlockT>::Hash,
                 NumberFor<Block>,
             >,
-            _key_owner_proof: sp_consensus_grandpa::OpaqueKeyOwnershipProof,
+            key_owner_proof: sp_consensus_grandpa::OpaqueKeyOwnershipProof,
         ) -> Option<()> {
-            None
+            Grandpa::submit_unsigned_equivocation_report(equivocation_proof, key_owner_proof.decode()?)
         }
 
         fn generate_key_ownership_proof(
             _set_id: sp_consensus_grandpa::SetId,
-            _authority_id: GrandpaId,
+            authority_id: GrandpaId,
         ) -> Option<sp_consensus_grandpa::OpaqueKeyOwnershipProof> {
-            // NOTE: this is the only implementation possible since we've
-            // defined our key owner proof type as a bottom type (i.e. a type
-            // with no values).
-            None
+            Historical::prove((sp_consensus_grandpa::KEY_TYPE, authority_id))
+                .map(|proof| sp_consensus_grandpa::OpaqueKeyOwnershipProof::new(proof.encode()))
         }
     }
 

@@ -3,7 +3,7 @@ import { AbiItem } from "web3-utils";
 
 import Test from "../build/contracts/Storage.json";
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY, FIRST_CONTRACT_ADDRESS } from "./config";
-import { createAndFinalizeBlock, customRequest, describeWithFrontier } from "./util";
+import { waitForReceipt, waitForBlock, customRequest, describeWithFrontier } from "./util";
 
 describeWithFrontier("Frontier RPC (Contract)", (context) => {
 	const TEST_CONTRACT_BYTECODE = Test.bytecode;
@@ -12,7 +12,7 @@ describeWithFrontier("Frontier RPC (Contract)", (context) => {
 	it("eth_getStorageAt", async function () {
 		const contract = new context.web3.eth.Contract(TEST_CONTRACT_ABI);
 
-		this.timeout(15000);
+		this.timeout(180000);
 		const tx = await context.web3.eth.accounts.signTransaction(
 			{
 				from: GENESIS_ACCOUNT,
@@ -29,8 +29,7 @@ describeWithFrontier("Frontier RPC (Contract)", (context) => {
 			jsonrpc: "2.0",
 		});
 
-		await createAndFinalizeBlock(context.web3);
-		let receipt0 = await context.web3.eth.getTransactionReceipt(tx.transactionHash);
+		let receipt0 = await waitForReceipt(context.web3, tx.transactionHash);
 		let contractAddress = receipt0.contractAddress;
 
 		let getStorage0 = await customRequest(context.web3, "eth_getStorageAt", [
@@ -70,7 +69,7 @@ describeWithFrontier("Frontier RPC (Contract)", (context) => {
 
 		expect(getStoragePending.result).to.be.eq(expectedStorage);
 
-		await createAndFinalizeBlock(context.web3);
+		await waitForReceipt(context.web3, tx1.transactionHash);
 
 		let getStorage1 = await customRequest(context.web3, "eth_getStorageAt", [
 			contractAddress,
@@ -82,7 +81,7 @@ describeWithFrontier("Frontier RPC (Contract)", (context) => {
 	});
 
 	it("SSTORE cost should properly take into account transaction initial value", async function () {
-		this.timeout(15000);
+		this.timeout(180000);
 
 		let nonce = await context.web3.eth.getTransactionCount(GENESIS_ACCOUNT);
 
@@ -106,7 +105,7 @@ describeWithFrontier("Frontier RPC (Contract)", (context) => {
 			.setStorage("0x2A", "0x2")
 			.send(
 				{ from: GENESIS_ACCOUNT, gas: "0x100000", nonce: nonce++ },
-				async (hash) => await createAndFinalizeBlock(context.web3)
+				async (hash) => await waitForBlock(context.web3)
 			);
 
 		tx1 = await tx1;

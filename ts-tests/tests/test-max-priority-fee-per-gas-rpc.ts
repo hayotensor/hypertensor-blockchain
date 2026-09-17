@@ -3,7 +3,7 @@ import { expect } from "chai";
 import { step } from "mocha-steps";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY, CHAIN_ID } from "./config";
-import { createAndFinalizeBlock, describeWithFrontier, customRequest } from "./util";
+import { waitForBlock, describeWithFrontier, customRequest } from "./util";
 
 // We use ethers library in this test as apparently web3js's types are not fully EIP-1559 compliant yet.
 describeWithFrontier("Frontier RPC (Max Priority Fee Per Gas)", (context) => {
@@ -34,7 +34,7 @@ describeWithFrontier("Frontier RPC (Max Priority Fee Per Gas)", (context) => {
 				});
 				nonce++;
 			}
-			await createAndFinalizeBlock(context.web3);
+			await waitForBlock(context.web3);
 		}
 	}
 
@@ -44,7 +44,7 @@ describeWithFrontier("Frontier RPC (Max Priority Fee Per Gas)", (context) => {
 	});
 
 	step("should default to zero on empty blocks", async function () {
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		let result = await customRequest(context.web3, "eth_maxPriorityFeePerGas", []);
 		expect(result.result).to.be.eq("0x0");
 	});
@@ -84,7 +84,7 @@ describeWithFrontier("Frontier RPC (Max Priority Fee Per Gas)", (context) => {
 		for (let i = 0; i < 10; i++) {
 			await createBlocks(1, [0, 1, 2, 3, 4, 5]);
 		}
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		for (let i = 0; i < 9; i++) {
 			await createBlocks(1, [0, 1, 2, 3, 4, 5]);
 		}

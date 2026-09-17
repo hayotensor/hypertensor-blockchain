@@ -4,7 +4,7 @@ import { AbiItem } from "web3-utils";
 
 import ReentrancyProtected from "../build/contracts/ReentrancyProtected.json";
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, customRequest, describeWithFrontier } from "./util";
+import { waitForReceipt, customRequest, describeWithFrontier } from "./util";
 
 chaiUse(chaiAsPromised);
 
@@ -17,7 +17,7 @@ describeWithFrontier("Frontier RPC (EIP-1153)", (context) => {
 	// to spin up a frontier node, it saves a lot of time.
 
 	before("create the contract", async function () {
-		this.timeout(15000);
+		this.timeout(180000);
 		const tx = await context.web3.eth.accounts.signTransaction(
 			{
 				from: GENESIS_ACCOUNT,
@@ -29,9 +29,7 @@ describeWithFrontier("Frontier RPC (EIP-1153)", (context) => {
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
-
-		const receipt = await context.web3.eth.getTransactionReceipt(tx.transactionHash);
+		const receipt = await waitForReceipt(context.web3, tx.transactionHash);
 		contract_address = receipt.contractAddress;
 	});
 

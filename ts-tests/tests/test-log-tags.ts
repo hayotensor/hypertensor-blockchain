@@ -3,7 +3,7 @@ import { step } from "mocha-steps";
 import { TransactionReceipt } from "web3-core";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, describeWithFrontier, customRequest } from "./util";
+import { waitForBlock, describeWithFrontier, customRequest } from "./util";
 
 describeWithFrontier("Frontier RPC (Log BlockNumber tags)", (context) => {
 	const TEST_CONTRACT_BYTECODE =
@@ -30,7 +30,7 @@ describeWithFrontier("Frontier RPC (Log BlockNumber tags)", (context) => {
 	before("Send some transactions across blocks", async function () {
 		for (var i = 0; i < EXPECTED_LOGS; i++) {
 			await sendTransaction(context);
-			await createAndFinalizeBlock(context.web3);
+			await waitForBlock(context.web3);
 		}
 	});
 

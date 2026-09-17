@@ -2,7 +2,7 @@ import { assert, expect } from "chai";
 import { step } from "mocha-steps";
 import { ETH_BLOCK_GAS_LIMIT, GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
 
-import { describeWithFrontier, customRequest, createAndFinalizeBlock } from "./util";
+import { describeWithFrontier, customRequest, waitForBlock, waitForReceipt } from "./util";
 import { AbiItem } from "web3-utils";
 
 import Test from "../build/contracts/Test.json";
@@ -22,7 +22,7 @@ describeWithFrontier("Frontier RPC (estimate gas historically)", (context) => {
 	it("estimate gas historically should work", async function () {
 		const contract = new context.web3.eth.Contract(TEST_CONTRACT_ABI);
 
-		this.timeout(15000);
+		this.timeout(180000);
 		const tx = await context.web3.eth.accounts.signTransaction(
 			{
 				from: GENESIS_ACCOUNT,
@@ -39,11 +39,10 @@ describeWithFrontier("Frontier RPC (estimate gas historically)", (context) => {
 			jsonrpc: "2.0",
 		});
 
-		await createAndFinalizeBlock(context.web3);
-		let receipt0 = await context.web3.eth.getTransactionReceipt(tx.transactionHash);
+		let receipt0 = await waitForReceipt(context.web3, tx.transactionHash);
 		let contractAddress = receipt0.contractAddress;
 
-		// Estimate what a sstore set costs at block number 1
+		// Estimate what a storage write costs just after deployment
 		const SSTORE_SET_DATA = contract.methods
 			.setStorage(
 				"0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc",
@@ -75,7 +74,7 @@ describeWithFrontier("Frontier RPC (estimate gas historically)", (context) => {
 			GENESIS_ACCOUNT_PRIVATE_KEY
 		);
 		await customRequest(context.web3, "eth_sendRawTransaction", [tx1.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
+		await waitForReceipt(context.web3, tx1.transactionHash);
 
 		// Estimate what a sstore reset costs at block number 2
 		const ESTIMATE_AT_2 = context.web3.utils.hexToNumber(
@@ -92,7 +91,7 @@ describeWithFrontier("Frontier RPC (estimate gas historically)", (context) => {
 		// SSTORE over an existing storage is cheaper
 		expect(ESTIMATE_AT_2).to.be.lt(ESTIMATE_AT_1 as number);
 
-		// Estimate what a sstore reset costed at block number 1, queried historically
+		// Query the deployment block before the storage write
 		const ESTIMATE_AT_1_QUERY = context.web3.utils.hexToNumber(
 			(
 				await customRequest(context.web3, "eth_estimateGas", [
@@ -100,7 +99,7 @@ describeWithFrontier("Frontier RPC (estimate gas historically)", (context) => {
 						to: contractAddress,
 						data: SSTORE_SET_DATA,
 					},
-					1,
+					receipt0.blockNumber,
 				])
 			).result
 		);
@@ -203,7 +202,7 @@ describeWithFrontier("Frontier RPC (RPC execution)", (context) => {
 		);
 
 		await customRequest(context.web3, "eth_sendRawTransaction", [tx.rawTransaction]);
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 
 		const block = await context.web3.eth.getBlock("latest");
 

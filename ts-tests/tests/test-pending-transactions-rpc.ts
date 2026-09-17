@@ -2,7 +2,7 @@ import { expect } from "chai";
 import { step } from "mocha-steps";
 
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY } from "./config";
-import { createAndFinalizeBlock, customRequest, describeWithFrontierAllPools } from "./util";
+import { waitForReceipt, waitForBlock, customRequest, describeWithFrontierAllPools } from "./util";
 
 describeWithFrontierAllPools("Frontier RPC (Pending Transactions)", (context) => {
 	const TEST_ACCOUNT = "0x1111111111111111111111111111111111111111";
@@ -54,7 +54,7 @@ describeWithFrontierAllPools("Frontier RPC (Pending Transactions)", (context) =>
 
 	step("should return pending transactions when transactions are in mempool", async function () {
 		// First, create a block to clear previous pending transactions
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 
 		const readyTransactionCount = 3;
 		const futureTransactionCount = 2;
@@ -84,38 +84,34 @@ describeWithFrontierAllPools("Frontier RPC (Pending Transactions)", (context) =>
 
 		// Verify the response
 		expect(pendingTransactions).to.be.an("array");
-		expect(pendingTransactions.length).to.equal(transactions.length);
+		expect(pendingTransactions.length).to.be.at.most(transactions.length);
 
 		// Verify transaction hashes match what we submitted
 		const pendingHashes = pendingTransactions.map((tx) => tx.hash);
 		const submittedHashes = transactions.map((tx) => tx.hash);
-		expect(pendingHashes).to.have.members(submittedHashes);
+		expect(submittedHashes).to.include.members(pendingHashes);
+		// Ready transactions may already be mined while these RPCs run. Future
+		// transactions with nonce gaps must remain visible in the pool.
+		expect(pendingHashes).to.include.members(transactions.slice(readyTransactionCount).map((tx) => tx.hash));
+		for (const hash of submittedHashes.filter((hash) => !pendingHashes.includes(hash))) {
+			expect((await waitForReceipt(context.web3, hash)).transactionHash).to.equal(hash);
+		}
 	});
 
 	step("should remove transactions from pending transactions when block is created", async function () {
 		// First, create a block to clear previous pending transactions
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 
 		// Get current nonce
 		const nonce = await context.web3.eth.getTransactionCount(GENESIS_ACCOUNT);
 
 		// Submit a transaction
-		await sendTransaction(nonce, {
+		const submitted = await sendTransaction(nonce, {
 			gasPrice: context.web3.utils.toWei("1", "gwei"),
 		});
 
-		// Check that it's in the pending transactions
-		const pendingBefore = await getPendingTransactions();
-		expect(pendingBefore.length).to.be.at.least(1);
-		const countBefore = pendingBefore.length;
-
-		// Create a block to mine the pending transactions
-		await createAndFinalizeBlock(context.web3);
-
-		// Check pending transactions again
+		await waitForReceipt(context.web3, submitted.hash);
 		const pendingAfter = await getPendingTransactions();
-
-		// Verify there are fewer pending transactions after mining
-		expect(pendingAfter.length).to.be.lessThan(countBefore);
+		expect(pendingAfter.map((tx) => tx.hash)).not.to.include(submitted.hash);
 	});
 });

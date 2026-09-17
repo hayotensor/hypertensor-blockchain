@@ -20,8 +20,7 @@ describeWithFrontier("Frontier RPC (Constant)", (context) => {
 	});
 
 	it("block author should be 0x0000000000000000000000000000000000000000", async function () {
-		// This address `0x1234567890` is hardcoded into the runtime find_author
-		// as we are running manual sealing consensus.
+		// No BABE author-subsidy reward address has been configured in this fresh chain.
 		expect(await context.web3.eth.getCoinbase()).to.equal("0x0000000000000000000000000000000000000000");
 	});
 });

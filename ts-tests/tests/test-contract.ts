@@ -3,7 +3,7 @@ import chaiAsPromised from "chai-as-promised";
 
 import Test from "../build/contracts/Test.json";
 import { GENESIS_ACCOUNT, GENESIS_ACCOUNT_PRIVATE_KEY, FIRST_CONTRACT_ADDRESS } from "./config";
-import { createAndFinalizeBlock, customRequest, describeWithFrontier } from "./util";
+import { waitForBlock, customRequest, describeWithFrontier } from "./util";
 
 chaiUse(chaiAsPromised);
 
@@ -15,8 +15,8 @@ describeWithFrontier("Frontier RPC (Contract)", (context) => {
 	// to spin up a frontier node, it saves a lot of time.
 
 	it("contract creation should return transaction hash", async function () {
-		await createAndFinalizeBlock(context.web3);
-		this.timeout(15000);
+		await waitForBlock(context.web3);
+		this.timeout(180000);
 		const tx = await context.web3.eth.accounts.signTransaction(
 			{
 				from: GENESIS_ACCOUNT,
@@ -48,7 +48,7 @@ describeWithFrontier("Frontier RPC (Contract)", (context) => {
 		});
 
 		// Verify the contract is stored after the block is produced
-		await createAndFinalizeBlock(context.web3);
+		await waitForBlock(context.web3);
 		expect(await customRequest(context.web3, "eth_getCode", [FIRST_CONTRACT_ADDRESS])).to.deep.equal({
 			id: 1,
 			jsonrpc: "2.0",
