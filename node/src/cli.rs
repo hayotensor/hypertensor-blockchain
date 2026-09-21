@@ -1,5 +1,3 @@
-use crate::service::EthConfiguration;
-
 #[derive(Debug, clap::Parser)]
 pub struct Cli {
     #[command(subcommand)]
@@ -8,9 +6,6 @@ pub struct Cli {
     #[allow(missing_docs)]
     #[command(flatten)]
     pub run: sc_cli::RunCmd,
-
-    #[command(flatten)]
-    pub eth: EthConfiguration,
 }
 
 #[derive(Debug, clap::Subcommand)]
@@ -48,7 +43,4 @@ pub enum Subcommand {
     /// Sub-commands concerned with benchmarking.
     #[cfg(not(feature = "runtime-benchmarks"))]
     Benchmark,
-
-    /// Db meta columns information.
-    FrontierDb(fc_cli::FrontierDbCmd),
 }

@@ -150,7 +150,7 @@ fn test_register_validator() {
         let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
+            hotkey.clone(),
             reward_rate,
             None,
             None,
@@ -820,7 +820,7 @@ fn test_register_validator_subnet_node() {
         let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
+            hotkey.clone(),
             reward_rate,
             None,
             None,
@@ -1124,7 +1124,7 @@ fn test_update_validator_hotkey() {
         let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
+            hotkey.clone(),
             reward_rate,
             None,
             None,
@@ -1147,7 +1147,7 @@ fn test_update_validator_hotkey() {
             Network::update_validator_hotkey(
                 RuntimeOrigin::signed(coldkey.clone()),
                 current_id + 1,
-                new_hotkey,
+                new_hotkey.clone(),
             ),
             Error::<Test>::NotKeyOwner
         );
@@ -1155,7 +1155,7 @@ fn test_update_validator_hotkey() {
         assert_ok!(Network::update_validator_hotkey(
             RuntimeOrigin::signed(coldkey.clone()),
             current_id,
-            new_hotkey,
+            new_hotkey.clone(),
         ));
 
         assert_eq!(
@@ -1195,7 +1195,7 @@ fn test_update_validator_delegate_reward_rate() {
         let new_reward_rate = 59000000000000000; // 5.9%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
+            hotkey.clone(),
             reward_rate,
             None,
             None,
@@ -1321,7 +1321,7 @@ fn test_update_validator_identity() {
         let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
+            hotkey.clone(),
             reward_rate,
             None,
             None,

@@ -1,11 +1,32 @@
 use super::*;
-use frame_support::{__private::TestExternalities, assert_ok, traits::PalletInfoAccess};
-use pallet_evm::AddressMapping;
-use sp_core::{ecdsa, Pair};
+use frame_support::{__private::TestExternalities, assert_ok};
+use sp_consensus_babe::AuthorityId as BabeId;
+use sp_core::{proof_of_possession::ProofOfPossessionGenerator, Pair};
 use sp_runtime::{traits::Header as HeaderT, BuildStorage};
 
 fn authority(seed: &str) -> (AccountId, BabeId, GrandpaId) {
     genesis_config_presets::authority_keys_from_seed(seed)
+}
+
+fn key_proof(
+    owner: &AccountId,
+    mut babe: sp_core::sr25519::Pair,
+    mut grandpa: sp_core::ed25519::Pair,
+) -> Vec<u8> {
+    let owner = owner.encode();
+    (
+        babe.generate_proof_of_possession(&owner),
+        grandpa.generate_proof_of_possession(&owner),
+    )
+        .encode()
+}
+
+fn seed_key_proof(owner: &AccountId, seed: &str) -> Vec<u8> {
+    key_proof(
+        owner,
+        sp_core::sr25519::Pair::from_string(seed, None).unwrap(),
+        sp_core::ed25519::Pair::from_string(seed, None).unwrap(),
+    )
 }
 
 fn merge(base: &mut serde_json::Value, patch: serde_json::Value) {
@@ -29,7 +50,7 @@ fn from_preset(preset: serde_json::Value) -> TestExternalities {
         .into()
 }
 
-fn ext() -> TestExternalities {
+pub(super) fn ext() -> TestExternalities {
     from_preset(genesis_config_presets::local_config_genesis())
 }
 
@@ -90,14 +111,15 @@ fn block_with_author(number: u32, author_index: u32) -> (Option<AccountId>, u32)
     Executive::initialize_block(&header);
     let author = Authorship::author();
     let era = Staking::active_era().unwrap().index;
-    assert_ok!(
-        Executive::apply_extrinsic(UncheckedExtrinsic::new_bare(RuntimeCall::Timestamp(
+    assert_ok!(Executive::apply_extrinsic(
+        generic::UncheckedExtrinsic::new_bare(RuntimeCall::Timestamp(
             pallet_timestamp::Call::set {
                 now: number as u64 * SLOT_DURATION
             }
-        ),))
-        .unwrap()
-    );
+        ),)
+        .into()
+    )
+    .unwrap());
     Executive::finalize_block();
     (author, era)
 }
@@ -121,15 +143,11 @@ fn advance_to_era(era: u32) -> bool {
 }
 
 #[test]
-fn presets_have_funded_h160_stakers_and_matching_consensus_keys() {
+fn presets_have_funded_native_stakers_and_matching_consensus_keys() {
     for (preset, expected) in [
         (genesis_config_presets::development_config_genesis(), 1),
-        (
-            genesis_config_presets::ethereum_development_config_genesis(),
-            1,
-        ),
         (genesis_config_presets::local_config_genesis(), 2),
-        (genesis_config_presets::hoskinson_config_genesis(), 4),
+        (genesis_config_presets::four_validator_test_genesis(), 4),
     ] {
         from_preset(preset).execute_with(|| {
             use sp_staking::currency_to_vote::CurrencyToVote;
@@ -144,7 +162,6 @@ fn presets_have_funded_h160_stakers_and_matching_consensus_keys() {
             assert_eq!(Session::validators().len(), expected as usize);
             assert_eq!(Babe::authorities().len(), expected as usize);
             assert_eq!(Grandpa::grandpa_authorities().len(), expected as usize);
-            assert_eq!(<EVMChainId as Get<u64>>::get(), 42);
             assert!(pallet_staking::Invulnerables::<Runtime>::get().is_empty());
             assert_eq!(
                 pallet_staking::MaxValidatorsCount::<Runtime>::get(),
@@ -158,14 +175,14 @@ fn presets_have_funded_h160_stakers_and_matching_consensus_keys() {
                 let keys = pallet_session::NextKeys::<Runtime>::get(account).unwrap();
                 assert_eq!(keys.babe, Babe::authorities()[index].0);
                 assert_eq!(keys.grandpa, Grandpa::grandpa_authorities()[index].0);
-                assert_eq!(account.encode().len(), 20);
+                assert_eq!(account.encode().len(), 32);
                 assert!(Balances::free_balance(account) > VALIDATOR_BOND);
-                let ledger = pallet_staking::Ledger::<Runtime>::get(account).unwrap();
+                let ledger = pallet_staking::Ledger::<Runtime>::get(&account).unwrap();
                 assert_eq!(ledger.stash, *account);
                 assert_eq!(ledger.active, VALIDATOR_BOND);
                 assert_eq!(
                     pallet_staking::Bonded::<Runtime>::get(account),
-                    Some(*account)
+                    Some(account.clone())
                 );
             }
         });
@@ -173,7 +190,7 @@ fn presets_have_funded_h160_stakers_and_matching_consensus_keys() {
 }
 
 #[test]
-fn account_identity_keys_and_existing_pallet_indices_are_preserved() {
+fn native_account_identity_and_consensus_keys_are_valid() {
     use sp_staking::currency_to_vote::CurrencyToVote;
     assert!(
         <Runtime as pallet_staking::Config>::CurrencyToVote::to_vote(
@@ -182,12 +199,15 @@ fn account_identity_keys_and_existing_pallet_indices_are_preserved() {
         ) > 0
     );
     let (account, babe, grandpa) = authority("Alice");
-    let h160: H160 = account.into();
-    assert_eq!(core::mem::size_of::<AccountId>(), 20);
     assert_eq!(
-        <IdentityAddressMapping as AddressMapping<AccountId>>::into_account_id(h160),
-        account
+        account,
+        sp_runtime::AccountId32::from(
+            sp_core::sr25519::Pair::from_string("//Alice", None)
+                .unwrap()
+                .public()
+        )
     );
+    assert_eq!(core::mem::size_of::<AccountId>(), 32);
     let keys = opaque::SessionKeys { babe, grandpa };
     let encoded = keys.encode();
     assert_eq!(encoded.len(), 64);
@@ -200,82 +220,106 @@ fn account_identity_keys_and_existing_pallet_indices_are_preserved() {
         raw.iter().map(|(_, id)| *id).collect::<Vec<_>>(),
         vec![sp_consensus_babe::KEY_TYPE, sp_consensus_grandpa::KEY_TYPE]
     );
-    assert_eq!(
-        FrontierPrecompiles::<Runtime>::used_addresses().to_vec(),
-        [1, 2, 3, 4, 5, 1024, 1025, 2048, 2049, 2050, 2051]
-            .map(H160::from_low_u64_be)
-            .to_vec()
-    );
-    let indices = [
-        System::index(),
-        Timestamp::index(),
-        Grandpa::index(),
-        Balances::index(),
-        TransactionPayment::index(),
-        Sudo::index(),
-        Ethereum::index(),
-        EVM::index(),
-        EVMChainId::index(),
-        BaseFee::index(),
-        AtomicSwap::index(),
-        InsecureRandomnessCollectiveFlip::index(),
-        Utility::index(),
-        Proxy::index(),
-        Preimage::index(),
-        Scheduler::index(),
-        Treasury::index(),
-        Multisig::index(),
-        TxPause::index(),
-        Collective::index(),
-        Network::index(),
-        AuthorSubsidy::index(),
-    ];
-    assert_eq!(
-        indices,
-        [0, 1, 3, 4, 5, 6, 7, 8, 9, 10, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24]
-    );
 }
 
 #[test]
-fn ethereum_transaction_recovery_keeps_the_alith_address() {
-    use fp_self_contained::SelfContainedCall;
-    let key = ecdsa::Pair::from_seed(&hex_literal::hex!(
-        "5fb92d6e98884f76de468fa3f6278f8807c48bebc13595d45af5bdc4da702133"
-    ));
-    let message = ethereum::LegacyTransactionMessage {
-        nonce: U256::zero(),
-        gas_price: U256::from(1_000_000_000u64),
-        gas_limit: U256::from(21_000),
-        action: ethereum::TransactionAction::Call(H160::repeat_byte(7)),
-        value: U256::from(1),
-        input: vec![],
-        chain_id: Some(42),
-    };
-    let signature = key.sign_prehashed(message.hash().as_fixed_bytes());
-    let transaction = ethereum::LegacyTransaction {
-        nonce: message.nonce,
-        gas_price: message.gas_price,
-        gas_limit: message.gas_limit,
-        action: message.action,
-        value: message.value,
-        input: message.input,
-        signature: ethereum::TransactionSignature::new(
-            42 * 2 + 35 + signature.0[64] as u64,
-            H256::from_slice(&signature.0[..32]),
-            H256::from_slice(&signature.0[32..64]),
-        )
-        .unwrap(),
-    };
-    let call = RuntimeCall::Ethereum(pallet_ethereum::Call::transact {
-        transaction: transaction.into(),
-    });
+fn session_keys_require_owner_bound_proofs_and_refund_the_key_deposit() {
+    use frame_support::{assert_noop, traits::fungible::InspectHold};
     ext().execute_with(|| {
-        let recovered = call.check_self_contained().unwrap().unwrap();
-        assert_eq!(recovered, H160::from(authority("Alice").0));
-        assert_eq!(
-            <IdentityAddressMapping as AddressMapping<AccountId>>::into_account_id(recovered),
-            authority("Alice").0
+        block(1);
+        let (charlie, babe, grandpa) = authority("Charlie");
+        let keys = opaque::SessionKeys { babe, grandpa };
+        let reason = pallet_session::HoldReason::Keys.into();
+        assert_noop!(
+            Session::set_keys(RuntimeOrigin::signed(charlie.clone()), keys.clone(), vec![]),
+            pallet_session::Error::<Runtime>::InvalidProof
         );
+        assert_noop!(
+            Session::set_keys(
+                RuntimeOrigin::signed(charlie.clone()),
+                keys.clone(),
+                seed_key_proof(&authority("Dave").0, "//Charlie"),
+            ),
+            pallet_session::Error::<Runtime>::InvalidProof
+        );
+        assert_ok!(Session::set_keys(
+            RuntimeOrigin::signed(charlie.clone()),
+            keys.clone(),
+            seed_key_proof(&charlie, "//Charlie"),
+        ));
+        assert_eq!(
+            Balances::balance_on_hold(&reason, &charlie),
+            SessionKeyDeposit::get()
+        );
+        assert_ok!(Session::set_keys(
+            RuntimeOrigin::signed(charlie.clone()),
+            keys,
+            seed_key_proof(&charlie, "//Charlie"),
+        ));
+        assert_eq!(
+            Balances::balance_on_hold(&reason, &charlie),
+            SessionKeyDeposit::get()
+        );
+        assert_ok!(Session::purge_keys(RuntimeOrigin::signed(charlie.clone())));
+        assert_eq!(Balances::balance_on_hold(&reason, &charlie), 0);
+        assert!(!pallet_session::NextKeys::<Runtime>::contains_key(charlie));
+    });
+}
+
+#[test]
+fn bonded_stake_is_held_and_cannot_be_transferred() {
+    use frame_support::{assert_noop, traits::fungible::InspectHold};
+    ext().execute_with(|| {
+        block(1);
+        let charlie = authority("Charlie").0;
+        let before = Balances::free_balance(&charlie);
+        assert_ok!(Staking::bond(
+            RuntimeOrigin::signed(charlie.clone()),
+            VALIDATOR_BOND,
+            pallet_staking::RewardDestination::Staked,
+        ));
+        assert_eq!(
+            Balances::balance_on_hold(&pallet_staking::HoldReason::Staking.into(), &charlie),
+            VALIDATOR_BOND,
+        );
+        assert_eq!(Balances::free_balance(&charlie), before - VALIDATOR_BOND);
+        assert_noop!(
+            Balances::transfer_allow_death(
+                RuntimeOrigin::signed(charlie),
+                authority("Dave").0,
+                before,
+            ),
+            sp_runtime::TokenError::FundsUnavailable,
+        );
+    });
+}
+
+#[test]
+fn staking_offences_disable_the_more_severe_offender_within_the_session_limit() {
+    use sp_staking::offence::{OffenceDetails, OnOffenceHandler};
+    from_preset(genesis_config_presets::four_validator_test_genesis()).execute_with(|| {
+        block(1);
+        let validators = Session::validators();
+        assert_eq!(validators.len(), 4);
+        let report = |index: usize, percent| {
+            <Staking as OnOffenceHandler<AccountId, (AccountId, ()), Weight>>::on_offence(
+                &[OffenceDetails {
+                    offender: (validators[index].clone(), ()),
+                    reporters: vec![],
+                }],
+                &[Perbill::from_percent(percent)],
+                Session::current_index(),
+            );
+        };
+        report(0, 10);
+        assert_eq!(Session::disabled_validators(), vec![0]);
+        report(1, 20);
+        assert_eq!(Session::disabled_validators(), vec![1]);
+        report(2, 5);
+        assert_eq!(Session::disabled_validators(), vec![1]);
+        // BABE consults this same disabled set when validating block authors.
+        assert!(<Session as frame_support::traits::DisabledValidators>::is_disabled(1));
+        assert!(!<Session as frame_support::traits::DisabledValidators>::is_disabled(0));
     });
 }
 
@@ -287,17 +331,17 @@ fn nominations_elections_rewards_and_unbonding_work_across_eras() {
         let nominator = authority("Charlie").0;
         let stake = 100 * TENSOR;
         assert_ok!(Staking::bond(
-            RuntimeOrigin::signed(nominator),
+            RuntimeOrigin::signed(nominator.clone()),
             stake,
             pallet_staking::RewardDestination::Stash
         ));
         assert_ok!(Staking::bond_extra(
-            RuntimeOrigin::signed(nominator),
+            RuntimeOrigin::signed(nominator.clone()),
             10 * TENSOR
         ));
         assert_ok!(Staking::nominate(
-            RuntimeOrigin::signed(nominator),
-            vec![alice]
+            RuntimeOrigin::signed(nominator.clone()),
+            vec![alice.clone()]
         ));
         advance_to_era(1);
         let exposure = Staking::eras_stakers(1, &alice);
@@ -313,26 +357,26 @@ fn nominations_elections_rewards_and_unbonding_work_across_eras() {
         assert!(Session::current_index() >= SessionsPerEra::get());
         assert!(advance_to_era(2));
         let issuance = Balances::total_issuance();
-        let balance = Balances::free_balance(nominator);
+        let balance = Balances::free_balance(&nominator);
         assert!(pallet_staking::ErasValidatorReward::<Runtime>::get(1).unwrap() > 0);
         assert_ok!(Staking::payout_stakers(
-            RuntimeOrigin::signed(nominator),
-            alice,
+            RuntimeOrigin::signed(nominator.clone()),
+            alice.clone(),
             1
         ));
-        assert!(Balances::free_balance(nominator) > balance);
+        assert!(Balances::free_balance(&nominator) > balance);
         assert!(Balances::total_issuance() > issuance);
-        assert_ok!(Staking::chill(RuntimeOrigin::signed(nominator)));
+        assert_ok!(Staking::chill(RuntimeOrigin::signed(nominator.clone())));
         assert_ok!(Staking::unbond(
-            RuntimeOrigin::signed(nominator),
+            RuntimeOrigin::signed(nominator.clone()),
             110 * TENSOR
         ));
         advance_to_era(2 + BondingDuration::get());
         assert_ok!(Staking::withdraw_unbonded(
-            RuntimeOrigin::signed(nominator),
+            RuntimeOrigin::signed(nominator.clone()),
             0
         ));
-        assert!(!pallet_staking::Bonded::<Runtime>::contains_key(nominator));
+        assert!(!pallet_staking::Bonded::<Runtime>::contains_key(&nominator));
         assert!(System::events().iter().any(|record| matches!(
             record.event,
             RuntimeEvent::Staking(pallet_staking::Event::Withdrawn { .. })
@@ -347,23 +391,23 @@ fn staking_intent_controls_future_session_and_consensus_authorities() {
         let (charlie, babe, grandpa) = authority("Charlie");
         let alice = authority("Alice").0;
         assert_ok!(Staking::bond(
-            RuntimeOrigin::signed(charlie),
+            RuntimeOrigin::signed(charlie.clone()),
             VALIDATOR_BOND,
             pallet_staking::RewardDestination::Staked
         ));
         assert_ok!(Session::set_keys(
-            RuntimeOrigin::signed(charlie),
+            RuntimeOrigin::signed(charlie.clone()),
             opaque::SessionKeys {
                 babe: babe.clone(),
                 grandpa: grandpa.clone()
             },
-            vec![]
+            seed_key_proof(&charlie, "//Charlie")
         ));
         assert_ok!(Staking::validate(
-            RuntimeOrigin::signed(charlie),
+            RuntimeOrigin::signed(charlie.clone()),
             Default::default()
         ));
-        assert_ok!(Staking::chill(RuntimeOrigin::signed(alice)));
+        assert_ok!(Staking::chill(RuntimeOrigin::signed(alice.clone())));
         advance_to_era(2);
         assert!(!Session::validators().contains(&alice));
         assert!(Session::validators().contains(&charlie));
@@ -381,17 +425,17 @@ fn first_block_of_new_validator_set_rewards_its_actual_author_in_the_new_era() {
         block(1);
         let (charlie, babe, grandpa) = authority("Charlie");
         assert_ok!(Staking::bond(
-            RuntimeOrigin::signed(charlie),
+            RuntimeOrigin::signed(charlie.clone()),
             VALIDATOR_BOND,
             pallet_staking::RewardDestination::Staked
         ));
         assert_ok!(Session::set_keys(
-            RuntimeOrigin::signed(charlie),
+            RuntimeOrigin::signed(charlie.clone()),
             opaque::SessionKeys { babe, grandpa },
-            vec![]
+            seed_key_proof(&charlie, "//Charlie")
         ));
         assert_ok!(Staking::validate(
-            RuntimeOrigin::signed(charlie),
+            RuntimeOrigin::signed(charlie.clone()),
             Default::default()
         ));
         assert_ok!(Staking::chill(RuntimeOrigin::signed(authority("Alice").0)));
@@ -416,7 +460,7 @@ fn first_block_of_new_validator_set_rewards_its_actual_author_in_the_new_era() {
             .position(|(who, _)| *who == charlie)
             .unwrap();
         let (author, era) = block_with_author(boundary, index as u32);
-        assert_eq!(author, Some(charlie));
+        assert_eq!(author, Some(charlie.clone()));
         assert_eq!(era, old_era + 1);
         assert_eq!(Staking::eras_reward_points(old_era), old_points);
         assert_eq!(
@@ -466,12 +510,12 @@ fn rotating_keys_preserves_historical_proofs_for_both_consensus_engines() {
                 .unwrap()
                 .public();
         assert_ok!(Session::set_keys(
-            RuntimeOrigin::signed(alice),
+            RuntimeOrigin::signed(alice.clone()),
             opaque::SessionKeys {
                 babe: new_babe.clone(),
                 grandpa: new_grandpa.clone(),
             },
-            vec![]
+            seed_key_proof(&alice, "//Alice//rotation")
         ));
         // Publishing replacement keys must not change the active epoch early.
         assert!(Babe::authorities().iter().any(|(key, _)| key == &old_babe));
@@ -512,6 +556,19 @@ fn babe_equivocation_reaches_offences_and_deferred_staking_slashes() {
     externalities.execute_with(|| {
         block(1);
         let (alice, babe, _) = authority("Alice");
+        let nominator = authority("Charlie").0;
+        assert_ok!(Staking::bond(
+            RuntimeOrigin::signed(nominator.clone()),
+            100 * TENSOR,
+            pallet_staking::RewardDestination::Stash,
+        ));
+        assert_ok!(Staking::nominate(
+            RuntimeOrigin::signed(nominator.clone()),
+            vec![alice.clone()],
+        ));
+        advance_to_era(1);
+        let offence_era = Staking::active_era().unwrap().index;
+        let offence_block = System::block_number();
         let pair = sp_consensus_babe::AuthorityPair::from_string("//Alice", None).unwrap();
         let proof = Historical::prove((sp_consensus_babe::KEY_TYPE, babe.clone())).unwrap();
         let author_index = Babe::authorities()
@@ -522,11 +579,11 @@ fn babe_equivocation_reaches_offences_and_deferred_staking_slashes() {
             let pre = sp_consensus_babe::digests::PreDigest::SecondaryPlain(
                 sp_consensus_babe::digests::SecondaryPlainPreDigest {
                     authority_index: author_index,
-                    slot: 1u64.into(),
+                    slot: u64::from(offence_block).into(),
                 },
             );
             let mut header = Header::new(
-                1,
+                offence_block,
                 H256::repeat_byte(root),
                 H256::zero(),
                 H256::zero(),
@@ -540,7 +597,7 @@ fn babe_equivocation_reaches_offences_and_deferred_staking_slashes() {
         };
         let equivocation = sp_consensus_babe::EquivocationProof {
             offender: babe,
-            slot: 1u64.into(),
+            slot: u64::from(offence_block).into(),
             first_header: header(1),
             second_header: header(2),
         };
@@ -578,23 +635,31 @@ fn babe_equivocation_reaches_offences_and_deferred_staking_slashes() {
             .iter()
             .any(|record| matches!(record.event, RuntimeEvent::Offences(_))));
         assert_eq!(
-            pallet_staking::Ledger::<Runtime>::get(alice)
+            pallet_staking::Ledger::<Runtime>::get(&alice)
                 .unwrap()
                 .active,
             VALIDATOR_BOND
         );
-        advance_to_era(SlashDeferDuration::get() + 1);
+        advance_to_era(offence_era + SlashDeferDuration::get() + 1);
         assert!(
-            pallet_staking::Ledger::<Runtime>::get(alice)
+            pallet_staking::Ledger::<Runtime>::get(&alice)
                 .unwrap()
                 .active
                 < VALIDATOR_BOND
+        );
+        // Historical proofs carry only account identity. Staking must still load
+        // the offence-era exposure and slash its nominators.
+        assert!(
+            pallet_staking::Ledger::<Runtime>::get(&nominator)
+                .unwrap()
+                .active
+                < 100 * TENSOR
         );
     });
 }
 
 #[test]
-fn grandpa_equivocation_queues_a_slash_for_the_h160_validator() {
+fn grandpa_equivocation_queues_a_slash_for_the_native_validator() {
     use sp_core::offchain::{testing::TestTransactionPoolExt, TransactionPoolExt};
     use sp_runtime::transaction_validity::TransactionSource;
     let mut externalities = ext();
@@ -654,7 +719,7 @@ fn grandpa_equivocation_queues_a_slash_for_the_h160_validator() {
                 if *validator == alice
         )));
         assert_eq!(
-            pallet_staking::Ledger::<Runtime>::get(alice)
+            pallet_staking::Ledger::<Runtime>::get(&alice)
                 .unwrap()
                 .active,
             VALIDATOR_BOND
@@ -671,10 +736,10 @@ fn election_at_registration_caps_includes_every_voter_within_weight_budget() {
         block(1);
         let mut candidates = vec![authority("Alice").0, authority("Bob").0];
         let fund_and_bond = |index, value| {
-            let account: AccountId = H160::from_low_u64_be(index).into();
+            let account: AccountId = H256::from_low_u64_be(index).to_fixed_bytes().into();
             drop(Balances::deposit_creating(&account, 2 * VALIDATOR_BOND));
             assert_ok!(Staking::bond(
-                RuntimeOrigin::signed(account),
+                RuntimeOrigin::signed(account.clone()),
                 value,
                 pallet_staking::RewardDestination::Stash
             ));
@@ -683,46 +748,50 @@ fn election_at_registration_caps_includes_every_voter_within_weight_budget() {
         for index in 2..MAX_VALIDATORS {
             let account = fund_and_bond(10_000 + index as u64, VALIDATOR_BOND);
             assert_ok!(Session::set_keys(
-                RuntimeOrigin::signed(account),
+                RuntimeOrigin::signed(account.clone()),
                 opaque::SessionKeys {
                     babe: sp_consensus_babe::AuthorityPair::from_seed(&[index as u8; 32]).public(),
                     grandpa: sp_consensus_grandpa::AuthorityPair::from_seed(&[index as u8; 32])
                         .public(),
                 },
-                vec![]
+                key_proof(
+                    &account,
+                    sp_core::sr25519::Pair::from_seed(&[index as u8; 32]),
+                    sp_core::ed25519::Pair::from_seed(&[index as u8; 32]),
+                )
             ));
             assert_ok!(Staking::validate(
-                RuntimeOrigin::signed(account),
+                RuntimeOrigin::signed(account.clone()),
                 Default::default()
             ));
             candidates.push(account);
         }
         let extra = fund_and_bond(99_999, VALIDATOR_BOND);
         assert_noop!(
-            Staking::validate(RuntimeOrigin::signed(extra), Default::default()),
+            Staking::validate(RuntimeOrigin::signed(extra.clone()), Default::default()),
             pallet_staking::Error::<Runtime>::TooManyValidators
         );
         let targets = candidates[..MAX_NOMINATIONS as usize].to_vec();
         for index in 0..MAX_NOMINATORS {
             let account = fund_and_bond(20_000 + index as u64, 100 * TENSOR);
             assert_ok!(Staking::nominate(
-                RuntimeOrigin::signed(account),
+                RuntimeOrigin::signed(account.clone()),
                 targets.clone()
             ));
         }
         assert_noop!(
-            Staking::nominate(RuntimeOrigin::signed(extra), targets),
+            Staking::nominate(RuntimeOrigin::signed(extra.clone()), targets),
             pallet_staking::Error::<Runtime>::TooManyNominators
         );
         assert_ok!(Staking::set_validator_count(
             RuntimeOrigin::root(),
             MAX_VALIDATORS
         ));
-        let supports = <Runtime as pallet_staking::Config>::ElectionProvider::elect().unwrap();
+        let supports = <Runtime as pallet_staking::Config>::ElectionProvider::elect(0).unwrap();
         assert_eq!(supports.len(), MAX_VALIDATORS as usize);
         let voters: BTreeSet<_> = supports
             .iter()
-            .flat_map(|(_, support)| support.voters.iter().map(|(account, _)| *account))
+            .flat_map(|(_, support)| support.voters.iter().map(|(account, _)| account.clone()))
             .collect();
         assert_eq!(voters.len(), (MAX_VALIDATORS + MAX_NOMINATORS) as usize);
         assert!(System::block_weight().total().ref_time() < MAXIMUM_BLOCK_WEIGHT.ref_time() / 2);
@@ -738,10 +807,13 @@ fn election_at_registration_caps_includes_every_voter_within_weight_budget() {
         );
         let (_, babe, _) = authority("Alice");
         let proof = Historical::prove((sp_consensus_babe::KEY_TYPE, babe.clone())).unwrap();
-        let (owner, exposure) =
+        let (owner, ()) =
             Historical::check_proof((sp_consensus_babe::KEY_TYPE, babe), proof).unwrap();
         assert_eq!(owner, authority("Alice").0);
-        assert_eq!(exposure.others.len(), MAX_NOMINATORS as usize);
+        assert_eq!(
+            Staking::eras_stakers(1, &owner).others.len(),
+            MAX_NOMINATORS as usize
+        );
     });
 }
 
@@ -765,19 +837,21 @@ fn oversized_registration_fails_election_instead_of_silently_dropping_votes() {
             ConfigOp::Noop,
         ));
         for index in 0..MAX_NOMINATORS + MAX_VALIDATORS - 1 {
-            let account: AccountId = H160::from_low_u64_be(30_000 + index as u64).into();
+            let account: AccountId = H256::from_low_u64_be(30_000 + index as u64)
+                .to_fixed_bytes()
+                .into();
             drop(Balances::deposit_creating(&account, 100 * TENSOR));
             assert_ok!(Staking::bond(
-                RuntimeOrigin::signed(account),
+                RuntimeOrigin::signed(account.clone()),
                 MIN_NOMINATOR_BOND,
                 pallet_staking::RewardDestination::Stash
             ));
             assert_ok!(Staking::nominate(
-                RuntimeOrigin::signed(account),
+                RuntimeOrigin::signed(account.clone()),
                 vec![authority("Alice").0]
             ));
         }
-        assert!(<Runtime as pallet_staking::Config>::ElectionProvider::elect().is_err());
+        assert!(<Runtime as pallet_staking::Config>::ElectionProvider::elect(0).is_err());
         let validators = Session::validators();
         for number in 2..=1 + EpochDuration::get() as u32 * SessionsPerEra::get() {
             block(number);
@@ -789,8 +863,10 @@ fn oversized_registration_fails_election_instead_of_silently_dropping_votes() {
             RuntimeEvent::Staking(pallet_staking::Event::StakingElectionFailed)
         )));
         for index in MAX_NOMINATORS..MAX_NOMINATORS + MAX_VALIDATORS - 1 {
-            let account: AccountId = H160::from_low_u64_be(30_000 + index as u64).into();
-            assert_ok!(Staking::chill(RuntimeOrigin::signed(account)));
+            let account: AccountId = H256::from_low_u64_be(30_000 + index as u64)
+                .to_fixed_bytes()
+                .into();
+            assert_ok!(Staking::chill(RuntimeOrigin::signed(account.clone())));
         }
         assert_ok!(Staking::set_staking_configs(
             RuntimeOrigin::root(),

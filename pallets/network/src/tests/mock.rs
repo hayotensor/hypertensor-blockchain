@@ -15,7 +15,6 @@
 
 use crate as pallet_network;
 use crate::*;
-use fp_account::EthereumSignature;
 use frame_support::weights::constants::WEIGHT_REF_TIME_PER_MILLIS;
 use frame_support::{
     derive_impl, parameter_types,
@@ -31,6 +30,7 @@ pub use frame_system::{EnsureRoot, EnsureRootWithSuccess};
 use sp_core::{ConstU128, ConstU32, ConstU64, H256, U256};
 use sp_runtime::traits::{AccountIdLookup, BlakeTwo256, IdentifyAccount, IdentityLookup, Verify};
 use sp_runtime::BuildStorage;
+use sp_runtime::MultiSignature;
 use sp_runtime::Perbill;
 use sp_runtime::Permill;
 
@@ -41,7 +41,9 @@ frame_support::construct_runtime!(
     pub enum Test
     {
     System: system,
-    InsecureRandomnessCollectiveFlip: pallet_insecure_randomness_collective_flip,
+    Timestamp: pallet_timestamp,
+    Babe: pallet_babe,
+    BabeRandomness: pallet_randomness,
     Balances: pallet_balances,
     Network: pallet_network,
     Collective: pallet_collective::<Instance1>,
@@ -100,7 +102,7 @@ parameter_types! {
   pub const SS58Prefix: u8 = 42;
 }
 
-pub type Signature = EthereumSignature;
+pub type Signature = MultiSignature;
 
 pub type AccountPublic = <Signature as Verify>::Signer;
 
@@ -114,7 +116,26 @@ pub type Balance = u128;
 
 pub const EXISTENTIAL_DEPOSIT: u128 = 500;
 
-impl pallet_insecure_randomness_collective_flip::Config for Test {}
+impl pallet_timestamp::Config for Test {
+    type Moment = u64;
+    type OnTimestampSet = Babe;
+    type MinimumPeriod = ConstU64<{ SLOT_DURATION / 2 }>;
+    type WeightInfo = ();
+}
+
+impl pallet_babe::Config for Test {
+    type EpochDuration = ConstU64<20>;
+    type ExpectedBlockTime = ConstU64<MILLISECS_PER_BLOCK>;
+    type EpochChangeTrigger = pallet_babe::SameAuthoritiesForever;
+    type DisabledValidators = ();
+    type WeightInfo = ();
+    type MaxAuthorities = ConstU32<32>;
+    type MaxNominators = ConstU32<256>;
+    type KeyOwnerProof = sp_session::MembershipProof;
+    type EquivocationReportSystem = ();
+}
+
+impl pallet_randomness::Config for Test {}
 
 #[derive_impl(pallet_balances::config_preludes::TestDefaultConfig)]
 impl pallet_balances::Config for Test {
@@ -247,7 +268,7 @@ impl Config for Test {
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = ConstU32<0>;
     type InitialMinSubnetDelegateStakeBalance = ConstU128<100_000_000_000_000_000_000>;
-    type Randomness = InsecureRandomnessCollectiveFlip;
+    type Randomness = BabeRandomness;
     type PalletId = NetworkPalletId;
     type TreasuryAccount = TreasuryAccount;
     type OverwatchEpochEmissions = OverwatchEpochEmissions;

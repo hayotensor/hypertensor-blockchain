@@ -3,8 +3,6 @@ use scale_codec::Codec;
 use sc_executor::WasmExecutor;
 use sp_runtime::traits::{Block as BlockT, MaybeDisplay};
 
-use crate::eth::EthCompatRuntimeApiCollection;
-
 /// Full backend.
 pub type FullBackend<B> = sc_service::TFullBackend<B>;
 /// Full client.
@@ -43,7 +41,6 @@ pub trait RuntimeApiCollection<
     Balance: Codec + MaybeDisplay,
 >:
     BaseRuntimeApiCollection<Block>
-    + EthCompatRuntimeApiCollection<Block>
     + sp_consensus_babe::BabeApi<Block>
     + sp_consensus_grandpa::GrandpaApi<Block>
     + frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce>
@@ -60,7 +57,6 @@ where
     Nonce: Codec,
     Balance: Codec + MaybeDisplay,
     Api: BaseRuntimeApiCollection<Block>
-        + EthCompatRuntimeApiCollection<Block>
         + sp_consensus_babe::BabeApi<Block>
         + sp_consensus_grandpa::GrandpaApi<Block>
         + frame_system_rpc_runtime_api::AccountNonceApi<Block, AccountId, Nonce>

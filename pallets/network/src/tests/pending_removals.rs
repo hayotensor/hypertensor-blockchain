@@ -75,19 +75,21 @@ fn seed_election_candidates(subnet_id: u32, candidates: &[u32]) {
     }
 }
 
-fn find_election_block(
+fn seed_election_draw(
     subnet_id: u32,
     subnet_epoch: u32,
     candidate_count: usize,
     wanted_index: impl Fn(usize) -> bool,
-) -> (u32, usize) {
-    (0..10_000)
-        .find_map(|block| {
+) -> usize {
+    (0u32..10_000)
+        .find_map(|seed| {
+            // Vary the test entropy, not a producer-controlled draw block.
+            pallet_babe::Randomness::<Test>::put(sp_io::hashing::blake2_256(&seed.to_le_bytes()));
             let index = Network::get_bounded_random_index(
-                (subnet_id, subnet_epoch, block),
+                (subnet_id, subnet_epoch),
                 candidate_count as u32,
             )? as usize;
-            wanted_index(index).then_some((block, index))
+            wanted_index(index).then_some(index)
         })
         .expect("bounded election sampler reaches the requested test index")
 }
@@ -95,7 +97,7 @@ fn find_election_block(
 #[test]
 fn election_scans_to_the_next_healthy_candidate_wraps_and_handles_all_pending() {
     new_test_ext().execute_with(|| {
-        // The mock collective-flip provider is initialized from the first post-genesis block.
+        // BABE entropy is controlled explicitly for these pending-removal cases.
         System::set_block_number(1);
         let candidates = vec![10, 20, 30, 40];
 
@@ -103,7 +105,7 @@ fn election_scans_to_the_next_healthy_candidate_wraps_and_handles_all_pending() 
         let successor_subnet_id = 11;
         let successor_epoch = 7;
         seed_election_candidates(successor_subnet_id, &candidates);
-        let (successor_block, selected_index) = find_election_block(
+        let selected_index = seed_election_draw(
             successor_subnet_id,
             successor_epoch,
             candidates.len(),
@@ -111,7 +113,7 @@ fn election_scans_to_the_next_healthy_candidate_wraps_and_handles_all_pending() 
         );
         mark_active_pending(successor_subnet_id, candidates[selected_index]);
 
-        Network::elect_validator(successor_subnet_id, successor_epoch, successor_block);
+        Network::elect_validator(successor_subnet_id, successor_epoch, System::block_number());
 
         let successor_round =
             SubnetElectedValidator::<Test>::get(successor_subnet_id, successor_epoch).unwrap();
@@ -136,13 +138,13 @@ fn election_scans_to_the_next_healthy_candidate_wraps_and_handles_all_pending() 
         let wrap_subnet_id = 12;
         let wrap_epoch = 8;
         seed_election_candidates(wrap_subnet_id, &candidates);
-        let (wrap_block, selected_index) =
-            find_election_block(wrap_subnet_id, wrap_epoch, candidates.len(), |index| {
+        let selected_index =
+            seed_election_draw(wrap_subnet_id, wrap_epoch, candidates.len(), |index| {
                 index + 1 == candidates.len()
             });
         mark_active_pending(wrap_subnet_id, candidates[selected_index]);
 
-        Network::elect_validator(wrap_subnet_id, wrap_epoch, wrap_block);
+        Network::elect_validator(wrap_subnet_id, wrap_epoch, System::block_number());
 
         assert_eq!(
             SubnetElectedValidator::<Test>::get(wrap_subnet_id, wrap_epoch)

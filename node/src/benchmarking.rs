@@ -5,14 +5,12 @@ use std::{sync::Arc, time::Duration};
 
 use scale_codec::Encode;
 // Substrate
+use hypertensor_runtime::{self as runtime, AccountId, Balance, BalancesCall, SystemCall};
 use sc_cli::Result;
 use sc_client_api::BlockBackend;
-use sp_core::{ecdsa, Pair};
+use sp_core::{sr25519, Pair};
 use sp_inherents::{InherentData, InherentDataProvider};
 use sp_runtime::{generic::Era, OpaqueExtrinsic, SaturatedConversion};
-// Frontier
-use fp_account::AccountId20;
-use hypertensor_runtime::{self as runtime, AccountId, Balance, BalancesCall, SystemCall};
 
 use crate::service::Client;
 
@@ -40,7 +38,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for RemarkBuilder {
     }
 
     fn build(&self, nonce: u32) -> std::result::Result<OpaqueExtrinsic, &'static str> {
-        let acc = ecdsa::Pair::from_string("//Bob", None).expect("static values are valid; qed");
+        let acc = sr25519::Pair::from_string("//Bob", None).expect("static values are valid; qed");
         let extrinsic: OpaqueExtrinsic = create_benchmark_extrinsic(
             self.client.as_ref(),
             acc,
@@ -83,12 +81,12 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferKeepAliveBuilder {
     }
 
     fn build(&self, nonce: u32) -> std::result::Result<OpaqueExtrinsic, &'static str> {
-        let acc = ecdsa::Pair::from_string("//Bob", None).expect("static values are valid; qed");
+        let acc = sr25519::Pair::from_string("//Bob", None).expect("static values are valid; qed");
         let extrinsic: OpaqueExtrinsic = create_benchmark_extrinsic(
             self.client.as_ref(),
             acc,
             BalancesCall::transfer_keep_alive {
-                dest: self.dest,
+                dest: self.dest.clone(),
                 value: self.value,
             }
             .into(),
@@ -105,7 +103,7 @@ impl frame_benchmarking_cli::ExtrinsicBuilder for TransferKeepAliveBuilder {
 /// Note: Should only be used for benchmarking.
 pub fn create_benchmark_extrinsic(
     client: &Client,
-    sender: ecdsa::Pair,
+    sender: sr25519::Pair,
     call: runtime::RuntimeCall,
     nonce: u32,
 ) -> runtime::UncheckedExtrinsic {
@@ -121,7 +119,8 @@ pub fn create_benchmark_extrinsic(
         .checked_next_power_of_two()
         .map(|c| c / 2)
         .unwrap_or(2) as u64;
-    let extra: runtime::SignedExtra = (
+    let extra: runtime::TxExtension = (
+        frame_system::AuthorizeCall::<runtime::Runtime>::new(),
         frame_system::CheckNonZeroSender::<runtime::Runtime>::new(),
         frame_system::CheckSpecVersion::<runtime::Runtime>::new(),
         frame_system::CheckTxVersion::<runtime::Runtime>::new(),
@@ -133,12 +132,15 @@ pub fn create_benchmark_extrinsic(
         frame_system::CheckNonce::<runtime::Runtime>::from(nonce),
         frame_system::CheckWeight::<runtime::Runtime>::new(),
         pallet_transaction_payment::ChargeTransactionPayment::<runtime::Runtime>::from(0),
+        Default::default(), // Revive SetOrigin is inert for native signed transactions.
+        frame_system::WeightReclaim::<runtime::Runtime>::new(),
     );
 
     let raw_payload = runtime::SignedPayload::from_raw(
         call.clone(),
         extra.clone(),
         (
+            (),
             (),
             runtime::VERSION.spec_version,
             runtime::VERSION.transaction_version,
@@ -147,16 +149,19 @@ pub fn create_benchmark_extrinsic(
             (),
             (),
             (),
+            (),
+            (),
         ),
     );
     let signature = raw_payload.using_encoded(|e| sender.sign(e));
 
-    runtime::UncheckedExtrinsic::new_signed(
+    sp_runtime::generic::UncheckedExtrinsic::new_signed(
         call,
-        AccountId20::from(sender.public()),
-        runtime::Signature::new(signature),
+        AccountId::from(sender.public()),
+        signature.into(),
         extra,
     )
+    .into()
 }
 
 /// Generates inherent data for the `benchmark overhead` command.

@@ -26,29 +26,29 @@ strum = { version = "0.26.3", features = ["derive"], default-features = false }
 strum_macros = { version = "0.26.3", default-features = false }
 pallet-balances.workspace = true
 log.workspace = true
-pallet-insecure-randomness-collective-flip.workspace = true
 sp-std.workspace = true
 sp-core = { features = ["serde"], workspace = true }
 sp-runtime = { workspace = true }
+sp-io.workspace = true
 libm.workspace = true
 pallet-collective = { version = "37.0.0", default-features = false, path = "../collective" }
 pallet-treasury.workspace = true
-fp-account = { workspace = true, features = ["serde"] }
-pallet-evm.workspace = true
 bs58.workspace = true
 network-rpc-types.workspace = true
 
 [dev-dependencies]
-sp-io = { default-features = true, workspace = true }
 env_logger = "0.10"
 pallet-tx-pause.workspace = true
+pallet-babe = { workspace = true, features = ["std"] }
+pallet-randomness = { workspace = true, features = ["std"] }
+pallet-timestamp = { workspace = true, features = ["std"] }
+sp-session = { workspace = true, features = ["std"] }
 
 [features]
 default = ["std"]
 std = [
 	"bs58/std",
 	"codec/std",
-	"fp-account/std",
 	"frame-benchmarking?/std",
 	"frame-support/std",
 	"frame-system/std",
@@ -56,12 +56,11 @@ std = [
 	"network-rpc-types/std",
 	"pallet-balances/std",
 	"pallet-collective/std",
-	"pallet-evm/std",
-	"pallet-insecure-randomness-collective-flip/std",
 	"pallet-treasury/std",
 	"pallet-tx-pause/std",
 	"scale-info/std",
 	"sp-core/std",
+	"sp-io/std",
 	"sp-runtime/std",
 	"sp-std/std",
 ]

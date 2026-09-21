@@ -58,7 +58,7 @@ fn test_do_commit_and_reveal_weights_success() {
         let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
+            hotkey.clone(),
             reward_rate,
             None,
             None,
@@ -507,7 +507,7 @@ fn test_do_commit_and_reveal_weights_not_key_owner_error() {
         let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
+            hotkey.clone(),
             reward_rate,
             None,
             None,
@@ -555,7 +555,7 @@ fn test_do_commit_and_reveal_weights_commits_empty_error() {
         let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
+            hotkey.clone(),
             reward_rate,
             None,
             None,
@@ -626,7 +626,7 @@ fn test_do_commit_and_reveal_weights_already_committed_error() {
         let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
+            hotkey.clone(),
             reward_rate,
             None,
             None,

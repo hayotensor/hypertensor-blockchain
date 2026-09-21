@@ -14,100 +14,43 @@
 // limitations under the License.
 
 use super::*;
-use sp_runtime::traits::Hash;
-
-const U32_BYTE_COUNT: usize = core::mem::size_of::<u32>();
-const U64_BYTE_COUNT: usize = core::mem::size_of::<u64>();
+use core::num::NonZeroU32;
 
 impl<T: Config> Pallet<T> {
-    pub fn get_random_number_v2(seed: u32) -> u32 {
-        let mut random_number = Self::generate_random_number(seed);
-        let mut i = 1;
-        const MAX_ATTEMPTS: u32 = 10; // Prevent infinite loop
-
-        while random_number == u32::MAX && i < MAX_ATTEMPTS {
-            random_number = Self::generate_random_number(seed.wrapping_add(i));
-            i += 1;
-        }
-
-        random_number
-    }
-
-    pub fn get_random_number(seed: u32, total: u32) -> u32 {
-        let random_number = Self::generate_random_number(seed);
-        random_number % total
-    }
-
-    /// Generate a random number from a given seed.
-    /// Note that there is potential bias introduced by using modulus operator.
-    /// You should call this function with different seed values until the random
-    /// number lies within `u32::MAX - u32::MAX % n`.
-    /// TODO: deal with randomness freshness
-    /// https://github.com/paritytech/substrate/issues/8311
-    /// This is not a secure random number generator but serves its purpose for choosing random numbers
-    pub fn generate_random_number_v1(seed: u32) -> u32 {
-        let (random_seed, _) = T::Randomness::random(&(T::PalletId::get(), seed).encode());
-        let random_number = <u32>::decode(&mut random_seed.as_ref())
-            .expect("secure hashes should always be bigger than u32; qed");
-
-        random_number
-    }
-
-    pub fn generate_random_number(seed: u32) -> u32 {
-        let (random_seed, _) = T::Randomness::random(&(T::PalletId::get(), seed).encode());
-
-        // Take the first encoded u32 and interpret it in little-endian order.
-        let bytes = random_seed.as_ref();
-        let mut array = [0u8; U32_BYTE_COUNT];
-        array.copy_from_slice(&bytes[..U32_BYTE_COUNT]);
-
-        u32::from_le_bytes(array)
-    }
-
-    /// Return a bounded random index for an arbitrary encoded domain.
+    /// Sample an index in `[0, upper_bound)` using the configured BABE provider.
     ///
-    /// This samples an index in `[0, upper_bound)`, mixes caller-provided domain data with pallet
-    /// and parent-block domain data, and avoids the direct modulo path except as a deterministic
-    /// fallback. The runtime still uses `pallet_insecure_randomness_collective_flip`, so this is
-    /// not cryptographic randomness.
+    /// Domains must identify the application round. Do not include a draw-time
+    /// block hash, timestamp, or nonce that can be chosen after the seed is known.
+    /// The provider's delayed seed is stable within a BABE epoch. Candidate-pool
+    /// commitment timing is a separate requirement; this helper does not enforce it.
+    ///
+    /// Every nonempty pool gets an index, including during BABE bootstrap. Reduce
+    /// the entire hash instead of retrying a truncated sample: for a uniform
+    /// 256-bit hash and a u32 bound, statistical distance from uniform is below
+    /// 2^-224. There is no retry limit that can suppress an otherwise valid draw.
+    /// Availability does not imply that the seed contains fresh VRF entropy.
     pub(crate) fn get_bounded_random_index<Domain: Encode>(
         domain: Domain,
         upper_bound: u32,
     ) -> Option<u32> {
-        if upper_bound == 0 {
-            return None;
-        }
-
-        if upper_bound == 1 {
+        let upper_bound = NonZeroU32::new(upper_bound)?;
+        if upper_bound.get() == 1 {
             return Some(0);
         }
 
-        let modulus = upper_bound as u64;
-        let parent_hash = frame_system::Pallet::<T>::parent_hash();
-        let subject = (T::PalletId::get(), parent_hash, domain, modulus);
+        let modulus = u64::from(upper_bound.get());
+        let subject = (T::PalletId::get(), domain, modulus);
         let (random_seed, _) = T::Randomness::random(&subject.encode());
-        let rejection_zone = u64::MAX - (u64::MAX % modulus);
-        let mut fallback = 0u64;
-        const MAX_RANDOM_INDEX_ATTEMPTS: u32 = 8;
-
-        for attempt in 0..MAX_RANDOM_INDEX_ATTEMPTS {
-            let entropy = T::Hashing::hash_of(&(random_seed.as_ref(), subject.encode(), attempt));
-            let value = Self::first_u64_from_hash(entropy);
-            fallback = value;
-
-            if value < rejection_zone {
-                return Some((value % modulus) as u32);
-            }
-        }
-
-        Some((fallback % modulus) as u32)
+        Some(index_from_hash(random_seed.as_ref(), upper_bound))
     }
+}
 
-    fn first_u64_from_hash(hash: T::Hash) -> u64 {
-        let mut array = [0u8; U64_BYTE_COUNT];
-        for (dst, src) in array.iter_mut().zip(hash.as_ref().iter()) {
-            *dst = *src;
-        }
-        u64::from_le_bytes(array)
-    }
+/// Interpret all hash bytes as a big-endian integer and reduce modulo the bound.
+/// No allocation, fixed-width hash assumption, division by zero, or retries.
+pub(crate) fn index_from_hash(hash: &[u8], upper_bound: NonZeroU32) -> u32 {
+    let modulus = u64::from(upper_bound.get());
+    hash.iter().fold(0u64, |remainder, byte| {
+        // remainder < modulus <= u32::MAX, so this intermediate fits in 40 bits.
+        (remainder * 256 + u64::from(*byte)) % modulus
+    }) as u32
 }

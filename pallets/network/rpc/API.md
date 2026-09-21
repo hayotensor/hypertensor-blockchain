@@ -7,7 +7,7 @@ return SCALE-encoded response blobs.
 
 - `u128` values (balances, shares, fixed-point percentages, weights, and reputation) are decimal
   JSON strings, for example `"1000000000000000000"`.
-- Arbitrary byte fields are lowercase, `0x`-prefixed hex strings. `AccountId20` and `H256` values
+- Arbitrary byte fields are lowercase, `0x`-prefixed hex strings. `H256` values
   use their standard `0x`-prefixed JSON forms.
 - Enums and object fields use `camelCase`.
 - Optional entity and historical-round lookups return `null` when the requested record does not
@@ -97,3 +97,5 @@ not reconstruct old rounds from current node metadata.
 | `-32010` | Network domain error, such as a missing parent entity or inconsistent state |
 
 Domain errors include a typed JSON value in the error `data` field.
+
+Accounts use the SDK `AccountId32` type and serialize as SS58 strings.

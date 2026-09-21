@@ -13,17 +13,12 @@ repository = { workspace = true }
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-async-trait = { workspace = true }
 clap = { workspace = true }
 futures = { workspace = true }
-hex-literal = { workspace = true }
 jsonrpsee = { workspace = true, features = ["server", "macros"] }
-log = { workspace = true }
 scale-codec = { workspace = true }
-serde_json = { workspace = true, features = ["arbitrary_precision"] }
 
 # Substrate
-prometheus-endpoint = { workspace = true }
 sp-genesis-builder.workspace = true
 sc-basic-authorship = { workspace = true }
 sc-chain-spec = { workspace = true }
@@ -31,12 +26,12 @@ sc-cli = { workspace = true }
 sc-client-api = { workspace = true }
 sc-consensus = { workspace = true }
 sc-consensus-babe = { workspace = true }
+sc-consensus-slots = { workspace = true }
 sc-consensus-grandpa = { workspace = true }
 sc-executor = { workspace = true }
 sc-network = { workspace = true }
 sc-network-sync = { workspace = true }
 sc-offchain = { workspace = true }
-sc-rpc = { workspace = true }
 sc-service = { workspace = true }
 sc-telemetry = { workspace = true }
 sc-transaction-pool = { workspace = true }
@@ -65,24 +60,7 @@ frame-benchmarking-cli = { workspace = true, optional = true }
 frame-system = { workspace = true }
 pallet-transaction-payment = { workspace = true }
 
-# Frontier
-fc-api = { workspace = true }
-fc-cli = { workspace = true }
-fc-consensus = { workspace = true }
-fc-db = { workspace = true }
-fc-mapping-sync = { workspace = true }
-fc-rpc = { workspace = true }
-fc-rpc-core = { workspace = true }
-fc-storage = { workspace = true }
-fp-account = { workspace = true }
-fp-dynamic-fee = { workspace = true, features = ["default"] }
-fp-evm = { workspace = true, features = ["default"] }
-fp-rpc = { workspace = true, features = ["default"] }
 hypertensor-runtime = { workspace = true, features = ["std"] }
-
-# Cumulus primitives
-cumulus-primitives-proof-size-hostfunction = { workspace = true }
-cumulus-primitives-storage-weight-reclaim = { workspace = true }
 
 network-custom-rpc.workspace = true
 network-custom-rpc-runtime-api.workspace = true
@@ -91,30 +69,16 @@ network-custom-rpc-runtime-api.workspace = true
 substrate-build-script-utils = { workspace = true }
 
 [features]
-default = [
-	"rocksdb",
-	"sql",
-	"txpool",
-	"rpc-binary-search-estimate",
-]
+default = ["rocksdb"]
+fast-runtime = ["hypertensor-runtime/fast-runtime"]
 rocksdb = [
 	"sc-cli/rocksdb",
 	"sc-service/rocksdb",
-	"fc-cli/rocksdb",
-	"fc-db/rocksdb",
-	"fc-mapping-sync/rocksdb",
-	"fc-rpc/rocksdb",
 	"hypertensor-runtime/with-rocksdb-weights",
 ]
 paritydb = [
 	"hypertensor-runtime/with-paritydb-weights",
 ]
-sql = [
-	"fc-db/sql",
-	"fc-mapping-sync/sql",
-]
-txpool = ["fc-rpc/txpool"]
-rpc-binary-search-estimate = ["fc-rpc/rpc-binary-search-estimate"]
 runtime-benchmarks = [
 	"frame-benchmarking/runtime-benchmarks",
 	"frame-benchmarking-cli/runtime-benchmarks",

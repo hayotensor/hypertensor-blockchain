@@ -27,8 +27,10 @@ sp-runtime = { workspace = true }
 [dev-dependencies]
 pallet-balances = { workspace = true, default-features = false }
 pallet-network = { version = "4.0.0-dev", default-features = false, features = ["std"], path = "../network" }
-pallet-insecure-randomness-collective-flip.workspace = true
-fp-account = { workspace = true, features = ["serde"] }
+pallet-babe = { workspace = true, features = ["std"] }
+pallet-randomness = { workspace = true, features = ["std"] }
+pallet-timestamp = { workspace = true, features = ["std"] }
+sp-session = { workspace = true, features = ["std"] }
 
 [features]
 default = ["std"]

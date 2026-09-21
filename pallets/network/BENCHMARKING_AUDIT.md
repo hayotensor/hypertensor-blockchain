@@ -39,16 +39,10 @@ Final validation after the guarded 37-method, two-implementation splice was:
 - ordinary pallet regression tests: 785 passed, 0 failed;
 - generated benchmark harness: 222 passed, 0 failed (220 public plus two extras);
 - RPC wire-shape tests: 6 passed, 0 failed; custom RPC tests: 3 passed, 0 failed;
-- pallet, runtime-benchmark runtime, runtime API, and precompile checks passed;
-- Solidity compilation and TypeScript/Markdown formatting checks passed;
+- pallet, runtime-benchmark runtime, and runtime API checks passed;
 - structural parity and component-wise removal-envelope assertions passed;
 - `cargo fmt --all -- --check` and `git diff --check` passed; and
 - the repository-wide search found no deleted eligibility/reputation symbol.
-
-The checked-in EVM TypeScript project still requires its generated
-`@polkadot-api/descriptors` package before `tsc --noEmit` or chain-backed tests can run. Solidity
-compilation and ABI/Solidity/precompile selector parity do not depend on that missing generated
-package and were verified separately.
 
 ## Reward-first pending-removal addendum
 
@@ -316,3 +310,22 @@ rotation for mature items whose refunds cannot be recorded. The queue-rebuild be
 the all-rotated case using the same bounded per-ID pushes as production. The six homogeneous and
 mixed execution envelopes were regenerated in the same 50-step, 20-repeat compiled-Wasm run with
 proof recording and verification enabled. Only those seven generated method regions were merged.
+
+## BABE randomness integration (2026-09-21)
+
+Network now reads `Babe::Randomness` and `Babe::EpochStart` through
+`pallet-randomness`. Election no longer reads the parent hash or includes the
+election block in its random subject. The unused scalar random-number helpers
+have been removed. The subsequent availability audit replaced the bounded
+rejection sampler with full-hash modular reduction: 32 arithmetic steps with no
+retry hashes and no exhaustion path for a nonempty pool.
+
+The three election methods in each `WeightInfo` implementation retain their
+previous measured reference time, read counts, and proof allowances. The old
+randomness path read the parent hash, system block number, and an 81-hash buffer;
+the replacement reads a 32-byte seed and the pair of epoch-start block numbers.
+The new path has no additional storage operations for range reduction. The storage
+annotations were updated to identify the BABE keys, while the larger existing
+envelopes remain in place. This change is not a hardware benchmark regeneration;
+regenerate these methods with the final candidate-commitment protocol and target
+validator hardware before launch.

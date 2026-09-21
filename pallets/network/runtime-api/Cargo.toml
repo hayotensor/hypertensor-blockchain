@@ -11,11 +11,11 @@ readme = "README.md"
 
 [dependencies]
 sp-api.workspace = true
+sp-runtime.workspace = true
 frame-support.workspace = true
 serde = { features = [
 	"derive",
 ], workspace = true }
-fp-account = { workspace = true, features = ["serde"] }
 
 pallet-network.workspace = true
 network-rpc-types.workspace = true
@@ -24,6 +24,7 @@ network-rpc-types.workspace = true
 default = ["std"]
 std = [ 
   "sp-api/std",
+  "sp-runtime/std",
   "frame-support/std",
   "pallet-network/std",
   "network-rpc-types/std",

@@ -52,7 +52,7 @@ use scale_info::TypeInfo;
 use sp_io::storage;
 use sp_runtime::{
     traits::{Dispatchable, Hash},
-    DispatchError, RuntimeDebug,
+    DispatchError,
 };
 
 use frame_support::{
@@ -139,7 +139,17 @@ impl DefaultVote for MoreThanMajorityThenPrimeDefaultVote {
 }
 
 /// Origin for the collective module.
-#[derive(PartialEq, Eq, Clone, RuntimeDebug, Encode, Decode, TypeInfo, MaxEncodedLen)]
+#[derive(
+    PartialEq,
+    Eq,
+    Clone,
+    Debug,
+    Encode,
+    Decode,
+    codec::DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+)]
 #[scale_info(skip_type_params(I))]
 #[codec(mel_bound(AccountId: MaxEncodedLen))]
 pub enum RawOrigin<AccountId, I> {
@@ -164,7 +174,7 @@ impl<AccountId, I> GetBacking for RawOrigin<AccountId, I> {
 }
 
 /// Info for keeping track of a motion being voted on.
-#[derive(PartialEq, Eq, Clone, Encode, Decode, RuntimeDebug, TypeInfo)]
+#[derive(PartialEq, Eq, Clone, Encode, Decode, codec::DecodeWithMemTracking, Debug, TypeInfo)]
 pub struct Votes<AccountId, BlockNumber> {
     /// The proposal's unique index.
     index: ProposalIndex,
@@ -1241,7 +1251,7 @@ impl<
 }
 
 impl_ensure_origin_with_arg_ignoring_arg! {
-    impl< { O: .., I: 'static, AccountId: Decode, T } >
+    impl< { O: Into<Result<RawOrigin<AccountId, I>, O>> + From<RawOrigin<AccountId, I>>, I: 'static, AccountId: Decode, T } >
         EnsureOriginWithArg<O, T> for EnsureMember<AccountId, I>
     {}
 }
@@ -1269,7 +1279,7 @@ impl<
 }
 
 impl_ensure_origin_with_arg_ignoring_arg! {
-    impl< { O: .., I: 'static, const N: u32, AccountId, T } >
+    impl< { O: Into<Result<RawOrigin<AccountId, I>, O>> + From<RawOrigin<AccountId, I>>, I: 'static, const N: u32, AccountId, T } >
         EnsureOriginWithArg<O, T> for EnsureMembers<AccountId, I, N>
     {}
 }
@@ -1300,7 +1310,7 @@ impl<
 }
 
 impl_ensure_origin_with_arg_ignoring_arg! {
-    impl< { O: .., I: 'static, const N: u32, const D: u32, AccountId, T } >
+    impl< { O: Into<Result<RawOrigin<AccountId, I>, O>> + From<RawOrigin<AccountId, I>>, I: 'static, const N: u32, const D: u32, AccountId, T } >
         EnsureOriginWithArg<O, T> for EnsureProportionMoreThan<AccountId, I, N, D>
     {}
 }
@@ -1331,7 +1341,7 @@ impl<
 }
 
 impl_ensure_origin_with_arg_ignoring_arg! {
-    impl< { O: .., I: 'static, const N: u32, const D: u32, AccountId, T } >
+    impl< { O: Into<Result<RawOrigin<AccountId, I>, O>> + From<RawOrigin<AccountId, I>>, I: 'static, const N: u32, const D: u32, AccountId, T } >
         EnsureOriginWithArg<O, T> for EnsureProportionAtLeast<AccountId, I, N, D>
     {}
 }

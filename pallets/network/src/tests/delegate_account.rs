@@ -34,7 +34,7 @@ fn test_update_delegate_account() {
         assert_ok!(Network::update_validator_delegate_account(
             RuntimeOrigin::signed(coldkey.clone()),
             current_id,
-            Some(new_delegate_account_id),
+            Some(new_delegate_account_id.clone()),
             Some(delegate_rate),
         ));
 
@@ -220,7 +220,7 @@ fn test_update_delegate_account_delegate_account_cannot_be_hotkey_error() {
         let reward_rate = test_percent(1, 20); // 5%
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
+            hotkey.clone(),
             reward_rate,
             None,
             None,
@@ -251,7 +251,7 @@ fn test_register_subnet_node_delegate_account_cannot_be_hotkey_error() {
         let hotkey = account(1);
 
         let delegate_account = DelegateAccount {
-            account_id: hotkey,
+            account_id: hotkey.clone(),
             rate: 0,
         };
 
@@ -307,7 +307,7 @@ fn test_register_subnet_node_delegate_account_cannot_be_coldkey_error() {
         let coldkey = account(0);
 
         let delegate_account = DelegateAccount {
-            account_id: coldkey,
+            account_id: coldkey.clone(),
             rate: 0,
         };
 
@@ -382,7 +382,7 @@ fn test_register_subnet_node_delegate_account_invalid_delegate_account_rate_erro
         assert_err!(
             Network::do_register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
-                hotkey,
+                hotkey.clone(),
                 reward_rate,
                 Some(delegate_account),
                 None,

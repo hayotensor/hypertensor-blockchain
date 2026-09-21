@@ -232,7 +232,7 @@ fn test_do_owner_update_churn_limit() {
         let new_value = ChurnLimit::<Test>::get(subnet_id) + 1;
 
         assert_ok!(Network::owner_update_churn_limit(
-            RuntimeOrigin::signed(original_owner),
+            RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
             new_value
         ));
@@ -241,7 +241,7 @@ fn test_do_owner_update_churn_limit() {
 
         assert_err!(
             Network::owner_update_churn_limit(
-                RuntimeOrigin::signed(original_owner),
+                RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
                 MinChurnLimit::<Test>::get() - 1
             ),
@@ -374,7 +374,7 @@ fn test_do_owner_update_idle_classification_epochs() {
         let new_value = IdleClassificationEpochs::<Test>::get(subnet_id) + 1;
 
         assert_ok!(Network::owner_update_idle_classification_epochs(
-            RuntimeOrigin::signed(original_owner),
+            RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
             new_value
         ));
@@ -397,7 +397,7 @@ fn test_do_owner_update_idle_classification_epochs() {
 
         assert_err!(
             Network::owner_update_idle_classification_epochs(
-                RuntimeOrigin::signed(original_owner),
+                RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
                 MinIdleClassificationEpochs::<Test>::get() - 1
             ),
@@ -428,7 +428,7 @@ fn test_do_owner_update_included_classification_epochs() {
         let new_value = IncludedClassificationEpochs::<Test>::get(subnet_id) + 1;
 
         assert_ok!(Network::owner_update_included_classification_epochs(
-            RuntimeOrigin::signed(original_owner),
+            RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
             new_value
         ));
@@ -457,7 +457,7 @@ fn test_do_owner_update_included_classification_epochs() {
 
         assert_err!(
             Network::owner_update_included_classification_epochs(
-                RuntimeOrigin::signed(original_owner),
+                RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
                 MinIncludedClassificationEpochs::<Test>::get() - 1
             ),
@@ -486,7 +486,7 @@ fn test_do_owner_update_target_node_registrations_per_epoch() {
         let new_value = TargetNodeRegistrationsPerEpoch::<Test>::get(subnet_id) - 1;
 
         assert_ok!(Network::owner_update_target_node_registrations_per_epoch(
-            RuntimeOrigin::signed(original_owner),
+            RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
             new_value
         ));
@@ -498,7 +498,7 @@ fn test_do_owner_update_target_node_registrations_per_epoch() {
 
         assert_err!(
             Network::owner_update_target_node_registrations_per_epoch(
-                RuntimeOrigin::signed(original_owner),
+                RuntimeOrigin::signed(original_owner.clone()),
                 subnet_id,
                 MaxRegisteredNodes::<Test>::get(subnet_id) + 1
             ),
@@ -527,7 +527,7 @@ fn test_do_owner_update_node_burn_rate_alpha() {
         let new_value = NodeBurnRateAlpha::<Test>::get(subnet_id) - 1;
 
         assert_ok!(Network::owner_update_node_burn_rate_alpha(
-            RuntimeOrigin::signed(original_owner),
+            RuntimeOrigin::signed(original_owner.clone()),
             subnet_id,
             new_value
         ));
@@ -3333,7 +3333,7 @@ fn test_owner_add_initial_validators_rejects_oversized_input_before_mutation() {
                 pause: None,
             },
         );
-        SubnetOwner::<Test>::insert(subnet_id, owner);
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
         let original = BTreeMap::from([(1, 1)]);
         NodeRegistrationInitialValidatorIds::<Test>::insert(subnet_id, &original);
         let oversized: BTreeMap<u32, u32> = (1..=NetworkMaxRegisteredNodesUpperBound::get()
@@ -3376,7 +3376,7 @@ fn test_owner_initial_validator_rotation_cannot_grow_tracking_union() {
                 pause: None,
             },
         );
-        SubnetOwner::<Test>::insert(subnet_id, owner);
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
 
         let tracked: BTreeMap<u32, u32> = (1..=NetworkMaxRegisteredNodesUpperBound::get())
             .map(|validator_id| (validator_id, 1))
@@ -3424,7 +3424,7 @@ fn test_owner_remove_initial_validators_rejects_oversized_input() {
                 pause: None,
             },
         );
-        SubnetOwner::<Test>::insert(subnet_id, owner);
+        SubnetOwner::<Test>::insert(subnet_id, &owner);
         let original: BTreeMap<u32, u32> = (1..=NetworkMaxRegisteredNodesUpperBound::get())
             .map(|validator_id| (validator_id, 1))
             .collect();
@@ -4762,17 +4762,17 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
         SubnetOwner::<Test>::insert(subnet_id, &actual_owner);
 
         assert_err!(
-            Network::owner_pause_subnet(RuntimeOrigin::signed(fake_owner), subnet_id),
+            Network::owner_pause_subnet(RuntimeOrigin::signed(fake_owner.clone()), subnet_id),
             Error::<Test>::NotSubnetOwner
         );
 
         assert_err!(
-            Network::owner_unpause_subnet(RuntimeOrigin::signed(fake_owner), subnet_id),
+            Network::owner_unpause_subnet(RuntimeOrigin::signed(fake_owner.clone()), subnet_id),
             Error::<Test>::NotSubnetOwner
         );
 
         assert_err!(
-            Network::owner_deactivate_subnet(RuntimeOrigin::signed(fake_owner), subnet_id),
+            Network::owner_deactivate_subnet(RuntimeOrigin::signed(fake_owner.clone()), subnet_id),
             Error::<Test>::NotSubnetOwner
         );
 
@@ -4780,7 +4780,7 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
 
         assert_err!(
             Network::owner_update_name(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 new_subnet_name.clone()
             ),
@@ -4791,7 +4791,7 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
 
         assert_err!(
             Network::owner_update_repo(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 new_subnet_name.clone()
             ),
@@ -4802,7 +4802,7 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
 
         assert_err!(
             Network::owner_update_description(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 new_subnet_description
             ),
@@ -4813,7 +4813,7 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
 
         assert_err!(
             Network::owner_update_misc(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 new_subnet_misc
             ),
@@ -4821,13 +4821,17 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
         );
 
         assert_err!(
-            Network::owner_update_churn_limit(RuntimeOrigin::signed(fake_owner), subnet_id, 1),
+            Network::owner_update_churn_limit(
+                RuntimeOrigin::signed(fake_owner.clone()),
+                subnet_id,
+                1
+            ),
             Error::<Test>::NotSubnetOwner
         );
 
         assert_err!(
             Network::owner_update_registration_queue_epochs(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 1
             ),
@@ -4836,7 +4840,7 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
 
         assert_err!(
             Network::owner_update_idle_classification_epochs(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 1
             ),
@@ -4845,7 +4849,7 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
 
         assert_err!(
             Network::owner_update_included_classification_epochs(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 1
             ),
@@ -4855,7 +4859,7 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
         let new_coldkeys = BTreeMap::from([(1, 1)]);
         assert_err!(
             Network::owner_add_or_update_initial_validators(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 new_coldkeys.clone()
             ),
@@ -4865,7 +4869,7 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
         let remove_coldkeys = BTreeSet::from([1]);
         assert_err!(
             Network::owner_remove_initial_validators(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 remove_coldkeys.clone()
             ),
@@ -4873,12 +4877,17 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
         );
 
         assert_err!(
-            Network::owner_update_min_max_stake(RuntimeOrigin::signed(fake_owner), subnet_id, 1, 2),
+            Network::owner_update_min_max_stake(
+                RuntimeOrigin::signed(fake_owner.clone()),
+                subnet_id,
+                1,
+                2
+            ),
             Error::<Test>::NotSubnetOwner
         );
         assert_err!(
             Network::owner_update_delegate_stake_percentage(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 1
             ),
@@ -4886,7 +4895,7 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
         );
         assert_err!(
             Network::owner_update_max_registered_nodes(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 1
             ),
@@ -4895,7 +4904,7 @@ fn test_not_subnet_owner_and_invalid_subnet_id() {
 
         assert_err!(
             Network::owner_add_bootnode_access(
-                RuntimeOrigin::signed(fake_owner),
+                RuntimeOrigin::signed(fake_owner.clone()),
                 subnet_id,
                 account(1)
             ),

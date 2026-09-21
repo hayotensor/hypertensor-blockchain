@@ -1,4 +1,3 @@
-use fp_account::AccountId20;
 use jsonrpsee::{
     core::RpcResult,
     proc_macros::rpc,
@@ -14,6 +13,7 @@ use network_rpc_types::{
 use sp_api::{ApiError, ProvideRuntimeApi};
 use sp_blockchain::HeaderBackend;
 use sp_runtime::traits::Block as BlockT;
+use sp_runtime::AccountId32;
 use std::{fmt::Debug, sync::Arc};
 
 pub use network_custom_rpc_runtime_api::NetworkRuntimeApi;
@@ -29,14 +29,14 @@ pub trait NetworkCustomApi<BlockHash> {
         &self,
         subnet_id: u32,
         at: Option<BlockHash>,
-    ) -> RpcResult<Option<SubnetInfo<AccountId20>>>;
+    ) -> RpcResult<Option<SubnetInfo<AccountId32>>>;
 
     #[method(name = "network_getSubnets")]
     fn get_subnets(
         &self,
         request: PageRequest<u32>,
         at: Option<BlockHash>,
-    ) -> RpcResult<SubnetsPage<AccountId20>>;
+    ) -> RpcResult<SubnetsPage<AccountId32>>;
 
     #[method(name = "network_getSubnetNodeInfo")]
     fn get_subnet_node_info(
@@ -44,7 +44,7 @@ pub trait NetworkCustomApi<BlockHash> {
         subnet_id: u32,
         subnet_node_id: u32,
         at: Option<BlockHash>,
-    ) -> RpcResult<Option<SubnetNodeInfo<AccountId20>>>;
+    ) -> RpcResult<Option<SubnetNodeInfo<AccountId32>>>;
 
     #[method(name = "network_getSubnetNodes")]
     fn get_subnet_nodes(
@@ -52,7 +52,7 @@ pub trait NetworkCustomApi<BlockHash> {
         subnet_id: u32,
         request: PageRequest<u32>,
         at: Option<BlockHash>,
-    ) -> RpcResult<SubnetNodesPage<AccountId20>>;
+    ) -> RpcResult<SubnetNodesPage<AccountId32>>;
 
     #[method(name = "network_getBootnodes")]
     fn get_bootnodes(
@@ -66,21 +66,21 @@ pub trait NetworkCustomApi<BlockHash> {
         &self,
         validator_id: u32,
         at: Option<BlockHash>,
-    ) -> RpcResult<Option<ValidatorInfo<AccountId20>>>;
+    ) -> RpcResult<Option<ValidatorInfo<AccountId32>>>;
 
     #[method(name = "network_getValidatorByColdkey")]
     fn get_validator_by_coldkey(
         &self,
-        coldkey: AccountId20,
+        coldkey: AccountId32,
         at: Option<BlockHash>,
-    ) -> RpcResult<Option<ValidatorInfo<AccountId20>>>;
+    ) -> RpcResult<Option<ValidatorInfo<AccountId32>>>;
 
     #[method(name = "network_getValidatorByHotkey")]
     fn get_validator_by_hotkey(
         &self,
-        hotkey: AccountId20,
+        hotkey: AccountId32,
         at: Option<BlockHash>,
-    ) -> RpcResult<Option<ValidatorInfo<AccountId20>>>;
+    ) -> RpcResult<Option<ValidatorInfo<AccountId32>>>;
 
     #[method(name = "network_getValidatorNodes")]
     fn get_validator_nodes(
@@ -88,7 +88,7 @@ pub trait NetworkCustomApi<BlockHash> {
         validator_id: u32,
         request: PageRequest<SubnetNodeCursor>,
         at: Option<BlockHash>,
-    ) -> RpcResult<ValidatorNodesPage<AccountId20>>;
+    ) -> RpcResult<ValidatorNodesPage<AccountId32>>;
 
     #[method(name = "network_getValidatorNodeStakes")]
     fn get_validator_node_stakes(
@@ -120,7 +120,7 @@ pub trait NetworkCustomApi<BlockHash> {
         subnet_id: u32,
         request: PageRequest<u32>,
         at: Option<BlockHash>,
-    ) -> RpcResult<SubnetValidatorNodesPage<AccountId20>>;
+    ) -> RpcResult<SubnetValidatorNodesPage<AccountId32>>;
 
     #[method(name = "network_getSubnetEpochStatus")]
     fn get_subnet_epoch_status(
@@ -134,14 +134,14 @@ pub trait NetworkCustomApi<BlockHash> {
         &self,
         overwatch_node_id: u32,
         at: Option<BlockHash>,
-    ) -> RpcResult<Option<OverwatchNodeInfo<AccountId20>>>;
+    ) -> RpcResult<Option<OverwatchNodeInfo<AccountId32>>>;
 
     #[method(name = "network_getOverwatchNodes")]
     fn get_overwatch_nodes(
         &self,
         request: PageRequest<u32>,
         at: Option<BlockHash>,
-    ) -> RpcResult<OverwatchNodesPage<AccountId20>>;
+    ) -> RpcResult<OverwatchNodesPage<AccountId32>>;
 
     #[method(name = "network_getEffectiveOverwatchSignalMeta")]
     fn get_effective_overwatch_signal_meta(
@@ -223,7 +223,7 @@ where
         &self,
         subnet_id: u32,
         at: Option<Block::Hash>,
-    ) -> RpcResult<Option<SubnetInfo<AccountId20>>> {
+    ) -> RpcResult<Option<SubnetInfo<AccountId32>>> {
         let at = self.resolve_at(at);
         runtime_result(self.client.runtime_api().get_subnet_info(at, subnet_id))
     }
@@ -232,7 +232,7 @@ where
         &self,
         request: PageRequest<u32>,
         at: Option<Block::Hash>,
-    ) -> RpcResult<SubnetsPage<AccountId20>> {
+    ) -> RpcResult<SubnetsPage<AccountId32>> {
         validate_page(&request)?;
         let at = self.resolve_at(at);
         query_result(self.client.runtime_api().get_subnets(at, request))
@@ -243,7 +243,7 @@ where
         subnet_id: u32,
         subnet_node_id: u32,
         at: Option<Block::Hash>,
-    ) -> RpcResult<Option<SubnetNodeInfo<AccountId20>>> {
+    ) -> RpcResult<Option<SubnetNodeInfo<AccountId32>>> {
         let at = self.resolve_at(at);
         runtime_result(self.client.runtime_api().get_subnet_node_info(
             at,
@@ -257,7 +257,7 @@ where
         subnet_id: u32,
         request: PageRequest<u32>,
         at: Option<Block::Hash>,
-    ) -> RpcResult<SubnetNodesPage<AccountId20>> {
+    ) -> RpcResult<SubnetNodesPage<AccountId32>> {
         validate_page(&request)?;
         let at = self.resolve_at(at);
         query_result(
@@ -280,7 +280,7 @@ where
         &self,
         validator_id: u32,
         at: Option<Block::Hash>,
-    ) -> RpcResult<Option<ValidatorInfo<AccountId20>>> {
+    ) -> RpcResult<Option<ValidatorInfo<AccountId32>>> {
         let at = self.resolve_at(at);
         runtime_result(
             self.client
@@ -291,9 +291,9 @@ where
 
     fn get_validator_by_coldkey(
         &self,
-        coldkey: AccountId20,
+        coldkey: AccountId32,
         at: Option<Block::Hash>,
-    ) -> RpcResult<Option<ValidatorInfo<AccountId20>>> {
+    ) -> RpcResult<Option<ValidatorInfo<AccountId32>>> {
         let at = self.resolve_at(at);
         runtime_result(
             self.client
@@ -304,9 +304,9 @@ where
 
     fn get_validator_by_hotkey(
         &self,
-        hotkey: AccountId20,
+        hotkey: AccountId32,
         at: Option<Block::Hash>,
-    ) -> RpcResult<Option<ValidatorInfo<AccountId20>>> {
+    ) -> RpcResult<Option<ValidatorInfo<AccountId32>>> {
         let at = self.resolve_at(at);
         runtime_result(
             self.client
@@ -320,7 +320,7 @@ where
         validator_id: u32,
         request: PageRequest<SubnetNodeCursor>,
         at: Option<Block::Hash>,
-    ) -> RpcResult<ValidatorNodesPage<AccountId20>> {
+    ) -> RpcResult<ValidatorNodesPage<AccountId32>> {
         validate_page(&request)?;
         let at = self.resolve_at(at);
         query_result(
@@ -379,7 +379,7 @@ where
         subnet_id: u32,
         request: PageRequest<u32>,
         at: Option<Block::Hash>,
-    ) -> RpcResult<SubnetValidatorNodesPage<AccountId20>> {
+    ) -> RpcResult<SubnetValidatorNodesPage<AccountId32>> {
         validate_page(&request)?;
         let at = self.resolve_at(at);
         query_result(
@@ -406,7 +406,7 @@ where
         &self,
         overwatch_node_id: u32,
         at: Option<Block::Hash>,
-    ) -> RpcResult<Option<OverwatchNodeInfo<AccountId20>>> {
+    ) -> RpcResult<Option<OverwatchNodeInfo<AccountId32>>> {
         let at = self.resolve_at(at);
         runtime_result(
             self.client
@@ -419,7 +419,7 @@ where
         &self,
         request: PageRequest<u32>,
         at: Option<Block::Hash>,
-    ) -> RpcResult<OverwatchNodesPage<AccountId20>> {
+    ) -> RpcResult<OverwatchNodesPage<AccountId32>> {
         validate_page(&request)?;
         let at = self.resolve_at(at);
         query_result(self.client.runtime_api().get_overwatch_nodes(at, request))

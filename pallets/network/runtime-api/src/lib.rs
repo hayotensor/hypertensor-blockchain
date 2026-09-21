@@ -18,7 +18,6 @@
 //! Runtime API definition for the network pallet.
 
 #![cfg_attr(not(feature = "std"), no_std)]
-use fp_account::AccountId20;
 use network_rpc_types::{
     ConsensusRoundInfo, EffectiveOverwatchSignalMeta, EffectiveOverwatchSubnetWeight,
     NetworkQueryError, OverwatchNodeInfo, OverwatchNodesPage, PageRequest, SubnetBootnodes,
@@ -26,28 +25,29 @@ use network_rpc_types::{
     SubnetValidatorNodesPage, SubnetsPage, ValidatorInfo, ValidatorNodeAllocationsPage,
     ValidatorNodeStakesPage, ValidatorNodesPage,
 };
+use sp_runtime::AccountId32;
 
 sp_api::decl_runtime_apis! {
   pub trait NetworkRuntimeApi {
-    fn get_subnet_info(subnet_id: u32) -> Option<SubnetInfo<AccountId20>>;
+    fn get_subnet_info(subnet_id: u32) -> Option<SubnetInfo<AccountId32>>;
     fn get_subnets(request: PageRequest<u32>)
-      -> Result<SubnetsPage<AccountId20>, NetworkQueryError>;
+      -> Result<SubnetsPage<AccountId32>, NetworkQueryError>;
     fn get_subnet_node_info(
       subnet_id: u32,
       subnet_node_id: u32,
-    ) -> Option<SubnetNodeInfo<AccountId20>>;
+    ) -> Option<SubnetNodeInfo<AccountId32>>;
     fn get_subnet_nodes(
       subnet_id: u32,
       request: PageRequest<u32>,
-    ) -> Result<SubnetNodesPage<AccountId20>, NetworkQueryError>;
+    ) -> Result<SubnetNodesPage<AccountId32>, NetworkQueryError>;
     fn get_bootnodes(subnet_id: u32) -> Option<SubnetBootnodes>;
-    fn get_validator_info(validator_id: u32) -> Option<ValidatorInfo<AccountId20>>;
-    fn get_validator_by_coldkey(coldkey: AccountId20) -> Option<ValidatorInfo<AccountId20>>;
-    fn get_validator_by_hotkey(hotkey: AccountId20) -> Option<ValidatorInfo<AccountId20>>;
+    fn get_validator_info(validator_id: u32) -> Option<ValidatorInfo<AccountId32>>;
+    fn get_validator_by_coldkey(coldkey: AccountId32) -> Option<ValidatorInfo<AccountId32>>;
+    fn get_validator_by_hotkey(hotkey: AccountId32) -> Option<ValidatorInfo<AccountId32>>;
     fn get_validator_nodes(
       validator_id: u32,
       request: PageRequest<SubnetNodeCursor>,
-    ) -> Result<ValidatorNodesPage<AccountId20>, NetworkQueryError>;
+    ) -> Result<ValidatorNodesPage<AccountId32>, NetworkQueryError>;
     fn get_validator_node_stakes(
       validator_id: u32,
       request: PageRequest<SubnetNodeCursor>,
@@ -63,13 +63,13 @@ sp_api::decl_runtime_apis! {
     fn get_subnet_validator_nodes(
       subnet_id: u32,
       request: PageRequest<u32>,
-    ) -> Result<SubnetValidatorNodesPage<AccountId20>, NetworkQueryError>;
+    ) -> Result<SubnetValidatorNodesPage<AccountId32>, NetworkQueryError>;
     fn get_subnet_epoch_status(subnet_id: u32)
       -> Result<SubnetEpochStatus, NetworkQueryError>;
     fn get_overwatch_node_info(overwatch_node_id: u32)
-      -> Option<OverwatchNodeInfo<AccountId20>>;
+      -> Option<OverwatchNodeInfo<AccountId32>>;
     fn get_overwatch_nodes(request: PageRequest<u32>)
-      -> Result<OverwatchNodesPage<AccountId20>, NetworkQueryError>;
+      -> Result<OverwatchNodesPage<AccountId32>, NetworkQueryError>;
     fn get_effective_overwatch_signal_meta() -> EffectiveOverwatchSignalMeta;
     fn get_effective_overwatch_subnet_weight(subnet_id: u32)
       -> EffectiveOverwatchSubnetWeight;

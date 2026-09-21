@@ -173,7 +173,7 @@ pub mod pallet {
     // Import various useful types required by all FRAME pallets.
     use super::*;
     use frame_support::pallet_prelude::*;
-    use frame_support::RuntimeDebugNoBound;
+    use frame_support::DebugNoBound;
     use frame_system::pallet_prelude::*;
     use sp_std::vec::Vec;
 
@@ -219,10 +219,13 @@ pub mod pallet {
         #[pallet::constant]
         type InitialMinSubnetDelegateStakeBalance: Get<u128>;
 
-        /// Used in Randomness
+        /// Domain identifier for Network randomness and pallet accounts.
         #[pallet::constant]
         type PalletId: Get<PalletId>;
 
+        /// Runtime randomness provider; production uses the BABE-backed
+        /// `pallet-randomness`. Its cutoff is not a substitute for freezing the
+        /// candidate pool before the underlying entropy becomes known.
         type Randomness: Randomness<Self::Hash, BlockNumberFor<Self>>;
 
         #[pallet::constant]
@@ -1314,11 +1317,12 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Copy,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         scale_info::TypeInfo,
     )]
     pub struct SubnetPauseData {
@@ -1334,12 +1338,13 @@ pub mod pallet {
     #[derive(
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Copy,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -1355,7 +1360,15 @@ pub mod pallet {
     }
 
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
     )]
     pub struct SubnetData {
         pub id: u32,
@@ -1407,11 +1420,12 @@ pub mod pallet {
         Copy,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -1455,7 +1469,15 @@ pub mod pallet {
     ///   the subnet owner and whitelisted accounts. This is informational metadata for
     ///   network coordination.
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct RegistrationSubnetData<T: Config> {
@@ -1545,12 +1567,13 @@ pub mod pallet {
     #[derive(
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Copy,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -1583,12 +1606,13 @@ pub mod pallet {
     #[derive(
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Copy,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -1600,12 +1624,13 @@ pub mod pallet {
     #[derive(
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Copy,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -1646,10 +1671,11 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         PartialOrd,
         Ord,
         scale_info::TypeInfo,
@@ -1665,12 +1691,13 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Copy,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -1708,11 +1735,12 @@ pub mod pallet {
     #[derive(
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -1786,7 +1814,16 @@ pub mod pallet {
     }
 
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, Ord, PartialOrd, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        Ord,
+        PartialOrd,
+        scale_info::TypeInfo,
     )]
     pub struct DelegateAccount<AccountId> {
         pub account_id: AccountId,
@@ -1806,10 +1843,11 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         PartialOrd,
         Ord,
         scale_info::TypeInfo,
@@ -1852,10 +1890,11 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         PartialOrd,
         Ord,
         scale_info::TypeInfo,
@@ -1875,7 +1914,15 @@ pub mod pallet {
     /// Subnet Node Info
     /// RPC helper
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct SubnetNodeInfo<T: Config> {
@@ -1899,7 +1946,16 @@ pub mod pallet {
 
     /// RPC helper for node stakes
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, PartialOrd, Ord, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        scale_info::TypeInfo,
     )]
     pub struct SubnetNodeStakeInfo<AccountId> {
         pub subnet_id: Option<u32>,
@@ -1923,10 +1979,11 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         PartialOrd,
         Ord,
         scale_info::TypeInfo,
@@ -1976,11 +2033,12 @@ pub mod pallet {
         Copy,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebug,
+        Debug,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -2013,10 +2071,11 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebug,
+        Debug,
         Ord,
         PartialOrd,
         scale_info::TypeInfo,
@@ -2039,7 +2098,17 @@ pub mod pallet {
     /// only needs the node ID, validator identity, and proposal-time classification. Keeping the
     /// hot historical submission compact prevents unrelated RPC payload size from dominating the
     /// proof charged to `on_initialize`.
-    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        Debug,
+        scale_info::TypeInfo,
+    )]
     pub struct ConsensusSubnetNode {
         pub id: u32,
         pub validator_id: u32,
@@ -2060,7 +2129,15 @@ pub mod pallet {
     ///
     /// Scoring is calculated off-chain between subnet nodes hosting AI subnets together
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
     )]
     pub struct SubnetNodeConsensusData {
         pub subnet_node_id: u32,
@@ -2101,10 +2178,11 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         PartialOrd,
         Ord,
         scale_info::TypeInfo,
@@ -2142,7 +2220,15 @@ pub mod pallet {
     ///   metadata, signatures, or other information for off-chain verification or
     ///   coordination purposes.
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct AttestEntry<T: Config> {
@@ -2153,7 +2239,17 @@ pub mod pallet {
     }
 
     /// Snapshotted attestor weights for a subnet consensus submission.
-    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        Debug,
+        scale_info::TypeInfo,
+    )]
     pub struct ConsensusAttestorWeightSnapshot {
         pub weights: BTreeMap<u32, u128>,
         pub total_weight: u128,
@@ -2161,7 +2257,16 @@ pub mod pallet {
 
     /// Immutable rules governing one elected subnet consensus round.
     #[derive(
-        Default, Encode, Decode, Copy, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Copy,
+        Clone,
+        PartialEq,
+        Eq,
+        Debug,
+        scale_info::TypeInfo,
     )]
     pub struct ConsensusPolicySnapshot {
         pub min_attestation_percentage: u128,
@@ -2194,7 +2299,17 @@ pub mod pallet {
     }
 
     /// Validator identity, candidate set, and immutable policy selected for a subnet epoch.
-    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        Debug,
+        scale_info::TypeInfo,
+    )]
     pub struct ElectedConsensusRound {
         pub validator_subnet_node_id: u32,
         pub validator_id: u32,
@@ -2250,7 +2365,15 @@ pub mod pallet {
     ///   This is set by the proposing validator and executed during consensus finalization
     ///   if the submission is accepted and the node has passed its immunity period.
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct ConsensusSubmissionData<T: Config> {
@@ -2298,7 +2421,16 @@ pub mod pallet {
     /// * `Owner` - The subnet owner voluntarily removed their own subnet.
     /// * `PauseExpired` - The subnet was paused and the pause period expired without
     ///   being resumed, resulting in automatic removal.
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+    #[derive(
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        Debug,
+        scale_info::TypeInfo,
+    )]
     pub enum SubnetRemovalReason {
         MinReputation,
         MinSubnetNodes,
@@ -2312,7 +2444,7 @@ pub mod pallet {
 
     /// Internal result of a weight-guarded preliminary subnet-removal attempt.
     #[must_use]
-    #[derive(Clone, Copy, PartialEq, Eq, RuntimeDebug)]
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub(crate) enum SubnetRemovalOutcome {
         /// The subnet was removed and its reserved cleanup weight was consumed.
         Removed,
@@ -2361,7 +2493,15 @@ pub mod pallet {
     ///   This data is not used in any onchain logic but allows subnets to pass custom parameters
     ///   that validators can use for off-chain validation or coordination purposes.
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct ConsensusData<T: Config> {
@@ -2387,7 +2527,15 @@ pub mod pallet {
     /// * `subnet_epoch` - The subnet epoch
     /// * `subnet_epoch_progression` - The subnet epoch progression as a percentage using 1e18 as 1.0
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
     )]
     pub struct SubnetEpochData {
         pub subnet_epoch: u32,
@@ -2417,7 +2565,15 @@ pub mod pallet {
     ///   among all active subnet nodes based on their consensus scores. This represents
     ///   the reward pool that will be split according to node performance.
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebugNoBound, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
     )]
     pub struct RewardsData {
         pub overall_subnet_reward: u128,
@@ -2430,11 +2586,12 @@ pub mod pallet {
     #[derive(
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -2448,11 +2605,12 @@ pub mod pallet {
     #[derive(
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -2466,11 +2624,12 @@ pub mod pallet {
     #[derive(
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -2490,12 +2649,13 @@ pub mod pallet {
     #[derive(
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Copy,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -2509,12 +2669,13 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Copy,
         Clone,
         PartialOrd,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         Ord,
         scale_info::TypeInfo,
     )]
@@ -2529,7 +2690,7 @@ pub mod pallet {
     /// structural node removal may only delete that node's entry before finalization. An empty
     /// `nodes` map is a valid snapshot and distinguishes a closed epoch with no revealers from a
     /// missing snapshot.
-    #[derive(Encode, Decode, RuntimeDebugNoBound, scale_info::TypeInfo)]
+    #[derive(Encode, Decode, codec::DecodeWithMemTracking, DebugNoBound, scale_info::TypeInfo)]
     #[scale_info(skip_type_params(T))]
     pub struct OverwatchEpochSettlementSnapshot<T: Config> {
         pub stake_weight_factor: u128,
@@ -2572,7 +2733,7 @@ pub mod pallet {
     ///
     /// Reveal rows identify participating nodes directly. Per-subnet counts retain only the
     /// bounded information needed to update the global record count when a node is removed.
-    #[derive(Encode, Decode, RuntimeDebugNoBound, scale_info::TypeInfo)]
+    #[derive(Encode, Decode, codec::DecodeWithMemTracking, DebugNoBound, scale_info::TypeInfo)]
     #[scale_info(skip_type_params(T))]
     pub struct OverwatchRevealStats<T: Config> {
         pub records: u32,
@@ -2608,7 +2769,7 @@ pub mod pallet {
 
     /// Close-time node inputs retained for the latest effective Overwatch signal.
     /// Structural removal may purge a node before this signal is superseded.
-    #[derive(Encode, Decode, RuntimeDebugNoBound, scale_info::TypeInfo)]
+    #[derive(Encode, Decode, codec::DecodeWithMemTracking, DebugNoBound, scale_info::TypeInfo)]
     #[scale_info(skip_type_params(T))]
     pub struct LatestOverwatchNodeSignalInput<T: Config> {
         pub stake: u128,
@@ -2634,7 +2795,7 @@ pub mod pallet {
 
     /// Reproducible close-time input retained for the latest effective Overwatch signal.
     /// Its node map is purge-only between finalizations.
-    #[derive(Encode, Decode, RuntimeDebugNoBound, scale_info::TypeInfo)]
+    #[derive(Encode, Decode, codec::DecodeWithMemTracking, DebugNoBound, scale_info::TypeInfo)]
     #[scale_info(skip_type_params(T))]
     pub struct LatestFinalizedOverwatchSignalInput<T: Config> {
         pub source_epoch: u32,
@@ -2664,7 +2825,7 @@ pub mod pallet {
     impl<T: Config> Eq for LatestFinalizedOverwatchSignalInput<T> {}
 
     /// Latest-only raw Overwatch subnet weights used by future emission allocations.
-    #[derive(Encode, Decode, RuntimeDebugNoBound, scale_info::TypeInfo)]
+    #[derive(Encode, Decode, codec::DecodeWithMemTracking, DebugNoBound, scale_info::TypeInfo)]
     #[scale_info(skip_type_params(T))]
     pub struct EffectiveOverwatchSignal<T: Config> {
         pub source_epoch: u32,
@@ -2699,7 +2860,16 @@ pub mod pallet {
     }
 
     #[derive(
-        Default, Encode, Decode, Clone, PartialEq, Eq, PartialOrd, Ord, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        PartialOrd,
+        Ord,
+        scale_info::TypeInfo,
     )]
     pub struct OverwatchCommit<Hash> {
         pub subnet_id: u32,
@@ -2719,10 +2889,11 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         PartialOrd,
         Ord,
         scale_info::TypeInfo,
@@ -2780,7 +2951,17 @@ pub mod pallet {
     /// subnets_emissions: Total emissions for all subnets
     /// subnet_weights: Map of subnet ids to their weights
     ///
-    #[derive(Default, Encode, Decode, Clone, PartialEq, Eq, RuntimeDebug, scale_info::TypeInfo)]
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        Debug,
+        scale_info::TypeInfo,
+    )]
     pub struct DistributionData {
         pub subnets_emissions: u128,
         pub subnet_weights: BTreeMap<u32, u128>,
@@ -2791,14 +2972,24 @@ pub mod pallet {
     /// Network principal remains part of locked non-Overwatch TVL accounting while it cools down.
     /// Overwatch principal shares the same claim schedule but is excluded from that TVL.
     #[derive(
-        Default, Encode, Decode, Clone, Copy, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+        TypeInfo,
+        MaxEncodedLen,
     )]
     pub struct UnbondingEntry {
         pub network: u128,
         pub overwatch: u128,
     }
 
-    #[derive(Clone, Copy, PartialEq, Eq, RuntimeDebug)]
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub(crate) enum UnbondingSource {
         Network,
         Overwatch,
@@ -3737,10 +3928,11 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         PartialOrd,
         Ord,
         scale_info::TypeInfo,
@@ -4159,10 +4351,11 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         PartialOrd,
         Ord,
         scale_info::TypeInfo,
@@ -4513,10 +4706,11 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         PartialOrd,
         Ord,
         scale_info::TypeInfo,
@@ -4535,10 +4729,11 @@ pub mod pallet {
         Default,
         Encode,
         Decode,
+        codec::DecodeWithMemTracking,
         Clone,
         PartialEq,
         Eq,
-        RuntimeDebugNoBound,
+        DebugNoBound,
         PartialOrd,
         Ord,
         scale_info::TypeInfo,
@@ -5315,7 +5510,18 @@ pub mod pallet {
     //
 
     /// Why escrowed queued-swap principal was returned instead of credited to destination shares.
-    #[derive(Encode, Decode, Clone, Copy, PartialEq, Eq, RuntimeDebug, TypeInfo, MaxEncodedLen)]
+    #[derive(
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+        TypeInfo,
+        MaxEncodedLen,
+    )]
     pub enum SwapRefundReason {
         Expired,
         MinimumSharesNotMet,
@@ -5326,7 +5532,7 @@ pub mod pallet {
     }
 
     /// Internal disposition of one queue item inspected by the bounded executor.
-    #[derive(Clone, Copy, PartialEq, Eq, RuntimeDebug)]
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub(crate) enum SwapExecutionOutcome {
         Completed,
         NotReady,
@@ -5338,7 +5544,7 @@ pub mod pallet {
     /// The source determines the cooldown that is snapshotted into the queue item. Keeping this
     /// explicit prevents a swap (including its refund path) from shortening the source pool's
     /// configured withdrawal delay.
-    #[derive(Clone, Copy, PartialEq, Eq, RuntimeDebug)]
+    #[derive(Clone, Copy, PartialEq, Eq, Debug)]
     pub(crate) enum QueuedSwapSource {
         SubnetDelegate,
         ValidatorDelegate,
@@ -5356,7 +5562,7 @@ pub mod pallet {
         },
     }
 
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, TypeInfo)]
+    #[derive(Encode, Decode, codec::DecodeWithMemTracking, Clone, PartialEq, Eq, TypeInfo)]
     pub enum QueuedSwapCall<AccountId> {
         // swap_from_subnet_to_subnet
         SwapToSubnetDelegateStake {
@@ -5411,7 +5617,7 @@ pub mod pallet {
         }
     }
 
-    #[derive(Encode, Decode, Clone, PartialEq, Eq, TypeInfo)]
+    #[derive(Encode, Decode, codec::DecodeWithMemTracking, Clone, PartialEq, Eq, TypeInfo)]
     pub struct QueuedSwapItem<AccountId> {
         pub id: u32,
         pub call: QueuedSwapCall<AccountId>,
@@ -10149,334 +10355,331 @@ pub mod pallet {
         /// * `block_number` - Current block number.
         ///
         fn on_initialize(block_number: BlockNumberFor<T>) -> Weight {
-            // let db_weight = T::DbWeight::get();
+            let db_weight = T::DbWeight::get();
 
-            // let mut weight_meter = WeightMeter::with_limit(T::MaximumHooksWeight::get());
+            let mut weight_meter = WeightMeter::with_limit(T::MaximumHooksWeight::get());
 
-            // // Admit every fixed selector read before touching storage so even paused/no-step
-            // // blocks carry generated trie-proof weight.
-            // let base_weight = T::WeightInfo::on_initialize_base();
-            // if !weight_meter.can_consume(base_weight) {
-            //     return weight_meter.consumed();
-            // }
-            // weight_meter.consume(base_weight);
+            // Admit every fixed selector read before touching storage so even paused/no-step
+            // blocks carry generated trie-proof weight.
+            let base_weight = T::WeightInfo::on_initialize_base();
+            if !weight_meter.can_consume(base_weight) {
+                return weight_meter.consumed();
+            }
+            weight_meter.consume(base_weight);
 
-            // if Self::is_paused().is_err() {
-            //     return weight_meter.consumed();
-            // }
+            if Self::is_paused().is_err() {
+                return weight_meter.consumed();
+            }
 
-            // // General epochs
-            // let block: u32 = Self::convert_block_as_u32(block_number);
-            // let epoch_length: u32 = T::EpochLength::get();
-            // let epoch_slot = block % epoch_length;
-            // let current_epoch = block.saturating_div(epoch_length);
+            // General epochs
+            let block: u32 = Self::convert_block_as_u32(block_number);
+            let epoch_length: u32 = T::EpochLength::get();
+            let epoch_slot = block % epoch_length;
+            let current_epoch = block.saturating_div(epoch_length);
 
-            // // Only settle an epoch that was already pending when this block began. A rollover
-            // // created below is therefore finalized no earlier than the following block, preserving
-            // // the hook's staggered workload and reserved slot ordering.
-            // let pending_overwatch_settlement = PendingOverwatchSettlement::<T>::get();
+            // Only settle an epoch that was already pending when this block began. A rollover
+            // created below is therefore finalized no earlier than the following block, preserving
+            // the hook's staggered workload and reserved slot ordering.
+            let pending_overwatch_settlement = PendingOverwatchSettlement::<T>::get();
 
-            // // Select the mutating rollover path from compact state before reserving it. Ordinary
-            // // blocks use a separately measured no-op path instead of paying the rollover writes.
-            // // The helper deliberately re-reads this state; its generated branch covers those
-            // // internal accesses while `on_initialize_base` covers the outer selectors below.
-            // let overwatch_epoch_start = OverwatchEpochStartBlock::<T>::get();
-            // let overwatch_multiplier = ActiveOverwatchEpochLengthMultiplier::<T>::get();
-            // let rollover_due = epoch_length
-            //     .checked_mul(overwatch_multiplier)
-            //     .map(|overwatch_epoch_length| {
-            //         block >= overwatch_epoch_start.saturating_add(overwatch_epoch_length)
-            //             && epoch_length != 0
-            //             && epoch_slot == NETWORK_EPOCH_PRELIMINARIES_SLOT
-            //             && pending_overwatch_settlement.is_none()
-            //     })
-            //     .unwrap_or(false);
-            // let advance_overwatch_weight = if rollover_due {
-            //     T::WeightInfo::advance_overwatch_epoch()
-            // } else {
-            //     T::WeightInfo::advance_overwatch_epoch_noop()
-            // };
-            // if !weight_meter.can_consume(advance_overwatch_weight) {
-            //     return weight_meter.consumed();
-            // }
-            // Self::advance_overwatch_epoch(block);
-            // // Charge the generated reservation, including measured proof size. The helper's
-            // // manual DB accumulator is diagnostic only and cannot replace benchmarked weight.
-            // weight_meter.consume(advance_overwatch_weight);
+            // Select the mutating rollover path from compact state before reserving it. Ordinary
+            // blocks use a separately measured no-op path instead of paying the rollover writes.
+            // The helper deliberately re-reads this state; its generated branch covers those
+            // internal accesses while `on_initialize_base` covers the outer selectors below.
+            let overwatch_epoch_start = OverwatchEpochStartBlock::<T>::get();
+            let overwatch_multiplier = ActiveOverwatchEpochLengthMultiplier::<T>::get();
+            let rollover_due = epoch_length
+                .checked_mul(overwatch_multiplier)
+                .map(|overwatch_epoch_length| {
+                    block >= overwatch_epoch_start.saturating_add(overwatch_epoch_length)
+                        && epoch_length != 0
+                        && epoch_slot == NETWORK_EPOCH_PRELIMINARIES_SLOT
+                        && pending_overwatch_settlement.is_none()
+                })
+                .unwrap_or(false);
+            let advance_overwatch_weight = if rollover_due {
+                T::WeightInfo::advance_overwatch_epoch()
+            } else {
+                T::WeightInfo::advance_overwatch_epoch_noop()
+            };
+            if !weight_meter.can_consume(advance_overwatch_weight) {
+                return weight_meter.consumed();
+            }
+            Self::advance_overwatch_epoch(block);
+            // Charge the generated reservation, including measured proof size. The helper's
+            // manual DB accumulator is diagnostic only and cannot replace benchmarked weight.
+            weight_meter.consume(advance_overwatch_weight);
 
-            // if block >= epoch_length && epoch_slot == NETWORK_EPOCH_PRELIMINARIES_SLOT {
-            //     let selector_weight = T::WeightInfo::total_subnets_selector();
-            //     if !weight_meter.can_consume(selector_weight) {
-            //         return weight_meter.consumed();
-            //     }
-            //     weight_meter.consume(selector_weight);
-            //     let subnet_count = TotalSubnets::<T>::get();
-            //     // The generated domain includes the empty network, while every non-empty sample
-            //     // scales with the exact compact subnet count.
-            //     let step_weight = T::WeightInfo::do_epoch_preliminaries(
-            //         subnet_count.min(T::MaxPhysicalSubnetsUpperBound::get()),
-            //     );
-            //     if weight_meter.can_consume(step_weight) {
-            //         weight_meter.consume(step_weight);
-            //         // The generated weight covers the scan and all non-removal checks. Passing
-            //         // the outer meter keeps every variable subnet removal separately guarded by
-            //         // `do_remove_subnet(n)` before it mutates state.
-            //         Self::do_epoch_preliminaries(&mut weight_meter, block, current_epoch);
-            //     }
-            // } else if let Some(settlement) = pending_overwatch_settlement
-            //     .filter(|_| epoch_slot == NETWORK_OVERWATCH_SETTLEMENT_SLOT)
-            // {
-            //     // Reveal records, distinct revealers and distinct subnets cannot vary
-            //     // independently. Select the reachable worst-case fixture for each record region:
-            //     // grow both cardinalities through 17, then grow revealers through 64, then fill
-            //     // the remaining 64-by-17 record matrix. At shared endpoints take the
-            //     // componentwise maximum because independently fitted models may cross there.
-            //     let max_runtime_reveal_records = T::MaxOverwatchNodesUpperBound::get()
-            //         .saturating_mul(T::MaxPhysicalSubnetsUpperBound::get());
-            //     let reveal_records = settlement.reveal_records.min(max_runtime_reveal_records);
-            //     let step_weight = if reveal_records == 0 {
-            //         T::WeightInfo::calculate_overwatch_rewards_empty()
-            //     } else if reveal_records < MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN {
-            //         T::WeightInfo::calculate_overwatch_rewards_small(reveal_records)
-            //     } else if reveal_records == MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN {
-            //         T::WeightInfo::calculate_overwatch_rewards_small(reveal_records).max(
-            //             T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records),
-            //         )
-            //     } else if reveal_records < MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN {
-            //         T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records)
-            //     } else if reveal_records == MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN {
-            //         T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records)
-            //             .max(T::WeightInfo::calculate_overwatch_rewards(reveal_records))
-            //     } else {
-            //         T::WeightInfo::calculate_overwatch_rewards(reveal_records)
-            //     };
-            //     if weight_meter.can_consume(step_weight) {
-            //         Self::calculate_overwatch_rewards();
-            //         weight_meter.consume(step_weight);
-            //     }
-            // } else if block >= epoch_length.saturating_add(NETWORK_SUBNET_EMISSION_SLOT)
-            //     && epoch_slot == NETWORK_SUBNET_EMISSION_SLOT
-            // {
-            //     let selector_weight = T::WeightInfo::total_subnets_selector();
-            //     if !weight_meter.can_consume(selector_weight) {
-            //         return weight_meter.consumed();
-            //     }
-            //     weight_meter.consume(selector_weight);
-            //     let subnet_count = TotalSubnets::<T>::get();
-            //     let step_weight = if subnet_count == 0 {
-            //         T::WeightInfo::handle_subnet_emission_weights_empty()
-            //     } else {
-            //         T::WeightInfo::handle_subnet_emission_weights(
-            //             subnet_count.min(T::MaxPhysicalSubnetsUpperBound::get()),
-            //         )
-            //     };
-            //     if weight_meter.can_consume(step_weight) {
-            //         Self::handle_subnet_emission_weights(current_epoch);
-            //         weight_meter.consume(step_weight);
-            //     }
-            // } else {
-            //     // Slot assignment is read even when no subnet step exists. Admit its generated
-            //     // proof before touching the key.
-            //     let slot_selector_weight = T::WeightInfo::emission_slot_selector();
-            //     if !weight_meter.can_consume(slot_selector_weight) {
-            //         return weight_meter.consumed();
-            //     }
-            //     weight_meter.consume(slot_selector_weight);
+            if block >= epoch_length && epoch_slot == NETWORK_EPOCH_PRELIMINARIES_SLOT {
+                let selector_weight = T::WeightInfo::total_subnets_selector();
+                if !weight_meter.can_consume(selector_weight) {
+                    return weight_meter.consumed();
+                }
+                weight_meter.consume(selector_weight);
+                let subnet_count = TotalSubnets::<T>::get();
+                // The generated domain includes the empty network, while every non-empty sample
+                // scales with the exact compact subnet count.
+                let step_weight = T::WeightInfo::do_epoch_preliminaries(
+                    subnet_count.min(T::MaxPhysicalSubnetsUpperBound::get()),
+                );
+                if weight_meter.can_consume(step_weight) {
+                    weight_meter.consume(step_weight);
+                    // The generated weight covers the scan and all non-removal checks. Passing
+                    // the outer meter keeps every variable subnet removal separately guarded by
+                    // `do_remove_subnet(n)` before it mutates state.
+                    Self::do_epoch_preliminaries(&mut weight_meter, block, current_epoch);
+                }
+            } else if let Some(settlement) = pending_overwatch_settlement
+                .filter(|_| epoch_slot == NETWORK_OVERWATCH_SETTLEMENT_SLOT)
+            {
+                // Reveal records, distinct revealers and distinct subnets cannot vary
+                // independently. Select the reachable worst-case fixture for each record region:
+                // grow both cardinalities through 17, then grow revealers through 64, then fill
+                // the remaining 64-by-17 record matrix. At shared endpoints take the
+                // componentwise maximum because independently fitted models may cross there.
+                let max_runtime_reveal_records = T::MaxOverwatchNodesUpperBound::get()
+                    .saturating_mul(T::MaxPhysicalSubnetsUpperBound::get());
+                let reveal_records = settlement.reveal_records.min(max_runtime_reveal_records);
+                let step_weight = if reveal_records == 0 {
+                    T::WeightInfo::calculate_overwatch_rewards_empty()
+                } else if reveal_records < MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN {
+                    T::WeightInfo::calculate_overwatch_rewards_small(reveal_records)
+                } else if reveal_records == MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN {
+                    T::WeightInfo::calculate_overwatch_rewards_small(reveal_records).max(
+                        T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records),
+                    )
+                } else if reveal_records < MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN {
+                    T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records)
+                } else if reveal_records == MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN {
+                    T::WeightInfo::calculate_overwatch_rewards_medium(reveal_records)
+                        .max(T::WeightInfo::calculate_overwatch_rewards(reveal_records))
+                } else {
+                    T::WeightInfo::calculate_overwatch_rewards(reveal_records)
+                };
+                if weight_meter.can_consume(step_weight) {
+                    Self::calculate_overwatch_rewards();
+                    weight_meter.consume(step_weight);
+                }
+            } else if block >= epoch_length.saturating_add(NETWORK_SUBNET_EMISSION_SLOT)
+                && epoch_slot == NETWORK_SUBNET_EMISSION_SLOT
+            {
+                let selector_weight = T::WeightInfo::total_subnets_selector();
+                if !weight_meter.can_consume(selector_weight) {
+                    return weight_meter.consumed();
+                }
+                weight_meter.consume(selector_weight);
+                let subnet_count = TotalSubnets::<T>::get();
+                let step_weight = if subnet_count == 0 {
+                    T::WeightInfo::handle_subnet_emission_weights_empty()
+                } else {
+                    T::WeightInfo::handle_subnet_emission_weights(
+                        subnet_count.min(T::MaxPhysicalSubnetsUpperBound::get()),
+                    )
+                };
+                if weight_meter.can_consume(step_weight) {
+                    Self::handle_subnet_emission_weights(current_epoch);
+                    weight_meter.consume(step_weight);
+                }
+            } else {
+                // Slot assignment is read even when no subnet step exists. Admit its generated
+                // proof before touching the key.
+                let slot_selector_weight = T::WeightInfo::emission_slot_selector();
+                if !weight_meter.can_consume(slot_selector_weight) {
+                    return weight_meter.consumed();
+                }
+                weight_meter.consume(slot_selector_weight);
 
-            //     if let Some(subnet_id) = SlotAssignment::<T>::get(epoch_slot) {
-            //         // Once a slot resolves, admit every compact component selector (SubnetSlot,
-            //         // historical max-items, electable, total, and active counts) as one generated
-            //         // maximum-proof envelope before reading any of them.
-            //         let component_selector_weight = T::WeightInfo::emission_step_selectors();
-            //         if !weight_meter.can_consume(component_selector_weight) {
-            //             return weight_meter.consumed();
-            //         }
-            //         weight_meter.consume(component_selector_weight);
+                if let Some(subnet_id) = SlotAssignment::<T>::get(epoch_slot) {
+                    // Once a slot resolves, admit every compact component selector (SubnetSlot,
+                    // historical max-items, electable, total, and active counts) as one generated
+                    // maximum-proof envelope before reading any of them.
+                    let component_selector_weight = T::WeightInfo::emission_step_selectors();
+                    if !weight_meter.can_consume(component_selector_weight) {
+                        return weight_meter.consumed();
+                    }
+                    weight_meter.consume(component_selector_weight);
 
-            //         // Resolve the subnet-oriented epoch using the hook's block argument, avoiding
-            //         // a redundant frame-system block-number read.
-            //         let subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(subnet_id, block);
+                    // Resolve the subnet-oriented epoch using the hook's block argument, avoiding
+                    // a redundant frame-system block-number read.
+                    let subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(subnet_id, block);
 
-            //         let settlement_subnet_epoch =
-            //             PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id)
-            //                 .or_else(|| subnet_epoch.checked_sub(1));
-            //         let historical_items = settlement_subnet_epoch
-            //             .map(|settlement_epoch| {
-            //                 SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, settlement_epoch)
-            //             })
-            //             .unwrap_or(0)
-            //             .min(T::MaxSubnetNodesUpperBound::get());
-            //         let total_nodes = TotalSubnetNodes::<T>::get(subnet_id);
-            //         let active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
-            //         let queued_nodes = total_nodes
-            //             .saturating_sub(active_nodes)
-            //             .min(T::MaxRegisteredNodesUpperBound::get());
-            //         // Historical settlement may combine full accepted-reward work with maximum
-            //         // queue mutations. Physical removal is no longer part of settlement: the
-            //         // reward envelope only reserves bounded quarantine-marker writes.
-            //         let accepted_h = historical_items.max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES);
-            //         // A single validator identity may own many historical nodes. The reachable
-            //         // maximum non-attestor count is therefore the historical node count minus the
-            //         // fewest node attestations needed to represent a strong minimum identity set,
-            //         // not simply `(1 - super_majority_ratio) * h`.
-            //         let minimum_strong_identity_attestors = Self::min_identity_attestors_for_ratio(
-            //             Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
-            //             T::SuperMajorityAttestationRatio::get(),
-            //         );
-            //         let maximum_non_attestors =
-            //             accepted_h.saturating_sub(minimum_strong_identity_attestors);
-            //         let non_attestor_reputation_weight = if maximum_non_attestors == 0 {
-            //             Weight::zero()
-            //         } else {
-            //             T::WeightInfo::emission_step_accepted_non_attestor_reputation(
-            //                 maximum_non_attestors,
-            //             )
-            //         };
-            //         let historical_queue_weight =
-            //             T::WeightInfo::emission_step_accepted_queue_mutations(queued_nodes.max(1))
-            //                 .max(T::WeightInfo::emission_step_accepted_queue_mutations_front(
-            //                     queued_nodes.max(1),
-            //                 ));
-            //         let accepted_weight = T::WeightInfo::emission_step(accepted_h)
-            //             .saturating_add(historical_queue_weight)
-            //             .saturating_add(
-            //                 T::WeightInfo::emission_step_accepted_below_min_weight_reputation(
-            //                     accepted_h,
-            //                 ),
-            //             )
-            //             .saturating_add(non_attestor_reputation_weight);
+                    let settlement_subnet_epoch =
+                        PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id)
+                            .or_else(|| subnet_epoch.checked_sub(1));
+                    let historical_items = settlement_subnet_epoch
+                        .map(|settlement_epoch| {
+                            SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, settlement_epoch)
+                        })
+                        .unwrap_or(0)
+                        .min(T::MaxSubnetNodesUpperBound::get());
+                    let total_nodes = TotalSubnetNodes::<T>::get(subnet_id);
+                    let active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
+                    let queued_nodes = total_nodes
+                        .saturating_sub(active_nodes)
+                        .min(T::MaxRegisteredNodesUpperBound::get());
+                    // Historical settlement may combine full accepted-reward work with maximum
+                    // queue mutations. Physical removal is no longer part of settlement: the
+                    // reward envelope only reserves bounded quarantine-marker writes.
+                    let accepted_h = historical_items.max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES);
+                    // A single validator identity may own many historical nodes. The reachable
+                    // maximum non-attestor count is therefore the historical node count minus the
+                    // fewest node attestations needed to represent a strong minimum identity set,
+                    // not simply `(1 - super_majority_ratio) * h`.
+                    let minimum_strong_identity_attestors = Self::min_identity_attestors_for_ratio(
+                        Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
+                        T::SuperMajorityAttestationRatio::get(),
+                    );
+                    let maximum_non_attestors =
+                        accepted_h.saturating_sub(minimum_strong_identity_attestors);
+                    let non_attestor_reputation_weight = if maximum_non_attestors == 0 {
+                        Weight::zero()
+                    } else {
+                        T::WeightInfo::emission_step_accepted_non_attestor_reputation(
+                            maximum_non_attestors,
+                        )
+                    };
+                    let historical_queue_weight =
+                        T::WeightInfo::emission_step_accepted_queue_mutations(queued_nodes.max(1))
+                            .max(T::WeightInfo::emission_step_accepted_queue_mutations_front(
+                                queued_nodes.max(1),
+                            ));
+                    let accepted_weight = T::WeightInfo::emission_step(accepted_h)
+                        .saturating_add(historical_queue_weight)
+                        .saturating_add(
+                            T::WeightInfo::emission_step_accepted_below_min_weight_reputation(
+                                accepted_h,
+                            ),
+                        )
+                        .saturating_add(non_attestor_reputation_weight);
 
-            //         // Zero historical items identifies the missing-submission branch. Pending
-            //         // filtering can leave a real elected/proposed round with only one or two
-            //         // eligible nodes, so every nonzero snapshot must still reserve a complete
-            //         // accepted/rejected settlement at the generated minimum domain.
-            //         let settlement_branch_weight = if historical_items == 0 {
-            //             T::WeightInfo::emission_step_missing()
-            //         } else {
-            //             accepted_weight
-            //                 .max(T::WeightInfo::emission_step_rejected(accepted_h))
-            //                 .max(T::WeightInfo::emission_step_emergency(accepted_h.clamp(
-            //                     MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN,
-            //                     T::MaxSubnetNodesUpperBound::get(),
-            //                 )))
-            //         };
-            //         // The accepted payout maximum and the full threshold-crossing marker maximum
-            //         // are mutually exclusive. Reserve the bounded marker writes and event proof
-            //         // independently so either branch fits without coupling cleanup to settlement.
-            //         let pending_marker_weight = db_weight
-            //             .reads_writes(3, 3)
-            //             .saturating_add(Self::pending_subnet_node_removal_proof_weight());
-            //         let settlement_weight =
-            //             settlement_branch_weight.saturating_add(pending_marker_weight);
+                    // Zero historical items identifies the missing-submission branch. Pending
+                    // filtering can leave a real elected/proposed round with only one or two
+                    // eligible nodes, so every nonzero snapshot must still reserve a complete
+                    // accepted/rejected settlement at the generated minimum domain.
+                    let settlement_branch_weight = if historical_items == 0 {
+                        T::WeightInfo::emission_step_missing()
+                    } else {
+                        accepted_weight
+                            .max(T::WeightInfo::emission_step_rejected(accepted_h))
+                            .max(T::WeightInfo::emission_step_emergency(accepted_h.clamp(
+                                MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN,
+                                T::MaxSubnetNodesUpperBound::get(),
+                            )))
+                    };
+                    // The accepted payout maximum and the full threshold-crossing marker maximum
+                    // are mutually exclusive. Reserve the bounded marker writes and event proof
+                    // independently so either branch fits without coupling cleanup to settlement.
+                    let pending_marker_weight = db_weight
+                        .reads_writes(3, 3)
+                        .saturating_add(Self::pending_subnet_node_removal_proof_weight());
+                    let settlement_weight =
+                        settlement_branch_weight.saturating_add(pending_marker_weight);
 
-            //         // Settlement is mandatory for an assigned subnet slot. If its complete core
-            //         // cannot fit, do not let lower-priority election or maintenance consume the
-            //         // remaining block budget.
-            //         if !weight_meter.can_consume(settlement_weight) {
-            //             return weight_meter.consumed();
-            //         }
-            //         Self::emission_settlement_step(
-            //             &mut WeightMeter::with_limit(settlement_weight),
-            //             block,
-            //             current_epoch,
-            //             subnet_epoch,
-            //             subnet_id,
-            //         );
-            //         weight_meter.consume(settlement_weight);
+                    // Settlement is mandatory for an assigned subnet slot. If its complete core
+                    // cannot fit, do not let lower-priority election or maintenance consume the
+                    // remaining block budget.
+                    if !weight_meter.can_consume(settlement_weight) {
+                        return weight_meter.consumed();
+                    }
+                    Self::emission_settlement_step(
+                        &mut WeightMeter::with_limit(settlement_weight),
+                        block,
+                        current_epoch,
+                        subnet_epoch,
+                        subnet_id,
+                    );
+                    weight_meter.consume(settlement_weight);
 
-            //         // Election, pending cleanup, registration, and burn maintenance each admit
-            //         // themselves against the genuinely remaining outer meter, in that order.
-            //         Self::emission_operational_step(
-            //             &mut weight_meter,
-            //             block,
-            //             subnet_epoch,
-            //             subnet_id,
-            //         );
-            //     }
-            // }
+                    // Election, pending cleanup, registration, and burn maintenance each admit
+                    // themselves against the genuinely remaining outer meter, in that order.
+                    Self::emission_operational_step(
+                        &mut weight_meter,
+                        block,
+                        subnet_epoch,
+                        subnet_id,
+                    );
+                }
+            }
 
-            // // Attempt stake swap queue on every block. The scalar count avoids decoding the
-            // // bounded queue before its q-dependent weight has been reserved.
-            // let swap_selector_weight = T::WeightInfo::execute_ready_swap_selectors();
-            // if !weight_meter.can_consume(swap_selector_weight) {
-            //     return weight_meter.consumed();
-            // }
-            // weight_meter.consume(swap_selector_weight);
-            // let max_swap_executions = MaxSwapQueueCallsPerBlock::<T>::get();
-            // let queued_swap_count = SwapQueueCount::<T>::get()
-            //     .min(T::MaxSwapQueueLength::get())
-            //     .min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
-            // if queued_swap_count > 0 {
-            //     let queue_weight = T::WeightInfo::execute_ready_swap_queue(queued_swap_count);
-            //     if weight_meter.can_consume(queue_weight) {
-            //         // Select the largest affordable ready prefix. The q-cost is paid once. The base
-            //         // envelope covers every successful-credit, missing-destination refund, and
-            //         // mixed prefix. An existing destination can additionally fail to mint a share
-            //         // and then execute the refund path in the same item. Conservatively compose one
-            //         // complete refund allowance per call so this combined path and its proof union
-            //         // remain covered without multiplying the mixed-branch benchmark surface.
-            //         let homogeneous_item_weight = |calls: u32| {
-            //             T::WeightInfo::execute_ready_swap_calls(calls)
-            //                 .max(T::WeightInfo::execute_ready_swap_subnet_calls(calls))
-            //                 .max(T::WeightInfo::execute_ready_swap_refunds(calls))
-            //         };
-            //         let base_ready_prefix_weight = |calls: u32| {
-            //             let homogeneous = homogeneous_item_weight(calls);
-            //             if calls < MIN_MIXED_SWAP_BENCHMARK_DOMAIN.saturating_sub(1) {
-            //                 return homogeneous;
-            //             }
+            // Attempt stake swap queue on every block. The scalar count avoids decoding the
+            // bounded queue before its q-dependent weight has been reserved.
+            let swap_selector_weight = T::WeightInfo::execute_ready_swap_selectors();
+            if !weight_meter.can_consume(swap_selector_weight) {
+                return weight_meter.consumed();
+            }
+            weight_meter.consume(swap_selector_weight);
+            let max_swap_executions = MaxSwapQueueCallsPerBlock::<T>::get();
+            let queued_swap_count = SwapQueueCount::<T>::get()
+                .min(T::MaxSwapQueueLength::get())
+                .min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
+            if queued_swap_count > 0 {
+                let queue_weight = T::WeightInfo::execute_ready_swap_queue(queued_swap_count);
+                if weight_meter.can_consume(queue_weight) {
+                    // Select the largest affordable ready prefix. The q-cost is paid once. The base
+                    // envelope covers every successful-credit, missing-destination refund, and
+                    // mixed prefix. An existing destination can additionally fail to mint a share
+                    // and then execute the refund path in the same item. Conservatively compose one
+                    // complete refund allowance per call so this combined path and its proof union
+                    // remain covered without multiplying the mixed-branch benchmark surface.
+                    let homogeneous_item_weight = |calls: u32| {
+                        T::WeightInfo::execute_ready_swap_calls(calls)
+                            .max(T::WeightInfo::execute_ready_swap_subnet_calls(calls))
+                            .max(T::WeightInfo::execute_ready_swap_refunds(calls))
+                    };
+                    let base_ready_prefix_weight = |calls: u32| {
+                        let homogeneous = homogeneous_item_weight(calls);
+                        if calls < MIN_MIXED_SWAP_BENCHMARK_DOMAIN.saturating_sub(1) {
+                            return homogeneous;
+                        }
 
-            //             let mixed_component =
-            //                 calls.saturating_add(1).min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
-            //             let mut mixed =
-            //                 T::WeightInfo::execute_ready_swap_mixed_validator(mixed_component)
-            //                     .max(T::WeightInfo::execute_ready_swap_mixed_subnet(
-            //                         mixed_component,
-            //                     ))
-            //                     .max(T::WeightInfo::execute_ready_swap_mixed_refund(
-            //                         mixed_component,
-            //                     ));
-            //             if calls == MAX_SWAP_QUEUE_BENCHMARK_DOMAIN {
-            //                 mixed = mixed.saturating_add(homogeneous_item_weight(1));
-            //             }
-            //             homogeneous.max(mixed)
-            //         };
-            //         let ready_prefix_weight = |calls: u32| {
-            //             base_ready_prefix_weight(calls)
-            //                 .saturating_add(T::WeightInfo::execute_ready_swap_refunds(calls))
-            //         };
+                        let mixed_component =
+                            calls.saturating_add(1).min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
+                        let mut mixed =
+                            T::WeightInfo::execute_ready_swap_mixed_validator(mixed_component)
+                                .max(T::WeightInfo::execute_ready_swap_mixed_subnet(
+                                    mixed_component,
+                                ))
+                                .max(T::WeightInfo::execute_ready_swap_mixed_refund(
+                                    mixed_component,
+                                ));
+                        if calls == MAX_SWAP_QUEUE_BENCHMARK_DOMAIN {
+                            mixed = mixed.saturating_add(homogeneous_item_weight(1));
+                        }
+                        homogeneous.max(mixed)
+                    };
+                    let ready_prefix_weight = |calls: u32| {
+                        base_ready_prefix_weight(calls)
+                            .saturating_add(T::WeightInfo::execute_ready_swap_refunds(calls))
+                    };
 
-            //         let mut low = 0u32;
-            //         let mut high = max_swap_executions
-            //             .min(T::MaxSwapCallsPerBlockUpperBound::get())
-            //             .min(queued_swap_count)
-            //             .min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
-            //         while low < high {
-            //             let candidate = low.saturating_add(high).saturating_add(1) / 2;
-            //             let candidate_weight =
-            //                 queue_weight.saturating_add(ready_prefix_weight(candidate));
-            //             if weight_meter.can_consume(candidate_weight) {
-            //                 low = candidate;
-            //             } else {
-            //                 high = candidate.saturating_sub(1);
-            //             }
-            //         }
+                    let mut low = 0u32;
+                    let mut high = max_swap_executions
+                        .min(T::MaxSwapCallsPerBlockUpperBound::get())
+                        .min(queued_swap_count)
+                        .min(MAX_SWAP_QUEUE_BENCHMARK_DOMAIN);
+                    while low < high {
+                        let candidate = low.saturating_add(high).saturating_add(1) / 2;
+                        let candidate_weight =
+                            queue_weight.saturating_add(ready_prefix_weight(candidate));
+                        if weight_meter.can_consume(candidate_weight) {
+                            low = candidate;
+                        } else {
+                            high = candidate.saturating_sub(1);
+                        }
+                    }
 
-            //         let item_weight = if low == 0 {
-            //             Weight::zero()
-            //         } else {
-            //             ready_prefix_weight(low)
-            //         };
-            //         let step_weight = queue_weight.saturating_add(item_weight);
-            //         Self::execute_ready_swap_calls_with_limit(block, low, &mut WeightMeter::new());
-            //         weight_meter.consume(step_weight);
-            //     }
-            // }
+                    let item_weight = if low == 0 {
+                        Weight::zero()
+                    } else {
+                        ready_prefix_weight(low)
+                    };
+                    let step_weight = queue_weight.saturating_add(item_weight);
+                    Self::execute_ready_swap_calls_with_limit(block, low, &mut WeightMeter::new());
+                    weight_meter.consume(step_weight);
+                }
+            }
 
-            // for EVM tests (Weights in on_initialize change the block weight/gas)
-            Weight::zero()
-
-            // weight_meter.consumed()
+            weight_meter.consumed()
         }
 
         fn on_finalize(block_number: BlockNumberFor<T>) {}
@@ -10790,319 +10993,6 @@ pub mod pallet {
             QueuedSwapRefundBalance::<T>::insert(account_id, account_refund);
             TotalQueuedSwapRefundBalance::<T>::put(total_refunds);
             Ok(CompletedSwapOutcome::Refunded { balance, reason })
-        }
-    }
-
-    #[pallet::genesis_config]
-    #[derive(frame_support::DefaultNoBound)]
-    pub struct GenesisConfig<T: Config> {
-        pub subnet_name: Vec<u8>,
-        pub subnet_nodes: Vec<(T::AccountId, PeerId)>,
-    }
-
-    #[pallet::genesis_build]
-    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
-        fn build(&self) {
-            // [TESTING: LOCAL]
-            // MinSubnetRegistrationEpochs::<T>::set(0);
-            // OverwatchEpochLengthMultiplier::<T>::set(2);
-
-            // // [TESTING: BENCHMARKING && EVM TESTS]
-            // // Enable subnets to register right when conditions are met
-            // MinSubnetRegistrationEpochs::<T>::set(0);
-            // // Enable testing overwatch nodes on each epoch
-            // OverwatchEpochLengthMultiplier::<T>::set(1);
-            // DelegateStakeCooldownEpochs::<T>::set(0);
-            // NodeDelegateStakeCooldownEpochs::<T>::put(0);
-            // StakeCooldownEpochs::<T>::put(0);
-            // MinActiveNodeStakeEpochs::<T>::put(0);
-            // SubnetDelegateStakeRewardsUpdatePeriod::<T>::put(0);
-            // NodeRewardRateUpdatePeriod::<T>::put(0);
-            // MinSubnetDelegateStakeFactor::<T>::put(0);
-            // SubnetPauseCooldownEpochs::<T>::put(1);
-
-            // // [TESTING: EVM TESTS]
-            // // Enable subnets to register right when conditions are met
-            // MinSubnetRegistrationEpochs::<T>::set(0);
-            // OverwatchEpochLengthMultiplier::<T>::set(1);
-            // DelegateStakeCooldownEpochs::<T>::set(0);
-            // NodeDelegateStakeCooldownEpochs::<T>::put(0);
-            // StakeCooldownEpochs::<T>::put(0);
-            // MinActiveNodeStakeEpochs::<T>::put(0);
-            // SubnetDelegateStakeRewardsUpdatePeriod::<T>::put(0);
-            // NodeRewardRateUpdatePeriod::<T>::put(0);
-            // MinSubnetDelegateStakeFactor::<T>::put(0);
-            // SubnetPauseCooldownEpochs::<T>::put(1);
-
-            // [TESTING: TESTNET HOSKINSON]
-            // Enable subnets to register right when conditions are met
-            // MinSubnetRegistrationEpochs::<T>::set(0);
-            // OverwatchEpochLengthMultiplier::<T>::set(1);
-            // DelegateStakeCooldownEpochs::<T>::set(1);
-            // NodeDelegateStakeCooldownEpochs::<T>::put(1);
-            // StakeCooldownEpochs::<T>::put(1);
-            // MinActiveNodeStakeEpochs::<T>::put(1);
-            // SubnetDelegateStakeRewardsUpdatePeriod::<T>::put(0);
-            // NodeRewardRateUpdatePeriod::<T>::put(0);
-            // MinSubnetDelegateStakeFactor::<T>::put(0);
-            // SubnetPauseCooldownEpochs::<T>::put(1);
-
-            // use fp_account::AccountId20;
-            // use sp_core::H160;
-            // use sp_core::U256;
-
-            // if self.subnet_name.last().is_none() {
-            //     return;
-            // }
-
-            // let subnet_id = 1;
-            // let friendly_uid = 1;
-
-            // SubnetIdFriendlyUid::<T>::insert(subnet_id, friendly_uid);
-            // FriendlyUidSubnetId::<T>::insert(friendly_uid, subnet_id);
-
-            // let subnet_data = SubnetData {
-            //     id: subnet_id,
-            //     friendly_id: subnet_id,
-            //     name: self.subnet_name.clone(),
-            //     repo: Vec::new(),
-            //     description: Vec::new(),
-            //     misc: Vec::new(),
-            //     state: SubnetState::Active,
-            //     start_epoch: 0,
-            // };
-
-            // SubnetRegistrationEpoch::<T>::insert(subnet_id, 1);
-            // // Store unique name
-            // SubnetName::<T>::insert(self.subnet_name.clone(), subnet_id);
-            // // Store repo
-            // SubnetRepo::<T>::insert(self.subnet_name.clone(), subnet_id);
-            // // Store subnet data
-            // SubnetsData::<T>::insert(subnet_id, subnet_data.clone());
-            // // Increase total subnets count
-            // TotalSubnetUids::<T>::mutate(|n: &mut u32| *n += 1);
-
-            // // Add bootnodes
-            // let raw_bootnode = b"p2p/127.0.0.1/33130".to_vec();
-            // // Try converting to a bounded vec (panics if too long)
-            // let bounded: NetworkBytes<T> = raw_bootnode
-            //     .try_into()
-            //     .expect("bootnode string fits in bounded vec");
-
-            // let bootnodes = BTreeMap::from([(&self.subnet_nodes[0].1, bounded)]);
-
-            // SubnetBootnodes::<T>::insert(subnet_id, bootnodes);
-
-            // // Increase delegate stake to allow activation of subnet model
-            // let min_stake_balance = MinSubnetMinStake::<T>::get();
-            // // --- Get minimum subnet stake balance
-            // let min_subnet_stake_balance = min_stake_balance;
-
-            // let alith = &self.subnet_nodes.iter().next();
-
-            // let alith_balance = T::Currency::free_balance(&alith.unwrap().0);
-
-            // let min_subnet_delegate_stake_balance: u128 = result.try_into().unwrap_or(u128::MAX);
-
-            // // --- Mitigate inflation attack
-            // TotalSubnetDelegateStakeShares::<T>::mutate(subnet_id, |mut n| {
-            //     n.saturating_accrue(1000)
-            // });
-
-            // // =================
-            // // convert_to_shares
-            // // =================
-            // let total_subnet_delegated_stake_balance =
-            //     TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
-
-            // let balance = U256::from(min_subnet_delegate_stake_balance);
-            // let total_shares = U256::from(0) + U256::from(10_u128.pow(1));
-            // let total_balance = U256::from(total_subnet_delegated_stake_balance) + U256::from(1);
-
-            // let shares = balance * total_shares / total_balance;
-            // let shares: u128 = shares.try_into().unwrap_or(u128::MAX);
-
-            // // =====================================
-            // // increase_account_delegate_stake
-            // // =====================================
-            // // -- increase total subnet delegate stake balance
-            // TotalSubnetDelegateStakeBalance::<T>::mutate(subnet_id, |mut n| {
-            //     n.saturating_accrue(min_subnet_delegate_stake_balance)
-            // });
-            // // -- increase total subnet delegate stake shares
-            // TotalSubnetDelegateStakeShares::<T>::mutate(subnet_id, |mut n| {
-            //     n.saturating_accrue(shares)
-            // });
-            // TotalDelegateStake::<T>::set(min_subnet_delegate_stake_balance);
-
-            // // Store subnet data
-            // SubnetsData::<T>::insert(subnet_id, &subnet_data);
-
-            // // Store owner
-            // SubnetOwner::<T>::insert(subnet_id, &alith.unwrap().0);
-
-            // // Store the stake balance range
-            // SubnetMinStakeBalance::<T>::insert(subnet_id, 0);
-            // SubnetMaxStakeBalance::<T>::insert(subnet_id, 1000000000000000000000); // 1,000
-
-            // // Add delegate state ratio
-            // SubnetDelegateStakeRewardsPercentage::<T>::insert(subnet_id, 100000000000000000);
-            // LastSubnetDelegateStakeRewardsUpdate::<T>::insert(subnet_id, 0);
-
-            // // Add classification epochs
-            // SubnetNodeQueueEpochs::<T>::insert(subnet_id, 0);
-            // IdleClassificationEpochs::<T>::insert(subnet_id, 0);
-            // IncludedClassificationEpochs::<T>::insert(subnet_id, 0);
-
-            // // Add queue variables
-            // ChurnLimit::<T>::insert(subnet_id, 0);
-
-            // // Store min nodes reputation
-            // MinSubnetNodeReputation::<T>::insert(subnet_id, 100000000000000000);
-
-            // // Store whitelisted coldkeys for registration period
-            // // NodeRegistrationInitialValidatorIds::<T>::insert(
-            // // 	subnet_id,
-            // // 	BTreeSet::new()
-            // // );
-
-            // MaxRegisteredNodes::<T>::insert(subnet_id, 256);
-            // LastSubnetRegistrationBlock::<T>::set(0);
-            // SubnetRegistrationEpoch::<T>::insert(subnet_id, 0);
-
-            // //
-            // //
-            // //
-            // // --- Initialize subnet nodes
-            // // Only initialize to test using subnet nodes
-            // // If testing using subnet nodes in a subnet, comment out the ``for`` loop
-            // //
-            // //
-            // //
-
-            // let mut stake_amount: u128 = MinSubnetMinStake::<T>::get();
-
-            // let mut count = 0;
-            // for (account_id, peer_id) in &self.subnet_nodes {
-            //     // Redundant
-            //     // Unique subnet_id -> PeerId
-            //     // Ensure peer ID doesn't already exist within subnet regardless of account_id
-            //     let peer_exists: bool =
-            //         match PeerIdSubnetNodeId::<T>::try_get(subnet_id, peer_id.clone()) {
-            //             Ok(_) => true,
-            //             Err(()) => false,
-            //         };
-
-            //     if peer_exists {
-            //         continue;
-            //     }
-
-            //     // ====================
-            //     // Initiate stake logic
-            //     // ====================
-            //     // T::Currency::withdraw(
-            //     // 	&account_id,
-            //     // 	stake_amount,
-            //     // 	WithdrawReasons::except(WithdrawReasons::TIP),
-            //     // 	ExistenceRequirement::KeepAlive,
-            //     // );
-
-            //     // -- increase account subnet staking balance
-            //     NodeSubnetStake::<T>::insert(
-            //         account_id,
-            //         subnet_id,
-            //         NodeSubnetStake::<T>::get(account_id, subnet_id)
-            //             .saturating_add(stake_amount),
-            //     );
-
-            //     // -- increase total subnet stake
-            //     TotalSubnetStake::<T>::mutate(subnet_id, |mut n| *n += stake_amount);
-
-            //     // -- increase total stake overall
-            //     TotalStake::<T>::mutate(|mut n| *n += stake_amount);
-
-            //     // To ensure the AccountId that owns the PeerId, they must sign the PeerId for others to verify
-            //     // This ensures others cannot claim to own a PeerId they are not the owner of
-            //     // Self::validate_signature(&Encode::encode(&peer_id), &signature, &signer)?;
-
-            //     // ========================
-            //     // Insert peer into storage
-            //     // ========================
-            //     let classification = SubnetNodeClassification {
-            //         node_class: SubnetNodeClass::Validator,
-            //         start_epoch: 0,
-            //     };
-
-            //     let bounded_peer_id: NetworkBytes<T> =
-            //         BoundedVec::try_from(peer_id.clone().0).expect("Vec is within bounds");
-
-            //     TotalSubnetNodeUids::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
-            //     let current_uid = TotalSubnetNodeUids::<T>::get(subnet_id);
-
-            //     // Insert Subnet Node ID -> hotkey
-            //     SubnetNodeIdHotkey::<T>::insert(subnet_id, current_uid, account_id.clone());
-
-            //     let subnet_node: SubnetNode = SubnetNode {
-            //         id: current_uid,
-            //         hotkey: account_id.clone(),
-            //         peer_id: peer_id.clone(),
-            //         bootnode_peer_id: peer_id.clone(),
-            //         client_peer_id: peer_id.clone(),
-            //         bootnode: Some(BoundedVec::new()),
-            //         classification: classification,
-            //         delegate_reward_rate: 0,
-            //         last_delegate_reward_rate_update: 0,
-            //         unique: Some(bounded_peer_id),
-            //         non_unique: Some(BoundedVec::new()),
-            //         delegate_account: None,
-            //     };
-
-            //     ValidatorSubnetNodes::<T>::mutate(validator_id, |node_map| {
-            //         node_map
-            //             .entry(subnet_id)
-            //             .or_insert_with(BTreeSet::new)
-            //             .insert(current_uid);
-            //     });
-
-            //     // Insert SubnetNodesData
-            //     SubnetNodesData::<T>::insert(subnet_id, current_uid, subnet_node);
-
-            //     // Insert subnet peer account to keep peer_ids unique within subnets
-            //     PeerIdSubnetNodeId::<T>::insert(subnet_id, peer_id.clone(), current_uid);
-
-            //     // Increase total subnet nodes
-            //     TotalSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| *n += 1);
-            //     TotalNodes::<T>::mutate(|n: &mut u32| *n += 1);
-
-            //     // ===================================
-            //     // Give delegate stake balance to each user
-            //     // ===================================
-            //     let delegate_stake_amount = 1000;
-
-            //     // -- increase account subnet staking shares balance
-            //     AccountSubnetDelegateStakeShares::<T>::mutate(
-            //         account_id.clone(),
-            //         subnet_id,
-            //         |mut n| n.saturating_accrue(delegate_stake_amount),
-            //     );
-
-            //     // -- increase total subnet delegate stake balance
-            //     TotalSubnetDelegateStakeBalance::<T>::mutate(subnet_id, |mut n| {
-            //         n.saturating_accrue(delegate_stake_amount)
-            //     });
-
-            //     // -- increase total subnet delegate stake shares
-            //     TotalSubnetDelegateStakeShares::<T>::mutate(subnet_id, |mut n| {
-            //         n.saturating_accrue(delegate_stake_amount)
-            //     });
-
-            //     TotalDelegateStake::<T>::mutate(|mut n| n.saturating_accrue(delegate_stake_amount));
-
-            //     let current_count = NodeRegistrationsThisEpoch::<T>::get(subnet_id);
-            //     NodeRegistrationsThisEpoch::<T>::insert(subnet_id, current_count.saturating_add(1));
-
-            //     count += 1;
-            // }
         }
     }
 }

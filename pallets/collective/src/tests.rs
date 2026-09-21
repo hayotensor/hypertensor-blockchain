@@ -41,7 +41,9 @@ frame_support::construct_runtime!(
         CollectiveMajority: pallet_collective::<Instance2>,
         DefaultCollective: pallet_collective,
         Democracy: mock_democracy,
-        InsecureRandomnessCollectiveFlip: pallet_insecure_randomness_collective_flip,
+        Timestamp: pallet_timestamp,
+        Babe: pallet_babe,
+        BabeRandomness: pallet_randomness,
         Network: pallet_network,
     }
 );
@@ -115,7 +117,26 @@ impl pallet_balances::Config for Test {
     type RuntimeHoldReason = RuntimeHoldReason;
 }
 
-impl pallet_insecure_randomness_collective_flip::Config for Test {}
+impl pallet_timestamp::Config for Test {
+    type Moment = u64;
+    type OnTimestampSet = Babe;
+    type MinimumPeriod = ConstU64<{ SLOT_DURATION / 2 }>;
+    type WeightInfo = ();
+}
+
+impl pallet_babe::Config for Test {
+    type EpochDuration = ConstU64<20>;
+    type ExpectedBlockTime = ConstU64<MILLISECS_PER_BLOCK>;
+    type EpochChangeTrigger = pallet_babe::SameAuthoritiesForever;
+    type DisabledValidators = ();
+    type WeightInfo = ();
+    type MaxAuthorities = ConstU32<32>;
+    type MaxNominators = ConstU32<256>;
+    type KeyOwnerProof = sp_session::MembershipProof;
+    type EquivocationReportSystem = ();
+}
+
+impl pallet_randomness::Config for Test {}
 
 parameter_types! {
     pub const EpochLength: u32 = EPOCH_LENGTH; // Testnet 600 blocks per erpoch / 69 mins per epoch, Local 10
@@ -160,7 +181,7 @@ impl pallet_network::Config for Test {
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = ConstU32<0>;
     type InitialMinSubnetDelegateStakeBalance = ConstU128<100_000_000_000_000_000_000>;
-    type Randomness = InsecureRandomnessCollectiveFlip;
+    type Randomness = BabeRandomness;
     type PalletId = NetworkPalletId;
     type TreasuryAccount = ();
     type OverwatchEpochEmissions = OverwatchEpochEmissions;
@@ -274,6 +295,7 @@ impl ExtBuilder {
             system: frame_system::GenesisConfig::default(),
             balances: pallet_balances::GenesisConfig {
                 balances: vec![(1, 100), (2, 200)],
+                ..Default::default()
             },
             collective: pallet_collective::GenesisConfig {
                 members: self.collective_members,
@@ -284,7 +306,7 @@ impl ExtBuilder {
                 phantom: Default::default(),
             },
             default_collective: Default::default(),
-            network: Default::default(),
+            babe: Default::default(),
         }
         .build_storage()
         .unwrap()

@@ -906,7 +906,7 @@ impl<T: Config> Pallet<T> {
         };
 
         let Some(idx) = Self::get_bounded_random_index(
-            (subnet_id, subnet_epoch, block),
+            (subnet_id, subnet_epoch),
             physical_slot_list.len() as u32,
         ) else {
             return;

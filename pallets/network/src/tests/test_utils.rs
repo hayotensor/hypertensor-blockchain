@@ -28,17 +28,16 @@ use crate::{
     ValidatorData, ValidatorDelegateStakeBalance, ValidatorIdHotkey, ValidatorOverwatchNodeId,
     ValidatorSubnetNodes, ValidatorsData,
 };
-use fp_account::AccountId20;
 use frame_support::assert_ok;
 use frame_support::storage::bounded_vec::BoundedVec;
 use frame_support::traits::{Currency, ExistenceRequirement, Hooks};
 use frame_support::weights::WeightMeter;
 use frame_support::BoundedBTreeMap;
-use sp_core::keccak_256;
 use sp_core::OpaquePeerId as PeerId;
-use sp_core::H160;
 use sp_io::hashing::blake2_128;
+use sp_io::hashing::keccak_256;
 use sp_runtime::traits::Hash;
+use sp_runtime::AccountId32;
 use sp_std::collections::btree_map::BTreeMap;
 use sp_std::collections::btree_set::BTreeSet;
 
@@ -118,7 +117,7 @@ pub fn seed_equal_validator_delegate_stake_for_subnet(subnet_id: u32) {
 
 pub fn account(id: u32) -> AccountIdOf<Test> {
     let hash = keccak_256(&id.to_le_bytes());
-    AccountId20::from(H160::from_slice(&hash[0..20]))
+    AccountId32::from(hash)
 }
 
 pub fn get_alice() -> AccountIdOf<Test> {
@@ -260,7 +259,7 @@ pub fn build_activated_subnet(
     amount: u128,
 ) {
     let alice = account(0);
-    if Balances::free_balance(alice) == 0 {
+    if Balances::free_balance(&alice) == 0 {
         let _ = Balances::deposit_creating(&alice.clone(), ALICE_EXPECTED_BALANCE);
     }
 
@@ -686,7 +685,7 @@ pub fn build_activated_subnet_new_excess_subnets(
     excess: u32,
 ) {
     let alice = account(0);
-    if Balances::free_balance(alice) == 0 {
+    if Balances::free_balance(&alice) == 0 {
         let _ = Balances::deposit_creating(&alice.clone(), ALICE_EXPECTED_BALANCE);
     }
 
@@ -938,7 +937,7 @@ pub fn build_registered_subnet(
     add_subnet_data: Option<RegistrationSubnetData<Test>>,
 ) {
     let alice = account(0);
-    if Balances::free_balance(alice) == 0 {
+    if Balances::free_balance(&alice) == 0 {
         let _ = Balances::deposit_creating(&alice.clone(), ALICE_EXPECTED_BALANCE);
     }
 

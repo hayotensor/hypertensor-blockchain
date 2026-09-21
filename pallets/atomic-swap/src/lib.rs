@@ -55,15 +55,24 @@ use frame_support::{
     pallet_prelude::MaxEncodedLen,
     traits::{BalanceStatus, Currency, Get, ReservableCurrency},
     weights::Weight,
-    RuntimeDebugNoBound,
+    DebugNoBound,
 };
 use frame_system::pallet_prelude::BlockNumberFor;
 use scale_info::TypeInfo;
 use sp_io::hashing::{blake2_256, keccak_256, sha2_256};
-use sp_runtime::RuntimeDebug;
 
 /// Pending atomic swap operation.
-#[derive(Clone, Eq, PartialEq, RuntimeDebugNoBound, Encode, Decode, TypeInfo, MaxEncodedLen)]
+#[derive(
+    Clone,
+    Eq,
+    PartialEq,
+    DebugNoBound,
+    Encode,
+    Decode,
+    codec::DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+)]
 #[scale_info(skip_type_params(T))]
 #[codec(mel_bound())]
 pub struct PendingSwap<T: Config> {
@@ -80,10 +89,18 @@ pub struct PendingSwap<T: Config> {
 /// Hashed proof type.
 pub type HashedProof = [u8; 32];
 
-/// Hash type for the type of hashed proof used by source
-/// This allows usage of smart contracts on Ethereum that don't natively have Blake2256
-/// Most blockchains implement at least one of these three popular hashing algorithms
-#[derive(Clone, Eq, PartialEq, RuntimeDebugNoBound, Encode, Decode, TypeInfo, MaxEncodedLen)]
+/// Hash algorithm selected by the source for the swap proof.
+#[derive(
+    Clone,
+    Eq,
+    PartialEq,
+    DebugNoBound,
+    Encode,
+    Decode,
+    codec::DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+)]
 pub enum HashType {
     Blake2256,
     Keccak256,
@@ -110,7 +127,17 @@ pub trait SwapAction<AccountId, T: Config> {
 }
 
 /// A swap action that only allows transferring balances.
-#[derive(Clone, RuntimeDebug, Eq, PartialEq, Encode, Decode, TypeInfo, MaxEncodedLen)]
+#[derive(
+    Clone,
+    Debug,
+    Eq,
+    PartialEq,
+    Encode,
+    Decode,
+    codec::DecodeWithMemTracking,
+    TypeInfo,
+    MaxEncodedLen,
+)]
 #[scale_info(skip_type_params(C))]
 #[codec(mel_bound())]
 pub struct BalanceSwapAction<AccountId, C: ReservableCurrency<AccountId>> {

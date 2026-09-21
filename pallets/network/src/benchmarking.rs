@@ -26,7 +26,6 @@ use crate::utilities::multiaddr::{encode_varint, Multiaddr, DNS4, IP4, P2P, TCP}
 #[allow(unused)]
 use crate::Pallet as Network;
 use crate::*;
-use fp_account::AccountId20;
 use frame_benchmarking::v2::*;
 use frame_support::{
     assert_noop, assert_ok,
@@ -38,10 +37,10 @@ use frame_support::{
 use frame_system::{limits::BlockWeights, pallet_prelude::BlockNumberFor, RawOrigin};
 pub use pallet::*;
 use pallet_collective::{Instance1, Members};
-use pallet_evm::{AddressMapping, IdentityAddressMapping};
 use pallet_treasury::Pallet as Treasury;
 use scale_info::prelude::{format, vec};
-use sp_core::{blake2_128, keccak_256, OpaquePeerId as PeerId, H160};
+use sp_core::OpaquePeerId as PeerId;
+use sp_io::hashing::blake2_128;
 use sp_runtime::{
     traits::{Hash, Header},
     SaturatedConversion, Vec,

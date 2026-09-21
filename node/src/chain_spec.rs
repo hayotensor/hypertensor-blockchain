@@ -9,7 +9,6 @@ fn properties() -> Properties {
     properties.insert("tokenSymbol".into(), "TENSOR".into());
     properties.insert("tokenDecimals".into(), 18.into());
     properties.insert("ss58Format".into(), SS58Prefix::get().into());
-    properties.insert("isEthereum".into(), true.into());
     properties
 }
 
@@ -23,19 +22,6 @@ pub fn development_chain_spec() -> Result<ChainSpec, String> {
     .with_chain_type(ChainType::Development)
     .with_properties(properties())
     .with_genesis_config_preset_name(sp_genesis_builder::DEV_RUNTIME_PRESET)
-    .build())
-}
-
-pub fn eth_development_chain_spec() -> Result<ChainSpec, String> {
-    Ok(ChainSpec::builder(
-        WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
-        None,
-    )
-    .with_name("Ethereum Development")
-    .with_id("eth_dev")
-    .with_chain_type(ChainType::Development)
-    .with_properties(properties())
-    .with_genesis_config_preset_name("ETHEREUM_DEV_RUNTIME_PRESET")
     .build())
 }
 
@@ -53,14 +39,5 @@ pub fn local_chain_spec() -> Result<ChainSpec, String> {
 }
 
 pub fn hoskinson_chain_spec() -> Result<ChainSpec, String> {
-    Ok(ChainSpec::builder(
-        WASM_BINARY.ok_or_else(|| "Development wasm not available".to_string())?,
-        None,
-    )
-    .with_name("Hoskinson Testnet")
-    .with_id("hoskinson_testnet")
-    .with_chain_type(ChainType::Live)
-    .with_properties(properties())
-    .with_genesis_config_preset_name("HOSKINSON_RUNTIME_PRESET")
-    .build())
+    Err("No production Hoskinson genesis is configured. Supply a reviewed JSON chain spec with operator-controlled validator and sudo public keys; the former preset used public development keys.".into())
 }
