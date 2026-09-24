@@ -3,6 +3,10 @@
 Deploy a Solidity contract through your running `eth-rpc` adapter, change its
 stored value, and read it back. This is a standalone Hardhat 3 + ethers project.
 
+For calling network pallet precompiles from your own Solidity contracts, see
+[contracts/precompiles/](contracts/precompiles/README.md). It contains the six
+interfaces, shared structs, precompile addresses, and import instructions.
+
 ## Setup
 
 Use Node.js 22.13+ (an even-numbered supported release). Run these commands from
