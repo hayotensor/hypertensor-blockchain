@@ -22,7 +22,7 @@ EVM and PolkaVM programs, Ethereum chain-ID/nonce validation, receipt generation
 refundable account mapping, execution/storage limits, rollback, and call filtering.
 
 The benchmarking feature exposes Session and system transaction-extension benchmarks
-alongside BABE, GRANDPA, Staking, and Revive. It adds no pallets to the deployed runtime.
+alongside BABE, GRANDPA, Staking, Revive, and Network precompiles. It adds no pallets to the deployed runtime.
 The command above checks benchmark integration without compiling upstream contract
 fixtures or embedding Wasm. It does **not** run benchmarks. To build a functioning
 benchmark runtime, unset both skip variables and install the `solc` and `resolc`
@@ -70,7 +70,8 @@ remain deployment work; see the [production review](production-review.md).
 
 Revive is at pallet index 23. Network is at index 24, after BABE/Session epoch
 rotation. Scheduler is at index 25 so its hook executes last; indices 11 and 16
-are unused. Generate fresh chain specifications. See the
+are unused. The stateless Network precompile benchmark/configuration component
+is at index 26 and has no hooks. Generate fresh chain specifications. See the
 [production review](production-review.md) for fixed findings and unresolved release
 requirements, and the [smart contract guide](smart-contracts.md) for account mapping
 and optional Ethereum RPC setup.

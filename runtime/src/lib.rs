@@ -831,6 +831,10 @@ mod runtime {
     // remaining-block-weight meter includes Network and consensus initialization.
     #[runtime::pallet_index(25)]
     pub type Scheduler = pallet_scheduler;
+
+    // Stateless configuration and benchmarks; no hooks or contract storage.
+    #[runtime::pallet_index(26)]
+    pub type NetworkPrecompiles = network_precompiles;
 }
 
 #[cfg(feature = "runtime-benchmarks")]
@@ -860,6 +864,7 @@ mod benches {
         [pallet_collective, Collective]
         [pallet_network, Network]
         [pallet_revive, Revive]
+        [network_precompiles, NetworkPrecompiles]
         // [pallet_treasury, Treasury]
     );
 }

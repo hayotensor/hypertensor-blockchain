@@ -48,6 +48,7 @@ pallet-revive.workspace = true
 pallet-collective.workspace = true
 pallet-network.workspace = true
 network-rpc-types.workspace = true
+network-precompiles.workspace = true
 network-custom-rpc-runtime-api.workspace = true
 
 scale-info = { features = ["derive", "serde"], workspace = true }
@@ -113,6 +114,7 @@ std = [
 	"pallet-collective/std",
 	"pallet-network/std",
 	"network-rpc-types/std",
+	"network-precompiles/std",
 	"network-custom-rpc-runtime-api/std",
 	"scale-info/std",
 	"serde_json/std",
@@ -134,6 +136,7 @@ std = [
 runtime-benchmarks = [
 	"pallet-randomness/runtime-benchmarks",
 	"pallet-revive/runtime-benchmarks",
+	"network-precompiles/runtime-benchmarks",
 	"pallet-session/runtime-benchmarks",
 	"pallet-session-benchmarking/runtime-benchmarks",
 	"pallet-babe/runtime-benchmarks",
@@ -159,6 +162,7 @@ runtime-benchmarks = [
 try-runtime = [
 	"pallet-randomness/try-runtime",
 	"pallet-revive/try-runtime",
+	"network-precompiles/try-runtime",
 	"pallet-session/try-runtime",
 	"pallet-staking/try-runtime",
 	"pallet-authorship/try-runtime",

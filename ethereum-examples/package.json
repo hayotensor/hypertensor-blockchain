@@ -1,0 +1,26 @@
+{
+  "name": "talaris-ethereum-examples",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13.0" },
+  "scripts": {
+    "compile": "hardhat compile",
+    "check": "hardhat compile && tsc --noEmit",
+    "wallet": "node scripts/create-wallet.mjs",
+    "account": "node scripts/account.mjs",
+    "demo": "hardhat run scripts/deploy-and-update.ts --network talaris",
+    "read": "hardhat run scripts/read.ts --network talaris",
+    "set": "hardhat run scripts/set-value.ts --network talaris"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-ethers": "4.1.0",
+    "@polkadot/util-crypto": "14.0.3",
+    "@types/node": "22.15.30",
+    "dotenv": "18.0.3",
+    "ethers": "6.17.0",
+    "hardhat": "3.17.0",
+    "solc": "0.8.28",
+    "typescript": "7.0.2"
+  }
+}

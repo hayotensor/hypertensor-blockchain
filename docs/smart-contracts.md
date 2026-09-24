@@ -82,8 +82,13 @@ node. This service is not embedded in the Hypertensor node binary.
   capped at 60% of normal extrinsic capacity so one can fit alongside Network's
   maximum hook budget, with at least 10% of the block left for other work.
   Additional election/scheduled work can still defer inclusion.
-- Standard EVM and Revive system precompiles are available. There are no custom
-  Hypertensor precompiles exposing the network pallet.
+- Standard EVM and Revive system precompiles are available alongside six
+  [Network precompiles](../precompiles/network/README.md): Staking, Validators,
+  Subnets, SubnetNodes, Consensus, and Overwatch. They expose all 75 signed
+  Network extrinsics through typed Solidity interfaces. The 86 council-controlled
+  calls remain native; the governance precompile address is reserved only.
+  Precompile calls preserve the Network call filter and dispatch as the immediate
+  caller, so a contract uses its own mapped native account and funds.
 
 Fees target 25% of normal block capacity and increase under sustained congestion.
 The multiplier floor is 1, preserving Revive's nonzero gas-price requirement with

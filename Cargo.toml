@@ -9,6 +9,7 @@ edition = "2021"
 members = [
     "node",
     "pallets/*",
+    "precompiles/network",
     "runtime",
 ]
 resolver = "2"
@@ -34,6 +35,7 @@ pallet-collective = { path = "./pallets/collective", default-features = false }
 pallet-network = { path = "./pallets/network", default-features = false }
 pallet-randomness = { path = "./pallets/randomness", default-features = false }
 network-rpc-types = { path = "./pallets/network-rpc-types", default-features = false }
+network-precompiles = { path = "./precompiles/network", default-features = false }
 network-custom-rpc = { path = "./pallets/network/rpc", default-features = false }
 network-custom-rpc-runtime-api = { path = "./pallets/network/runtime-api", default-features = false }
 

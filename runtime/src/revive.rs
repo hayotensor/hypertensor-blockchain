@@ -28,7 +28,7 @@ impl pallet_revive::Config for Runtime {
     type Currency = Balances;
     type WeightInfo = pallet_revive::weights::SubstrateWeight<Self>;
     // Standard EVM and Revive system precompiles are always included by the pallet.
-    type Precompiles = ();
+    type Precompiles = network_precompiles::Precompiles<Self>;
     type FindAuthor = <Runtime as pallet_authorship::Config>::FindAuthor;
     type AddressMapper = pallet_revive::AccountId32Mapper<Self>;
     type AllowEVMBytecode = ConstBool<true>;
@@ -78,5 +78,12 @@ impl EthExtra for EthExtraImpl {
             pallet_revive::evm::tx_extension::SetOrigin::<Runtime>::new_from_eth_transaction(),
             frame_system::WeightReclaim::<Runtime>::new(),
         )
+    }
+}
+
+impl network_precompiles::Config for Runtime {
+    type PrecompileWeightInfo = network_precompiles::weights::SubstrateWeight<Self>;
+    fn network_call(call: pallet_network::Call<Self>) -> RuntimeCall {
+        RuntimeCall::Network(call)
     }
 }

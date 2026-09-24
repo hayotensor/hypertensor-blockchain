@@ -1,0 +1,2840 @@
+[
+  {
+    "name": "register_validator",
+    "args": [
+      [
+        "hotkey",
+        "T::AccountId"
+      ],
+      [
+        "delegate_reward_rate",
+        "u128"
+      ],
+      [
+        "delegate_account",
+        "Option<DelegateAccount<T::AccountId>>"
+      ],
+      [
+        "identity",
+        "Option<IdentityData<T>>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 0,
+    "domain": "Validators",
+    "signature": "registerValidator(bytes32,uint128,(bool,(bytes32,uint128)),(bool,((bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes))))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator registration or canonical coldkey checks apply"
+  },
+  {
+    "name": "update_validator_coldkey",
+    "args": [
+      [
+        "validator_id",
+        "u32"
+      ],
+      [
+        "new_coldkey",
+        "T::AccountId"
+      ]
+    ],
+    "origin": "signed",
+    "index": 1,
+    "domain": "Validators",
+    "signature": "updateValidatorColdkey(uint32,bytes32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator registration or canonical coldkey checks apply"
+  },
+  {
+    "name": "update_validator_hotkey",
+    "args": [
+      [
+        "validator_id",
+        "u32"
+      ],
+      [
+        "new_hotkey",
+        "T::AccountId"
+      ]
+    ],
+    "origin": "signed",
+    "index": 2,
+    "domain": "Validators",
+    "signature": "updateValidatorHotkey(uint32,bytes32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator registration or canonical coldkey checks apply"
+  },
+  {
+    "name": "update_validator_delegate_reward_rate",
+    "args": [
+      [
+        "validator_id",
+        "u32"
+      ],
+      [
+        "new_delegate_reward_rate",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 3,
+    "domain": "Validators",
+    "signature": "updateValidatorDelegateRewardRate(uint32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator registration or canonical coldkey checks apply"
+  },
+  {
+    "name": "update_validator_delegate_account",
+    "args": [
+      [
+        "validator_id",
+        "u32"
+      ],
+      [
+        "delegate_account_id",
+        "Option<T::AccountId>"
+      ],
+      [
+        "delegate_rate",
+        "Option<u128>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 4,
+    "domain": "Validators",
+    "signature": "updateValidatorDelegateAccount(uint32,(bool,bytes32),(bool,uint128))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator registration or canonical coldkey checks apply"
+  },
+  {
+    "name": "update_validator_identity",
+    "args": [
+      [
+        "validator_id",
+        "u32"
+      ],
+      [
+        "identity",
+        "Option<IdentityData<T>>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 5,
+    "domain": "Validators",
+    "signature": "updateValidatorIdentity(uint32,(bool,((bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes),(bool,bytes))))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator registration or canonical coldkey checks apply"
+  },
+  {
+    "name": "register_subnet",
+    "args": [
+      [
+        "max_cost",
+        "u128"
+      ],
+      [
+        "subnet_data",
+        "RegistrationSubnetData<T>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 6,
+    "domain": "Subnets",
+    "signature": "registerSubnet(uint128,(bytes,bytes,bytes,bytes,uint128,uint128,uint128,(uint32,uint32)[],(bytes,bytes)[]))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "activate_subnet",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 7,
+    "domain": "Subnets",
+    "signature": "activateSubnet(uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_pause_subnet",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 8,
+    "domain": "Subnets",
+    "signature": "ownerPauseSubnet(uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_unpause_subnet",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 9,
+    "domain": "Subnets",
+    "signature": "ownerUnpauseSubnet(uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_deactivate_subnet",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 10,
+    "domain": "Subnets",
+    "signature": "ownerDeactivateSubnet(uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_name",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "Vec<u8>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 11,
+    "domain": "Subnets",
+    "signature": "ownerUpdateName(uint32,bytes)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_repo",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "Vec<u8>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 12,
+    "domain": "Subnets",
+    "signature": "ownerUpdateRepo(uint32,bytes)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_description",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "Vec<u8>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 13,
+    "domain": "Subnets",
+    "signature": "ownerUpdateDescription(uint32,bytes)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_misc",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "Vec<u8>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 14,
+    "domain": "Subnets",
+    "signature": "ownerUpdateMisc(uint32,bytes)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_churn_limit",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 15,
+    "domain": "Subnets",
+    "signature": "ownerUpdateChurnLimit(uint32,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_churn_limit_multiplier",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 16,
+    "domain": "Subnets",
+    "signature": "ownerUpdateChurnLimitMultiplier(uint32,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_registration_queue_epochs",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 17,
+    "domain": "Subnets",
+    "signature": "ownerUpdateRegistrationQueueEpochs(uint32,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_idle_classification_epochs",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 18,
+    "domain": "Subnets",
+    "signature": "ownerUpdateIdleClassificationEpochs(uint32,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_included_classification_epochs",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 19,
+    "domain": "Subnets",
+    "signature": "ownerUpdateIncludedClassificationEpochs(uint32,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_subnet_node_min_weight_decrease_reputation_threshold",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 27,
+    "domain": "Subnets",
+    "signature": "ownerUpdateSubnetNodeMinWeightDecreaseReputationThreshold(uint32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_min_subnet_node_reputation",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 28,
+    "domain": "Subnets",
+    "signature": "ownerUpdateMinSubnetNodeReputation(uint32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_add_or_update_initial_validators",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "validators",
+        "BTreeMap<u32, u32>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 29,
+    "domain": "Subnets",
+    "signature": "ownerAddOrUpdateInitialValidators(uint32,(uint32,uint32)[])",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_remove_initial_validators",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "validators",
+        "BTreeSet<u32>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 30,
+    "domain": "Subnets",
+    "signature": "ownerRemoveInitialValidators(uint32,uint32[])",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_set_emergency_validator_set",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_ids",
+        "Vec<u32>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 31,
+    "domain": "Subnets",
+    "signature": "ownerSetEmergencyValidatorSet(uint32,uint32[])",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_revert_emergency_validator_set",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 32,
+    "domain": "Subnets",
+    "signature": "ownerRevertEmergencyValidatorSet(uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_min_max_stake",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "min",
+        "u128"
+      ],
+      [
+        "max",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 33,
+    "domain": "Subnets",
+    "signature": "ownerUpdateMinMaxStake(uint32,uint128,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_delegate_stake_percentage",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 34,
+    "domain": "Subnets",
+    "signature": "ownerUpdateDelegateStakePercentage(uint32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_max_registered_nodes",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 35,
+    "domain": "Subnets",
+    "signature": "ownerUpdateMaxRegisteredNodes(uint32,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "transfer_subnet_ownership",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "new_owner",
+        "T::AccountId"
+      ]
+    ],
+    "origin": "signed",
+    "index": 36,
+    "domain": "Subnets",
+    "signature": "transferSubnetOwnership(uint32,bytes32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "accept_subnet_ownership",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 37,
+    "domain": "Subnets",
+    "signature": "acceptSubnetOwnership(uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_add_bootnode_access",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "new_account",
+        "T::AccountId"
+      ]
+    ],
+    "origin": "signed",
+    "index": 38,
+    "domain": "Subnets",
+    "signature": "ownerAddBootnodeAccess(uint32,bytes32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_remove_bootnode_access",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "remove_account",
+        "T::AccountId"
+      ]
+    ],
+    "origin": "signed",
+    "index": 39,
+    "domain": "Subnets",
+    "signature": "ownerRemoveBootnodeAccess(uint32,bytes32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_target_node_registrations_per_epoch",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 40,
+    "domain": "Subnets",
+    "signature": "ownerUpdateTargetNodeRegistrationsPerEpoch(uint32,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_node_burn_rate_alpha",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 41,
+    "domain": "Subnets",
+    "signature": "ownerUpdateNodeBurnRateAlpha(uint32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_queue_immunity_epochs",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 42,
+    "domain": "Subnets",
+    "signature": "ownerUpdateQueueImmunityEpochs(uint32,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "update_bootnodes",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "add",
+        "BTreeMap<PeerId, NetworkBytes<T>>"
+      ],
+      [
+        "remove",
+        "BTreeSet<PeerId>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 43,
+    "domain": "Subnets",
+    "signature": "updateBootnodes(uint32,(bytes,bytes)[],bytes[])",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "register_subnet_node",
+    "args": [
+      [
+        "validator_id",
+        "u32"
+      ],
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "hotkey",
+        "Option<T::AccountId>"
+      ],
+      [
+        "peer_info",
+        "Option<PeerInfo<T>>"
+      ],
+      [
+        "bootnode_peer_info",
+        "Option<PeerInfo<T>>"
+      ],
+      [
+        "client_peer_info",
+        "Option<PeerInfo<T>>"
+      ],
+      [
+        "stake_to_be_added",
+        "u128"
+      ],
+      [
+        "unique",
+        "Option<NetworkBytes<T>>"
+      ],
+      [
+        "non_unique",
+        "Option<NetworkBytes<T>>"
+      ],
+      [
+        "max_burn_amount",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 44,
+    "domain": "SubnetNodes",
+    "signature": "registerSubnetNode(uint32,uint32,(bool,bytes32),(bool,(bytes,(bool,bytes))),(bool,(bytes,(bool,bytes))),(bool,(bytes,(bool,bytes))),uint128,(bool,bytes),(bool,bytes),uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator/node coldkey and registration checks apply"
+  },
+  {
+    "name": "update_node_hotkey",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ],
+      [
+        "new_hotkey",
+        "Option<T::AccountId>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 45,
+    "domain": "SubnetNodes",
+    "signature": "updateNodeHotkey(uint32,uint32,(bool,bytes32))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator/node coldkey and registration checks apply"
+  },
+  {
+    "name": "update_node_peer_info",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ],
+      [
+        "new_peer_info",
+        "Option<PeerInfo<T>>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 46,
+    "domain": "SubnetNodes",
+    "signature": "updateNodePeerInfo(uint32,uint32,(bool,(bytes,(bool,bytes))))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator/node coldkey and registration checks apply"
+  },
+  {
+    "name": "update_node_bootnode_peer_info",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ],
+      [
+        "new_peer_info",
+        "Option<PeerInfo<T>>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 47,
+    "domain": "SubnetNodes",
+    "signature": "updateNodeBootnodePeerInfo(uint32,uint32,(bool,(bytes,(bool,bytes))))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator/node coldkey and registration checks apply"
+  },
+  {
+    "name": "update_node_client_peer_info",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ],
+      [
+        "new_peer_info",
+        "Option<PeerInfo<T>>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 48,
+    "domain": "SubnetNodes",
+    "signature": "updateNodeClientPeerInfo(uint32,uint32,(bool,(bytes,(bool,bytes))))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator/node coldkey and registration checks apply"
+  },
+  {
+    "name": "update_node_unique",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ],
+      [
+        "unique",
+        "Option<NetworkBytes<T>>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 49,
+    "domain": "SubnetNodes",
+    "signature": "updateNodeUnique(uint32,uint32,(bool,bytes))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator/node coldkey and registration checks apply"
+  },
+  {
+    "name": "update_node_non_unique",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ],
+      [
+        "non_unique",
+        "Option<NetworkBytes<T>>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 50,
+    "domain": "SubnetNodes",
+    "signature": "updateNodeNonUnique(uint32,uint32,(bool,bytes))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator/node coldkey and registration checks apply"
+  },
+  {
+    "name": "remove_subnet_node",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 51,
+    "domain": "SubnetNodes",
+    "signature": "removeSubnetNode(uint32,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator/node coldkey and registration checks apply"
+  },
+  {
+    "name": "add_node_stake",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ],
+      [
+        "stake_to_be_added",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 52,
+    "domain": "Staking",
+    "signature": "addNodeStake(uint32,uint32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "remove_node_stake",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ],
+      [
+        "stake_to_be_removed",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 53,
+    "domain": "Staking",
+    "signature": "removeNodeStake(uint32,uint32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "add_subnet_delegate_stake",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "stake_to_be_added",
+        "u128"
+      ],
+      [
+        "min_shares_out",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 54,
+    "domain": "Staking",
+    "signature": "addSubnetDelegateStake(uint32,uint128,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "swap_from_subnet_to_subnet",
+    "args": [
+      [
+        "from_subnet_id",
+        "u32"
+      ],
+      [
+        "to_subnet_id",
+        "u32"
+      ],
+      [
+        "delegate_stake_shares_to_swap",
+        "u128"
+      ],
+      [
+        "min_balance_out",
+        "u128"
+      ],
+      [
+        "min_shares_out",
+        "u128"
+      ],
+      [
+        "execute_before_block",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 55,
+    "domain": "Staking",
+    "signature": "swapFromSubnetToSubnet(uint32,uint32,uint128,uint128,uint128,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "transfer_delegate_stake",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "to_account_id",
+        "T::AccountId"
+      ],
+      [
+        "delegate_stake_shares_to_transfer",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 56,
+    "domain": "Staking",
+    "signature": "transferDelegateStake(uint32,bytes32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "remove_delegate_stake",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "shares_to_be_removed",
+        "u128"
+      ],
+      [
+        "min_balance_out",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 57,
+    "domain": "Staking",
+    "signature": "removeDelegateStake(uint32,uint128,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "add_validator_delegate_stake",
+    "args": [
+      [
+        "validator_id",
+        "u32"
+      ],
+      [
+        "delegate_stake_to_be_added",
+        "u128"
+      ],
+      [
+        "min_shares_out",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 59,
+    "domain": "Staking",
+    "signature": "addValidatorDelegateStake(uint32,uint128,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "transfer_validator_delegate_stake",
+    "args": [
+      [
+        "validator_id",
+        "u32"
+      ],
+      [
+        "to_account_id",
+        "T::AccountId"
+      ],
+      [
+        "validator_delegate_stake_shares_to_transfer",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 60,
+    "domain": "Staking",
+    "signature": "transferValidatorDelegateStake(uint32,bytes32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "remove_validator_delegate_stake",
+    "args": [
+      [
+        "validator_id",
+        "u32"
+      ],
+      [
+        "validator_delegate_stake_shares_to_be_removed",
+        "u128"
+      ],
+      [
+        "min_balance_out",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 61,
+    "domain": "Staking",
+    "signature": "removeValidatorDelegateStake(uint32,uint128,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "swap_from_validator_to_validator",
+    "args": [
+      [
+        "from_validator_id",
+        "u32"
+      ],
+      [
+        "to_validator_id",
+        "u32"
+      ],
+      [
+        "stake_to_be_removed",
+        "u128"
+      ],
+      [
+        "min_balance_out",
+        "u128"
+      ],
+      [
+        "min_shares_out",
+        "u128"
+      ],
+      [
+        "execute_before_block",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 62,
+    "domain": "Staking",
+    "signature": "swapFromValidatorToValidator(uint32,uint32,uint128,uint128,uint128,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "swap_from_validator_to_subnet",
+    "args": [
+      [
+        "from_validator_id",
+        "u32"
+      ],
+      [
+        "to_subnet_id",
+        "u32"
+      ],
+      [
+        "node_delegate_stake_shares_to_swap",
+        "u128"
+      ],
+      [
+        "min_balance_out",
+        "u128"
+      ],
+      [
+        "min_shares_out",
+        "u128"
+      ],
+      [
+        "execute_before_block",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 64,
+    "domain": "Staking",
+    "signature": "swapFromValidatorToSubnet(uint32,uint32,uint128,uint128,uint128,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "swap_from_subnet_to_validator",
+    "args": [
+      [
+        "from_subnet_id",
+        "u32"
+      ],
+      [
+        "to_validator_id",
+        "u32"
+      ],
+      [
+        "subnet_delegate_stake_shares_to_swap",
+        "u128"
+      ],
+      [
+        "min_balance_out",
+        "u128"
+      ],
+      [
+        "min_shares_out",
+        "u128"
+      ],
+      [
+        "execute_before_block",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 65,
+    "domain": "Staking",
+    "signature": "swapFromSubnetToValidator(uint32,uint32,uint128,uint128,uint128,uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "update_swap_queue",
+    "args": [
+      [
+        "id",
+        "u32"
+      ],
+      [
+        "new_call",
+        "QueuedSwapCall<T::AccountId>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 66,
+    "domain": "Staking",
+    "signature": "updateSwapQueue(uint32,(uint8,bytes32,uint32,uint128,uint128,uint32))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "remove_delegate_account_balance",
+    "args": [
+      [
+        "amount_to_remove",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 67,
+    "domain": "Staking",
+    "signature": "removeDelegateAccountBalance(uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "claim_unbondings",
+    "args": [],
+    "origin": "signed",
+    "index": 68,
+    "domain": "Staking",
+    "signature": "claimUnbondings()",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "propose_attestation",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "data",
+        "Vec<SubnetNodeConsensusData>"
+      ],
+      [
+        "prioritize_queue_node_id",
+        "Option<u32>"
+      ],
+      [
+        "remove_queue_node_id",
+        "Option<u32>"
+      ],
+      [
+        "args",
+        "Option<ValidatorArgs<T>>"
+      ],
+      [
+        "attest_data",
+        "Option<ValidatorArgs<T>>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 69,
+    "domain": "Consensus",
+    "signature": "proposeAttestation(uint32,(uint32,uint128)[],(bool,uint32),(bool,uint32),(bool,bytes),(bool,bytes))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native elected-validator or eligible-attestor hotkey and epoch checks apply"
+  },
+  {
+    "name": "attest",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ],
+      [
+        "data",
+        "Option<ValidatorArgs<T>>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 70,
+    "domain": "Consensus",
+    "signature": "attest(uint32,uint32,(bool,bytes))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native elected-validator or eligible-attestor hotkey and epoch checks apply"
+  },
+  {
+    "name": "register_overwatch_node",
+    "args": [
+      [
+        "stake_to_be_added",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 71,
+    "domain": "Overwatch",
+    "signature": "registerOverwatchNode(uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator whitelist, Overwatch coldkey/hotkey and phase checks apply"
+  },
+  {
+    "name": "remove_overwatch_node",
+    "args": [
+      [
+        "overwatch_node_id",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 72,
+    "domain": "Overwatch",
+    "signature": "removeOverwatchNode(uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator whitelist, Overwatch coldkey/hotkey and phase checks apply"
+  },
+  {
+    "name": "update_overwatch_hotkey",
+    "args": [
+      [
+        "overwatch_node_id",
+        "u32"
+      ],
+      [
+        "new_hotkey",
+        "Option<T::AccountId>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 73,
+    "domain": "Overwatch",
+    "signature": "updateOverwatchHotkey(uint32,(bool,bytes32))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator whitelist, Overwatch coldkey/hotkey and phase checks apply"
+  },
+  {
+    "name": "set_overwatch_node_peer_id",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "overwatch_node_id",
+        "u32"
+      ],
+      [
+        "peer_id",
+        "PeerId"
+      ]
+    ],
+    "origin": "signed",
+    "index": 74,
+    "domain": "Overwatch",
+    "signature": "setOverwatchNodePeerId(uint32,uint32,bytes)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator whitelist, Overwatch coldkey/hotkey and phase checks apply"
+  },
+  {
+    "name": "commit_overwatch_subnet_weights",
+    "args": [
+      [
+        "overwatch_node_id",
+        "u32"
+      ],
+      [
+        "commit_weights",
+        "Vec<OverwatchCommit<T::Hash>>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 75,
+    "domain": "Overwatch",
+    "signature": "commitOverwatchSubnetWeights(uint32,(uint32,bytes32)[])",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator whitelist, Overwatch coldkey/hotkey and phase checks apply"
+  },
+  {
+    "name": "reveal_overwatch_subnet_weights",
+    "args": [
+      [
+        "overwatch_node_id",
+        "u32"
+      ],
+      [
+        "reveals",
+        "Vec<OverwatchReveal<T>>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 76,
+    "domain": "Overwatch",
+    "signature": "revealOverwatchSubnetWeights(uint32,(uint32,uint128,bytes)[])",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator whitelist, Overwatch coldkey/hotkey and phase checks apply"
+  },
+  {
+    "name": "add_overwatch_node_stake",
+    "args": [
+      [
+        "overwatch_node_id",
+        "u32"
+      ],
+      [
+        "stake_to_be_added",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 77,
+    "domain": "Staking",
+    "signature": "addOverwatchNodeStake(uint32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "remove_overwatch_node_stake",
+    "args": [
+      [
+        "overwatch_node_id",
+        "u32"
+      ],
+      [
+        "stake_to_be_removed",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 78,
+    "domain": "Staking",
+    "signature": "removeOverwatchNodeStake(uint32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native position ownership, balance, slippage, cooldown and slash-lock checks apply"
+  },
+  {
+    "name": "pause",
+    "args": [],
+    "origin": "majority",
+    "index": 79,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "unpause",
+    "args": [],
+    "origin": "majority",
+    "index": 80,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "collective_remove_subnet",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 81,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "collective_remove_subnet_node",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 82,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "collective_remove_overwatch_node",
+    "args": [
+      [
+        "overwatch_node_id",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 83,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_min_subnet_delegate_stake_factor",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 84,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_owner_percentage",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 85,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_max_subnets",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 86,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_max_bootnodes",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 87,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_max_subnet_bootnodes_access",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 88,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_max_pause_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 89,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_delegate_stake_subnet_removal_interval",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 90,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_removal_intervals",
+    "args": [
+      [
+        "activation_cooldown_epochs",
+        "u32"
+      ],
+      [
+        "check_interval_epochs",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 91,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_pause_cooldown_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 92,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_min_registration_cost",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 93,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_registration_cost_delay_blocks",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 94,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_registration_cost_alpha",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 95,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_new_registration_cost_multiplier",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 96,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_min_subnet_delegate_stake_balance",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 97,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_churn_limits",
+    "args": [
+      [
+        "min",
+        "u32"
+      ],
+      [
+        "max",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 98,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_queue_epochs",
+    "args": [
+      [
+        "min",
+        "u32"
+      ],
+      [
+        "max",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 99,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_max_swap_queue_calls_per_block",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 100,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_min_idle_classification_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 101,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_max_idle_classification_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 102,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_activation_enactment_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 103,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_included_classification_epochs",
+    "args": [
+      [
+        "min",
+        "u32"
+      ],
+      [
+        "max",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 104,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_stakes",
+    "args": [
+      [
+        "min",
+        "u128"
+      ],
+      [
+        "max",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 105,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_delegate_stake_percentages",
+    "args": [
+      [
+        "min",
+        "u128"
+      ],
+      [
+        "max",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 106,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_min_max_registered_nodes",
+    "args": [
+      [
+        "min",
+        "u32"
+      ],
+      [
+        "max",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 107,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_max_subnet_delegate_stake_rewards_percentage_change",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 108,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_delegate_stake_rewards_update_period",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 109,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_base_validator_reward",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 112,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_base_slash_percentage",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 113,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_max_slash_amount",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 114,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_network_max_stake_balance",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 117,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_min_delegate_stake_deposit",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 118,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_node_reward_rate_update_period",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 119,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_max_reward_rate_decrease",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 120,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_distribution_power",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 121,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_delegate_stake_weight_factor",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 122,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_max_overwatch_nodes",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 124,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_overwatch_epoch_length_multiplier",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 125,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_overwatch_commit_cutoff_percent",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 126,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_overwatch_min_stake_balance",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 131,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_min_max_subnet_node",
+    "args": [
+      [
+        "min",
+        "u32"
+      ],
+      [
+        "max",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 132,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_tx_rate_limit",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 133,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_min_subnet_registration_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 135,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_registration_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 136,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_min_active_node_stake_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 137,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_delegate_stake_cooldown_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 138,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_node_delegate_stake_cooldown_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 139,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_min_stake_cooldown_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 140,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_max_unbondings",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 141,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_base_node_burn_amount",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 144,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_node_burn_rates",
+    "args": [
+      [
+        "min",
+        "u128"
+      ],
+      [
+        "max",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 145,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_max_subnet_node_min_weight_decrease_reputation_threshold",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 146,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_validator_reward_k",
+    "args": [
+      [
+        "value",
+        "u64"
+      ]
+    ],
+    "origin": "majority",
+    "index": 147,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_validator_reward_midpoint",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 148,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_attestor_reward_exponent",
+    "args": [
+      [
+        "value",
+        "u64"
+      ]
+    ],
+    "origin": "majority",
+    "index": 149,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_attestor_min_reward_factor",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 150,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_min_max_node_reputation",
+    "args": [
+      [
+        "min",
+        "u128"
+      ],
+      [
+        "max",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 151,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_min_max_node_reputation_factor",
+    "args": [
+      [
+        "min",
+        "u128"
+      ],
+      [
+        "max",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 152,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_min_subnet_reputation",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 153,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_not_in_consensus_subnet_reputation_factor",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 154,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_max_pause_epochs_subnet_reputation_factor",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 155,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_less_than_min_nodes_subnet_reputation_factor",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 156,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_validator_proposal_absent_subnet_reputation_factor",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 157,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_in_consensus_subnet_reputation_factor",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 158,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_overwatch_weight_factor",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 159,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_max_emergency_validator_epochs_multiplier",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 160,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_max_emergency_subnet_nodes",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 161,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_overwatch_stake_weight_factor",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 162,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_weight_factors",
+    "args": [
+      [
+        "value",
+        "SubnetWeightFactorsData"
+      ]
+    ],
+    "origin": "majority",
+    "index": 163,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_churn_limit_multipliers",
+    "args": [
+      [
+        "min",
+        "u32"
+      ],
+      [
+        "max",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 164,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_default_overwatch_subnet_weight",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 165,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_overwatch_validator_whitelist",
+    "args": [
+      [
+        "validator_id",
+        "u32"
+      ],
+      [
+        "value",
+        "bool"
+      ]
+    ],
+    "origin": "majority",
+    "index": 166,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "update_require_subnet_registration_whitelist",
+    "args": [
+      [
+        "value",
+        "bool"
+      ]
+    ],
+    "origin": "majority",
+    "index": 167,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "update_subnet_registrant",
+    "args": [
+      [
+        "coldkey",
+        "T::AccountId"
+      ],
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "bool"
+      ]
+    ],
+    "origin": "majority",
+    "index": 168,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "owner_update_reputation_factors",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "updates",
+        "SubnetReputationFactorUpdates"
+      ]
+    ],
+    "origin": "signed",
+    "index": 169,
+    "domain": "Subnets",
+    "signature": "ownerUpdateReputationFactors(uint32,((bool,uint128),(bool,uint128),(bool,uint128),(bool,uint128),(bool,uint128),(bool,uint128),(bool,uint128)))",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_consensus_validator_node_count_decay",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 170,
+    "domain": "Subnets",
+    "signature": "ownerUpdateConsensusValidatorNodeCountDecay(uint32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "set_emergency_validator_cooldown_epochs",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "majority",
+    "index": 171,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_validator_node_delegate_stake_weights",
+    "args": [
+      [
+        "updates",
+        "Vec<(u32, u32, u128)>"
+      ]
+    ],
+    "origin": "signed",
+    "index": 172,
+    "domain": "Validators",
+    "signature": "setValidatorNodeDelegateStakeWeights((uint32,uint32,uint128)[])",
+    "status": "implemented",
+    "authorization": "Immediate caller; native validator registration or canonical coldkey checks apply"
+  },
+  {
+    "name": "set_validator_node_delegate_stake_weight_update_interval",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 173,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_consensus_validator_node_count_decay_update_interval",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 174,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_net_flow_smoothing_alpha",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 175,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_consensus_validator_identity_attestation_percentage",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 176,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "cancel_subnet_ownership_transfer",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ]
+    ],
+    "origin": "signed",
+    "index": 178,
+    "domain": "Subnets",
+    "signature": "cancelSubnetOwnershipTransfer(uint32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "owner_update_consensus_validator_stake_weight_power",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "signed",
+    "index": 179,
+    "domain": "Subnets",
+    "signature": "ownerUpdateConsensusValidatorStakeWeightPower(uint32,uint128)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
+  },
+  {
+    "name": "set_consensus_validator_stake_weight_power_update_interval",
+    "args": [
+      [
+        "value",
+        "u32"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 180,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_min_max_consensus_validator_stake_weight_power",
+    "args": [
+      [
+        "min",
+        "u128"
+      ],
+      [
+        "max",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 181,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_validator_delegate_stake_slash_config",
+    "args": [
+      [
+        "threshold",
+        "u128"
+      ],
+      [
+        "base_percentage",
+        "u128"
+      ],
+      [
+        "max_amount",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 182,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  }
+]

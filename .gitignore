@@ -1,3 +1,7 @@
 target/
 /eth-rpc-data/
 /docs/**/*.tex
+/configure-genesis.py
+/fund-validator.py
+/transfer.py
+/talaris-validator/

@@ -472,3 +472,6 @@ fn paused_contract_calls_are_filtered_for_native_and_ethereum_transactions() {
         assert_eq!(Revive::evm_balance(&dest), U256::zero());
     });
 }
+
+#[path = "network_precompile_tests.rs"]
+mod network_precompiles_tests;

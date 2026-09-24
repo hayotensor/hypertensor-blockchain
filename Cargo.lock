@@ -5125,6 +5125,7 @@ dependencies = [
  "frame-system-rpc-runtime-api",
  "frame-try-runtime",
  "network-custom-rpc-runtime-api",
+ "network-precompiles",
  "network-rpc-types",
  "pallet-atomic-swap",
  "pallet-authorship",
@@ -7236,6 +7237,23 @@ dependencies = [
  "libc",
  "thiserror 1.0.69",
  "winapi",
+]
+
+[[package]]
+name = "network-precompiles"
+version = "0.1.0"
+dependencies = [
+ "frame-benchmarking",
+ "frame-support",
+ "frame-system",
+ "network-rpc-types",
+ "pallet-network",
+ "pallet-revive",
+ "parity-scale-codec",
+ "scale-info",
+ "serde_json",
+ "sp-core",
+ "sp-runtime",
 ]
 
 [[package]]
