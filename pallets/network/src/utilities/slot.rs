@@ -89,7 +89,7 @@ impl<T: Config> Pallet<T> {
             .clamp(0, Self::percentage_factor_as_u128())
     }
 
-    /// Converts raw Overwatch stakes into normalized Q18 reward coefficients.
+    /// Converts one subnet's revealer stakes into normalized Q18 aggregation coefficients.
     ///
     /// The common maximum-stake scale cancels during the final normalization, while keeping every
     /// fractional-power input in `[0, 1]`. Consequently, no powered value can exceed the Q18
@@ -150,7 +150,7 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    /// Derive the raw subnet signal and unnormalized node scores from complete close-time inputs.
+    /// Derive the subnet signal and node scores from opening stakes and accepted reveals.
     /// The same function is used by finalization, removal recomputation, and cache repair.
     pub(crate) fn derive_overwatch_signal(
         inputs: &LatestFinalizedOverwatchSignalInput<T>,
@@ -168,16 +168,6 @@ impl<T: Config> Pallet<T> {
             return Err(());
         }
 
-        let mut node_stake_weights: BTreeMap<u32, u128> = inputs
-            .nodes
-            .iter()
-            .map(|(node_id, input)| (*node_id, input.stake))
-            .collect();
-        Self::normalize_overwatch_stake_weights(
-            &mut node_stake_weights,
-            inputs.stake_weight_factor,
-        );
-
         let mut subnet_reveals: BTreeMap<u32, BTreeMap<u32, u128>> = BTreeMap::new();
         for (node_id, input) in inputs.nodes.iter() {
             for (subnet_id, raw_weight) in input.reveals.iter() {
@@ -192,6 +182,17 @@ impl<T: Config> Pallet<T> {
             BoundedBTreeMap::<u32, u128, T::MaxPhysicalSubnetsUpperBound>::new();
         let mut node_scores = BTreeMap::<u32, u128>::new();
         for (subnet_id, node_weights) in subnet_reveals {
+            // Only this subnet's revealers determine its average. Normalize their raw
+            // opening stakes here so even the precision scale is independent of
+            // nodes that assessed other subnets only.
+            let mut node_stake_weights: BTreeMap<u32, u128> = node_weights
+                .keys()
+                .map(|node_id| (*node_id, inputs.nodes[node_id].stake))
+                .collect();
+            Self::normalize_overwatch_stake_weights(
+                &mut node_stake_weights,
+                inputs.stake_weight_factor,
+            );
             let total_adjusted = node_weights
                 .iter()
                 .filter_map(|(node_id, subnet_weight)| {
@@ -207,12 +208,13 @@ impl<T: Config> Pallet<T> {
 
             for (node_id, subnet_weight) in node_weights {
                 let deviation = subnet_weight.abs_diff(total_adjusted);
+                // Reward agreement equally at every rating level, including unanimous zero.
+                // The aggregate's magnitude affects subnet emissions, not evaluator rewards.
                 let closeness_score = percentage_factor.saturating_sub(deviation);
-                let node_final_score = Self::percent_mul(closeness_score, total_adjusted);
                 node_scores
                     .entry(node_id)
-                    .and_modify(|score| *score = score.saturating_add(node_final_score))
-                    .or_insert(node_final_score);
+                    .and_modify(|score| *score = score.saturating_add(closeness_score))
+                    .or_insert(closeness_score);
             }
         }
 
@@ -222,8 +224,8 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// Finalize the pending epoch from fixed close-time economics and the remaining participant
-    /// stake and raw reveal rows after any approved removals.
+    /// Finalize from opening economics and accepted reveals, including voluntary departures.
+    /// Only governance disqualification may purge participant inputs.
     pub fn calculate_overwatch_rewards() -> Weight {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
@@ -233,10 +235,17 @@ impl<T: Config> Pallet<T> {
         };
         weight = weight.saturating_add(db_weight.reads(1));
 
-        // A missing snapshot is an incomplete close, not an empty round. Leave every input in
+        // A missing opening snapshot cannot be treated as an empty round. Leave every input in
         // place so finalization can be retried after repair.
         let Some(settlement_snapshot) =
-            OverwatchEpochSettlementSnapshots::<T>::get(settlement.epoch)
+            OverwatchEpochSnapshots::<T>::get(settlement.epoch)
+        else {
+            return weight.saturating_add(db_weight.reads(1));
+        };
+        weight = weight.saturating_add(db_weight.reads(1));
+
+        // Missing completion evidence must not be inferred from the remaining reveal rows.
+        let Some(eligible_nodes) = OverwatchEpochRevealEligibility::<T>::get(settlement.epoch)
         else {
             return weight.saturating_add(db_weight.reads(1));
         };
@@ -257,7 +266,7 @@ impl<T: Config> Pallet<T> {
         for (node_id, reveals) in OverwatchReveals::<T>::iter_prefix(settlement.epoch) {
             reveal_row_nodes.push(node_id);
             weight = weight.saturating_add(db_weight.reads(1));
-            if reveals.is_empty() {
+            if reveals.is_empty() || !eligible_nodes.contains(&node_id) {
                 continue;
             }
             let Some(snapshot) = settlement_snapshot.nodes.get(&node_id) else {
@@ -341,8 +350,9 @@ impl<T: Config> Pallet<T> {
         LatestOverwatchSignalRevision::<T>::put(revision);
         LastFinalizedOverwatchEpoch::<T>::put(settlement.epoch);
         PendingOverwatchSettlement::<T>::kill();
-        OverwatchEpochSettlementSnapshots::<T>::remove(settlement.epoch);
-        weight = weight.saturating_add(db_weight.writes(6));
+        OverwatchEpochSnapshots::<T>::remove(settlement.epoch);
+        OverwatchEpochRevealEligibility::<T>::remove(settlement.epoch);
+        weight = weight.saturating_add(db_weight.writes(7));
 
         // Reveals remain available until every score, reward, historical output, and effective
         // cache write has succeeded. They are then consumed as ephemeral round material.
@@ -883,7 +893,8 @@ impl<T: Config> Pallet<T> {
         weight = weight.saturating_add(db_weight.reads(1));
         let delegate_stake_factor = Self::get_percent_as_f64(weight_factors.delegate_stake);
         let node_count_factor = Self::get_percent_as_f64(weight_factors.node_count);
-        let net_flow_factor = Self::get_percent_as_f64(weight_factors.net_flow);
+        let time_weighted_stake_factor =
+            Self::get_percent_as_f64(weight_factors.time_weighted_stake);
 
         // SubnetDistributionPower
         weight = weight.saturating_add(db_weight.reads(1));
@@ -940,12 +951,12 @@ impl<T: Config> Pallet<T> {
         let reward_eligible_subnets: BTreeSet<u32> =
             eligible_subnet_totals.keys().copied().collect();
 
-        let (inflow_weights, inflow_weight_calc_weight) = Self::get_net_flow_weights_for_eligible(
+        let (balance_time_weights, balance_time_calc_weight) = Self::get_time_weighted_stake_weights_for_eligible(
             subnet_ids.clone(),
             epoch,
             &reward_eligible_subnets,
         );
-        weight = weight.saturating_add(inflow_weight_calc_weight);
+        weight = weight.saturating_add(balance_time_calc_weight);
 
         for subnet_id in subnet_ids {
             total_subnet_reads += 1;
@@ -984,13 +995,13 @@ impl<T: Config> Pallet<T> {
                 None => Self::get_percent_as_f64(default_overwatch_weight),
             };
 
-            // - Get combined weight (stake + node count + inflow) * overwatchers weight
+            // - Get combined weight (stake + node count + retained balance-time) * Overwatch weight
 
-            let subnet_inflow_weight =
-                Self::get_percent_as_f64(inflow_weights.get(&subnet_id).cloned().unwrap_or(0));
+            let subnet_balance_time_weight =
+                Self::get_percent_as_f64(balance_time_weights.get(&subnet_id).cloned().unwrap_or(0));
             let subnet_weight = ((subnet_dstake_weight * delegate_stake_factor
                 + subnet_nodes_weight * node_count_factor
-                + subnet_inflow_weight * net_flow_factor)
+                + subnet_balance_time_weight * time_weighted_stake_factor)
                 * overwatch_subnet_weight)
                 .clamp(0.0, 1.0);
 
@@ -1039,110 +1050,112 @@ impl<T: Config> Pallet<T> {
         (subnet_weights_normalized, weight)
     }
 
-    pub fn get_net_flow_weights(
+    /// Completed-epoch balance-time shares over the same elected cohort as emission allocation.
+    pub fn get_time_weighted_stake_weights(
         subnet_ids: Vec<u32>,
-        _epoch: u32,
+        epoch: u32,
     ) -> (BTreeMap<u32, u128>, Weight) {
-        let mut lifecycle_reads = 0u64;
-        let eligible_subnets: BTreeSet<u32> = subnet_ids
+        let Some(allocation_block) = epoch
+            .checked_mul(T::EpochLength::get())
+            .and_then(|block| block.checked_add(NETWORK_SUBNET_EMISSION_SLOT))
+        else {
+            return (BTreeMap::new(), Weight::zero());
+        };
+        let mut reads = 0u64;
+        let eligible_subnets = subnet_ids
             .iter()
             .filter_map(|subnet_id| {
-                let data = SubnetsData::<T>::get(subnet_id)?;
-                let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(*subnet_id);
-                // SubnetsData | SubnetSlot
-                lifecycle_reads = lifecycle_reads.saturating_add(2);
-                Self::_is_subnet_active_and_live(&data, current_subnet_epoch).then_some(*subnet_id)
+                let subnet_epoch =
+                    Self::get_subnet_epoch_with_block_as_u32(*subnet_id, allocation_block);
+                reads += 2;
+                SubnetElectedValidator::<T>::contains_key(subnet_id, subnet_epoch)
+                    .then_some(*subnet_id)
             })
             .collect();
-
-        let (weights, weight) =
-            Self::get_net_flow_weights_for_eligible(subnet_ids, _epoch, &eligible_subnets);
+        let (weights, weight) = Self::get_time_weighted_stake_weights_for_eligible(
+            subnet_ids,
+            epoch,
+            &eligible_subnets,
+        );
         (
             weights,
-            weight.saturating_add(T::DbWeight::get().reads(lifecycle_reads)),
+            weight.saturating_add(T::DbWeight::get().reads(reads)),
         )
     }
 
-    fn get_net_flow_weights_for_eligible(
+    fn get_time_weighted_stake_weights_for_eligible(
         subnet_ids: Vec<u32>,
-        _epoch: u32,
+        epoch: u32,
         eligible_subnets: &BTreeSet<u32>,
     ) -> (BTreeMap<u32, u128>, Weight) {
-        let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
-
-        let mut inflows: BTreeMap<u32, i128> = BTreeMap::new();
-
+        let mut weight = Weight::zero();
+        let Some(allocation_block) = epoch
+            .checked_mul(T::EpochLength::get())
+            .and_then(|block| block.checked_add(NETWORK_SUBNET_EMISSION_SLOT))
+        else {
+            return (BTreeMap::new(), weight);
+        };
+        let mut checkpoints = BTreeMap::new();
+        let mut areas = BTreeMap::new();
+        let mut total_area = U256::zero();
         for subnet_id in subnet_ids {
-            // Take/remove the netflow to restart calculation and return the net flow
-            let net_flow = SubnetNetFlow::<T>::take(subnet_id);
-            weight = weight.saturating_add(db_weight.reads_writes(1, 1));
-
-            // Raw flow is reset for every subnet, but only the reward-eligible cohort
-            // participates in this epoch's relative normalization and smoothing.
-            if !eligible_subnets.contains(&subnet_id) {
-                SubnetNetFlowSmoothedWeight::<T>::remove(subnet_id);
-                weight = weight.saturating_add(db_weight.writes(1));
-                continue;
-            }
-
-            inflows.insert(subnet_id, net_flow);
-        }
-
-        let min = inflows.values().cloned().min().unwrap_or(0);
-
-        let mut shifted: BTreeMap<u32, u128> = BTreeMap::new();
-        for (subnet_id, value) in inflows.iter() {
-            let shifted_value = value.saturating_sub(min);
-            shifted.insert(
-                *subnet_id,
-                if shifted_value <= 0 {
-                    0
+            weight = weight.saturating_add(db_weight.reads(2));
+            let balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
+            let Some(previous) = SubnetBalanceTimes::<T>::get(subnet_id) else {
+                // Never reconstruct past backing from a current balance. An invalid cohort
+                // receives no balance-time factor and does not partially advance checkpoints.
+                return (BTreeMap::new(), weight);
+            };
+            // A later balance change in this same epoch has already completed E-1. Reuse
+            // that immutable area without moving its checkpoint backwards to allocation slot 2.
+            let checkpoint = if previous.last_updated_block > allocation_block
+                && T::EpochLength::get() != 0
+                && previous.last_updated_block / T::EpochLength::get() == epoch
+            {
+                previous
+            } else {
+                let Ok(checkpoint) =
+                    Self::checkpoint_subnet_balance_time(previous, balance, allocation_block)
+                else {
+                    return (BTreeMap::new(), weight);
+                };
+                checkpoint
+            };
+            if eligible_subnets.contains(&subnet_id) {
+                let area = if epoch == 0 {
+                    U256::zero()
                 } else {
-                    shifted_value as u128
-                },
-            );
+                    checkpoint.previous_epoch_area
+                };
+                let Some(next_total) = total_area.checked_add(area) else {
+                    return (BTreeMap::new(), weight);
+                };
+                total_area = next_total;
+                areas.insert(subnet_id, area);
+            }
+            checkpoints.insert(subnet_id, checkpoint);
         }
 
-        let sum: u128 = shifted
-            .values()
-            .fold(0u128, |acc, value| acc.saturating_add(*value));
-
-        let mut current_inflow_weights: BTreeMap<u32, u128> = BTreeMap::new();
-        for (subnet_id, value) in shifted.iter() {
-            let inflow_weight = if sum == 0 {
+        // The common epoch duration cancels. Do not truncate averages before normalizing.
+        let mut weights = BTreeMap::new();
+        for (subnet_id, area) in areas {
+            let share = if total_area.is_zero() {
                 0
             } else {
-                Self::percent_div(*value, sum)
+                let Some(scaled) = area.checked_mul(U256::from(Self::percentage_factor_as_u128()))
+                else {
+                    return (BTreeMap::new(), weight);
+                };
+                (scaled / total_area).as_u128()
             };
-            current_inflow_weights.insert(*subnet_id, inflow_weight);
+            weights.insert(subnet_id, share);
         }
-
-        let smoothing_alpha = SubnetNetFlowSmoothingAlpha::<T>::get();
-        let inverse_alpha = Self::percentage_factor_as_u128().saturating_sub(smoothing_alpha);
-        weight = weight.saturating_add(db_weight.reads(1));
-
-        let mut smoothed_inflow_weights: BTreeMap<u32, u128> = BTreeMap::new();
-        for subnet_id in inflows.keys() {
-            let current_weight = current_inflow_weights.get(subnet_id).copied().unwrap_or(0);
-            let previous_weight = SubnetNetFlowSmoothedWeight::<T>::get(subnet_id);
-            weight = weight.saturating_add(db_weight.reads(1));
-
-            let smoothed_weight = Self::percent_mul(current_weight, smoothing_alpha)
-                .saturating_add(Self::percent_mul(previous_weight, inverse_alpha))
-                .min(Self::percentage_factor_as_u128());
-
-            if smoothed_weight == 0 {
-                SubnetNetFlowSmoothedWeight::<T>::remove(subnet_id);
-            } else {
-                SubnetNetFlowSmoothedWeight::<T>::insert(subnet_id, smoothed_weight);
-            }
+        for (subnet_id, checkpoint) in checkpoints {
+            SubnetBalanceTimes::<T>::insert(subnet_id, checkpoint);
             weight = weight.saturating_add(db_weight.writes(1));
-
-            smoothed_inflow_weights.insert(*subnet_id, smoothed_weight);
         }
-
-        (smoothed_inflow_weights, weight)
+        (weights, weight)
     }
 
     pub fn precheck_subnet_consensus_submission(

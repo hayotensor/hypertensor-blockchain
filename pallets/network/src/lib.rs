@@ -27,7 +27,7 @@ use frame_system::pallet_prelude::OriginFor;
 use frame_system::{self as system, ensure_signed};
 pub use pallet::*;
 use scale_info::prelude::vec::Vec;
-use sp_core::OpaquePeerId as PeerId;
+use sp_core::{OpaquePeerId as PeerId, U256};
 use sp_runtime::traits::TrailingZeroInput;
 use sp_runtime::Saturating;
 use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
@@ -49,6 +49,8 @@ mod tests;
 // for each dispatchable and generates this pallet's weight.rs file. Learn more about benchmarking here: https://docs.substrate.io/test/benchmark/
 #[cfg(feature = "runtime-benchmarks")]
 mod benchmarking;
+pub mod economics;
+pub use economics::NetworkEconomics;
 pub mod weights;
 pub use weights::*;
 
@@ -181,6 +183,29 @@ pub mod pallet {
     #[pallet::without_storage_info]
     pub struct Pallet<T>(_);
 
+    #[pallet::genesis_config]
+    #[derive(frame_support::DefaultNoBound)]
+    pub struct GenesisConfig<T: Config> {
+        #[serde(skip)]
+        pub _config: core::marker::PhantomData<T>,
+    }
+
+    #[pallet::genesis_build]
+    impl<T: Config> BuildGenesisConfig for GenesisConfig<T> {
+        fn build(&self) {
+            // Epoch zero cannot register Overwatch nodes, but still has an explicit snapshot.
+            OverwatchEpochSnapshots::<T>::insert(
+                0,
+                OverwatchEpochSnapshot::<T> {
+                    stake_weight_factor: OverwatchStakeWeightFactor::<T>::get(),
+                    reward_budget: T::OverwatchEpochEmissions::get()
+                        .saturating_mul(ActiveOverwatchEpochLengthMultiplier::<T>::get() as u128),
+                    nodes: BoundedBTreeMap::new(),
+                },
+            );
+        }
+    }
+
     /// The pallet's configuration trait.
     ///
     /// All our types and constants a pallet depends on must be declared here.
@@ -214,10 +239,10 @@ pub mod pallet {
         #[pallet::constant]
         type InitialTxRateLimit: Get<u32>;
 
-        /// Initial absolute delegate-stake balance required for a live subnet.
-        /// Governance may update the corresponding storage value after genesis.
+        /// Supply-derived monetary defaults and annual emission policy.
+        /// Governance may override the corresponding mutable storage values.
         #[pallet::constant]
-        type InitialMinSubnetDelegateStakeBalance: Get<u128>;
+        type Economics: Get<NetworkEconomics>;
 
         /// Domain identifier for Network randomness and pallet accounts.
         #[pallet::constant]
@@ -603,7 +628,6 @@ pub mod pallet {
         SetMaxEmergencySubnetNodes(u32),
         SetOverwatchStakeWeightFactor(u128),
         SetSubnetWeightFactors(SubnetWeightFactorsData),
-        SetSubnetNetFlowSmoothingAlpha(u128),
         SetDefaultOverwatchSubnetWeight(u128),
         SetOverwatchValidatorWhitelist(u32, bool),
         SetValidatorRewardMidpoint(u128),
@@ -1265,6 +1289,10 @@ pub mod pallet {
         MaxOverwatchRevealRecords,
         /// Overwatch registration is disabled during the bootstrap Overwatch epoch (epoch zero)
         OverwatchEpochIsZero,
+        MissingOverwatchEpochSnapshot,
+        /// An extant subnet must have explicit balance-time accounting from registration.
+        MissingSubnetBalanceTime,
+        OverwatchNodeNotEligibleForEpoch,
         /// Account already in bootnode access list
         InBootnodeAccessList,
         /// Account not in bootnode access list
@@ -2644,8 +2672,8 @@ pub mod pallet {
 
     /// A closed Overwatch epoch waiting to be finalized.
     ///
-    /// This compact header records cardinalities used for hook weight selection. Close-time
-    /// membership and economic inputs live in the separately keyed settlement snapshot.
+    /// This compact header records reveal cardinalities used for hook weight selection. Opening
+    /// membership and economic inputs remain in the separately keyed epoch snapshot.
     #[derive(
         Encode,
         Decode,
@@ -2664,7 +2692,7 @@ pub mod pallet {
         pub reveal_records: u32,
     }
 
-    /// Close-time economic data for one Overwatch node participating in settlement.
+    /// Opening stake for one eligible Overwatch node.
     #[derive(
         Default,
         Encode,
@@ -2679,27 +2707,26 @@ pub mod pallet {
         Ord,
         scale_info::TypeInfo,
     )]
-    pub struct OverwatchNodeSettlementSnapshot {
+    pub struct OverwatchNodeStakeSnapshot {
         pub stake: u128,
     }
 
-    /// Economic and membership inputs captured when an Overwatch epoch closes.
+    /// Economic and membership inputs captured before an Overwatch epoch opens.
     ///
     /// This remains separate from [`PendingOverwatchSettlementData`] so the pending header stays
-    /// compact enough for hook weight selection. Stake, factor, and budget values remain fixed;
-    /// structural node removal may only delete that node's entry before finalization. An empty
-    /// `nodes` map is a valid snapshot and distinguishes a closed epoch with no revealers from a
-    /// missing snapshot.
+    /// compact enough for hook weight selection. Stake, factor, and budget stay fixed. Only
+    /// governance disqualification can remove eligibility; voluntary exit retains accepted work.
+    /// An empty cohort is valid and is distinct from a missing snapshot.
     #[derive(Encode, Decode, codec::DecodeWithMemTracking, DebugNoBound, scale_info::TypeInfo)]
     #[scale_info(skip_type_params(T))]
-    pub struct OverwatchEpochSettlementSnapshot<T: Config> {
+    pub struct OverwatchEpochSnapshot<T: Config> {
         pub stake_weight_factor: u128,
         pub reward_budget: u128,
         pub nodes:
-            BoundedBTreeMap<u32, OverwatchNodeSettlementSnapshot, T::MaxOverwatchNodesUpperBound>,
+            BoundedBTreeMap<u32, OverwatchNodeStakeSnapshot, T::MaxOverwatchNodesUpperBound>,
     }
 
-    impl<T: Config> Default for OverwatchEpochSettlementSnapshot<T> {
+    impl<T: Config> Default for OverwatchEpochSnapshot<T> {
         fn default() -> Self {
             Self {
                 stake_weight_factor: 0,
@@ -2709,7 +2736,7 @@ pub mod pallet {
         }
     }
 
-    impl<T: Config> Clone for OverwatchEpochSettlementSnapshot<T> {
+    impl<T: Config> Clone for OverwatchEpochSnapshot<T> {
         fn clone(&self) -> Self {
             Self {
                 stake_weight_factor: self.stake_weight_factor,
@@ -2719,7 +2746,7 @@ pub mod pallet {
         }
     }
 
-    impl<T: Config> PartialEq for OverwatchEpochSettlementSnapshot<T> {
+    impl<T: Config> PartialEq for OverwatchEpochSnapshot<T> {
         fn eq(&self, other: &Self) -> bool {
             self.stake_weight_factor == other.stake_weight_factor
                 && self.reward_budget == other.reward_budget
@@ -2727,7 +2754,7 @@ pub mod pallet {
         }
     }
 
-    impl<T: Config> Eq for OverwatchEpochSettlementSnapshot<T> {}
+    impl<T: Config> Eq for OverwatchEpochSnapshot<T> {}
 
     /// Cardinalities accumulated while an Overwatch epoch is accepting reveals.
     ///
@@ -2767,8 +2794,8 @@ pub mod pallet {
 
     impl<T: Config> Eq for OverwatchRevealStats<T> {}
 
-    /// Close-time node inputs retained for the latest effective Overwatch signal.
-    /// Structural removal may purge a node before this signal is superseded.
+    /// Opening stake and accepted reveals retained for the latest effective Overwatch signal.
+    /// Governance disqualification may purge a node before this signal is superseded.
     #[derive(Encode, Decode, codec::DecodeWithMemTracking, DebugNoBound, scale_info::TypeInfo)]
     #[scale_info(skip_type_params(T))]
     pub struct LatestOverwatchNodeSignalInput<T: Config> {
@@ -2793,7 +2820,7 @@ pub mod pallet {
 
     impl<T: Config> Eq for LatestOverwatchNodeSignalInput<T> {}
 
-    /// Reproducible close-time input retained for the latest effective Overwatch signal.
+    /// Opening stake and accepted reveals retained for the latest effective Overwatch signal.
     /// Its node map is purge-only between finalizations.
     #[derive(Encode, Decode, codec::DecodeWithMemTracking, DebugNoBound, scale_info::TypeInfo)]
     #[scale_info(skip_type_params(T))]
@@ -2853,7 +2880,7 @@ pub mod pallet {
 
     impl<T: Config> Eq for EffectiveOverwatchSignal<T> {}
 
-    /// Deterministic outputs derived from retained close-time inputs.
+    /// Deterministic outputs derived from retained opening stakes and accepted reveals.
     pub(crate) struct DerivedOverwatchSignal<T: Config> {
         pub subnet_weights: BoundedBTreeMap<u32, u128, T::MaxPhysicalSubnetsUpperBound>,
         pub node_scores: BTreeMap<u32, u128>,
@@ -3099,15 +3126,15 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - SubnetMinStakeBalance
     #[pallet::type_value]
-    pub fn DefaultSubnetMinStakeBalance() -> u128 {
-        100e+18 as u128
+    pub fn DefaultSubnetMinStakeBalance<T: Config>() -> u128 {
+        T::Economics::get().subnet_min_stake
     }
     /// This type value is referenced in:
     /// - NetworkMaxStakeBalance
     /// - SubnetMaxStakeBalance
     #[pallet::type_value]
-    pub fn DefaultNetworkMaxStakeBalance() -> u128 {
-        1000e+18 as u128
+    pub fn DefaultNetworkMaxStakeBalance<T: Config>() -> u128 {
+        T::Economics::get().max_stake
     }
     /// This type value is referenced in:
     /// - MinActiveNodeStakeEpochs
@@ -3127,7 +3154,7 @@ pub mod pallet {
     /// - MinSubnetDelegateStakeBalance
     #[pallet::type_value]
     pub fn DefaultMinSubnetDelegateStakeBalance<T: Config>() -> u128 {
-        T::InitialMinSubnetDelegateStakeBalance::get()
+        T::Economics::get().min_subnet_delegate_stake
     }
     /// This type value is referenced in:
     /// - MinDelegateStakeDeposit
@@ -3169,8 +3196,8 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - BaseValidatorReward
     #[pallet::type_value]
-    pub fn DefaultBaseValidatorReward() -> u128 {
-        1e+18 as u128
+    pub fn DefaultBaseValidatorReward<T: Config>() -> u128 {
+        T::Economics::get().base_validator_reward
     }
     /// This type value is referenced in:
     /// - ValidatorRewardK
@@ -3202,8 +3229,8 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - MaxSlashAmount
     #[pallet::type_value]
-    pub fn DefaultMaxSlashAmount() -> u128 {
-        1e+18 as u128
+    pub fn DefaultMaxSlashAmount<T: Config>() -> u128 {
+        T::Economics::get().max_slash
     }
     /// This type value is referenced in:
     /// - ValidatorDelegateStakeSlashThreshold
@@ -3391,14 +3418,14 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - MinSubnetMinStake
     #[pallet::type_value]
-    pub fn DefaultMinSubnetMinStake() -> u128 {
-        100e+18 as u128
+    pub fn DefaultMinSubnetMinStake<T: Config>() -> u128 {
+        T::Economics::get().subnet_min_stake
     }
     /// This type value is referenced in:
     /// - MaxSubnetMinStake
     #[pallet::type_value]
-    pub fn DefaultMaxSubnetMinStake() -> u128 {
-        250e+18 as u128
+    pub fn DefaultMaxSubnetMinStake<T: Config>() -> u128 {
+        T::Economics::get().max_subnet_min_stake
     }
     /// This type value is referenced in:
     /// - MinDelegateStakePercentage
@@ -3644,8 +3671,8 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - OverwatchMinStakeBalance
     #[pallet::type_value]
-    pub fn DefaultOverwatchMinStakeBalance() -> u128 {
-        100e+18 as u128
+    pub fn DefaultOverwatchMinStakeBalance<T: Config>() -> u128 {
+        T::Economics::get().overwatch_min_stake
     }
     /// This type value is referenced in:
     /// - DelegateStakeWeightFactor
@@ -3696,9 +3723,8 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - BaseNodeBurnAmount
     #[pallet::type_value]
-    pub fn DefaulBaseNodeBurnAmount() -> u128 {
-        // 0.00001
-        10000000000000
+    pub fn DefaulBaseNodeBurnAmount<T: Config>() -> u128 {
+        T::Economics::get().base_node_burn
     }
     /// This type value is referenced in:
     /// - NodeBurnRateAlpha
@@ -3717,15 +3743,14 @@ pub mod pallet {
     /// This type value is referenced in:
     /// - LastRegistrationCost
     #[pallet::type_value]
-    pub fn DefaultLastRegistrationCost() -> u128 {
-        1000000000000000000
+    pub fn DefaultLastRegistrationCost<T: Config>() -> u128 {
+        T::Economics::get().initial_registration_cost
     }
     /// This type value is referenced in:
     /// - MinRegistrationCost
     #[pallet::type_value]
-    pub fn DefaultMinRegistrationCost() -> u128 {
-        // Always should be less than `LastRegistrationCost`
-        100000000000000000
+    pub fn DefaultMinRegistrationCost<T: Config>() -> u128 {
+        T::Economics::get().min_registration_cost
     }
     /// This type value is referenced in:
     /// - RegistrationCostDecayBlocks
@@ -3780,12 +3805,8 @@ pub mod pallet {
         return SubnetWeightFactorsData {
             delegate_stake: 400000000000000000,
             node_count: 400000000000000000,
-            net_flow: 200000000000000000,
+            time_weighted_stake: 200000000000000000,
         };
-    }
-    #[pallet::type_value]
-    pub fn DefaultSubnetNetFlowSmoothingAlpha() -> u128 {
-        250000000000000000
     }
     #[pallet::type_value]
     pub fn DefaultOverwatchSubnetWeightValue() -> u128 {
@@ -3801,12 +3822,20 @@ pub mod pallet {
     pub type TotalSubnetUids<T: Config> =
         StorageValue<_, u32, ValueQuery, <T as Config>::InitialSubnetUid>;
 
-    #[pallet::storage]
-    pub type SubnetNetFlow<T: Config> = StorageMap<_, Identity, u32, i128, ValueQuery>;
+    /// Lazy balance-time accounting. The epoch is derived from `last_updated_block`.
+    #[derive(
+        Default, Encode, Decode, codec::DecodeWithMemTracking, Clone, Copy, PartialEq, Eq,
+        DebugNoBound, scale_info::TypeInfo, MaxEncodedLen,
+    )]
+    pub struct SubnetBalanceTime {
+        pub last_updated_block: u32,
+        pub current_epoch_area: U256,
+        pub previous_epoch_area: U256,
+    }
 
     #[pallet::storage]
-    pub type SubnetNetFlowSmoothedWeight<T: Config> =
-        StorageMap<_, Identity, u32, u128, ValueQuery>;
+    pub type SubnetBalanceTimes<T: Config> =
+        StorageMap<_, Identity, u32, SubnetBalanceTime, OptionQuery>;
 
     /// For informational purposes only, not used in conditinal logic
     /// Subnet Id -> Friendly UID
@@ -3855,14 +3884,14 @@ pub mod pallet {
     //
 
     /// The last fee paid to register a subnet
-    /// Default is 1.0, also the starting fee on genesis
+    /// The initial price comes from the runtime's supply-derived monetary policy.
     #[pallet::storage]
     pub type LastRegistrationCost<T> =
-        StorageValue<_, u128, ValueQuery, DefaultLastRegistrationCost>;
+        StorageValue<_, u128, ValueQuery, DefaultLastRegistrationCost<T>>;
 
     /// The minimum subnet registration fee
     #[pallet::storage]
-    pub type MinRegistrationCost<T> = StorageValue<_, u128, ValueQuery, DefaultMinRegistrationCost>;
+    pub type MinRegistrationCost<T> = StorageValue<_, u128, ValueQuery, DefaultMinRegistrationCost<T>>;
 
     /// Last block the price was updated
     #[pallet::storage]
@@ -4158,18 +4187,18 @@ pub mod pallet {
 
     /// Min value the SubnetMinStake a subnet can set
     #[pallet::storage]
-    pub type MinSubnetMinStake<T> = StorageValue<_, u128, ValueQuery, DefaultMinSubnetMinStake>;
+    pub type MinSubnetMinStake<T> = StorageValue<_, u128, ValueQuery, DefaultMinSubnetMinStake<T>>;
 
     /// Max value the SubnetMinStake a subnet can set
     #[pallet::storage]
-    pub type MaxSubnetMinStake<T> = StorageValue<_, u128, ValueQuery, DefaultMaxSubnetMinStake>;
+    pub type MaxSubnetMinStake<T> = StorageValue<_, u128, ValueQuery, DefaultMaxSubnetMinStake<T>>;
 
     /// Network maximum stake balance per Subnet Node
     /// A subnet staker can have greater than the max stake balance.
     /// Subnets can't set max stake above this value
     #[pallet::storage]
     pub type NetworkMaxStakeBalance<T> =
-        StorageValue<_, u128, ValueQuery, DefaultNetworkMaxStakeBalance>;
+        StorageValue<_, u128, ValueQuery, DefaultNetworkMaxStakeBalance<T>>;
 
     /// The MinDelegateStakePercentage a subnet can set
     #[pallet::storage]
@@ -4228,7 +4257,7 @@ pub mod pallet {
     /// Base reward per epoch for validators
     /// This is the base reward to subnet validators on successful attestation
     #[pallet::storage]
-    pub type BaseValidatorReward<T> = StorageValue<_, u128, ValueQuery, DefaultBaseValidatorReward>;
+    pub type BaseValidatorReward<T> = StorageValue<_, u128, ValueQuery, DefaultBaseValidatorReward<T>>;
 
     /// Sigmoid steepness for getting factor of what percentage of the base reward a validator receives
     /// Used in `get_validator_reward_multiplier`
@@ -4255,7 +4284,7 @@ pub mod pallet {
 
     /// Maximum amount any validator can be slashed
     #[pallet::storage]
-    pub type MaxSlashAmount<T> = StorageValue<_, u128, ValueQuery, DefaultMaxSlashAmount>;
+    pub type MaxSlashAmount<T> = StorageValue<_, u128, ValueQuery, DefaultMaxSlashAmount<T>>;
 
     /// Stake-weighted attestation rate below which a validator's delegate pool may be slashed.
     #[pallet::storage]
@@ -4363,16 +4392,13 @@ pub mod pallet {
     pub struct SubnetWeightFactorsData {
         pub delegate_stake: u128,
         pub node_count: u128,
-        pub net_flow: u128,
+        pub time_weighted_stake: u128,
     }
 
     #[pallet::storage]
     pub type SubnetWeightFactors<T: Config> =
         StorageValue<_, SubnetWeightFactorsData, ValueQuery, DefaultSubnetWeightFactors>;
 
-    #[pallet::storage]
-    pub type SubnetNetFlowSmoothingAlpha<T> =
-        StorageValue<_, u128, ValueQuery, DefaultSubnetNetFlowSmoothingAlpha>;
     //
     // Subnet owner
     //
@@ -4479,13 +4505,13 @@ pub mod pallet {
     /// Min required stake balance for a Subnet Node in a specified subnet
     #[pallet::storage]
     pub type SubnetMinStakeBalance<T> =
-        StorageMap<_, Identity, u32, u128, ValueQuery, DefaultSubnetMinStakeBalance>;
+        StorageMap<_, Identity, u32, u128, ValueQuery, DefaultSubnetMinStakeBalance<T>>;
 
     /// Max stake balance for a Subnet Node in a specified subnet
     /// A node can go over this amount as a balance but cannot add more above it
     #[pallet::storage]
     pub type SubnetMaxStakeBalance<T> =
-        StorageMap<_, Identity, u32, u128, ValueQuery, DefaultNetworkMaxStakeBalance>;
+        StorageMap<_, Identity, u32, u128, ValueQuery, DefaultNetworkMaxStakeBalance<T>>;
 
     #[pallet::storage]
     pub type SubnetDelegateStakeRewardsPercentage<T> =
@@ -4931,7 +4957,7 @@ pub mod pallet {
     #[pallet::storage]
     #[pallet::getter(fn base_burn_amount)]
     pub type BaseNodeBurnAmount<T: Config> =
-        StorageValue<_, u128, ValueQuery, DefaulBaseNodeBurnAmount>;
+        StorageValue<_, u128, ValueQuery, DefaulBaseNodeBurnAmount<T>>;
 
     /// Minimum burn rate as a percentage (using 1e18 precision)
     /// e.g., 1e18 = 100% minimum rate
@@ -5337,15 +5363,26 @@ pub mod pallet {
     pub type PendingOverwatchSettlement<T> =
         StorageValue<_, PendingOverwatchSettlementData, OptionQuery>;
 
-    /// Close-time settlement inputs keyed by the closed Overwatch epoch.
+    /// Opening economic and membership snapshots keyed by Overwatch epoch.
     ///
-    /// Exactly one entry is created alongside each pending settlement and both are consumed by
-    /// successful finalization. Structural node removal may delete the node's pending entry;
-    /// otherwise the captured inputs stay fixed. Keeping this as one bounded value prevents
-    /// partially assembled node snapshots from becoming visible.
+    /// Contains at most the active epoch and one pending epoch. Rollover preserves the completed
+    /// snapshot and creates the next one; successful settlement consumes only its pending entry.
+    /// Governance may disqualify entries, but deposits, withdrawals and voluntary exits cannot
+    /// change a captured balance or accepted assessment.
     #[pallet::storage]
-    pub type OverwatchEpochSettlementSnapshots<T: Config> =
-        StorageMap<_, Identity, u32, OverwatchEpochSettlementSnapshot<T>, OptionQuery>;
+    pub type OverwatchEpochSnapshots<T: Config> =
+        StorageMap<_, Identity, u32, OverwatchEpochSnapshot<T>, OptionQuery>;
+
+    /// Nodes that revealed every commitment in the closed epoch, captured before commit cleanup.
+    /// Missing eligibility blocks settlement; an explicit empty set finalizes an empty result.
+    #[pallet::storage]
+    pub type OverwatchEpochRevealEligibility<T: Config> = StorageMap<
+        _,
+        Identity,
+        u32,
+        BoundedBTreeSet<u32, T::MaxOverwatchNodesUpperBound>,
+        OptionQuery,
+    >;
 
     /// Reveal cardinalities for the active Overwatch epoch.
     #[pallet::storage]
@@ -5447,7 +5484,7 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// Reproducible close-time inputs retained for the latest effective Overwatch signal.
+    /// Opening stakes and accepted reveals retained for the latest effective Overwatch signal.
     /// Approved removal may purge a node without rewriting finalized history.
     #[pallet::storage]
     pub type LatestFinalizedOverwatchSignalInputs<T: Config> =
@@ -5499,8 +5536,10 @@ pub mod pallet {
 
     #[pallet::storage]
     pub type OverwatchMinStakeBalance<T> =
-        StorageValue<_, u128, ValueQuery, DefaultOverwatchMinStakeBalance>;
+        StorageValue<_, u128, ValueQuery, DefaultOverwatchMinStakeBalance<T>>;
 
+    /// The default overwatch node weight submission if submission is absent from
+    /// a node.
     #[pallet::storage]
     pub type DefaultOverwatchSubnetWeight<T> =
         StorageValue<_, u128, ValueQuery, DefaultOverwatchSubnetWeightValue>;
@@ -8366,15 +8405,7 @@ pub mod pallet {
             Self::do_set_consensus_validator_node_count_decay_update_interval(value)
         }
 
-        #[pallet::call_index(175)]
-        #[pallet::weight(T::WeightInfo::set_subnet_net_flow_smoothing_alpha())]
-        pub fn set_subnet_net_flow_smoothing_alpha(
-            origin: OriginFor<T>,
-            value: u128,
-        ) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_subnet_net_flow_smoothing_alpha(value)
-        }
+        // Call index 175 is intentionally unused: net-flow smoothing was removed.
 
         #[pallet::call_index(176)]
         #[pallet::weight(T::WeightInfo::set_consensus_validator_identity_attestation_percentage())]
@@ -8733,6 +8764,10 @@ pub mod pallet {
 
             // Store subnet data
             SubnetsData::<T>::insert(subnet_id, &subnet_data);
+            SubnetBalanceTimes::<T>::insert(subnet_id, SubnetBalanceTime {
+                last_updated_block: Self::get_current_block_as_u32(),
+                ..Default::default()
+            });
 
             // Store owner
             SubnetOwner::<T>::insert(subnet_id, &owner);
@@ -9362,17 +9397,16 @@ pub mod pallet {
             SubnetNodeMinWeightDecreaseReputationThreshold::<T>::remove(subnet_id);
             PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::remove(subnet_id);
             SubnetReputationFactorSchedules::<T>::remove(subnet_id);
-            SubnetNetFlow::<T>::remove(subnet_id);
-            SubnetNetFlowSmoothedWeight::<T>::remove(subnet_id);
+            SubnetBalanceTimes::<T>::remove(subnet_id);
 
             if let Some(friendly_uid) = SubnetIdFriendlyUid::<T>::take(subnet_id) {
                 FriendlyUidSubnetId::<T>::remove(friendly_uid);
                 weight = weight.saturating_add(T::DbWeight::get().writes(1));
             }
 
-            // The cleanup above removes 48 keyed values. `take` additionally reads and removes
+            // The cleanup above removes 47 keyed values. `take` additionally reads and removes
             // SubnetIdFriendlyUid; the reverse FriendlyUidSubnetId write remains conditional.
-            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 49));
+            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 48));
 
             // Remove from slot
             Self::free_slot_of_subnet(subnet_id);
@@ -10116,7 +10150,16 @@ pub mod pallet {
     #[pallet::hooks]
     impl<T: Config> Hooks<BlockNumberFor<T>> for Pallet<T> {
         fn integrity_test() {
+            T::Economics::get().validate();
             let percentage_factor = DefaultPercentageFactorU128::<T>::get();
+            let weight_factors = DefaultSubnetWeightFactors::get();
+            assert_eq!(
+                weight_factors.delegate_stake
+                    .saturating_add(weight_factors.node_count)
+                    .saturating_add(weight_factors.time_weighted_stake),
+                percentage_factor,
+                "default subnet emission weight factors must total exactly 100%"
+            );
 
             assert_eq!(
                 T::DesignatedEpochSlots::get(),

@@ -1,4 +1,4 @@
-use crate::{npos, opaque::SessionKeys, AccountId, Balance, Signature};
+use crate::{configs::npos, opaque::SessionKeys, AccountId, Balance, Signature};
 use alloc::{format, vec, vec::Vec};
 use serde_json::Value;
 use sp_consensus_babe::AuthorityId as BabeId;
@@ -57,8 +57,6 @@ fn consensus_genesis(initial_authorities: &[(AccountId, BabeId, GrandpaId)]) -> 
     })
 }
 
-const UNITS: Balance = 1_000_000_000_000_000_000;
-
 fn testnet_genesis(authority_seeds: &[&str]) -> Value {
     let endowed_accounts: Vec<AccountId> = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Ferdie"]
         .iter()
@@ -73,10 +71,28 @@ fn testnet_genesis(authority_seeds: &[&str]) -> Value {
         .iter()
         .map(|seed| authority_keys_from_seed(seed))
         .collect::<Vec<_>>();
+    let endowment = crate::EXISTENTIAL_DEPOSIT;
+    let distributable = crate::tokenomics::STARTING_SUPPLY - 2 * endowment;
+    let count = endowed_accounts.len() as Balance;
+    let mut balances = endowed_accounts
+        .iter()
+        .cloned()
+        .enumerate()
+        .map(|(index, account)| {
+            // Allocate every atomic unit, including the division remainder.
+            (
+                account,
+                distributable / count + Balance::from((index as Balance) < distributable % count),
+            )
+        })
+        .collect::<Vec<_>>();
+    // These pallets otherwise mint their own deposits outside the premine.
+    balances.push((crate::Treasury::account_id(), endowment));
+    balances.push((crate::Revive::account_id(), endowment));
     let mut genesis = serde_json::json!({
         "sudo": { "key": Some(get_account_id_from_seed::<sr25519::Public>("Alice")) },
         "balances": {
-            "balances": endowed_accounts.iter().cloned().map(|account| (account, 1_000_000 * UNITS)).collect::<Vec<_>>()
+            "balances": balances
         },
     });
     genesis

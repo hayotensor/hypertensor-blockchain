@@ -1,4 +1,4 @@
-# Native account examples for Talaris
+# Native account examples for smart contracts
 
 Deploy the same Solidity `SimpleStorage` contract as `ethereum-examples/`, update
 its value, and read it back using a native **sr25519 account**. This standalone

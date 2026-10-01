@@ -18,6 +18,16 @@ use super::*;
 use frame_support::pallet_prelude::DispatchError;
 
 impl<T: Config> Pallet<T> {
+    pub(crate) fn ensure_overwatch_epoch_eligible(node_id: u32, epoch: u32) -> DispatchResult {
+        let snapshot = OverwatchEpochSnapshots::<T>::get(epoch)
+            .ok_or(Error::<T>::MissingOverwatchEpochSnapshot)?;
+        ensure!(
+            snapshot.nodes.contains_key(&node_id),
+            Error::<T>::OverwatchNodeNotEligibleForEpoch
+        );
+        Ok(())
+    }
+
     /// Return only peer IDs attached to subnets that still exist.
     ///
     /// Removed-subnet entries are pruned from storage on the node's next peer update; filtering
@@ -53,7 +63,7 @@ impl<T: Config> Pallet<T> {
 
     /// Resolve the validator identity historically associated with an Overwatch node ID.
     ///
-    /// This remains valid after removal solely so the owner can withdraw residual node stake.
+    /// This remains valid after exit for stake withdrawals and governance disqualification.
     pub fn get_historical_overwatch_validator_id(
         overwatch_node_id: u32,
     ) -> Result<u32, DispatchError> {

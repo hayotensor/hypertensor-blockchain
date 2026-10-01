@@ -1,4 +1,5 @@
-use super::*;
+use crate::configs::revive;
+use crate::*;
 use frame_support::{assert_ok, traits::fungible::InspectHold};
 use pallet_revive::{
     evm::{runtime::EthExtra, Account, Transaction1559Unsigned},
@@ -144,7 +145,7 @@ fn slot(address: H160, key: u8) -> U256 {
 
 #[test]
 fn native_sr25519_can_deploy_and_call_evm_with_the_same_balance_and_identity() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         initialize_block();
         let who = AccountId::from(alice().public());
         map_alice();
@@ -175,7 +176,7 @@ fn native_sr25519_can_deploy_and_call_evm_with_the_same_balance_and_identity() {
 #[test]
 fn native_sr25519_can_execute_pvm_and_traps_revert_value() {
     for trap in [false, true] {
-        npos_tests::ext().execute_with(|| {
+        crate::tests::npos::ext().execute_with(|| {
             initialize_block();
             map_alice();
             let address = deploy(pvm_contract(trap));
@@ -195,7 +196,7 @@ fn native_sr25519_can_execute_pvm_and_traps_revert_value() {
 
 #[test]
 fn reverted_evm_call_rolls_back_storage_and_value_but_charges_a_transaction_fee() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         initialize_block();
         map_alice();
         // SSTORE(0, 1), then REVERT(0, 0).
@@ -231,7 +232,7 @@ fn weight_and_storage_deposit_limits_prevent_state_changes() {
             pallet_revive::Error::<Runtime>::StorageDepositLimitExhausted,
         ),
     ] {
-        npos_tests::ext().execute_with(|| {
+        crate::tests::npos::ext().execute_with(|| {
             initialize_block();
             map_alice();
             let address = deploy(storage_contract());
@@ -260,7 +261,7 @@ fn weight_and_storage_deposit_limits_prevent_state_changes() {
 
 #[test]
 fn native_mapping_deposit_is_refundable_and_unmapped_calls_are_rejected() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         initialize_block();
         let who = AccountId::from(alice().public());
         assert_eq!(
@@ -313,7 +314,7 @@ fn validate_eth(
 
 #[test]
 fn ethereum_signatures_use_native_balances_and_enforce_chain_id_and_nonce() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         initialize_block();
         let signer = Account::from_secret_key([7; 32]);
         assert_ok!(native_call(
@@ -339,7 +340,7 @@ fn ethereum_signatures_use_native_balances_and_enforce_chain_id_and_nonce() {
 #[test]
 fn ethereum_transactions_work_with_fractional_and_higher_fee_multipliers() {
     for multiplier in [Multiplier::from_rational(3, 2), Multiplier::from_u32(2)] {
-        npos_tests::ext().execute_with(|| {
+        crate::tests::npos::ext().execute_with(|| {
             initialize_block();
             pallet_transaction_payment::NextFeeMultiplier::<Runtime>::put(multiplier);
             let signer = Account::from_secret_key([9; 32]);
@@ -368,7 +369,7 @@ fn ethereum_transactions_work_with_fractional_and_higher_fee_multipliers() {
 
 #[test]
 fn ethereum_transaction_fits_after_maximum_network_initialization() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         initialize_block();
         let signer = Account::from_secret_key([10; 32]);
         assert_ok!(native_call(
@@ -396,7 +397,7 @@ fn ethereum_transaction_fits_after_maximum_network_initialization() {
 
 #[test]
 fn non_transfer_proxy_cannot_execute_contract_calls() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         initialize_block();
         let owner = AccountId::from(alice().public());
         let delegate = AccountId::from(sr25519::Pair::from_string("//Bob", None).unwrap().public());
@@ -427,7 +428,7 @@ fn non_transfer_proxy_cannot_execute_contract_calls() {
 
 #[test]
 fn paused_contract_calls_are_filtered_for_native_and_ethereum_transactions() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         initialize_block();
         map_alice();
         let name = (
@@ -473,5 +474,4 @@ fn paused_contract_calls_are_filtered_for_native_and_ethereum_transactions() {
     });
 }
 
-#[path = "network_precompile_tests.rs"]
-mod network_precompiles_tests;
+mod network_precompiles;

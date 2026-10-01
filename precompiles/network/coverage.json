@@ -2722,20 +2722,6 @@
     "authorization": "Council approval: at least 4/5 of members in this runtime"
   },
   {
-    "name": "set_subnet_net_flow_smoothing_alpha",
-    "args": [
-      [
-        "value",
-        "u128"
-      ]
-    ],
-    "origin": "majority",
-    "index": 175,
-    "domain": "Governance",
-    "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
-  },
-  {
     "name": "set_consensus_validator_identity_attestation_percentage",
     "args": [
       [

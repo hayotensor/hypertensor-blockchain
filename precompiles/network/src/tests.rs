@@ -19,7 +19,7 @@ fn manifest_covers_every_native_extrinsic_and_only_signed_calls_have_selectors()
             .map(|c| c["index"].as_u64().unwrap())
             .collect()
     );
-    assert_eq!(entries.len(), 161);
+    assert_eq!(entries.len(), 160);
     let mut implemented = 0;
     for e in &entries {
         let marker = format!("#[pallet::call_index({})]", e["index"]);

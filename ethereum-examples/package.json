@@ -1,5 +1,5 @@
 {
-  "name": "talaris-ethereum-examples",
+  "name": "ethereum-examples",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -9,9 +9,9 @@
     "check": "hardhat compile && tsc --noEmit",
     "wallet": "node scripts/create-wallet.mjs",
     "account": "node scripts/account.mjs",
-    "demo": "hardhat run scripts/deploy-and-update.ts --network talaris",
-    "read": "hardhat run scripts/read.ts --network talaris",
-    "set": "hardhat run scripts/set-value.ts --network talaris"
+    "demo": "hardhat run scripts/deploy-and-update.ts --network local",
+    "read": "hardhat run scripts/read.ts --network local",
+    "set": "hardhat run scripts/set-value.ts --network local"
   },
   "devDependencies": {
     "@nomicfoundation/hardhat-ethers": "4.1.0",

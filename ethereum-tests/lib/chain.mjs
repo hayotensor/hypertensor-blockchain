@@ -61,14 +61,14 @@ export class TestChain {
   stopped = false;
 
   async start() {
-    const node = process.env.TALARIS_NODE ?? resolve(directory, '../target/release/hypertensor-node');
+    const node = process.env.VALIDATOR_NODE ?? resolve(directory, '../target/release/hypertensor-node');
     const adapter = process.env.ETH_RPC ?? 'eth-rpc';
     // Fail before spawning anything if required executables are unavailable.
     const [nodeVersion, adapterVersion] = await Promise.all([
       exec(node, ['--version']), exec(adapter, ['--version']),
     ]);
     this.artifacts = await compile();
-    this.basePath = await mkdtemp(resolve(tmpdir(), 'talaris-ethereum-tests-'));
+    this.basePath = await mkdtemp(resolve(tmpdir(), 'ethereum-tests-'));
     this.logPath = await mkdtemp(resolve(directory, 'logs/run-'));
     const ports = new Set();
     while (ports.size < 3) ports.add(await freePort());

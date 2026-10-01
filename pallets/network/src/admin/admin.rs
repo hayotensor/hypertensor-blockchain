@@ -543,7 +543,7 @@ impl<T: Config> Pallet<T> {
         Self::do_remove_subnet_node_v2(subnet_id, subnet_node_id)
     }
     pub fn do_collective_remove_overwatch_node(overwatch_node_id: u32) -> DispatchResult {
-        Self::perform_remove_overwatch_node(overwatch_node_id)?;
+        Self::perform_disqualify_overwatch_node(overwatch_node_id)?;
         Self::deposit_event(Event::CollectiveRemoveOverwatchNode(overwatch_node_id));
         Ok(())
     }
@@ -938,29 +938,16 @@ impl<T: Config> Pallet<T> {
         let sum: u128 = value
             .delegate_stake
             .saturating_add(value.node_count)
-            .saturating_add(value.net_flow);
+            .saturating_add(value.time_weighted_stake);
 
         ensure!(
-            sum <= Self::percentage_factor_as_u128(),
+            sum == Self::percentage_factor_as_u128(),
             Error::<T>::InvalidPercent
         );
 
         SubnetWeightFactors::<T>::put(&value);
 
         Self::deposit_event(Event::SetSubnetWeightFactors(value));
-
-        Ok(())
-    }
-
-    pub fn do_set_subnet_net_flow_smoothing_alpha(value: u128) -> DispatchResult {
-        ensure!(
-            value <= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
-        );
-
-        SubnetNetFlowSmoothingAlpha::<T>::put(value);
-
-        Self::deposit_event(Event::SetSubnetNetFlowSmoothingAlpha(value));
 
         Ok(())
     }

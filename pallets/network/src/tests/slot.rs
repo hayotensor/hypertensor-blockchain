@@ -11,8 +11,8 @@ use crate::{
     PendingOverwatchSettlement, PendingSubnetDelegateStakeRewardsPercentage,
     PendingSubnetDelegateStakeRewardsPercentageUpdate, QueueImmunityEpochs,
     RegisteredSubnetNodesData, RewardsData, SubnetConsensusSubmission,
-    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName, SubnetNetFlow,
-    SubnetNetFlowSmoothedWeight, SubnetNetFlowSmoothingAlpha, SubnetNodeQueue,
+    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName, SubnetBalanceTime,
+    SubnetBalanceTimes, SubnetNodeQueue,
     SubnetOwnerPercentage, SubnetRemovalReason, SubnetWeightFactors, SubnetWeightFactorsData,
     SubnetsData, TotalActiveSubnets, TotalDelegateStake, TotalElectableNodes,
     TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeCirculatingShares,
@@ -49,13 +49,13 @@ fn build_active_subnet_ids(count: u32) -> Vec<u32> {
     let end = 12;
 
     for s in 0..count {
-        let subnet_name: Vec<u8> = format!("net-flow-subnet-{s}").into();
+        let subnet_name: Vec<u8> = format!("balance-time-subnet-{s}").into();
         build_activated_subnet(subnet_name.clone().into(), 0, end, deposit_amount, amount);
     }
 
     let subnet_ids: Vec<u32> = (0..count)
         .map(|s| {
-            let subnet_name: Vec<u8> = format!("net-flow-subnet-{s}").into();
+            let subnet_name: Vec<u8> = format!("balance-time-subnet-{s}").into();
             SubnetName::<Test>::get(subnet_name).unwrap()
         })
         .collect();
@@ -127,6 +127,7 @@ fn test_calculate_overwatch_rewards() {
         let overwatch_node_id = insert_overwatch_node_v2(1);
         let starting_stake = 100;
         set_overwatch_node_stake(overwatch_node_id, starting_stake);
+        snapshot_overwatch_epoch();
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
@@ -256,7 +257,7 @@ fn effective_signal_change_preserves_written_allocation_and_changes_next_epoch()
             SubnetWeightFactors::<Test>::put(SubnetWeightFactorsData {
                 delegate_stake: 0,
                 node_count: percentage_factor,
-                net_flow: 0,
+                time_weighted_stake: 0,
             });
             DefaultOverwatchSubnetWeight::<Test>::put(percentage_factor);
             OverwatchWeightFactor::<Test>::put(percentage_factor);
@@ -301,10 +302,7 @@ fn effective_signal_change_preserves_written_allocation_and_changes_next_epoch()
                 FinalSubnetEmissionWeights::<Test>::get(current_epoch).subnet_weights;
 
             if remove_target {
-                assert_ok!(Network::remove_overwatch_node(
-                    RuntimeOrigin::signed(account(20_001)),
-                    target,
-                ));
+                assert_ok!(Network::do_collective_remove_overwatch_node(target));
             }
             let current_after_removal =
                 FinalSubnetEmissionWeights::<Test>::get(current_epoch).subnet_weights;
@@ -369,7 +367,7 @@ fn test_calculate_subnet_weights_distinguishes_default_from_explicit_zero() {
         SubnetWeightFactors::<Test>::put(SubnetWeightFactorsData {
             delegate_stake: 0,
             node_count: percentage_factor,
-            net_flow: 0,
+            time_weighted_stake: 0,
         });
         DefaultOverwatchSubnetWeight::<Test>::put(percentage_factor);
         OverwatchWeightFactor::<Test>::put(percentage_factor);
@@ -465,7 +463,7 @@ fn test_calculate_subnet_weights_never_exceeds_full_allocation() {
         SubnetWeightFactors::<Test>::put(SubnetWeightFactorsData {
             delegate_stake: 0,
             node_count: Network::percentage_factor_as_u128(),
-            net_flow: 0,
+            time_weighted_stake: 0,
         });
 
         let current_epoch = Network::get_current_epoch_as_u32();
@@ -731,8 +729,11 @@ fn test_ineligible_subnet_totals_do_not_dilute_eligible_weights() {
         TotalElectableNodes::<Test>::set(4);
 
         for subnet_id in subnet_ids.iter().copied() {
-            SubnetNetFlow::<Test>::remove(subnet_id);
-            SubnetNetFlowSmoothedWeight::<Test>::remove(subnet_id);
+            SubnetBalanceTimes::<Test>::insert(subnet_id, SubnetBalanceTime {
+                last_updated_block: System::block_number(),
+                current_epoch_area: Default::default(),
+                previous_epoch_area: Default::default(),
+            });
         }
 
         let (baseline_weights, _) = Network::calculate_subnet_weights(current_epoch);
@@ -796,177 +797,6 @@ fn test_emission_step_elects_live_subnet_without_final_emission_weights() {
         );
 
         assert!(get_elected_subnet_node_id(subnet_id, current_subnet_epoch).is_some());
-    });
-}
-
-#[test]
-fn test_get_net_flow_weights_smoothes_relative_weights() {
-    new_test_ext().execute_with(|| {
-        let subnet_ids = build_active_subnet_ids(3);
-        let alpha = test_percent(1, 2);
-        SubnetNetFlowSmoothingAlpha::<Test>::set(alpha);
-
-        SubnetNetFlow::<Test>::insert(subnet_ids[0], -100);
-        SubnetNetFlow::<Test>::insert(subnet_ids[1], 0);
-        SubnetNetFlow::<Test>::insert(subnet_ids[2], 100);
-
-        let (weights, _) = Network::get_net_flow_weights(
-            SubnetsData::<Test>::iter_keys().collect(),
-            Network::get_current_epoch_as_u32(),
-        );
-
-        let raw_middle_weight = Network::percent_div(100, 300);
-        let raw_high_weight = Network::percent_div(200, 300);
-        let expected_middle_weight = Network::percent_mul(raw_middle_weight, alpha);
-        let expected_high_weight = Network::percent_mul(raw_high_weight, alpha);
-
-        assert_eq!(weights.get(&subnet_ids[0]).copied().unwrap_or(0), 0);
-        assert_eq!(
-            weights.get(&subnet_ids[1]).copied().unwrap_or(0),
-            expected_middle_weight
-        );
-        assert_eq!(
-            weights.get(&subnet_ids[2]).copied().unwrap_or(0),
-            expected_high_weight
-        );
-        assert!(expected_high_weight > expected_middle_weight);
-
-        for subnet_id in subnet_ids.iter().copied() {
-            assert_eq!(SubnetNetFlow::<Test>::get(subnet_id), 0);
-            assert_eq!(
-                SubnetNetFlowSmoothedWeight::<Test>::get(subnet_id),
-                weights.get(&subnet_id).copied().unwrap_or(0)
-            );
-        }
-    });
-}
-
-#[test]
-fn test_get_net_flow_weights_decays_on_equal_flow_epoch() {
-    new_test_ext().execute_with(|| {
-        let subnet_ids = build_active_subnet_ids(3);
-        let alpha = test_percent(1, 2);
-        SubnetNetFlowSmoothingAlpha::<Test>::set(alpha);
-
-        SubnetNetFlow::<Test>::insert(subnet_ids[0], -100);
-        SubnetNetFlow::<Test>::insert(subnet_ids[1], 0);
-        SubnetNetFlow::<Test>::insert(subnet_ids[2], 100);
-
-        let (first_weights, _) = Network::get_net_flow_weights(
-            SubnetsData::<Test>::iter_keys().collect(),
-            Network::get_current_epoch_as_u32(),
-        );
-        let first_high_weight = first_weights.get(&subnet_ids[2]).copied().unwrap_or(0);
-        assert!(first_high_weight > 0);
-
-        let (second_weights, _) = Network::get_net_flow_weights(
-            SubnetsData::<Test>::iter_keys().collect(),
-            Network::get_current_epoch_as_u32(),
-        );
-
-        let expected_decayed_weight = Network::percent_mul(first_high_weight, alpha);
-        assert_eq!(
-            second_weights.get(&subnet_ids[2]).copied().unwrap_or(0),
-            expected_decayed_weight
-        );
-        assert!(expected_decayed_weight < first_high_weight);
-    });
-}
-
-#[test]
-fn test_get_net_flow_weights_excludes_non_live_subnets_and_clears_storage() {
-    new_test_ext().execute_with(|| {
-        let _active_subnet_ids = build_active_subnet_ids(2);
-
-        let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
-        let registering_subnet_name: Vec<u8> = "net-flow-registering-subnet".into();
-        build_registered_subnet(
-            registering_subnet_name.clone(),
-            0,
-            4,
-            deposit_amount,
-            amount,
-            true,
-            None,
-        );
-        let registering_subnet_id =
-            SubnetName::<Test>::get(registering_subnet_name.clone()).unwrap();
-
-        SubnetNetFlow::<Test>::insert(registering_subnet_id, 1000);
-        SubnetNetFlowSmoothedWeight::<Test>::insert(
-            registering_subnet_id,
-            Network::percentage_factor_as_u128(),
-        );
-
-        let (weights, _) = Network::get_net_flow_weights(
-            SubnetsData::<Test>::iter_keys().collect(),
-            Network::get_current_epoch_as_u32(),
-        );
-
-        assert!(!weights.contains_key(&registering_subnet_id));
-        assert_eq!(SubnetNetFlow::<Test>::get(registering_subnet_id), 0);
-        assert_eq!(
-            SubnetNetFlowSmoothedWeight::<Test>::get(registering_subnet_id),
-            0
-        );
-    });
-}
-
-#[test]
-fn test_subnet_removal_clears_net_flow_storage() {
-    new_test_ext().execute_with(|| {
-        let subnet_id = build_active_subnet_ids(1)[0];
-
-        SubnetNetFlow::<Test>::insert(subnet_id, -100);
-        SubnetNetFlowSmoothedWeight::<Test>::insert(
-            subnet_id,
-            Network::percentage_factor_as_u128(),
-        );
-
-        Network::do_remove_subnet(subnet_id, SubnetRemovalReason::Owner);
-
-        assert_eq!(SubnetNetFlow::<Test>::get(subnet_id), 0);
-        assert_eq!(SubnetNetFlowSmoothedWeight::<Test>::get(subnet_id), 0);
-    });
-}
-
-#[test]
-fn test_subnet_net_flow_rejects_outgoing_amount_outside_signed_range_without_mutation() {
-    new_test_ext().execute_with(|| {
-        const ACCOUNT_SHARES: u128 = 2_000_000_000;
-        const TOTAL_SHARES: u128 = 3_000_000_000;
-
-        let subnet_id = build_active_subnet_ids(1)[0];
-        let staker = account(1);
-        let original_flow = SubnetNetFlow::<Test>::get(subnet_id);
-        AccountSubnetDelegateStakeShares::<Test>::insert(&staker, subnet_id, ACCOUNT_SHARES);
-        TotalSubnetDelegateStakeShares::<Test>::insert(subnet_id, TOTAL_SHARES);
-        TotalSubnetDelegateStakeCirculatingShares::<Test>::insert(subnet_id, ACCOUNT_SHARES);
-        TotalSubnetDelegateStakeBalance::<Test>::insert(subnet_id, u128::MAX);
-        TotalDelegateStake::<Test>::put(u128::MAX);
-
-        let (result, balance_removed, shares_removed) =
-            Network::perform_do_remove_subnet_delegate_stake(
-                &staker,
-                subnet_id,
-                ACCOUNT_SHARES,
-                1,
-                false,
-            );
-        assert!(result.is_err());
-        assert_eq!(balance_removed, 0);
-        assert_eq!(shares_removed, 0);
-        assert_eq!(SubnetNetFlow::<Test>::get(subnet_id), original_flow);
-        assert_eq!(
-            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
-            u128::MAX
-        );
-        assert_eq!(TotalDelegateStake::<Test>::get(), u128::MAX);
-        assert_eq!(
-            Network::current_account_subnet_delegate_stake_shares(&staker, subnet_id),
-            ACCOUNT_SHARES
-        );
     });
 }
 

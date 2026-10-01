@@ -6,7 +6,7 @@ use crate::tests::test_utils::{
 use crate::{
     ActiveOverwatchEpochLengthMultiplier, CurrentOverwatchEpoch, LastFinalizedOverwatchEpoch,
     LatestEffectiveOverwatchSignal, OverwatchEpochLengthMultiplier,
-    OverwatchEpochSettlementSnapshots, OverwatchEpochStartBlock, OverwatchNodeStakeBalance,
+    OverwatchEpochSnapshots, OverwatchEpochStartBlock, OverwatchNodeStakeBalance,
     OverwatchNodeWeights, OverwatchStakeWeightFactor, OverwatchSubnetWeights,
     PendingOverwatchSettlement, SubnetState,
 };
@@ -89,7 +89,7 @@ fn close_counterfactual_round(epoch: u32, expected_records: u32) {
         .expect("the counterfactual round must close successfully");
     assert_eq!(pending.epoch, epoch);
     assert_eq!(pending.reveal_records, expected_records);
-    assert!(OverwatchEpochSettlementSnapshots::<Test>::contains_key(
+    assert!(OverwatchEpochSnapshots::<Test>::contains_key(
         epoch
     ));
     assert_eq!(CurrentOverwatchEpoch::<Test>::get(), epoch + 1);
@@ -124,14 +124,15 @@ fn run_finalized_removal_scenario(include_maximum: bool) -> FinalizedRemovalOutc
         configure_counterfactual_round();
         let epoch = CurrentOverwatchEpoch::<Test>::get();
         let participants = seed_counterfactual_participants(include_maximum);
-        submit_counterfactual_weights(epoch, &participants);
+        super::test_utils::snapshot_overwatch_epoch();
+    submit_counterfactual_weights(epoch, &participants);
         close_counterfactual_round(epoch, if include_maximum { 6 } else { 4 });
         Network::calculate_overwatch_rewards();
 
         assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), Some(epoch));
         let historical_before_removal = finalized_subnet_weights(epoch);
         if let Some(maximum) = participants.maximum {
-            assert_ok!(Network::perform_remove_overwatch_node(maximum));
+            assert_ok!(Network::perform_disqualify_overwatch_node(maximum));
             assert_eq!(
                 finalized_subnet_weights(epoch),
                 historical_before_removal,
@@ -151,15 +152,16 @@ fn run_pending_removal_scenario(include_maximum: bool) -> PendingRemovalOutcome 
         configure_counterfactual_round();
         let epoch = CurrentOverwatchEpoch::<Test>::get();
         let participants = seed_counterfactual_participants(include_maximum);
-        submit_counterfactual_weights(epoch, &participants);
+        super::test_utils::snapshot_overwatch_epoch();
+    submit_counterfactual_weights(epoch, &participants);
         close_counterfactual_round(epoch, if include_maximum { 6 } else { 4 });
 
         if let Some(maximum) = participants.maximum {
-            assert_ok!(Network::perform_remove_overwatch_node(maximum));
+            assert_ok!(Network::perform_disqualify_overwatch_node(maximum));
             let pending = PendingOverwatchSettlement::<Test>::get().unwrap();
             assert_eq!(pending.reveal_records, 4);
             assert_eq!(
-                OverwatchEpochSettlementSnapshots::<Test>::get(epoch)
+                OverwatchEpochSnapshots::<Test>::get(epoch)
                     .unwrap()
                     .nodes
                     .len(),

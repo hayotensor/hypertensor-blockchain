@@ -18,7 +18,7 @@ export default defineConfig({
     },
   },
   networks: {
-    talaris: {
+    local: {
       type: "http",
       chainType: "generic",
       url: process.env.ETH_RPC_URL || "http://127.0.0.1:8545",

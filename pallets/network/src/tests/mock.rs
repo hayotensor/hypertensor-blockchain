@@ -267,7 +267,7 @@ impl Config for Test {
     type EpochLength = EpochLength;
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = ConstU32<0>;
-    type InitialMinSubnetDelegateStakeBalance = ConstU128<100_000_000_000_000_000_000>;
+    type Economics = TestEconomics;
     type Randomness = BabeRandomness;
     type PalletId = NetworkPalletId;
     type TreasuryAccount = TreasuryAccount;
@@ -298,10 +298,11 @@ impl Config for Test {
 }
 
 pub fn new_test_ext() -> sp_io::TestExternalities {
-    frame_system::GenesisConfig::<Test>::default()
+    let mut storage = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
-        .unwrap()
-        .into()
+        .unwrap();
+    crate::GenesisConfig::<Test>::default().assimilate_storage(&mut storage).unwrap();
+    storage.into()
 }
 
 pub(crate) fn network_events() -> Vec<crate::Event<Test>> {
@@ -316,4 +317,23 @@ pub(crate) fn network_events() -> Vec<crate::Event<Test>> {
             }
         })
         .collect()
+}
+
+parameter_types! {
+    pub const TestEconomics: crate::NetworkEconomics = crate::NetworkEconomics {
+        initial_annual_emissions: 100_000 * 1_000_000_000_000_000_000,
+        terminal_annual_emissions: 75_000 * 1_000_000_000_000_000_000,
+        annual_retention_percent: 90,
+        foundation_share_percent: 5,
+        subnet_min_stake: 100 * 1_000_000_000_000_000_000,
+        max_stake: 1000 * 1_000_000_000_000_000_000,
+        max_subnet_min_stake: 250 * 1_000_000_000_000_000_000,
+        min_subnet_delegate_stake: 100 * 1_000_000_000_000_000_000,
+        overwatch_min_stake: 100 * 1_000_000_000_000_000_000,
+        base_validator_reward: 1_000_000_000_000_000_000,
+        max_slash: 1_000_000_000_000_000_000,
+        base_node_burn: 10_000_000_000_000,
+        initial_registration_cost: 1_000_000_000_000_000_000,
+        min_registration_cost: 100_000_000_000_000_000,
+    };
 }

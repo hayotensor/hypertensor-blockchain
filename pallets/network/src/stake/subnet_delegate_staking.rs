@@ -238,17 +238,11 @@ impl<T: Config> Pallet<T> {
             next_circulating_shares,
         )?;
 
-        let next_flow = if SubnetsData::<T>::contains_key(subnet_id) {
-            let flow_delta = i128::try_from(delegate_stake_to_be_added)
-                .map_err(|_| ArithmeticError::Overflow)?;
-            Some(
-                SubnetNetFlow::<T>::get(subnet_id)
-                    .checked_add(flow_delta)
-                    .ok_or(ArithmeticError::Overflow)?,
-            )
-        } else {
-            None
-        };
+        let balance_time = Self::prepare_subnet_balance_time(
+            subnet_id,
+            total_subnet_delegated_stake_balance,
+            Self::get_current_block_as_u32(),
+        )?;
 
         Self::set_current_account_subnet_delegate_stake_shares(
             account_id,
@@ -260,8 +254,8 @@ impl<T: Config> Pallet<T> {
         TotalSubnetDelegateStakeCirculatingShares::<T>::insert(subnet_id, next_circulating_shares);
         TotalDelegateStake::<T>::put(total_delegate_stake);
 
-        if let Some(flow) = next_flow {
-            SubnetNetFlow::<T>::insert(subnet_id, flow);
+        if let Some(balance_time) = balance_time {
+            SubnetBalanceTimes::<T>::insert(subnet_id, balance_time);
         }
 
         Ok((
@@ -535,16 +529,11 @@ impl<T: Config> Pallet<T> {
             )?;
             None
         };
-        let next_flow = if SubnetsData::<T>::contains_key(subnet_id) {
-            let delta = i128::try_from(amount).map_err(|_| ArithmeticError::Overflow)?;
-            Some(
-                SubnetNetFlow::<T>::get(subnet_id)
-                    .checked_sub(delta)
-                    .ok_or(ArithmeticError::Underflow)?,
-            )
-        } else {
-            None
-        };
+        let balance_time = Self::prepare_subnet_balance_time(
+            subnet_id,
+            current_balance,
+            Self::get_current_block_as_u32(),
+        )?;
 
         if let Some(new_generation) = next_generation {
             let old_generation = SubnetDelegatePoolGeneration::<T>::get(subnet_id);
@@ -569,14 +558,14 @@ impl<T: Config> Pallet<T> {
             TotalSubnetDelegateStakeCirculatingShares::<T>::insert(subnet_id, circulating_shares);
         }
         TotalDelegateStake::<T>::put(total_delegate_stake);
-        if let Some(flow) = next_flow {
-            SubnetNetFlow::<T>::insert(subnet_id, flow);
+        if let Some(balance_time) = balance_time {
+            SubnetBalanceTimes::<T>::insert(subnet_id, balance_time);
         }
         Ok(())
     }
 
-    /// Rewards are deposited here from `rewards.rs`.
-    /// Note: We don't count SubnetNetFlow here
+    /// Rewards are deposited here from `rewards.rs`. Checkpoint first so these funds contribute
+    /// balance-time only from the block in which they are credited.
     pub(crate) fn do_increase_delegate_stake(subnet_id: u32, amount: u128) -> DispatchResult {
         if amount == 0 {
             return Ok(());
@@ -600,8 +589,16 @@ impl<T: Config> Pallet<T> {
         let next_total = TotalDelegateStake::<T>::get()
             .checked_add(amount)
             .ok_or(ArithmeticError::Overflow)?;
+        let balance_time = Self::prepare_subnet_balance_time(
+            subnet_id,
+            current_balance,
+            Self::get_current_block_as_u32(),
+        )?;
         TotalSubnetDelegateStakeBalance::<T>::insert(subnet_id, next_balance);
         TotalDelegateStake::<T>::put(next_total);
+        if let Some(balance_time) = balance_time {
+            SubnetBalanceTimes::<T>::insert(subnet_id, balance_time);
+        }
         Ok(())
     }
 

@@ -1,5 +1,5 @@
 //! Consensus staking for a small, bounded standalone network (SDK stable2606).
-use super::*;
+use crate::*;
 use frame_election_provider_support::{
     bounds::{ElectionBounds, ElectionBoundsBuilder},
     onchain, BoundedSupportsOf, ElectionProvider, PageIndex, SequentialPhragmen,
@@ -15,15 +15,14 @@ pub const MAX_NOMINATORS: u32 = 256;
 /// Initial minimum number of validators required for a successful election.
 pub const MIN_VALIDATOR_COUNT: u32 = 1;
 /// Initial minimum validator stake, also bonded by each genesis validator.
-pub const VALIDATOR_BOND: Balance = 1_000 * TENSOR;
+pub const VALIDATOR_BOND: Balance = tokenomics::POLICY.validator_bond;
 /// Initial minimum stake an account must bond to nominate validators.
-// U128CurrencyToVote divides by issuance / u64::MAX. Keep the minimum
-// above its largest possible divisor (about 18.45 TENSOR), so a minimum
-// bond has voting weight at every possible total issuance.
-pub const MIN_NOMINATOR_BOND: Balance = 20 * TENSOR;
+// This scales with supply, as does the U128CurrencyToVote issuance divisor.
+// The tokenomics tests check nonzero voting weight at launch and after emissions.
+pub const MIN_NOMINATOR_BOND: Balance = tokenomics::POLICY.nominator_bond;
 /// Annual consensus reward budget, divided among eras by their duration.
 /// Separate from Network application rewards; confirm the amount before launch.
-pub const STAKING_YEARLY_EMISSIONS: Balance = 1_000 * TENSOR;
+pub const STAKING_YEARLY_EMISSIONS: Balance = tokenomics::POLICY.consensus_annual_emissions;
 /// Initial BABE block-author selection rules, including fallback authors.
 pub const BABE_GENESIS_EPOCH_CONFIG: sp_consensus_babe::BabeEpochConfiguration =
     sp_consensus_babe::BabeEpochConfiguration {
@@ -67,7 +66,7 @@ parameter_types! {
     /// Backers allowed per elected validator: all nominators plus its own stake.
     pub const MaxBackersPerWinner: u32 = MAX_NOMINATORS + 1;
     /// Refundable balance held when an account registers its consensus keys.
-    pub const SessionKeyDeposit: Balance = TENSOR;
+    pub const SessionKeyDeposit: Balance = tokenomics::POLICY.session_key_deposit;
     /// Block lifetime of a pending validator double-signing report.
     pub const ReportLongevity: u64 =
         BondingDuration::get() as u64 * SessionsPerEra::get() as u64 * EpochDuration::get();

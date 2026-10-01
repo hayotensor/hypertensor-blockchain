@@ -14,8 +14,9 @@
 // limitations under the License.
 
 use super::*;
-use frame_support::{pallet_prelude::Weight, BoundedBTreeMap};
+use frame_support::{pallet_prelude::Weight, BoundedBTreeMap, BoundedBTreeSet};
 use frame_system::pallet_prelude::BlockNumberFor;
+use sp_runtime::DispatchError;
 
 impl<T: Config> Pallet<T> {
     /// Whether an elected validator's delegate pool is still exposed to an unsettled round.
@@ -296,6 +297,28 @@ impl<T: Config> Pallet<T> {
         current_block < epoch_cutoff_block
     }
 
+    /// Assemble the opening cohort before publishing any new epoch state.
+    pub(crate) fn capture_overwatch_epoch_snapshot(
+        multiplier: u32,
+    ) -> Result<OverwatchEpochSnapshot<T>, DispatchError> {
+        let mut nodes = BoundedBTreeMap::new();
+        for (node_id, ()) in OverwatchNodes::<T>::iter() {
+            if Self::get_active_overwatch_validator_id(node_id).is_err() {
+                continue;
+            }
+            nodes
+                .try_insert(node_id, OverwatchNodeStakeSnapshot {
+                    stake: OverwatchNodeStakeBalance::<T>::get(node_id),
+                })
+                .map_err(|_| Error::<T>::MaxOverwatchNodes)?;
+        }
+        Ok(OverwatchEpochSnapshot {
+            stake_weight_factor: OverwatchStakeWeightFactor::<T>::get(),
+            reward_budget: T::OverwatchEpochEmissions::get().saturating_mul(multiplier as u128),
+            nodes,
+        })
+    }
+
     /// Close the active Overwatch epoch once its snapshotted interval has elapsed.
     ///
     /// The closed epoch is settled on the following block. Configuration queued during this epoch
@@ -340,50 +363,48 @@ impl<T: Config> Pallet<T> {
         let completed_epoch = CurrentOverwatchEpoch::<T>::get();
         weight = weight.saturating_add(db_weight.reads(1));
 
-        // Assemble every close-time settlement input before changing any epoch state. If the
-        // bounded snapshot cannot be constructed, the active epoch and its reveal statistics stay
-        // untouched so rollover can be retried safely.
+        // A missing opening snapshot cannot be repaired from current balances: those balances
+        // may have changed after reveals. Leave the epoch untouched for explicit repair.
+        let Some(completed_snapshot) = OverwatchEpochSnapshots::<T>::get(completed_epoch) else {
+            return weight.saturating_add(db_weight.reads(1));
+        };
+        let Some(next_epoch) = completed_epoch.checked_add(1) else {
+            return weight.saturating_add(db_weight.reads(1));
+        };
+        // Do not overwrite a pre-existing opening snapshot on a corrupt/retried transition.
+        if OverwatchEpochSnapshots::<T>::contains_key(next_epoch) {
+            return weight.saturating_add(db_weight.reads(2));
+        }
         let reveal_stats = ActiveOverwatchRevealStats::<T>::get();
-        let stake_weight_factor = OverwatchStakeWeightFactor::<T>::get();
-        weight = weight.saturating_add(db_weight.reads(2));
-
-        let reward_budget = T::OverwatchEpochEmissions::get().saturating_mul(multiplier as u128);
-        let mut nodes = BoundedBTreeMap::<
-            u32,
-            OverwatchNodeSettlementSnapshot,
-            T::MaxOverwatchNodesUpperBound,
-        >::new();
-
-        for (overwatch_node_id, reveals) in OverwatchReveals::<T>::iter_prefix(completed_epoch) {
+        let next_multiplier = OverwatchEpochLengthMultiplier::<T>::get();
+        let next_cutoff = OverwatchCommitCutoffPercent::<T>::get();
+        weight = weight.saturating_add(db_weight.reads(6));
+        // The generated rollover weight covers the full bounded live-cohort scan.
+        weight = weight.saturating_add(db_weight.reads(
+            1 + 5 * T::MaxOverwatchNodesUpperBound::get() as u64,
+        ));
+        let Ok(next_snapshot) = Self::capture_overwatch_epoch_snapshot(next_multiplier) else {
+            return weight;
+        };
+        // Capture completion while commitments still exist. Exact key equality prevents a
+        // partial reveal (or a different set of the same size) from qualifying for settlement.
+        let mut eligible_nodes = BoundedBTreeSet::<u32, T::MaxOverwatchNodesUpperBound>::new();
+        let mut committed_nodes = Vec::new();
+        for (node_id, commits) in OverwatchCommits::<T>::iter_prefix(completed_epoch) {
+            committed_nodes.push(node_id);
             weight = weight.saturating_add(db_weight.reads(1));
-            if reveals.is_empty() {
+            if commits.is_empty() || !completed_snapshot.nodes.contains_key(&node_id) {
                 continue;
             }
-            // Only the canonical active validator-to-node relationship at close time is eligible.
-            // Charge conservatively for the three ownership reads plus the stake read even when
-            // an inconsistent relationship fails before all of them are reached.
-            weight = weight.saturating_add(db_weight.reads(4));
-            if Self::get_active_overwatch_validator_id(overwatch_node_id).is_err() {
-                continue;
-            }
-            let stake = OverwatchNodeStakeBalance::<T>::get(overwatch_node_id);
-            if nodes
-                .try_insert(overwatch_node_id, OverwatchNodeSettlementSnapshot { stake })
-                .is_err()
-            {
+            let reveals = OverwatchReveals::<T>::get(completed_epoch, node_id);
+            weight = weight.saturating_add(db_weight.reads(1));
+            if commits.keys().eq(reveals.keys()) && eligible_nodes.try_insert(node_id).is_err() {
                 return weight;
             }
         }
 
-        let settlement_snapshot = OverwatchEpochSettlementSnapshot::<T> {
-            stake_weight_factor,
-            reward_budget,
-            nodes,
-        };
-
-        // Persist an explicit snapshot even when no canonical node revealed. Missing storage is
-        // reserved for an incomplete/corrupt close and must never be interpreted as an empty epoch.
-        OverwatchEpochSettlementSnapshots::<T>::insert(completed_epoch, settlement_snapshot);
+        OverwatchEpochSnapshots::<T>::insert(next_epoch, next_snapshot);
+        OverwatchEpochRevealEligibility::<T>::insert(completed_epoch, eligible_nodes);
         PendingOverwatchSettlement::<T>::put(PendingOverwatchSettlementData {
             epoch: completed_epoch,
             reveal_records: reveal_stats.records,
@@ -391,21 +412,15 @@ impl<T: Config> Pallet<T> {
 
         // Commits are ephemeral authentication material. Remove them only after the complete
         // pending settlement has been published so a failed close remains retryable.
-        let committed_nodes: Vec<u32> = OverwatchCommits::<T>::iter_prefix(completed_epoch)
-            .map(|(node_id, _)| node_id)
-            .collect();
-        weight = weight.saturating_add(db_weight.reads(committed_nodes.len() as u64));
         for node_id in committed_nodes {
             OverwatchCommits::<T>::remove(completed_epoch, node_id);
             weight = weight.saturating_add(db_weight.writes(1));
         }
         ActiveOverwatchRevealStats::<T>::kill();
-        CurrentOverwatchEpoch::<T>::put(completed_epoch.saturating_add(1));
+        CurrentOverwatchEpoch::<T>::put(next_epoch);
 
         // Snapshot the latest configuration for the epoch that begins now. From this point until
         // the next rollover, phase boundaries and the settlement budget use only these values.
-        let next_multiplier = OverwatchEpochLengthMultiplier::<T>::get();
-        let next_cutoff = OverwatchCommitCutoffPercent::<T>::get();
         ActiveOverwatchEpochLengthMultiplier::<T>::put(next_multiplier);
         ActiveOverwatchCommitCutoffPercent::<T>::put(next_cutoff);
 
@@ -413,11 +428,10 @@ impl<T: Config> Pallet<T> {
         // was paused, the alignment check above delays rollover to the next general boundary so
         // the new epoch still receives its full configured interval.
         OverwatchEpochStartBlock::<T>::put(current_block);
-        weight = weight.saturating_add(db_weight.reads(2));
-        weight = weight.saturating_add(db_weight.writes(7));
+        weight = weight.saturating_add(db_weight.writes(8));
 
         Self::deposit_event(Event::OverwatchEpochStarted {
-            epoch: completed_epoch.saturating_add(1),
+            epoch: next_epoch,
             start_block: current_block,
             epoch_length_multiplier: next_multiplier,
             commit_cutoff_percent: next_cutoff,

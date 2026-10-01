@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[cfg(feature = "runtime-benchmarks")]
-use hypertensor_runtime::genesis_config_presets::get_account_id_from_seed;
+use hypertensor_runtime::genesis::presets::get_account_id_from_seed;
 // use crate::chain_spec::get_account_id_from_seed;
 
 impl SubstrateCli for Cli {

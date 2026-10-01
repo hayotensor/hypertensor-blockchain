@@ -1,4 +1,4 @@
-use super::*;
+use crate::*;
 use frame_support::{
     assert_noop, assert_ok,
     dispatch::DispatchClass,
@@ -8,7 +8,73 @@ use frame_support::{
 use sp_runtime::traits::{Convert, Dispatchable};
 
 fn account(seed: &str) -> AccountId {
-    genesis_config_presets::get_account_id_from_seed::<sp_core::sr25519::Public>(seed)
+    genesis::presets::get_account_id_from_seed::<sp_core::sr25519::Public>(seed)
+}
+
+#[test]
+fn overwatch_genesis_has_an_explicit_empty_opening_snapshot() {
+    crate::tests::npos::ext().execute_with(|| {
+        let snapshot = pallet_network::OverwatchEpochSnapshots::<Runtime>::get(0).unwrap();
+        assert!(snapshot.nodes.is_empty());
+        assert_eq!(
+            snapshot.stake_weight_factor,
+            pallet_network::OverwatchStakeWeightFactor::<Runtime>::get()
+        );
+        assert_eq!(
+            snapshot.reward_budget,
+            OverwatchEpochEmissions::get().saturating_mul(
+                pallet_network::ActiveOverwatchEpochLengthMultiplier::<Runtime>::get() as u128,
+            )
+        );
+    });
+}
+
+#[test]
+fn overwatch_opening_and_settlement_weights_fit_the_hook_budget() {
+    use pallet_network::weights::WeightInfo as _;
+    type W = <Runtime as pallet_network::Config>::WeightInfo;
+    let subnets = NetworkMaxPhysicalSubnetsUpperBound::get();
+    let nodes = NetworkMaxOverwatchNodesUpperBound::get();
+    let settlement = W::calculate_overwatch_rewards_empty()
+        .max(W::calculate_overwatch_rewards_small(subnets))
+        .max(W::calculate_overwatch_rewards_medium(nodes))
+        .max(W::calculate_overwatch_rewards(nodes * subnets));
+    assert!(W::on_initialize_base()
+        .saturating_add(W::advance_overwatch_epoch_noop())
+        .saturating_add(settlement)
+        .all_lte(MaximumHooksWeight::get()));
+    assert!(W::on_initialize_base()
+        .saturating_add(W::advance_overwatch_epoch())
+        .saturating_add(W::total_subnets_selector())
+        .saturating_add(W::do_epoch_preliminaries(subnets))
+        .all_lte(MaximumHooksWeight::get()));
+}
+
+#[test]
+fn time_weighted_subnet_allocation_fits_the_hook_budget() {
+    use pallet_network::weights::WeightInfo as _;
+    type W = <Runtime as pallet_network::Config>::WeightInfo;
+    let subnets = NetworkMaxPhysicalSubnetsUpperBound::get();
+    // Slot 2 always selects the Overwatch no-op path. Its mandatory work ends after
+    // allocation; any following swap queue processing is admitted by the remaining meter.
+    let allocation = W::handle_subnet_emission_weights(subnets)
+        .max(W::handle_subnet_emission_weights_empty());
+    let envelope = W::on_initialize_base()
+        .saturating_add(W::advance_overwatch_epoch_noop())
+        .saturating_add(W::total_subnets_selector())
+        .saturating_add(allocation);
+    let limit = MaximumHooksWeight::get();
+    eprintln!(
+        "slot2 allocation: subnets={subnets}, ref_time={}, proof_size={}, limit_ref_time={}, limit_proof_size={}",
+        envelope.ref_time(),
+        envelope.proof_size(),
+        limit.ref_time(),
+        limit.proof_size(),
+    );
+    assert!(
+        envelope.all_lte(limit),
+        "maximum subnet allocation must fit both hook weight dimensions"
+    );
 }
 
 #[test]
@@ -16,7 +82,7 @@ fn network_reads_babe_randomness_after_consensus_rotation() {
     use frame_support::traits::Randomness as RandomnessT;
     type NetworkRandomness = <Runtime as pallet_network::Config>::Randomness;
 
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         assert!(Network::index() > Babe::index());
         assert!(Network::index() > Session::index());
         assert!(Network::index() < Scheduler::index());
@@ -38,7 +104,7 @@ fn network_reads_babe_randomness_after_consensus_rotation() {
 
 #[test]
 fn non_transfer_proxy_cannot_escalate_or_redirect_staking_rewards() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         System::set_block_number(1);
         let owner = account("Alice");
         let delegate = account("Bob");
@@ -131,7 +197,7 @@ fn non_transfer_proxy_cannot_escalate_or_redirect_staking_rewards() {
 
 #[test]
 fn pausing_preserves_the_timestamp_and_root_recovery_path() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         System::set_block_number(1);
         let name = |pallet: &[u8], call: &[u8]| -> RuntimeCallNameOf<Runtime> {
             (
@@ -173,7 +239,7 @@ fn pausing_preserves_the_timestamp_and_root_recovery_path() {
 fn congestion_fees_recover_from_the_floor_in_both_weight_dimensions() {
     type Update = <Runtime as pallet_transaction_payment::Config>::FeeMultiplierUpdate;
     type Fees = <Runtime as pallet_transaction_payment::Config>::WeightToFee;
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         let floor = MinimumMultiplier::get();
         let capacity = BlockWeights::get()
             .get(DispatchClass::Normal)
@@ -192,15 +258,22 @@ fn congestion_fees_recover_from_the_floor_in_both_weight_dimensions() {
             assert!(Update::convert(increased) < increased);
             assert_eq!(Update::convert(floor), floor);
         }
-        assert_eq!(Fees::weight_to_fee(&MAXIMUM_BLOCK_WEIGHT), 2 * MILLI_TENSOR);
-        assert_eq!(deposit(1, 1024), TENSOR / 10 + 1024 * 10 * MICRO_TENSOR);
+        assert_eq!(
+            Fees::weight_to_fee(&MAXIMUM_BLOCK_WEIGHT),
+            tokenomics::STARTING_SUPPLY / 25_000_000_000
+        );
+        assert_eq!(
+            deposit(1, 1024),
+            tokenomics::POLICY.storage_item_deposit
+                + 1024 * tokenomics::POLICY.storage_byte_deposit
+        );
         assert_eq!(DepositBase::get(), deposit(1, 88));
     });
 }
 
 #[test]
 fn scheduler_respects_prior_hooks_and_leaves_room_for_inherents() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         System::set_block_number(1);
         assert!(Scheduler::index() > Revive::index());
         assert!(Scheduler::index() > Session::index());
@@ -238,7 +311,7 @@ fn scheduler_respects_prior_hooks_and_leaves_room_for_inherents() {
 
 #[test]
 fn ethereum_extrinsics_fit_alongside_the_network_hook_budget() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         let combined = Revive::evm_max_extrinsic_weight().saturating_add(MaximumHooksWeight::get());
         assert!(combined.all_lte(Perbill::from_percent(90) * MAXIMUM_BLOCK_WEIGHT));
     });
@@ -253,12 +326,12 @@ fn production_staking_timings_and_genesis_are_not_development_defaults() {
         28 * 24 * 60 * 60 * 1000
     );
     assert!(SlashDeferDuration::get() < BondingDuration::get());
-    assert!(genesis_config_presets::get_preset(&"HOSKINSON_RUNTIME_PRESET".into()).is_none());
+    assert!(genesis::presets::get_preset(&"HOSKINSON_RUNTIME_PRESET".into()).is_none());
 }
 
 #[test]
 fn treasury_retains_funds_and_allows_payouts_beyond_the_development_window() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         System::set_block_number(1);
         let treasury = Treasury::account_id();
         let beneficiary = account("Bob");

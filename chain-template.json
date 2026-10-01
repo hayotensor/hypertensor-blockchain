@@ -1,10 +1,10 @@
 {
-  "name": "Talaris",
-  "id": "talaris",
+  "name": "Hypertensor",
+  "id": "hypertensor",
   "chainType": "Live",
   "bootNodes": [],
   "telemetryEndpoints": null,
-  "protocolId": "talaris",
+  "protocolId": "hypertensor",
   "properties": {
     "ss58Format": 42,
     "tokenDecimals": 18,

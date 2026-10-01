@@ -280,6 +280,21 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
+        // Validate the reward checkpoint before finalizing or paying any accepted-round rewards.
+        // Missing/corrupt accounting leaves the round pending for an explicit repair.
+        if rewards_data.delegate_stake_rewards > 0 {
+            let circulating = TotalSubnetDelegateStakeCirculatingShares::<T>::get(subnet_id);
+            weight_meter.consume(db_weight.reads(1));
+            if Self::delegate_pool_has_circulating_shares(circulating) {
+                let balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
+                let block = Self::get_current_block_as_u32();
+                weight_meter.consume(db_weight.reads(4));
+                if Self::prepare_subnet_balance_time(subnet_id, balance, block).is_err() {
+                    return;
+                }
+            }
+        }
+
         // Both quorum gates passed, so this round has no economic slash to apply. Release its
         // snapshotted liabilities before any later reward-specific early return.
         weight_meter.consume(Self::finalize_consensus_round_slash_liability(
@@ -621,7 +636,8 @@ impl<T: Config> Pallet<T> {
             // All nodes are at least SubnetNodeClass::Validator from here and in consensus data
             //
 
-            // Get the nodes reward factor
+            // Eligible non-attestors retain score-based rewards at the round's timing floor.
+            // This fallback is independent of the identity gate for reputation penalties.
             let reward_factor = if let Some(forked_node_ids) = &forked_subnet_node_ids {
                 if forked_node_ids.get(&subnet_node.id).is_some() {
                     // If one of the temporary fork nodes
@@ -643,10 +659,11 @@ impl<T: Config> Pallet<T> {
                                 // `decrease_and_return_node_reputation`: SubnetNodeReputation (w)
                                 weight_meter.consume(db_weight.writes(1));
                             }
-                            percentage_factor
+                            policy.attestor_min_reward_factor
                         }
                     }
                 } else {
+                    // Ordinary nodes outside the emergency set cannot attest in this round.
                     percentage_factor
                 }
             } else if let Some(data) = consensus_submission_data.attests.get(&subnet_node.id) {
@@ -654,8 +671,8 @@ impl<T: Config> Pallet<T> {
                 data.reward_factor
             } else {
                 // A distinct-identity supermajority makes node-level non-participation
-                // attributable. Decrease this non-attesting node's reputation while preserving its
-                // existing reward factor.
+                // attributable for reputation purposes. The reward fallback applies even below
+                // that gate and uses the elected policy rather than the current setting.
                 if node_exists && has_identity_super_majority {
                     reputation = Self::decrease_and_return_node_reputation(
                         subnet_id,
@@ -669,7 +686,7 @@ impl<T: Config> Pallet<T> {
                     weight_meter.consume(db_weight.writes(1));
                 }
 
-                percentage_factor
+                policy.attestor_min_reward_factor
             };
 
             if node_exists && reputation < min_subnet_node_reputation {
@@ -1279,16 +1296,13 @@ impl<T: Config> Pallet<T> {
             return Some(0);
         }
 
+        // The reward checkpoint reads the block, subnet existence and balance-time record,
+        // in addition to the four existing pool/total reads. Charge before a possible error.
+        // Writes update the pool balance, total delegation, and balance-time record.
+        weight_meter.consume(db_weight.reads_writes(7, 3));
         if Self::do_increase_delegate_stake(subnet_id, delegate_stake_reward).is_err() {
             return None;
         }
-        // reads:
-        // TotalSubnetDelegateStakeShares | TotalSubnetDelegateStakeBalance |
-        // TotalSubnetDelegateStakeCirculatingShares | TotalDelegateStake
-        //
-        // writes:
-        // TotalSubnetDelegateStakeBalance | TotalDelegateStake
-        weight_meter.consume(db_weight.reads_writes(4, 2));
         Some(delegate_stake_reward)
     }
 

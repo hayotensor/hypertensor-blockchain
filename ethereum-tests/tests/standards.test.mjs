@@ -40,7 +40,7 @@ async function signPermit(token, owner, spender, value, overrides = {}) {
     signature.v, signature.r, signature.s];
 }
 
-describe('Ethereum standards through Talaris and eth-rpc', { timeout: 1_200_000 }, () => {
+describe('Ethereum standards through validator and eth-rpc', { timeout: 1_200_000 }, () => {
   before(async () => {
     await prepareLogDirectory();
     await chain.start();

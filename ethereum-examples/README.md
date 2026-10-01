@@ -1,4 +1,4 @@
-# Hardhat examples for Talaris
+# Hardhat examples for Hypertensor
 
 Deploy a Solidity contract through your running `eth-rpc` adapter, change its
 stored value, and read it back. This is a standalone Hardhat 3 + ethers project.
@@ -105,7 +105,7 @@ After resetting your chain, deploy again and update `CONTRACT_ADDRESS`.
 
 `npm run compile` only compiles; `npm run check` also checks TypeScript.
 The pinned solc package supplies the compiler locally after `npm ci`.
-The example commands always select the `talaris` HTTP network in
+The example commands always select the `local` HTTP network in
 `hardhat.config.ts`; they do not start a node or the RPC adapter.
 
 References: [Hardhat deployment scripts](https://hardhat.org/docs/guides/deployment/using-scripts),

@@ -6,7 +6,7 @@ const TOKEN: u128 = 1_000_000_000_000_000_000;
 
 #[test]
 fn inflation_follows_the_annual_decay_schedule_and_terminal_floor() {
-    let inflation = Inflation::default();
+    let inflation = Inflation::from_config::<Test>();
 
     assert_eq!(inflation.initial_annual_emissions, 100_000 * TOKEN);
     assert_eq!(inflation.terminal_annual_emissions, 75_000 * TOKEN);
@@ -23,6 +23,7 @@ fn integer_decay_does_not_overflow_at_u128_max() {
     let inflation = Inflation {
         initial_annual_emissions: u128::MAX,
         terminal_annual_emissions: 0,
+        annual_retention_percent: 90,
     };
     let expected = (u128::MAX / 100) * 90 + ((u128::MAX % 100) * 90) / 100;
 
@@ -97,4 +98,21 @@ fn epoch_emissions_are_independent_of_subnet_node_utilization() {
         TotalActiveNodes::<Test>::put(u32::MAX);
         assert_eq!(Network::get_epoch_emissions(epoch), expected);
     });
+}
+
+#[test]
+fn configurable_retention_handles_no_decay_and_immediate_floor() {
+    let mut schedule = Inflation {
+        initial_annual_emissions: 100,
+        terminal_annual_emissions: 20,
+        annual_retention_percent: 50,
+    };
+    assert_eq!(schedule.inflation(1), 50);
+    assert_eq!(schedule.inflation(2), 25);
+    assert_eq!(schedule.inflation(u32::MAX), 20);
+    schedule.annual_retention_percent = 100;
+    assert_eq!(schedule.inflation(u32::MAX), 100);
+    schedule.annual_retention_percent = 0;
+    assert_eq!(schedule.inflation(0), 100);
+    assert_eq!(schedule.inflation(1), 20);
 }

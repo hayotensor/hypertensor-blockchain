@@ -690,7 +690,11 @@ impl<T: Config> Pallet<T> {
             MAX_REWARD_MULTIPLIER,
             policy.attestor_reward_exponent as f64,
         ))
-        .clamp(0, Self::percentage_factor_as_u128())
+        // Float conversion must not put an attestation below the exact integer fallback.
+        .clamp(
+            policy.attestor_min_reward_factor,
+            Self::percentage_factor_as_u128(),
+        )
     }
 
     /// Return the validators reward that submitted data on the previous epoch

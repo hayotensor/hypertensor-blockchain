@@ -5,7 +5,7 @@ use crate::{
     LastFinalizedOverwatchEpoch, LatestEffectiveOverwatchSignal,
     LatestFinalizedOverwatchSignalInputs, LatestOverwatchSignalRevision, MaxOverwatchNodes,
     MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes, OverwatchEpochLengthMultiplier,
-    OverwatchEpochSettlementSnapshots, OverwatchEpochStartBlock, OverwatchMinStakeBalance,
+    OverwatchEpochSnapshots, OverwatchEpochStartBlock, OverwatchMinStakeBalance,
     OverwatchNodeIdHotkey, OverwatchNodeIndex, OverwatchNodeStakeBalance, OverwatchNodeValidatorId,
     OverwatchNodeWeights, OverwatchNodes, OverwatchStakeWeightFactor, OverwatchSubnetWeights,
     OverwatchValidatorWhitelist, PeerId, PeerIdOverwatchNodeId, PendingOverwatchSettlement,
@@ -121,6 +121,7 @@ fn overwatch_reward_batch_rolls_back_all_nodes_when_a_later_credit_overflows() {
         let second_node_id = insert_overwatch_node_v2(2);
         set_overwatch_node_stake(first_node_id, 100);
         set_overwatch_node_stake(second_node_id, 100);
+        snapshot_overwatch_epoch();
         submit_weight(epoch, 1, first_node_id, percentage_factor);
         submit_weight(epoch, 1, second_node_id, percentage_factor);
         queue_overwatch_settlement(epoch);
@@ -152,7 +153,7 @@ fn overwatch_reward_batch_rolls_back_all_nodes_when_a_later_credit_overflows() {
             second_node_id
         ));
         assert!(PendingOverwatchSettlement::<Test>::get().is_some());
-        assert!(OverwatchEpochSettlementSnapshots::<Test>::contains_key(
+        assert!(OverwatchEpochSnapshots::<Test>::contains_key(
             epoch
         ));
         assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), None);
@@ -189,7 +190,7 @@ fn run_two_node_overwatch_stake_weight_case(
         queue_overwatch_settlement(epoch);
         // This helper exercises signal normalization, including positions at u128::MAX. Disable
         // reward minting so those boundary fixtures do not intentionally overflow stake totals.
-        OverwatchEpochSettlementSnapshots::<Test>::mutate(epoch, |maybe_snapshot| {
+        OverwatchEpochSnapshots::<Test>::mutate(epoch, |maybe_snapshot| {
             maybe_snapshot
                 .as_mut()
                 .expect("the settlement snapshot was just queued")
@@ -232,7 +233,7 @@ fn close_active_overwatch_epoch() -> u32 {
 }
 
 #[test]
-fn test_overwatch_close_snapshots_exact_economics_and_revealers() {
+fn test_overwatch_close_preserves_opening_economics_and_eligible_cohort() {
     new_test_ext().execute_with(|| {
         let multiplier = 3;
         let stake_weight_factor = test_percent(9, 10);
@@ -247,11 +248,12 @@ fn test_overwatch_close_snapshots_exact_economics_and_revealers() {
         let second_node_id = insert_overwatch_node_v2(12);
         set_overwatch_node_stake(first_node_id, 400);
         set_overwatch_node_stake(second_node_id, 125);
+        snapshot_overwatch_epoch();
         submit_weight(7, 1, first_node_id, test_percent(1, 2));
         submit_weight(7, 2, second_node_id, test_percent(3, 5));
 
         let closed_epoch = close_active_overwatch_epoch();
-        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch)
+        let snapshot = OverwatchEpochSnapshots::<Test>::get(closed_epoch)
             .expect("rollover must atomically store its settlement snapshot");
 
         assert_eq!(snapshot.stake_weight_factor, stake_weight_factor);
@@ -262,11 +264,11 @@ fn test_overwatch_close_snapshots_exact_economics_and_revealers() {
         assert_eq!(snapshot.nodes.len(), 2);
         assert_eq!(
             snapshot.nodes.get(&first_node_id),
-            Some(&crate::OverwatchNodeSettlementSnapshot { stake: 400 })
+            Some(&crate::OverwatchNodeStakeSnapshot { stake: 400 })
         );
         assert_eq!(
             snapshot.nodes.get(&second_node_id),
-            Some(&crate::OverwatchNodeSettlementSnapshot { stake: 125 })
+            Some(&crate::OverwatchNodeStakeSnapshot { stake: 125 })
         );
     });
 }
@@ -287,6 +289,7 @@ fn test_overwatch_commit_and_reveal_rows_are_consumed_at_their_lifecycle_boundar
             .try_insert(1, <Test as frame_system::Config>::Hash::default())
             .unwrap();
         crate::OverwatchCommits::<Test>::insert(1, node_id, commits);
+        snapshot_overwatch_epoch();
         submit_weight(1, 1, node_id, test_percent(1, 2));
 
         let closed_epoch = close_active_overwatch_epoch();
@@ -337,7 +340,7 @@ fn test_commit_only_overwatch_round_finalizes_as_valid_empty() {
                 .reveal_records,
             0
         );
-        assert!(OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch)
+        assert!(OverwatchEpochSnapshots::<Test>::get(closed_epoch)
             .unwrap()
             .nodes
             .is_empty());
@@ -378,7 +381,7 @@ fn test_direct_overwatch_settlement_fixture_uses_active_multiplier_and_exact_cou
 
         let pending = PendingOverwatchSettlement::<Test>::get().unwrap();
         assert_eq!(pending.reveal_records, 3);
-        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(1).unwrap();
+        let snapshot = OverwatchEpochSnapshots::<Test>::get(1).unwrap();
         assert_eq!(
             snapshot.reward_budget,
             OVERWATCH_EPOCH_EMISSIONS.saturating_mul(2)
@@ -388,14 +391,14 @@ fn test_direct_overwatch_settlement_fixture_uses_active_multiplier_and_exact_cou
 }
 
 #[test]
-fn test_overwatch_close_snapshot_accepts_empty_and_maximum_committee() {
+fn test_overwatch_opening_snapshot_accepts_empty_and_maximum_committee() {
     new_test_ext().execute_with(|| {
         OverwatchEpochLengthMultiplier::<Test>::set(1);
         ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
         set_overwatch_epoch(1);
 
         let closed_epoch = close_active_overwatch_epoch();
-        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch)
+        let snapshot = OverwatchEpochSnapshots::<Test>::get(closed_epoch)
             .expect("an empty close still has a valid snapshot");
         assert!(snapshot.nodes.is_empty());
 
@@ -404,7 +407,7 @@ fn test_overwatch_close_snapshot_accepts_empty_and_maximum_committee() {
             LastFinalizedOverwatchEpoch::<Test>::get(),
             Some(closed_epoch)
         );
-        assert!(!OverwatchEpochSettlementSnapshots::<Test>::contains_key(
+        assert!(!OverwatchEpochSnapshots::<Test>::contains_key(
             closed_epoch
         ));
     });
@@ -419,17 +422,18 @@ fn test_overwatch_close_snapshot_accepts_empty_and_maximum_committee() {
             manual_insert_validator(validator_id, 1_000 + validator_id, 2_000 + validator_id);
             let node_id = insert_overwatch_node_v2(validator_id);
             set_overwatch_node_stake(node_id, validator_id as u128);
+            snapshot_overwatch_epoch();
             submit_weight(1, 1, node_id, test_percent(1, 2));
         }
 
         let closed_epoch = close_active_overwatch_epoch();
-        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch)
+        let snapshot = OverwatchEpochSnapshots::<Test>::get(closed_epoch)
             .expect("the maximum-size committee must fit the bounded snapshot");
         assert_eq!(snapshot.nodes.len(), 64);
         for node_id in 1..=64 {
             assert_eq!(
                 snapshot.nodes.get(&node_id),
-                Some(&crate::OverwatchNodeSettlementSnapshot {
+                Some(&crate::OverwatchNodeStakeSnapshot {
                     stake: node_id as u128,
                 })
             );
@@ -452,6 +456,7 @@ fn test_post_close_stake_changes_do_not_change_closed_epoch_weights() {
         let second_node_id = insert_overwatch_node_v2(2);
         set_overwatch_node_stake(first_node_id, 100);
         set_overwatch_node_stake(second_node_id, 100);
+        snapshot_overwatch_epoch();
         submit_weight(1, 1, first_node_id, percentage_factor);
         submit_weight(1, 1, second_node_id, 0);
 
@@ -459,7 +464,7 @@ fn test_post_close_stake_changes_do_not_change_closed_epoch_weights() {
         assert_ok!(Network::increase_overwatch_node_stake(first_node_id, 900));
         assert_ok!(Network::decrease_overwatch_node_stake(second_node_id, 90));
 
-        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch).unwrap();
+        let snapshot = OverwatchEpochSnapshots::<Test>::get(closed_epoch).unwrap();
         assert_eq!(snapshot.nodes.get(&first_node_id).unwrap().stake, 100);
         assert_eq!(snapshot.nodes.get(&second_node_id).unwrap().stake, 100);
 
@@ -509,10 +514,7 @@ fn test_finalized_removal_recomputes_effective_signal_without_mutating_history()
             })
         );
 
-        assert_ok!(Network::remove_overwatch_node(
-            RuntimeOrigin::signed(account(101)),
-            max_stake_node,
-        ));
+        assert_ok!(Network::perform_disqualify_overwatch_node(max_stake_node));
 
         // Finalized public history is immutable, while future influence is the counterfactual
         // result for the sole remaining zero-weight revealer.
@@ -554,10 +556,7 @@ fn test_removal_without_effective_contribution_does_not_increment_revision() {
 
         let before = LatestEffectiveOverwatchSignal::<Test>::get().unwrap();
         assert_eq!(LatestOverwatchSignalRevision::<Test>::get(), 1);
-        assert_ok!(Network::remove_overwatch_node(
-            RuntimeOrigin::signed(account(101)),
-            zero_stake_node,
-        ));
+        assert_ok!(Network::perform_disqualify_overwatch_node(zero_stake_node));
         assert_eq!(LatestEffectiveOverwatchSignal::<Test>::get(), Some(before));
         assert_eq!(LatestOverwatchSignalRevision::<Test>::get(), 1);
         assert_eq!(
@@ -596,10 +595,7 @@ fn test_removal_repairs_corrupt_effective_cache_from_retained_inputs() {
             subnet_weights: corrupt_weights,
         });
 
-        assert_ok!(Network::remove_overwatch_node(
-            RuntimeOrigin::signed(account(102)),
-            unrelated_node,
-        ));
+        assert_ok!(Network::perform_disqualify_overwatch_node(unrelated_node));
         let repaired = LatestEffectiveOverwatchSignal::<Test>::get().unwrap();
         assert!(repaired.valid);
         assert_eq!(repaired.subnet_weights.get(&1), Some(&test_percent(1, 2)));
@@ -639,10 +635,7 @@ fn test_removal_without_retained_inputs_invalidates_effective_cache() {
         OverwatchValidatorWhitelist::<Test>::insert(2, ());
         let unrelated_node = insert_overwatch_node_v2(2);
 
-        assert_ok!(Network::remove_overwatch_node(
-            RuntimeOrigin::signed(account(102)),
-            unrelated_node,
-        ));
+        assert_ok!(Network::perform_disqualify_overwatch_node(unrelated_node));
 
         let invalid = LatestEffectiveOverwatchSignal::<Test>::get().unwrap();
         assert_eq!(invalid.source_epoch, 1);
@@ -686,10 +679,7 @@ fn test_removal_with_inconsistent_retained_inputs_fails_closed() {
         manual_insert_validator(2, 102, 202);
         let unrelated_node = insert_overwatch_node_v2(2);
 
-        assert_ok!(Network::remove_overwatch_node(
-            RuntimeOrigin::signed(account(102)),
-            unrelated_node,
-        ));
+        assert_ok!(Network::perform_disqualify_overwatch_node(unrelated_node));
         let invalid = LatestEffectiveOverwatchSignal::<Test>::get().unwrap();
         assert!(!invalid.valid);
         assert!(invalid.subnet_weights.is_empty());
@@ -748,10 +738,7 @@ fn test_semantically_invalid_retained_inputs_fail_closed() {
 
         manual_insert_validator(2, 102, 202);
         let unrelated_node = insert_overwatch_node_v2(2);
-        assert_ok!(Network::remove_overwatch_node(
-            RuntimeOrigin::signed(account(102)),
-            unrelated_node,
-        ));
+        assert_ok!(Network::perform_disqualify_overwatch_node(unrelated_node));
 
         let invalid = LatestEffectiveOverwatchSignal::<Test>::get().unwrap();
         assert!(!invalid.valid);
@@ -762,7 +749,7 @@ fn test_semantically_invalid_retained_inputs_fail_closed() {
 }
 
 #[test]
-fn test_node_removed_after_close_is_purged_without_reward() {
+fn test_node_disqualified_after_close_is_purged_without_reward() {
     new_test_ext().execute_with(|| {
         OverwatchEpochLengthMultiplier::<Test>::set(1);
         ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
@@ -772,13 +759,11 @@ fn test_node_removed_after_close_is_purged_without_reward() {
         let node_id = insert_overwatch_node_v2(1);
         let starting_stake = 100;
         set_overwatch_node_stake(node_id, starting_stake);
+        snapshot_overwatch_epoch();
         submit_weight(1, 1, node_id, test_percent(1, 2));
 
         let closed_epoch = close_active_overwatch_epoch();
-        assert_ok!(Network::remove_overwatch_node(
-            RuntimeOrigin::signed(account(101)),
-            node_id,
-        ));
+        assert_ok!(Network::perform_disqualify_overwatch_node(node_id));
         assert!(!OverwatchNodes::<Test>::contains_key(node_id));
         assert!(PendingOverwatchSettlement::<Test>::get().is_none());
         assert_eq!(
@@ -813,6 +798,7 @@ fn test_removal_purges_current_and_pending_rows_before_counterfactual_settlement
         let retained_node = insert_overwatch_node_v2(2);
         set_overwatch_node_stake(removed_node, 4);
         set_overwatch_node_stake(retained_node, 1);
+        snapshot_overwatch_epoch();
         submit_weight(1, 1, removed_node, percentage_factor);
         submit_weight(1, 1, retained_node, 0);
         let closed_epoch = close_active_overwatch_epoch();
@@ -825,10 +811,7 @@ fn test_removal_purges_current_and_pending_rows_before_counterfactual_settlement
         crate::OverwatchCommits::<Test>::insert(active_epoch, removed_node, current_commits);
         submit_weight(active_epoch, 1, removed_node, test_percent(1, 2));
 
-        assert_ok!(Network::remove_overwatch_node(
-            RuntimeOrigin::signed(account(101)),
-            removed_node,
-        ));
+        assert_ok!(Network::perform_disqualify_overwatch_node(removed_node));
 
         assert!(crate::OverwatchCommits::<Test>::get(active_epoch, removed_node).is_empty());
         assert!(crate::OverwatchReveals::<Test>::get(active_epoch, removed_node).is_empty());
@@ -837,7 +820,7 @@ fn test_removal_purges_current_and_pending_rows_before_counterfactual_settlement
         let pending = PendingOverwatchSettlement::<Test>::get().unwrap();
         assert_eq!(pending.reveal_records, 1);
         assert!(
-            !OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch)
+            !OverwatchEpochSnapshots::<Test>::get(closed_epoch)
                 .unwrap()
                 .nodes
                 .contains_key(&removed_node)
@@ -853,12 +836,20 @@ fn test_removal_purges_current_and_pending_rows_before_counterfactual_settlement
             None
         );
         assert_eq!(OverwatchNodeStakeBalance::<Test>::get(removed_node), 4);
-        assert_eq!(OverwatchNodeStakeBalance::<Test>::get(retained_node), 1);
+        // The remaining node agrees with the zero aggregate and earns the whole budget.
+        assert_eq!(
+            OverwatchNodeWeights::<Test>::get(closed_epoch, retained_node),
+            Some(percentage_factor)
+        );
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(retained_node),
+            1 + OVERWATCH_EPOCH_EMISSIONS
+        );
     });
 }
 
 #[test]
-fn owner_and_collective_removal_have_identical_state_effects() {
+fn owner_exit_preserves_work_while_collective_removal_disqualifies_it() {
     #[derive(Debug, PartialEq, Eq)]
     struct RemovalState {
         target_active: bool,
@@ -917,6 +908,7 @@ fn owner_and_collective_removal_have_identical_state_effects() {
             ));
 
             // Epoch one becomes immutable history and the retained latest-effective input.
+            snapshot_overwatch_epoch();
             submit_weight(1, 1, target, percentage_factor);
             submit_weight(1, 1, survivor, 0);
             assert_eq!(close_active_overwatch_epoch(), 1);
@@ -956,7 +948,7 @@ fn owner_and_collective_removal_have_identical_state_effects() {
 
             let stats = crate::ActiveOverwatchRevealStats::<Test>::get();
             let pending = PendingOverwatchSettlement::<Test>::get();
-            let pending_nodes = OverwatchEpochSettlementSnapshots::<Test>::get(2)
+            let pending_nodes = OverwatchEpochSnapshots::<Test>::get(2)
                 .unwrap()
                 .nodes
                 .into_iter()
@@ -1046,21 +1038,26 @@ fn owner_and_collective_removal_have_identical_state_effects() {
             assert_eq!(state.target_hotkey, None);
             assert!(state.target_peer_index.is_empty());
             assert_eq!(state.target_peer_reverse, None);
-            assert!(state.target_current_commit_subnets.is_empty());
-            assert!(state.target_current_reveals.is_empty());
+            assert_eq!(state.target_current_commit_subnets.is_empty(), collective);
+            assert_eq!(state.target_current_reveals.is_empty(), collective);
             assert_eq!(
                 state.survivor_current_reveals,
                 vec![(1, test_percent(1, 4))]
             );
-            assert_eq!(state.active_reveal_stats, (1, vec![(1, 1)]));
-            assert_eq!(state.pending, Some((2, 1)));
-            assert!(state.target_pending_reveals.is_empty());
+            if collective {
+                assert_eq!(state.active_reveal_stats, (1, vec![(1, 1)]));
+                assert_eq!(state.pending, Some((2, 1)));
+            } else {
+                assert!(state.active_reveal_stats.0 > 1);
+                assert!(state.pending.unwrap().1 > 1);
+            }
+            assert_eq!(state.target_pending_reveals.is_empty(), collective);
             assert_eq!(
                 state.survivor_pending_reveals,
                 vec![(1, test_percent(1, 4))]
             );
-            assert_eq!(state.pending_nodes.len(), 1);
-            assert_eq!(state.pending_nodes[0].0, survivor);
+            assert_eq!(state.pending_nodes.len(), if collective { 1 } else { 2 });
+            assert!(state.pending_nodes.iter().any(|(id, _)| *id == survivor));
             assert_eq!(state.stakes, (target_stake_before, survivor_stake_before));
             assert_eq!(state.total_nodes, 1);
 
@@ -1070,11 +1067,15 @@ fn owner_and_collective_removal_have_identical_state_effects() {
 
     let owner_state = run(false);
     let collective_state = run(true);
-    assert_eq!(owner_state, collective_state);
+    assert_ne!(owner_state.effective, collective_state.effective);
+    assert_eq!(owner_state.stakes, collective_state.stakes);
+    assert_eq!(owner_state.historical_subnets, collective_state.historical_subnets);
+    assert_eq!(owner_state.historical_nodes, collective_state.historical_nodes);
+    assert_eq!(owner_state.revision + 1, collective_state.revision);
 }
 
 #[test]
-fn test_node_removed_before_close_is_excluded_from_snapshot_and_rewards() {
+fn test_node_disqualified_before_close_is_excluded_from_snapshot_and_rewards() {
     new_test_ext().execute_with(|| {
         OverwatchEpochLengthMultiplier::<Test>::set(1);
         ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
@@ -1086,15 +1087,13 @@ fn test_node_removed_before_close_is_excluded_from_snapshot_and_rewards() {
         let removed_node_id = insert_overwatch_node_v2(2);
         set_overwatch_node_stake(active_node_id, 100);
         set_overwatch_node_stake(removed_node_id, 100);
+        snapshot_overwatch_epoch();
         submit_weight(1, 1, active_node_id, test_percent(1, 2));
         submit_weight(1, 1, removed_node_id, Network::percentage_factor_as_u128());
 
-        assert_ok!(Network::remove_overwatch_node(
-            RuntimeOrigin::signed(account(102)),
-            removed_node_id,
-        ));
+        assert_ok!(Network::perform_disqualify_overwatch_node(removed_node_id));
         let closed_epoch = close_active_overwatch_epoch();
-        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(closed_epoch).unwrap();
+        let snapshot = OverwatchEpochSnapshots::<Test>::get(closed_epoch).unwrap();
         assert!(snapshot.nodes.contains_key(&active_node_id));
         assert!(!snapshot.nodes.contains_key(&removed_node_id));
 
@@ -1130,6 +1129,7 @@ fn test_post_close_exponent_change_does_not_change_closed_epoch_weights() {
         let second_node_id = insert_overwatch_node_v2(2);
         set_overwatch_node_stake(first_node_id, 4);
         set_overwatch_node_stake(second_node_id, 1);
+        snapshot_overwatch_epoch();
         submit_weight(1, 1, first_node_id, linear_exponent);
         submit_weight(1, 1, second_node_id, 0);
 
@@ -1161,10 +1161,12 @@ fn test_missing_snapshot_keeps_delayed_settlement_retryable_and_success_is_idemp
             epoch: 3,
             reveal_records: 1,
         };
-        PendingOverwatchSettlement::<Test>::put(pending);
+        queue_overwatch_settlement(3);
+        assert_eq!(PendingOverwatchSettlement::<Test>::get(), Some(pending));
         seed_overwatch_settlement_snapshot(4);
         crate::CurrentOverwatchEpoch::<Test>::put(9);
 
+        OverwatchEpochSnapshots::<Test>::remove(3);
         Network::calculate_overwatch_rewards();
         assert_eq!(PendingOverwatchSettlement::<Test>::get(), Some(pending));
         assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), None);
@@ -1172,13 +1174,13 @@ fn test_missing_snapshot_keeps_delayed_settlement_retryable_and_success_is_idemp
             OverwatchNodeStakeBalance::<Test>::get(node_id),
             starting_stake
         );
-        assert!(OverwatchEpochSettlementSnapshots::<Test>::contains_key(4));
+        assert!(OverwatchEpochSnapshots::<Test>::contains_key(4));
 
         seed_overwatch_settlement_snapshot(3);
         Network::calculate_overwatch_rewards();
         assert!(PendingOverwatchSettlement::<Test>::get().is_none());
-        assert!(!OverwatchEpochSettlementSnapshots::<Test>::contains_key(3));
-        assert!(OverwatchEpochSettlementSnapshots::<Test>::contains_key(4));
+        assert!(!OverwatchEpochSnapshots::<Test>::contains_key(3));
+        assert!(OverwatchEpochSnapshots::<Test>::contains_key(4));
         assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), Some(3));
         assert_eq!(
             OverwatchNodeStakeBalance::<Test>::get(node_id),
@@ -1213,6 +1215,7 @@ fn test_collective_removal_purges_pending_reward_and_requires_fresh_whitelist_vo
         ));
         let old_node_id = TotalOverwatchNodeUids::<Test>::get();
         let epoch = Network::get_current_overwatch_epoch_as_u32();
+        snapshot_overwatch_epoch();
         submit_weight(epoch, 1, old_node_id, test_percent(1, 2));
 
         let closed_epoch = close_active_overwatch_epoch();
@@ -1288,7 +1291,7 @@ fn test_collective_removal_purges_pending_reward_and_requires_fresh_whitelist_vo
 }
 
 #[test]
-fn test_delayed_slot_one_settlement_uses_close_snapshot_after_stake_mutation() {
+fn test_delayed_slot_one_settlement_uses_opening_snapshot_after_stake_mutation() {
     new_test_ext().execute_with(|| {
         let percentage_factor = Network::percentage_factor_as_u128();
         OverwatchEpochLengthMultiplier::<Test>::set(1);
@@ -1302,6 +1305,7 @@ fn test_delayed_slot_one_settlement_uses_close_snapshot_after_stake_mutation() {
         let second_node_id = insert_overwatch_node_v2(2);
         set_overwatch_node_stake(first_node_id, 100);
         set_overwatch_node_stake(second_node_id, 100);
+        snapshot_overwatch_epoch();
         submit_weight(1, 1, first_node_id, percentage_factor);
         submit_weight(1, 1, second_node_id, 0);
 
@@ -1328,7 +1332,7 @@ fn test_delayed_slot_one_settlement_uses_close_snapshot_after_stake_mutation() {
         Network::on_initialize(delayed_settlement_block);
 
         assert!(PendingOverwatchSettlement::<Test>::get().is_none());
-        assert!(!OverwatchEpochSettlementSnapshots::<Test>::contains_key(1));
+        assert!(!OverwatchEpochSnapshots::<Test>::contains_key(1));
         assert_eq!(
             OverwatchSubnetWeights::<Test>::get(1, 1),
             Some(test_percent(1, 2))
@@ -1359,6 +1363,7 @@ fn test_post_close_whitelist_and_hotkey_changes_do_not_affect_settlement() {
         ));
         let node_id = TotalOverwatchNodeUids::<Test>::get();
         let epoch = Network::get_current_overwatch_epoch_as_u32();
+        snapshot_overwatch_epoch();
         submit_weight(epoch, 1, node_id, test_percent(1, 2));
 
         let closed_epoch = close_active_overwatch_epoch();
@@ -2381,7 +2386,8 @@ fn test_overwatch_stake_normalization_linear_handles_realistic_token_stakes() {
         );
 
     let expected_first_weight = test_percent(10, 11);
-    let expected_second_weight = test_percent(1, 11);
+    // With opposing 1/0 ratings, closeness scores are W and exactly 1-W.
+    let expected_second_weight = percentage_factor - expected_first_weight;
     assert_eq!(subnet_weight, expected_first_weight);
     assert_eq!(first_node_weight, expected_first_weight);
     assert_eq!(second_node_weight, expected_second_weight);
@@ -2447,7 +2453,8 @@ fn test_overwatch_stake_normalization_is_scale_invariant_and_handles_edges() {
         assert_eq!(max_and_zero, (percentage_factor, percentage_factor, 0));
 
         let all_zero = run_two_node_overwatch_stake_weight_case(exponent, 0, 0);
-        assert_eq!(all_zero, (0, 0, 0));
+        // Zero stake coefficients produce W=0, so only the zero rating agrees.
+        assert_eq!(all_zero, (0, 0, percentage_factor));
     }
 }
 
@@ -2468,6 +2475,7 @@ fn test_overwatch_stake_normalization_linear_runs_through_on_initialize() {
         let second_node_id = insert_overwatch_node_v2(2);
         set_overwatch_node_stake(first_node_id, 1_000 * percentage_factor);
         set_overwatch_node_stake(second_node_id, 1_000 * percentage_factor);
+        snapshot_overwatch_epoch();
         submit_weight(epoch, subnet_id, first_node_id, test_percent(1, 2));
         submit_weight(epoch, subnet_id, second_node_id, test_percent(1, 2));
 
@@ -2478,8 +2486,8 @@ fn test_overwatch_stake_normalization_linear_runs_through_on_initialize() {
             PendingOverwatchSettlement::<Test>::get().map(|settlement| settlement.epoch),
             Some(epoch)
         );
-        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(epoch)
-            .expect("the hook rollover must store a close-time snapshot");
+        let snapshot = OverwatchEpochSnapshots::<Test>::get(epoch)
+            .expect("the hook rollover must retain the opening snapshot");
         assert_eq!(snapshot.nodes.len(), 2);
         assert_eq!(
             snapshot.nodes.get(&first_node_id).unwrap().stake,
@@ -2495,7 +2503,7 @@ fn test_overwatch_stake_normalization_linear_runs_through_on_initialize() {
         Network::on_initialize(settlement_block);
 
         assert!(PendingOverwatchSettlement::<Test>::get().is_none());
-        assert!(!OverwatchEpochSettlementSnapshots::<Test>::contains_key(
+        assert!(!OverwatchEpochSnapshots::<Test>::contains_key(
             epoch
         ));
         assert_eq!(
@@ -2509,6 +2517,290 @@ fn test_overwatch_stake_normalization_linear_runs_through_on_initialize() {
         assert_eq!(first_node_weight, test_percent(1, 2));
         assert_eq!(second_node_weight, test_percent(1, 2));
         assert_normalized_pair(first_node_weight, second_node_weight);
+    });
+}
+
+#[test]
+fn overwatch_partial_coverage_normalizes_each_subnet_and_rewards_only_reveals() {
+    let one = Network::percentage_factor_as_u128();
+    for exponent in [test_percent(9, 10), one] {
+        for second_node_reveals_zero in [false, true] {
+            new_test_ext().execute_with(|| {
+                OverwatchStakeWeightFactor::<Test>::set(exponent);
+                ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+                let epoch = Network::get_current_overwatch_epoch_as_u32();
+                for validator in 1..=2 {
+                    manual_insert_validator(validator, 100 + validator, 200 + validator);
+                    let node = insert_overwatch_node_v2(validator);
+                    set_overwatch_node_stake(node, 100);
+                }
+                // A assesses X and Y; B assesses Y and optionally explicitly rates X zero.
+                submit_weight(epoch, 1, 1, one);
+                submit_weight(epoch, 2, 1, one);
+                submit_weight(epoch, 2, 2, one);
+                if second_node_reveals_zero {
+                    submit_weight(epoch, 1, 2, 0);
+                }
+                queue_overwatch_settlement(epoch);
+                Network::calculate_overwatch_rewards();
+
+                let (expected_x, a_share, b_share) = if second_node_reveals_zero {
+                    // The explicit zero participates: both nodes earn 0.5 on X and 1 on Y.
+                    (test_percent(1, 2), test_percent(1, 2), test_percent(1, 2))
+                } else {
+                    // B's missing assessment neither dilutes X nor earns points for B.
+                    // A earns two points, B one point, from the same epoch budget.
+                    (one, test_percent(2, 3), test_percent(1, 3))
+                };
+                assert_eq!(
+                    OverwatchSubnetWeights::<Test>::get(epoch, 1),
+                    Some(expected_x)
+                );
+                assert_eq!(OverwatchSubnetWeights::<Test>::get(epoch, 2), Some(one));
+                assert_eq!(OverwatchSubnetWeights::<Test>::get(epoch, 3), None);
+                for (node, share) in [(1, a_share), (2, b_share)] {
+                    assert_eq!(OverwatchNodeWeights::<Test>::get(epoch, node), Some(share));
+                    assert_eq!(
+                        OverwatchNodeStakeBalance::<Test>::get(node),
+                        100 + Network::percent_mul(share, OVERWATCH_EPOCH_EMISSIONS)
+                    );
+                }
+            });
+        }
+    }
+}
+
+#[test]
+fn overwatch_subnet_average_and_agreement_ignore_stake_revealed_only_elsewhere() {
+    fn settle(exponent: u128, unrelated_stake: Option<u128>) -> (u128, u128, u128) {
+        new_test_ext().execute_with(|| {
+            let one = Network::percentage_factor_as_u128();
+            OverwatchStakeWeightFactor::<Test>::set(exponent);
+            let epoch = Network::get_current_overwatch_epoch_as_u32();
+            for (validator, stake, rating) in [(1, 80, one), (2, 20, 0)] {
+                manual_insert_validator(validator, 100 + validator, 200 + validator);
+                let node = insert_overwatch_node_v2(validator);
+                set_overwatch_node_stake(node, stake);
+                submit_weight(epoch, 1, node, rating);
+            }
+            if let Some(stake) = unrelated_stake {
+                manual_insert_validator(3, 103, 203);
+                let node = insert_overwatch_node_v2(3);
+                set_overwatch_node_stake(node, stake);
+                submit_weight(epoch, 2, node, test_percent(1, 2));
+            }
+            queue_overwatch_settlement(epoch);
+            Network::calculate_overwatch_rewards();
+            let retained = LatestFinalizedOverwatchSignalInputs::<Test>::get().unwrap();
+            let derived = Network::derive_overwatch_signal(&retained).unwrap();
+            let subnet_weight = OverwatchSubnetWeights::<Test>::get(epoch, 1).unwrap();
+            assert_eq!(derived.subnet_weights.get(&1), Some(&subnet_weight));
+            if unrelated_stake.is_some() {
+                assert_eq!(
+                    OverwatchSubnetWeights::<Test>::get(epoch, 2),
+                    Some(test_percent(1, 2))
+                );
+            }
+            (subnet_weight, derived.node_scores[&1], derived.node_scores[&2])
+        })
+    }
+
+    let one = Network::percentage_factor_as_u128();
+    for exponent in [test_percent(9, 10), one] {
+        let baseline = settle(exponent, None);
+        assert!(baseline.1 > baseline.2);
+        if exponent == one {
+            assert_eq!(
+                baseline,
+                (test_percent(4, 5), test_percent(4, 5), test_percent(1, 5))
+            );
+        }
+        for stake in [1, 100, 10u128.pow(28)] {
+            assert_eq!(settle(exponent, Some(stake)), baseline);
+        }
+    }
+}
+
+#[test]
+fn overwatch_rewards_unanimous_ratings_pay_equal_shares_including_zero() {
+    let percentage_factor = Network::percentage_factor_as_u128();
+    for exponent in [test_percent(9, 10), percentage_factor] {
+        for rating in [0, test_percent(1, 10), test_percent(9, 10), percentage_factor] {
+            new_test_ext().execute_with(|| {
+                OverwatchStakeWeightFactor::<Test>::set(exponent);
+                ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+                let epoch = Network::get_current_overwatch_epoch_as_u32();
+                let budget = OVERWATCH_EPOCH_EMISSIONS;
+                // Unequal stakes must not give unequal rewards for identical assessments.
+                for (validator_id, stake) in [(1, 90), (2, 10)] {
+                    manual_insert_validator(
+                        validator_id,
+                        100 + validator_id,
+                        200 + validator_id,
+                    );
+                    let node = insert_overwatch_node_v2(validator_id);
+                    set_overwatch_node_stake(node, stake);
+                    submit_weight(epoch, 1, node, rating);
+                    submit_weight(epoch, 2, node, rating);
+                }
+
+                queue_overwatch_settlement(epoch);
+                Network::calculate_overwatch_rewards();
+
+                for (node, stake) in [(1, 90), (2, 10)] {
+                    assert_eq!(
+                        OverwatchNodeWeights::<Test>::get(epoch, node),
+                        Some(test_percent(1, 2)),
+                    );
+                    assert_eq!(
+                        OverwatchNodeStakeBalance::<Test>::get(node),
+                        stake + budget / 2
+                    );
+                }
+                for subnet in [1, 2] {
+                    let aggregate = OverwatchSubnetWeights::<Test>::get(epoch, subnet).unwrap();
+                    // Stake normalization can round down by a few Q18 units.
+                    assert!(aggregate.abs_diff(rating) <= 2);
+                    if rating == 0 {
+                        assert_eq!(aggregate, 0);
+                    }
+                }
+                assert!(PendingOverwatchSettlement::<Test>::get().is_none());
+                assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), Some(epoch));
+            });
+        }
+    }
+}
+
+#[test]
+fn overwatch_rewards_equal_errors_on_low_and_high_rated_subnets_pay_equally() {
+    new_test_ext().execute_with(|| {
+        OverwatchStakeWeightFactor::<Test>::set(Network::percentage_factor_as_u128());
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        let epoch = Network::get_current_overwatch_epoch_as_u32();
+        // The aggregates are 0.2 and 0.8. Each node is exact on one subnet and
+        // deviates by 0.2 on the other. Which subnet it gets right must not matter.
+        let ratings = [[2, 6], [2, 10], [0, 8], [4, 8]];
+        for (index, row) in ratings.iter().enumerate() {
+            let validator_id = index as u32 + 1;
+            manual_insert_validator(validator_id, 100 + validator_id, 200 + validator_id);
+            let node = insert_overwatch_node_v2(validator_id);
+            set_overwatch_node_stake(node, 100);
+            for (subnet_index, rating) in row.iter().enumerate() {
+                submit_weight(
+                    epoch,
+                    subnet_index as u32 + 1,
+                    node,
+                    test_percent(*rating, 10),
+                );
+            }
+        }
+
+        queue_overwatch_settlement(epoch);
+        Network::calculate_overwatch_rewards();
+
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(epoch, 1),
+            Some(test_percent(1, 5))
+        );
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(epoch, 2),
+            Some(test_percent(4, 5))
+        );
+        for node in 1..=4 {
+            assert_eq!(
+                OverwatchNodeWeights::<Test>::get(epoch, node),
+                Some(test_percent(1, 4))
+            );
+            assert_eq!(
+                OverwatchNodeStakeBalance::<Test>::get(node),
+                100 + OVERWATCH_EPOCH_EMISSIONS / 4,
+            );
+        }
+    });
+}
+
+#[test]
+fn overwatch_rewards_closer_ratings_pay_more_in_both_directions() {
+    fn settle(ratings: [u128; 4]) -> Vec<u128> {
+        new_test_ext().execute_with(|| {
+            OverwatchStakeWeightFactor::<Test>::set(Network::percentage_factor_as_u128());
+            ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+            let epoch = Network::get_current_overwatch_epoch_as_u32();
+            for (index, rating) in ratings.iter().enumerate() {
+                let validator_id = index as u32 + 1;
+                manual_insert_validator(validator_id, 100 + validator_id, 200 + validator_id);
+                let node = insert_overwatch_node_v2(validator_id);
+                set_overwatch_node_stake(node, 100);
+                submit_weight(epoch, 1, node, test_percent(*rating, 10));
+            }
+            queue_overwatch_settlement(epoch);
+            Network::calculate_overwatch_rewards();
+
+            let rewards: Vec<_> = (1..=4)
+                .map(|node| OverwatchNodeStakeBalance::<Test>::get(node) - 100)
+                .collect();
+            assert_eq!(rewards[0], rewards[1]);
+            assert_eq!(rewards[1], rewards[2]);
+            assert!(rewards[2] > rewards[3]);
+            assert!(rewards[3] > 0);
+            assert!(rewards.iter().sum::<u128>() <= OVERWATCH_EPOCH_EMISSIONS);
+            rewards
+        })
+    }
+
+    // Reflect every rating around 0.5: the same deviations must yield the same payouts.
+    assert_eq!(settle([1, 1, 1, 5]), settle([9, 9, 9, 5]));
+}
+
+#[test]
+fn overwatch_rewards_decrease_with_distance_from_stake_weighted_average() {
+    new_test_ext().execute_with(|| {
+        OverwatchStakeWeightFactor::<Test>::set(Network::percentage_factor_as_u128());
+        ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        let epoch = Network::get_current_overwatch_epoch_as_u32();
+        // Unequal stakes give an exact weighted average of 0.5. The unweighted
+        // mean is different, so this also checks which average rewards use.
+        let ratings = [50, 40, 60, 25, 5, 100];
+        let stakes = [50, 8, 8, 10, 10, 14];
+        for (index, (rating, stake)) in ratings.iter().zip(stakes).enumerate() {
+            let validator_id = index as u32 + 1;
+            manual_insert_validator(validator_id, 100 + validator_id, 200 + validator_id);
+            let node = insert_overwatch_node_v2(validator_id);
+            set_overwatch_node_stake(node, stake);
+            submit_weight(epoch, 1, node, test_percent(*rating, 100));
+        }
+        queue_overwatch_settlement(epoch);
+        Network::calculate_overwatch_rewards();
+
+        assert_eq!(
+            OverwatchSubnetWeights::<Test>::get(epoch, 1),
+            Some(test_percent(1, 2))
+        );
+        // Distances: 0, 0.1, 0.1, 0.25, 0.45, 0.5.
+        // Agreement scores, in twentieths, sum to 92 twentieths.
+        let score_units = [20, 18, 18, 15, 11, 10];
+        let mut rewards = Vec::new();
+        for (index, units) in score_units.iter().enumerate() {
+            let node = index as u32 + 1;
+            let expected_share = test_percent(*units, 92);
+            assert_eq!(
+                OverwatchNodeWeights::<Test>::get(epoch, node),
+                Some(expected_share)
+            );
+            let reward = OverwatchNodeStakeBalance::<Test>::get(node) - stakes[index];
+            assert_eq!(
+                reward,
+                Network::percent_mul(expected_share, OVERWATCH_EPOCH_EMISSIONS)
+            );
+            rewards.push(reward);
+        }
+        assert!(rewards[0] > rewards[1]);
+        assert_eq!(rewards[1], rewards[2]);
+        assert!(rewards[2] > rewards[3]);
+        assert!(rewards[3] > rewards[4]);
+        assert!(rewards[4] > rewards[5]);
+        assert!(rewards.iter().sum::<u128>() <= OVERWATCH_EPOCH_EMISSIONS);
     });
 }
 

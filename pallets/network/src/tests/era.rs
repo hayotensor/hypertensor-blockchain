@@ -10,7 +10,7 @@ use crate::{
     InConsensusSubnetReputationFactor, LastFinalizedOverwatchEpoch, LatestEffectiveOverwatchSignal,
     LatestFinalizedOverwatchSignalInputs, NotInConsensusSubnetReputationFactor, OverwatchCommit,
     OverwatchCommitCutoffPercent, OverwatchCommits, OverwatchEpochLengthMultiplier,
-    OverwatchEpochSettlementSnapshots, OverwatchEpochStartBlock, OverwatchNodeWeights,
+    OverwatchEpochSnapshots, OverwatchEpochStartBlock, OverwatchNodeWeights,
     OverwatchReveal, OverwatchReveals, OverwatchSubnetWeights, PendingOverwatchSettlement,
     SubnetElectedValidator, SubnetNodeElectionSlots,
     SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeValidatorId,
@@ -311,6 +311,7 @@ fn test_delayed_overwatch_boundary_realigns_before_settlement() {
         OverwatchEpochLengthMultiplier::<Test>::put(1);
         ActiveOverwatchEpochLengthMultiplier::<Test>::put(1);
         CurrentOverwatchEpoch::<Test>::put(3);
+        super::test_utils::snapshot_overwatch_epoch();
         OverwatchEpochStartBlock::<Test>::put(epoch_start);
 
         // A delayed boundary is intentionally one block after a general epoch boundary. It must
@@ -367,7 +368,7 @@ fn test_overwatch_settlement_waits_for_reserved_slot_one() {
 }
 
 #[test]
-fn partial_reveal_close_snapshots_only_revealed_records_and_participants() {
+fn partial_reveal_close_preserves_opening_cohort_and_counts_only_revealed_records() {
     new_test_ext().execute_with(|| {
         OverwatchEpochLengthMultiplier::<Test>::put(1);
         ActiveOverwatchEpochLengthMultiplier::<Test>::put(1);
@@ -386,6 +387,7 @@ fn partial_reveal_close_snapshots_only_revealed_records_and_participants() {
         set_overwatch_node_stake(revealing_node_id, 100);
         set_overwatch_node_stake(commit_only_node_id, 200);
 
+        super::test_utils::snapshot_overwatch_epoch();
         let revealed_weight = test_percent(3, 5);
         let revealed_salt = b"partial-reveal".to_vec();
         let unrevealed_salt = b"unrevealed-subnet".to_vec();
@@ -395,11 +397,23 @@ fn partial_reveal_close_snapshots_only_revealed_records_and_participants() {
             vec![
                 OverwatchCommit {
                     subnet_id: revealed_subnet_id,
-                    weight: make_commit(revealed_weight, revealed_salt.clone()),
+                    weight: make_commit(
+                        revealing_node_id,
+                        revealed_subnet_id,
+                        epoch,
+                        revealed_weight,
+                        revealed_salt.clone(),
+                    ),
                 },
                 OverwatchCommit {
                     subnet_id: commit_only_subnet_id,
-                    weight: make_commit(test_percent(1, 4), unrevealed_salt),
+                    weight: make_commit(
+                        revealing_node_id,
+                        commit_only_subnet_id,
+                        epoch,
+                        test_percent(1, 4),
+                        unrevealed_salt,
+                    ),
                 },
             ],
         ));
@@ -407,7 +421,13 @@ fn partial_reveal_close_snapshots_only_revealed_records_and_participants() {
             commit_only_node_id,
             vec![OverwatchCommit {
                 subnet_id: revealed_subnet_id,
-                weight: make_commit(test_percent(1, 2), commit_only_salt),
+                weight: make_commit(
+                    commit_only_node_id,
+                    revealed_subnet_id,
+                    epoch,
+                    test_percent(1, 2),
+                    commit_only_salt,
+                ),
             }],
         ));
         assert_ok!(Network::perform_reveal_overwatch_subnet_weights(
@@ -428,11 +448,11 @@ fn partial_reveal_close_snapshots_only_revealed_records_and_participants() {
             .expect("a successful close must publish a pending settlement");
         assert_eq!(pending.epoch, epoch);
         assert_eq!(pending.reveal_records, 1);
-        let snapshot = OverwatchEpochSettlementSnapshots::<Test>::get(epoch)
-            .expect("a successful close must publish its participant snapshot");
-        assert_eq!(snapshot.nodes.len(), 1);
+        let snapshot = OverwatchEpochSnapshots::<Test>::get(epoch)
+            .expect("a successful close must retain its opening snapshot");
+        assert_eq!(snapshot.nodes.len(), 2);
         assert_eq!(snapshot.nodes.get(&revealing_node_id).unwrap().stake, 100);
-        assert!(!snapshot.nodes.contains_key(&commit_only_node_id));
+        assert!(snapshot.nodes.contains_key(&commit_only_node_id));
         assert!(OverwatchCommits::<Test>::get(epoch, revealing_node_id).is_empty());
         assert!(OverwatchCommits::<Test>::get(epoch, commit_only_node_id).is_empty());
         assert_eq!(
@@ -440,6 +460,9 @@ fn partial_reveal_close_snapshots_only_revealed_records_and_participants() {
             Some(&revealed_weight)
         );
         assert!(OverwatchReveals::<Test>::get(epoch, commit_only_node_id).is_empty());
+        assert!(crate::OverwatchEpochRevealEligibility::<Test>::get(epoch)
+            .unwrap()
+            .is_empty());
         assert_eq!(ActiveOverwatchRevealStats::<Test>::get().records, 0);
 
         Network::calculate_overwatch_rewards();
@@ -448,7 +471,7 @@ fn partial_reveal_close_snapshots_only_revealed_records_and_participants() {
         assert_eq!(LastFinalizedOverwatchEpoch::<Test>::get(), Some(epoch));
         assert_eq!(
             OverwatchSubnetWeights::<Test>::get(epoch, revealed_subnet_id),
-            Some(revealed_weight)
+            None
         );
         assert_eq!(
             OverwatchSubnetWeights::<Test>::get(epoch, commit_only_subnet_id),
@@ -456,7 +479,7 @@ fn partial_reveal_close_snapshots_only_revealed_records_and_participants() {
         );
         assert_eq!(
             OverwatchNodeWeights::<Test>::get(epoch, revealing_node_id),
-            Some(Network::percentage_factor_as_u128())
+            None
         );
         assert_eq!(
             OverwatchNodeWeights::<Test>::get(epoch, commit_only_node_id),
@@ -467,24 +490,13 @@ fn partial_reveal_close_snapshots_only_revealed_records_and_participants() {
         let retained = LatestFinalizedOverwatchSignalInputs::<Test>::get()
             .expect("finalization must retain the latest reproducible inputs");
         assert_eq!(retained.source_epoch, epoch);
-        assert_eq!(retained.nodes.len(), 1);
-        assert_eq!(
-            retained
-                .nodes
-                .get(&revealing_node_id)
-                .unwrap()
-                .reveals
-                .get(&revealed_subnet_id),
-            Some(&revealed_weight)
-        );
-        assert!(!retained.nodes.contains_key(&commit_only_node_id));
+        assert!(retained.nodes.is_empty());
         let effective = LatestEffectiveOverwatchSignal::<Test>::get().unwrap();
         assert!(effective.valid);
         assert_eq!(effective.source_epoch, epoch);
-        assert_eq!(
-            effective.subnet_weights.get(&revealed_subnet_id),
-            Some(&revealed_weight)
-        );
+        assert!(effective.subnet_weights.is_empty());
+        assert_eq!(crate::OverwatchNodeStakeBalance::<Test>::get(revealing_node_id), 100);
+        assert_eq!(crate::OverwatchNodeStakeBalance::<Test>::get(commit_only_node_id), 200);
     });
 }
 
@@ -504,11 +516,18 @@ fn pending_settlement_blocks_rollover_without_consuming_active_round_state() {
 
         let weight = test_percent(2, 5);
         let salt = b"retryable-rollover".to_vec();
+        super::test_utils::snapshot_overwatch_epoch();
         assert_ok!(Network::perform_commit_overwatch_subnet_weights(
             node_id,
             vec![OverwatchCommit {
                 subnet_id,
-                weight: make_commit(weight, salt.clone()),
+                weight: make_commit(
+                    node_id,
+                    subnet_id,
+                    active_epoch,
+                    weight,
+                    salt.clone(),
+                ),
             }],
         ));
         assert_ok!(Network::perform_reveal_overwatch_subnet_weights(
@@ -522,6 +541,7 @@ fn pending_settlement_blocks_rollover_without_consuming_active_round_state() {
 
         queue_overwatch_settlement(active_epoch - 1);
         let pending_before = PendingOverwatchSettlement::<Test>::get().unwrap();
+        let opening_before = OverwatchEpochSnapshots::<Test>::get(active_epoch);
         let commits_before = OverwatchCommits::<Test>::get(active_epoch, node_id);
         let reveals_before = OverwatchReveals::<Test>::get(active_epoch, node_id);
         let stats_before = ActiveOverwatchRevealStats::<Test>::get();
@@ -546,9 +566,7 @@ fn pending_settlement_blocks_rollover_without_consuming_active_round_state() {
             reveals_before
         );
         assert_eq!(ActiveOverwatchRevealStats::<Test>::get(), stats_before);
-        assert!(!OverwatchEpochSettlementSnapshots::<Test>::contains_key(
-            active_epoch
-        ));
+        assert_eq!(OverwatchEpochSnapshots::<Test>::get(active_epoch), opening_before);
 
         // Once the older settlement is consumed, retrying the exact same boundary closes the
         // untouched active round and preserves its reveal for finalization.
@@ -590,6 +608,7 @@ fn test_global_pause_freezes_overwatch_round_before_unpause_edge() {
         OverwatchEpochLengthMultiplier::<Test>::put(1);
         ActiveOverwatchEpochLengthMultiplier::<Test>::put(1);
         CurrentOverwatchEpoch::<Test>::put(3);
+        super::test_utils::snapshot_overwatch_epoch();
         OverwatchEpochStartBlock::<Test>::put(0);
 
         // Pause in the reveal period.

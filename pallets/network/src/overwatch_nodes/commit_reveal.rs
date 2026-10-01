@@ -4,6 +4,32 @@ use frame_support::pallet_prelude::Pays;
 use sp_runtime::traits::Hash;
 
 impl<T: Config> Pallet<T> {
+    /// Hash the SCALE tuple `(b"overwatch/subnet-weight/v1", overwatch_node_id,
+    /// subnet_id, overwatch_epoch, weight, salt)` using the runtime's `T::Hashing`.
+    /// The tag is a fixed byte array (no length prefix), IDs and epoch are `u32`,
+    /// weight is `u128`, and salt is a byte sequence with a compact length prefix.
+    ///
+    /// Node IDs are unique and never reused; dispatch authenticates their current
+    /// hotkey. Binding the ID preserves commitments across hotkey rotation while
+    /// preventing another evaluator from opening a copied commitment. Subnet and
+    /// epoch binding prevent replay in another assessment context.
+    pub fn hash_overwatch_commitment(
+        overwatch_node_id: u32,
+        subnet_id: u32,
+        overwatch_epoch: u32,
+        weight: u128,
+        salt: &[u8],
+    ) -> T::Hash {
+        T::Hashing::hash_of(&(
+            b"overwatch/subnet-weight/v1",
+            overwatch_node_id,
+            subnet_id,
+            overwatch_epoch,
+            weight,
+            salt,
+        ))
+    }
+
     pub fn do_commit_overwatch_subnet_weights(
         origin: T::RuntimeOrigin,
         overwatch_node_id: u32,
@@ -47,6 +73,7 @@ impl<T: Config> Pallet<T> {
         ensure!(!commit_weights.is_empty(), Error::<T>::CommitsEmpty);
 
         let overwatch_epoch = Self::get_current_overwatch_epoch_as_u32();
+        Self::ensure_overwatch_epoch_eligible(overwatch_node_id, overwatch_epoch)?;
         let mut row = OverwatchCommits::<T>::get(overwatch_epoch, overwatch_node_id);
 
         // Validate and stage the complete cumulative row before its single storage write. This
@@ -98,6 +125,7 @@ impl<T: Config> Pallet<T> {
         ensure!(!reveals.is_empty(), Error::<T>::RevealsEmpty);
 
         let overwatch_epoch = Self::get_current_overwatch_epoch_as_u32();
+        Self::ensure_overwatch_epoch_eligible(overwatch_node_id, overwatch_epoch)?;
         let percentage_factor = Self::percentage_factor_as_u128();
         let mut staged_reveals = BTreeMap::<u32, u128>::new();
         let commits = OverwatchCommits::<T>::get(overwatch_epoch, overwatch_node_id);
@@ -115,8 +143,14 @@ impl<T: Config> Pallet<T> {
                 return Err(Error::<T>::NoCommitFound.into());
             };
 
-            // Reconstruct hash from reveal
-            let actual_hash = T::Hashing::hash_of(&(weight, salt.clone()));
+            // Derive context from the authenticated node and active round, not the preimage.
+            let actual_hash = Self::hash_overwatch_commitment(
+                overwatch_node_id,
+                subnet_id,
+                overwatch_epoch,
+                weight,
+                &salt,
+            );
 
             ensure!(actual_hash == *commit_hash, Error::<T>::RevealMismatch);
 

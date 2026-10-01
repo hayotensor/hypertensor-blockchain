@@ -8,7 +8,7 @@ fn scalar_account_and_byte_arguments_preserve_the_native_call_payload() {
             use pallet_revive::precompiles::alloy::sol_types::SolInterface;
             let wire = abi::$interface::$call { $($abi: ($value).into()),* }.abi_encode();
             let decoded = abi::$interface::$calls::abi_decode_validate(&wire).unwrap();
-            let actual = network_precompiles::$domain::to_call::<Runtime>(&decoded).unwrap().unwrap();
+            let actual = ::network_precompiles::$domain::to_call::<Runtime>(&decoded).unwrap().unwrap();
             let expected = n::Call::<Runtime>::$native { $($field: ($value).into()),* };
             assert_eq!(actual.encode(), expected.encode(), stringify!($native));
         }};

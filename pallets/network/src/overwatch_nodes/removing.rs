@@ -50,7 +50,7 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    /// Remove a node from the reproducible latest inputs and rebuild the globally normalized
+    /// Remove a node from the reproducible latest inputs and rebuild the per-subnet normalized
     /// signal. Missing or inconsistent inputs invalidate the cache instead of exposing stale
     /// historical influence.
     fn refresh_effective_overwatch_signal_after_removal(overwatch_node_id: u32) {
@@ -122,8 +122,51 @@ impl<T: Config> Pallet<T> {
     pub fn perform_remove_overwatch_node(overwatch_node_id: u32) -> DispatchResult {
         let validator_id = Self::get_active_overwatch_validator_id(overwatch_node_id)?;
 
-        // Purge every active-round submission and update its compact cardinality index.
+        // Exit ends authentication immediately. Preserve commitments until rollover so exit
+        // cannot hide an incomplete submission; fully revealed work retains its opening stake.
+        Self::clear_overwatch_active_membership(overwatch_node_id, validator_id);
+        Ok(())
+    }
+
+    fn clear_overwatch_active_membership(overwatch_node_id: u32, validator_id: u32) {
+        OverwatchNodes::<T>::remove(overwatch_node_id);
+        for (subnet_id, peer_id) in OverwatchNodeIndex::<T>::take(overwatch_node_id) {
+            PeerIdOverwatchNodeId::<T>::remove(subnet_id, peer_id);
+        }
+        OverwatchNodeIdHotkey::<T>::remove(overwatch_node_id);
+        TotalOverwatchNodes::<T>::mutate(|n| n.saturating_dec());
+        ValidatorOverwatchNodeId::<T>::remove(validator_id);
+        OverwatchValidatorWhitelist::<T>::remove(validator_id);
+        // Historical ownership and stake remain available for later rewards and withdrawals.
+    }
+
+    #[frame_support::transactional]
+    pub fn perform_disqualify_overwatch_node(overwatch_node_id: u32) -> DispatchResult {
+        let validator_id = Self::get_historical_overwatch_validator_id(overwatch_node_id)?;
+        let active = OverwatchNodes::<T>::contains_key(overwatch_node_id);
+        if active {
+            Self::get_active_overwatch_validator_id(overwatch_node_id)?;
+        }
         let active_epoch = CurrentOverwatchEpoch::<T>::get();
+        let pending = PendingOverwatchSettlement::<T>::get();
+        let has_epoch_input = |epoch| {
+            OverwatchEpochSnapshots::<T>::get(epoch)
+                .is_some_and(|snapshot| snapshot.nodes.contains_key(&overwatch_node_id))
+        };
+        let relevant = active
+            || has_epoch_input(active_epoch)
+            || pending.as_ref().is_some_and(|p| has_epoch_input(p.epoch))
+            || LatestFinalizedOverwatchSignalInputs::<T>::get()
+                .is_some_and(|inputs| inputs.nodes.contains_key(&overwatch_node_id));
+        ensure!(relevant, Error::<T>::InvalidOverwatchNodeId);
+
+        OverwatchEpochSnapshots::<T>::mutate(active_epoch, |snapshot| {
+            if let Some(snapshot) = snapshot {
+                snapshot.nodes.remove(&overwatch_node_id);
+            }
+        });
+
+        // Purge every active-round submission and update its compact cardinality index.
         OverwatchCommits::<T>::remove(active_epoch, overwatch_node_id);
         let active_reveals = OverwatchReveals::<T>::take(active_epoch, overwatch_node_id);
         if !active_reveals.is_empty() {
@@ -141,43 +184,33 @@ impl<T: Config> Pallet<T> {
             });
         }
 
-        // Pending participation starts as exact close-time state and is purge-only on structural
-        // removal. Purging prevents both scoring and reward credit while retaining the historical
-        // validator ID and principal balance.
+        // Only governance may purge pending participation. Purging prevents both scoring and
+        // reward credit while retaining the historical validator ID and principal balance.
         let mut finalize_empty_pending = false;
-        if let Some(mut pending) = PendingOverwatchSettlement::<T>::get() {
+        if let Some(mut pending) = pending {
+            OverwatchEpochRevealEligibility::<T>::mutate_exists(pending.epoch, |eligible| {
+                if let Some(eligible) = eligible {
+                    eligible.remove(&overwatch_node_id);
+                }
+            });
             let pending_reveals = OverwatchReveals::<T>::take(pending.epoch, overwatch_node_id);
             pending.reveal_records = pending
                 .reveal_records
                 .saturating_sub(pending_reveals.len() as u32);
+            finalize_empty_pending = pending.reveal_records == 0;
             PendingOverwatchSettlement::<T>::put(pending);
 
-            if let Some(mut snapshot) = OverwatchEpochSettlementSnapshots::<T>::get(pending.epoch) {
-                let removed_pending = snapshot.nodes.remove(&overwatch_node_id).is_some();
-                finalize_empty_pending = removed_pending && snapshot.nodes.is_empty();
-                OverwatchEpochSettlementSnapshots::<T>::insert(pending.epoch, snapshot);
+            if let Some(mut snapshot) = OverwatchEpochSnapshots::<T>::get(pending.epoch) {
+                snapshot.nodes.remove(&overwatch_node_id);
+                OverwatchEpochSnapshots::<T>::insert(pending.epoch, snapshot);
             }
         }
 
-        OverwatchNodes::<T>::remove(overwatch_node_id);
-
-        // Remove all peer IDs in all subnets
-        let map = OverwatchNodeIndex::<T>::take(overwatch_node_id);
-        for (subnet_id, peer_id) in map {
-            PeerIdOverwatchNodeId::<T>::remove(subnet_id, peer_id);
+        // An already-exited ID may have a replacement under the same validator. Disqualifying
+        // its historical work must not clear the replacement's indexes or fresh approval.
+        if active {
+            Self::clear_overwatch_active_membership(overwatch_node_id, validator_id);
         }
-
-        // Node-scoped authentication ends with active ownership; it has no historical staking use.
-        OverwatchNodeIdHotkey::<T>::remove(overwatch_node_id);
-
-        TotalOverwatchNodes::<T>::mutate(|n: &mut u32| n.saturating_dec());
-
-        // Release only the active validator-to-node ownership entry. The historical inverse entry
-        // remains so the validator can withdraw stake after its node is removed.
-        ValidatorOverwatchNodeId::<T>::remove(validator_id);
-
-        // Removal always consumes collective approval. Re-registration requires a fresh vote.
-        OverwatchValidatorWhitelist::<T>::remove(validator_id);
 
         Self::refresh_effective_overwatch_signal_after_removal(overwatch_node_id);
 

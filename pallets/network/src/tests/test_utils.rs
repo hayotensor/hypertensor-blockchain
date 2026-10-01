@@ -8,9 +8,9 @@ use crate::{
     HotkeyValidatorId, InitialValidatorData, MaxMaxRegisteredNodes, MaxOverwatchNodes,
     MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs,
     MultiaddrSubnetNodeId, NetworkMaxStakeBalance, NodeSubnetStake, OverwatchCommitCutoffPercent,
-    OverwatchEpochLengthMultiplier, OverwatchEpochSettlementSnapshot,
-    OverwatchEpochSettlementSnapshots, OverwatchEpochStartBlock, OverwatchMinStakeBalance,
-    OverwatchNodeIdHotkey, OverwatchNodeSettlementSnapshot, OverwatchNodeStakeBalance,
+    OverwatchEpochLengthMultiplier, OverwatchEpochSnapshot,
+    OverwatchEpochSnapshots, OverwatchEpochStartBlock, OverwatchMinStakeBalance,
+    OverwatchNodeIdHotkey, OverwatchNodeStakeSnapshot, OverwatchNodeStakeBalance,
     OverwatchNodeValidatorId, OverwatchNodes, OverwatchReveals, OverwatchStakeWeightFactor,
     OverwatchValidatorWhitelist, PeerIdSubnetNodeId, PeerInfo, PendingOverwatchSettlement,
     PendingOverwatchSettlementData, RegisteredSubnetNodesData, RegistrationSubnetData,
@@ -210,8 +210,21 @@ pub fn get_min_overwatch_stake_balance() -> u128 {
     OverwatchMinStakeBalance::<Test>::get()
 }
 
-pub fn make_commit(weight: u128, salt: Vec<u8>) -> sp_core::H256 {
-    Hashing::hash_of(&(weight, salt))
+pub fn make_commit(
+    node_id: u32,
+    subnet_id: u32,
+    epoch: u32,
+    weight: u128,
+    salt: Vec<u8>,
+) -> sp_core::H256 {
+    Hashing::hash_of(&(
+        b"overwatch/subnet-weight/v1",
+        node_id,
+        subnet_id,
+        epoch,
+        weight,
+        salt,
+    ))
 }
 
 pub fn get_subnet_id_key_offset(active_subnets: u32) -> u32 {
@@ -1922,6 +1935,7 @@ pub fn set_overwatch_epoch(epoch: u32) {
     System::set_block_number(start_block);
     CurrentOverwatchEpoch::<Test>::put(epoch);
     OverwatchEpochStartBlock::<Test>::put(start_block);
+    snapshot_overwatch_epoch();
 }
 
 pub fn queue_overwatch_settlement(epoch: u32) {
@@ -1931,18 +1945,34 @@ pub fn queue_overwatch_settlement(epoch: u32) {
         });
 
     seed_overwatch_settlement_snapshot(epoch);
+    // These isolated scoring fixtures bypass commit/reveal. Explicitly declare their synthetic
+    // submissions complete; lifecycle tests establish eligibility through the actual rollover.
+    let eligible = OverwatchEpochSnapshots::<Test>::get(epoch)
+        .unwrap()
+        .nodes
+        .keys()
+        .copied()
+        .collect::<BTreeSet<_>>();
+    crate::OverwatchEpochRevealEligibility::<Test>::insert(
+        epoch,
+        frame_support::BoundedBTreeSet::<
+            u32,
+            <Test as crate::Config>::MaxOverwatchNodesUpperBound,
+        >::try_from(eligible)
+        .unwrap(),
+    );
     PendingOverwatchSettlement::<Test>::put(PendingOverwatchSettlementData {
         epoch,
         reveal_records,
     });
 }
 
-/// Seed the close-time economics and active ownership data used by a direct settlement fixture.
-/// Real epoch rollover writes this snapshot atomically with `PendingOverwatchSettlement`.
+/// Seed opening inputs for isolated settlement fixtures that bypass the epoch lifecycle.
+/// Lifecycle tests must seed this before submissions, or advance real hooks to open the epoch.
 pub fn seed_overwatch_settlement_snapshot(epoch: u32) {
     let mut nodes = BoundedBTreeMap::<
         u32,
-        OverwatchNodeSettlementSnapshot,
+        OverwatchNodeStakeSnapshot,
         <Test as crate::Config>::MaxOverwatchNodesUpperBound,
     >::new();
 
@@ -1966,7 +1996,7 @@ pub fn seed_overwatch_settlement_snapshot(epoch: u32) {
         nodes
             .try_insert(
                 overwatch_node_id,
-                OverwatchNodeSettlementSnapshot {
+                OverwatchNodeStakeSnapshot {
                     stake: OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id),
                 },
             )
@@ -1974,14 +2004,34 @@ pub fn seed_overwatch_settlement_snapshot(epoch: u32) {
     }
 
     let multiplier = ActiveOverwatchEpochLengthMultiplier::<Test>::get();
-    OverwatchEpochSettlementSnapshots::<Test>::insert(
+    OverwatchEpochSnapshots::<Test>::insert(
         epoch,
-        OverwatchEpochSettlementSnapshot::<Test> {
+        OverwatchEpochSnapshot::<Test> {
             stake_weight_factor: OverwatchStakeWeightFactor::<Test>::get(),
             reward_budget: OVERWATCH_EPOCH_EMISSIONS.saturating_mul(multiplier as u128),
             nodes,
         },
     );
+}
+
+/// Explicitly open the current synthetic fixture epoch using its configured cohort.
+pub fn snapshot_overwatch_epoch() {
+    let snapshot = Network::capture_overwatch_epoch_snapshot(
+        ActiveOverwatchEpochLengthMultiplier::<Test>::get(),
+    ).unwrap();
+    crate::OverwatchEpochSnapshots::<Test>::insert(CurrentOverwatchEpoch::<Test>::get(), snapshot);
+}
+
+/// Declare a participant in a low-level commit/reveal fixture without running registration.
+pub fn seed_overwatch_epoch_eligibility(node_id: u32) {
+    let epoch = CurrentOverwatchEpoch::<Test>::get();
+    let mut snapshot = crate::OverwatchEpochSnapshots::<Test>::get(epoch).unwrap_or_else(||
+        Network::capture_overwatch_epoch_snapshot(ActiveOverwatchEpochLengthMultiplier::<Test>::get()).unwrap()
+    );
+    snapshot.nodes.try_insert(node_id, crate::OverwatchNodeStakeSnapshot {
+        stake: OverwatchNodeStakeBalance::<Test>::get(node_id),
+    }).unwrap();
+    crate::OverwatchEpochSnapshots::<Test>::insert(epoch, snapshot);
 }
 
 pub fn set_block_to_overwatch_reveal_block(epoch: u32) {
@@ -2187,7 +2237,12 @@ pub fn set_overwatch_node_stake(overwatch_node_id: u32, amount: u128) {
     TotalOverwatchNodeStakeBalance::<Test>::mutate(|mut n| *n += amount);
 }
 
+/// Seed a completed assessment for synthetic scoring and rollover fixtures.
 pub fn submit_weight(epoch: u32, subnet_id: u32, node_id: u32, weight: u128) {
+    let hash = Network::hash_overwatch_commitment(node_id, subnet_id, epoch, weight, b"fixture");
+    crate::OverwatchCommits::<Test>::mutate(epoch, node_id, |commits| {
+        commits.try_insert(subnet_id, hash).unwrap();
+    });
     let mut reveals = OverwatchReveals::<Test>::get(epoch, node_id);
     let is_new = !reveals.contains_key(&subnet_id);
     reveals
@@ -2242,6 +2297,11 @@ pub fn new_subnet_data(id: u32, state: SubnetState, start_epoch: u32) -> SubnetD
 pub fn insert_subnet(id: u32, state: SubnetState, start_epoch: u32) {
     let data = new_subnet_data(id, state, start_epoch);
     SubnetsData::<Test>::insert(id, data);
+    crate::SubnetBalanceTimes::<Test>::insert(id, crate::SubnetBalanceTime {
+        last_updated_block: System::block_number(),
+        current_epoch_area: Default::default(),
+        previous_epoch_area: Default::default(),
+    });
 }
 
 pub fn insert_subnet_requirements(id: u32) {

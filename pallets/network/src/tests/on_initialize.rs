@@ -45,8 +45,8 @@ fn is_even(num: u32) -> bool {
     return false;
 }
 
-// Simulated commit that bounces between 1e18 and 0.5e18
-fn get_commit(num: u32) -> (u128, Vec<u8>, sp_core::H256) {
+// Simulated assessment that bounces between 1e18 and 0.5e18
+fn get_assessment(num: u32) -> (u128, Vec<u8>) {
     // default onode weights
     let weights: Vec<u128> = vec![Network::percentage_factor_as_u128(), test_percent(1, 2)];
 
@@ -57,9 +57,7 @@ fn get_commit(num: u32) -> (u128, Vec<u8>, sp_core::H256) {
         weight = weights[1];
     }
     let salt: Vec<u8> = b"secret-salt".to_vec();
-    let commit_hash = make_commit(weight, salt.clone());
-
-    (weight, salt, commit_hash)
+    (weight, salt)
 }
 
 #[test]
@@ -149,6 +147,7 @@ fn test_on_initialize() {
             first_overwatch_epoch.saturating_add(overwatch_epochs_to_simulate);
         CurrentOverwatchEpoch::<Test>::put(first_overwatch_epoch);
         OverwatchEpochStartBlock::<Test>::put(start_block);
+        snapshot_overwatch_epoch();
 
         let mut epoch_preliminaries_ran = 0;
         let mut overwatch_rewards_ran = 0;
@@ -361,19 +360,26 @@ fn test_on_initialize() {
                 if Network::in_overwatch_commit_period()
                     && last_committed_overwatch_epoch != current_overwatch_epoch
                 {
-                    let commit_payload: Vec<_> = subnet_ids
-                        .iter()
-                        .enumerate()
-                        .map(|(idx, subnet_id)| {
-                            let (_, _, commit_hash) = get_commit(idx as u32);
-                            OverwatchCommit {
-                                subnet_id: *subnet_id,
-                                weight: commit_hash,
-                            }
-                        })
-                        .collect();
-
                     for overwatch_node_id in overwatch_node_ids.iter().copied() {
+                        let commit_payload: Vec<_> = subnet_ids
+                            .iter()
+                            .enumerate()
+                            .map(|(idx, subnet_id)| {
+                                let (weight, salt) = get_assessment(idx as u32);
+                                let commit_hash = make_commit(
+                                    overwatch_node_id,
+                                    *subnet_id,
+                                    current_overwatch_epoch,
+                                    weight,
+                                    salt,
+                                );
+                                OverwatchCommit {
+                                    subnet_id: *subnet_id,
+                                    weight: commit_hash,
+                                }
+                            })
+                            .collect();
+
                         let hotkey =
                             Network::get_overwatch_node_associated_hotkey(overwatch_node_id)
                                 .unwrap();
@@ -384,7 +390,14 @@ fn test_on_initialize() {
                         ));
 
                         for (idx, subnet_id) in subnet_ids.iter().enumerate() {
-                            let (_, _, commit_hash) = get_commit(idx as u32);
+                            let (weight, salt) = get_assessment(idx as u32);
+                            let commit_hash = make_commit(
+                                overwatch_node_id,
+                                *subnet_id,
+                                current_overwatch_epoch,
+                                weight,
+                                salt,
+                            );
                             assert_eq!(
                                 OverwatchCommits::<Test>::get(
                                     current_overwatch_epoch,
@@ -407,7 +420,7 @@ fn test_on_initialize() {
                         .iter()
                         .enumerate()
                         .map(|(idx, subnet_id)| {
-                            let (weight, salt, _) = get_commit(idx as u32);
+                            let (weight, salt) = get_assessment(idx as u32);
                             OverwatchReveal {
                                 subnet_id: *subnet_id,
                                 weight,
@@ -427,7 +440,7 @@ fn test_on_initialize() {
                         ));
 
                         for (idx, subnet_id) in subnet_ids.iter().enumerate() {
-                            let (weight, _, _) = get_commit(idx as u32);
+                            let (weight, _) = get_assessment(idx as u32);
                             assert_eq!(
                                 OverwatchReveals::<Test>::get(
                                     current_overwatch_epoch,

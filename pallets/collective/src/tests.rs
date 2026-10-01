@@ -180,7 +180,7 @@ impl pallet_network::Config for Test {
     type EpochLength = EpochLength;
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = ConstU32<0>;
-    type InitialMinSubnetDelegateStakeBalance = ConstU128<100_000_000_000_000_000_000>;
+    type Economics = TestEconomics;
     type Randomness = BabeRandomness;
     type PalletId = NetworkPalletId;
     type TreasuryAccount = ();
@@ -307,6 +307,7 @@ impl ExtBuilder {
             },
             default_collective: Default::default(),
             babe: Default::default(),
+            network: Default::default(),
         }
         .build_storage()
         .unwrap()
@@ -2089,3 +2090,22 @@ fn test_network_pause() {
 // 		assert_eq!(something_call, None);
 // 	})
 // }
+
+parameter_types! {
+    pub const TestEconomics: pallet_network::NetworkEconomics = pallet_network::NetworkEconomics {
+        initial_annual_emissions: 100_000 * 1_000_000_000_000_000_000,
+        terminal_annual_emissions: 75_000 * 1_000_000_000_000_000_000,
+        annual_retention_percent: 90,
+        foundation_share_percent: 5,
+        subnet_min_stake: 100 * 1_000_000_000_000_000_000,
+        max_stake: 1000 * 1_000_000_000_000_000_000,
+        max_subnet_min_stake: 250 * 1_000_000_000_000_000_000,
+        min_subnet_delegate_stake: 100 * 1_000_000_000_000_000_000,
+        overwatch_min_stake: 100 * 1_000_000_000_000_000_000,
+        base_validator_reward: 1_000_000_000_000_000_000,
+        max_slash: 1_000_000_000_000_000_000,
+        base_node_burn: 10_000_000_000_000,
+        initial_registration_cost: 1_000_000_000_000_000_000,
+        min_registration_cost: 100_000_000_000_000_000,
+    };
+}

@@ -4,4 +4,4 @@ target/
 /configure-genesis.py
 /fund-validator.py
 /transfer.py
-/talaris-validator/
+/validator/

@@ -1,6 +1,6 @@
 //! Tests enter through the real Revive engine and runtime dispatch filter.
 use super::*;
-use network_precompiles::{abi, addresses, convert};
+use ::network_precompiles::{abi, addresses, convert};
 use pallet_network as n;
 use pallet_revive::{precompiles::alloy::sol_types::SolCall, TransactionLimits};
 
@@ -43,7 +43,7 @@ fn invoke<C: SolCall>(id: u16, call: C) -> sp_runtime::DispatchOutcome {
 #[test]
 fn direct_native_and_precompile_registration_have_identical_network_state_and_events() {
     let execute = |precompile: bool| {
-        npos_tests::ext().execute_with(|| {
+        crate::tests::npos::ext().execute_with(|| {
             let who = setup();
             if precompile {
                 assert_ok!(invoke(addresses::VALIDATORS, registration(42)));
@@ -107,7 +107,7 @@ fn forwarder(id: u16, opcode: u8, revert_after: bool) -> Vec<u8> {
 #[test]
 fn contract_is_the_network_caller_and_outer_reverts_undo_network_changes() {
     for revert_after in [false, true] {
-        npos_tests::ext().execute_with(|| {
+        crate::tests::npos::ext().execute_with(|| {
             let who = setup();
             let contract = deploy(forwarder(addresses::VALIDATORS, 0xf1, revert_after));
             let account = Mapper::to_account_id(&contract);
@@ -128,7 +128,7 @@ fn contract_is_the_network_caller_and_outer_reverts_undo_network_changes() {
 
 #[test]
 fn static_delegate_nonpayable_malformed_and_unknown_calls_cannot_mutate() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         let who = setup();
         for opcode in [0xfa, 0xf4] {
             let contract = deploy(forwarder(addresses::VALIDATORS, opcode, false));
@@ -158,7 +158,7 @@ fn static_delegate_nonpayable_malformed_and_unknown_calls_cannot_mutate() {
 
 #[test]
 fn both_pause_mechanisms_and_low_gas_block_network_dispatch() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         let who = setup();
         n::TxPause::<Runtime>::put(true);
         assert!(invoke(addresses::VALIDATORS, registration(45)).is_err());
@@ -197,7 +197,7 @@ fn both_pause_mechanisms_and_low_gas_block_network_dispatch() {
 
 #[test]
 fn read_abis_preserve_missing_records_retained_stake_and_pool_generations() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         let who = setup();
         assert!(
             !read(
@@ -312,7 +312,7 @@ fn pvm_contract_can_call_a_network_precompile_as_its_own_account() {
         program::{asm, InstructionSetKind, Reg},
         writer::ProgramBlobBuilder,
     };
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         setup();
         let input = registration(47).abi_encode();
         let base = 0x10000u64; // PolkaVM's read-only data starts after its guard page.
@@ -353,7 +353,7 @@ fn pvm_contract_can_call_a_network_precompile_as_its_own_account() {
 
 #[test]
 fn permission_failures_do_not_reassign_validator_ownership() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         let who = setup();
         assert_ok!(invoke(addresses::VALIDATORS, registration(48)));
         let id = n::ColdkeyValidatorId::<Runtime>::get(&who).unwrap();
@@ -379,7 +379,7 @@ fn every_mutation_selector_routes_to_its_declared_native_call_index() {
                 use pallet_revive::precompiles::alloy::sol_types::SolInterface;
                 let wire=abi::$interface::$call::default().abi_encode();
                 let decoded=abi::$interface::$calls::abi_decode_validate(&wire).unwrap();
-                let call=network_precompiles::$domain::to_call::<Runtime>(&decoded).unwrap().expect("mutation");
+                let call=::network_precompiles::$domain::to_call::<Runtime>(&decoded).unwrap().expect("mutation");
                 assert_eq!(call.encode()[0],$index,stringify!($call));
             } )+
         };
@@ -501,12 +501,12 @@ fn network_precompile_benchmarks_with_production_bounds() {
         "consensus_read",
         "overwatch_read",
     ] {
-        npos_tests::ext().execute_with(|| {
+        crate::tests::npos::ext().execute_with(|| {
             let mut timer = Timer {
                 start: None,
                 elapsed: Default::default(),
             };
-            network_precompiles::benchmarking::run_case::<Runtime>(name, &mut timer).unwrap();
+            ::network_precompiles::benchmarking::run_case::<Runtime>(name, &mut timer).unwrap();
             println!("network precompile benchmark {name}: {:?}", timer.elapsed);
         });
     }
@@ -514,7 +514,7 @@ fn network_precompile_benchmarks_with_production_bounds() {
 
 #[test]
 fn delegation_enforces_balance_slippage_and_unbonding_maturity() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         let who = setup();
         assert_ok!(invoke(addresses::VALIDATORS, registration(50)));
         let id = n::ColdkeyValidatorId::<Runtime>::get(&who).unwrap();
@@ -557,8 +557,7 @@ fn delegation_enforces_balance_slippage_and_unbonding_maturity() {
 
 #[test]
 fn overwatch_contract_hotkey_obeys_commit_reveal_and_pays_for_pays_no_calls() {
-    use sp_runtime::traits::Hash as _;
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         let who = setup();
         let contract = deploy(forwarder(addresses::OVERWATCH, 0xf1, false));
         let mut reg = registration(51);
@@ -566,11 +565,14 @@ fn overwatch_contract_hotkey_obeys_commit_reveal_and_pays_for_pays_no_calls() {
         assert_ok!(invoke(addresses::VALIDATORS, reg));
         let validator_id = n::ColdkeyValidatorId::<Runtime>::get(&who).unwrap();
         n::OverwatchValidatorWhitelist::<Runtime>::insert(validator_id, ());
-        n::CurrentOverwatchEpoch::<Runtime>::put(1);
-        n::OverwatchEpochStartBlock::<Runtime>::put(0);
+        n::OverwatchEpochLengthMultiplier::<Runtime>::put(1);
         n::ActiveOverwatchEpochLengthMultiplier::<Runtime>::put(1);
-        n::ActiveOverwatchCommitCutoffPercent::<Runtime>::put(TENSOR / 2);
+        n::OverwatchCommitCutoffPercent::<Runtime>::put(TENSOR / 2);
         n::OverwatchMinStakeBalance::<Runtime>::put(TENSOR);
+        System::set_block_number(EpochLength::get());
+        Network::advance_overwatch_epoch(System::block_number());
+        Network::calculate_overwatch_rewards();
+        assert_eq!(n::CurrentOverwatchEpoch::<Runtime>::get(), 1);
         assert_ok!(invoke(
             addresses::OVERWATCH,
             abi::IOverwatch::registerOverwatchNodeCall {
@@ -586,7 +588,8 @@ fn overwatch_contract_hotkey_obeys_commit_reveal_and_pays_for_pays_no_calls() {
             },
         );
         let salt: n::OverwatchRevealSalt<Runtime> = vec![1, 2, 3].try_into().unwrap();
-        let hash = <Runtime as frame_system::Config>::Hashing::hash_of(&(123u128, salt));
+        let eligible_epoch = 2;
+        let hash = Network::hash_overwatch_commitment(id, 1, eligible_epoch, 123, &salt);
         let commit = abi::IOverwatch::commitOverwatchSubnetWeightsCall {
             overwatchNodeId: id,
             commitWeights: vec![abi::OverwatchCommit {
@@ -605,21 +608,30 @@ fn overwatch_contract_hotkey_obeys_commit_reveal_and_pays_for_pays_no_calls() {
         assert!(native_call(contract_call(contract, 0, reveal.abi_encode())).is_err());
         // The transaction origin is the coldkey, so only the contract hotkey can commit.
         assert!(invoke(addresses::OVERWATCH, commit.clone()).is_err());
+        // The contract hotkey is authenticated, but this epoch opened before registration.
+        assert!(native_call(contract_call(contract, 0, commit.abi_encode())).is_err());
+        System::set_block_number(2 * EpochLength::get());
+        Network::advance_overwatch_epoch(System::block_number());
+        assert_eq!(n::CurrentOverwatchEpoch::<Runtime>::get(), eligible_epoch);
+        assert!(n::OverwatchEpochSnapshots::<Runtime>::get(eligible_epoch)
+            .unwrap()
+            .nodes
+            .contains_key(&id));
         let before = Balances::free_balance(&who);
         assert_ok!(native_call(contract_call(contract, 0, commit.abi_encode())));
         assert!(
             Balances::free_balance(&who) < before,
             "Pays::No must not refund contract gas"
         );
-        System::set_block_number(EpochLength::get());
+        System::set_block_number(2 * EpochLength::get() + EpochLength::get() / 2);
         assert!(native_call(contract_call(contract, 0, commit.abi_encode())).is_err());
         let mut wrong = reveal.clone();
         wrong.reveals[0].weight = 124;
         assert!(native_call(contract_call(contract, 0, wrong.abi_encode())).is_err());
-        assert!(n::OverwatchReveals::<Runtime>::get(1, id).is_empty());
+        assert!(n::OverwatchReveals::<Runtime>::get(eligible_epoch, id).is_empty());
         assert_ok!(native_call(contract_call(contract, 0, reveal.abi_encode())));
         assert_eq!(
-            n::OverwatchReveals::<Runtime>::get(1, id).get(&1),
+            n::OverwatchReveals::<Runtime>::get(eligible_epoch, id).get(&1),
             Some(&123)
         );
     });
@@ -638,7 +650,7 @@ fn static_reads_work_and_nonzero_swap_arguments_survive_abi_conversion() {
     }
     .abi_encode();
     let decoded = abi::IStaking::IStakingCalls::abi_decode_validate(&wire).unwrap();
-    let call = network_precompiles::staking::to_call::<Runtime>(&decoded)
+    let call = ::network_precompiles::staking::to_call::<Runtime>(&decoded)
         .unwrap()
         .unwrap();
     let expected = n::Call::<Runtime>::swap_from_subnet_to_validator {
@@ -650,7 +662,7 @@ fn static_reads_work_and_nonzero_swap_arguments_survive_abi_conversion() {
         execute_before_block: 900,
     };
     assert_eq!(call.encode(), expected.encode());
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         let who = setup();
         n::NodeSubnetStake::<Runtime>::insert(7, 42, 321u128);
         let contract = deploy(forwarder(addresses::STAKING, 0xfa, false));
@@ -680,13 +692,12 @@ fn static_reads_work_and_nonzero_swap_arguments_survive_abi_conversion() {
     });
 }
 
-#[path = "network_precompile_arguments.rs"]
-mod argument_fixtures;
+mod arguments;
 
 #[test]
 fn invalid_abi_is_metered_and_returns_shared_revert_strings() {
     use pallet_revive::precompiles::alloy::sol_types::{Revert, SolError};
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         let who = setup();
         let call = |data| {
             Revive::bare_call(
@@ -722,7 +733,7 @@ fn invalid_abi_is_metered_and_returns_shared_revert_strings() {
 
 #[test]
 fn scalar_reads_do_not_pay_for_unrelated_collection_decoding() {
-    npos_tests::ext().execute_with(|| {
+    crate::tests::npos::ext().execute_with(|| {
         let who = setup();
         let measure = |data| {
             let result = Revive::bare_call(

@@ -30,7 +30,7 @@ use crate::{
     OverwatchWeightFactor, RegistrationCostAlpha, RegistrationCostDecayBlocks,
     RequireSubnetRegistrationWhitelist, StakeCooldownEpochs,
     SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower, SubnetEnactmentEpochs,
-    SubnetName, SubnetNetFlowSmoothingAlpha, SubnetNodeValidatorId, SubnetOwnerPercentage,
+    SubnetName, SubnetNodeValidatorId, SubnetOwnerPercentage,
     SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetRegistrationWhitelist,
     SubnetRemovalActivationCooldown, SubnetRemovalCheckInterval, SubnetWeightFactors,
     SubnetWeightFactorsData, SubnetsData, TotalValidatorNodes, TxRateLimit,
@@ -2472,7 +2472,7 @@ fn test_set_subnet_weight_factors() {
         let value = SubnetWeightFactorsData {
             delegate_stake: test_percent(2, 5),
             node_count: test_percent(3, 10),
-            net_flow: test_percent(3, 10),
+            time_weighted_stake: test_percent(3, 10),
         };
 
         assert_ok!(Network::set_subnet_weight_factors(
@@ -2489,30 +2489,43 @@ fn test_set_subnet_weight_factors() {
 }
 
 #[test]
-fn test_set_subnet_net_flow_smoothing_alpha() {
+fn test_subnet_weight_factors_require_exactly_one_hundred_percent() {
     new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let value = test_percent(1, 2);
-
-        assert_ok!(Network::set_subnet_net_flow_smoothing_alpha(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-            value
-        ));
-
-        assert_eq!(SubnetNetFlowSmoothingAlpha::<Test>::get(), value);
+        System::set_block_number(1);
+        let full = Network::percentage_factor_as_u128();
+        let original = SubnetWeightFactors::<Test>::get();
         assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetSubnetNetFlowSmoothingAlpha(value)
+            original.delegate_stake + original.node_count + original.time_weighted_stake,
+            full
         );
-
-        assert_err!(
-            Network::set_subnet_net_flow_smoothing_alpha(
+        for (delegate_stake, node_count, time_weighted_stake) in [
+            (0, 0, 0),
+            (full * 2 / 5, full * 2 / 5, 0),
+            (full / 2, full / 2 - 1, 0),
+            (full / 2, full / 2, 1),
+            (u128::MAX, 1, 0),
+            (0, u128::MAX, u128::MAX),
+        ] {
+            frame_support::assert_noop!(
+                Network::set_subnet_weight_factors(
+                    RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+                    SubnetWeightFactorsData { delegate_stake, node_count, time_weighted_stake },
+                ),
+                Error::<Test>::InvalidPercent
+            );
+            assert_eq!(SubnetWeightFactors::<Test>::get(), original);
+        }
+        // Individual factors may be zero; only the combined total must equal 100%.
+        for (delegate_stake, node_count, time_weighted_stake) in [
+            (full, 0, 0), (0, full, 0), (0, 0, full), (full / 2, full / 2, 0),
+        ] {
+            let value = SubnetWeightFactorsData { delegate_stake, node_count, time_weighted_stake };
+            assert_ok!(Network::set_subnet_weight_factors(
                 RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-                Network::percentage_factor_as_u128() + 1
-            ),
-            Error::<Test>::InvalidPercent
-        );
+                value.clone(),
+            ));
+            assert_eq!(SubnetWeightFactors::<Test>::get(), value);
+        }
     });
 }
 

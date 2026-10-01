@@ -22,30 +22,19 @@ pub struct Inflation {
     pub initial_annual_emissions: u128,
     /// Minimum annual emissions after decay, in atomic token units.
     pub terminal_annual_emissions: u128,
-}
-
-const TOKEN: u128 = 1_000_000_000_000_000_000;
-const DEFAULT_INITIAL_ANNUAL_EMISSIONS: u128 = 100_000 * TOKEN;
-const DEFAULT_TERMINAL_ANNUAL_EMISSIONS: u128 = 75_000 * TOKEN;
-
-/// Retain 90% of the previous year's emissions (a 10% annual decay).
-const ANNUAL_RETENTION_NUMERATOR: u128 = 90;
-const ANNUAL_RETENTION_DENOMINATOR: u128 = 100;
-
-/// Reserve 5% of the annual emissions budget for the foundation.
-const FOUNDATION_NUMERATOR: u128 = 5;
-const EMISSIONS_SPLIT_DENOMINATOR: u128 = 100;
-
-impl Default for Inflation {
-    fn default() -> Self {
-        Self {
-            initial_annual_emissions: DEFAULT_INITIAL_ANNUAL_EMISSIONS,
-            terminal_annual_emissions: DEFAULT_TERMINAL_ANNUAL_EMISSIONS,
-        }
-    }
+    pub annual_retention_percent: u8,
 }
 
 impl Inflation {
+    pub fn from_config<T: Config>() -> Self {
+        let economics = T::Economics::get();
+        Self {
+            initial_annual_emissions: economics.initial_annual_emissions,
+            terminal_annual_emissions: economics.terminal_annual_emissions,
+            annual_retention_percent: economics.annual_retention_percent,
+        }
+    }
+
     /// Multiply `value` by a proper fraction without overflowing `u128`.
     fn mul_ratio(value: u128, numerator: u128, denominator: u128) -> u128 {
         debug_assert!(denominator > 0);
@@ -61,19 +50,19 @@ impl Inflation {
 
     /// Return the annual emissions budget after `elapsed_years` of geometric decay.
     pub fn inflation(&self, elapsed_years: u32) -> u128 {
+        assert!(self.annual_retention_percent <= 100);
         let terminal = self.terminal_annual_emissions;
+        if self.annual_retention_percent == 100 {
+            return self.initial_annual_emissions.max(terminal);
+        }
         let mut emissions = self.initial_annual_emissions.max(terminal);
         let mut remaining_years = elapsed_years;
 
         // The loop terminates as soon as the terminal floor is reached. With the default
         // parameters this requires at most three iterations, regardless of chain age.
         while remaining_years > 0 && emissions > terminal {
-            emissions = Self::mul_ratio(
-                emissions,
-                ANNUAL_RETENTION_NUMERATOR,
-                ANNUAL_RETENTION_DENOMINATOR,
-            )
-            .max(terminal);
+            emissions = Self::mul_ratio(emissions, self.annual_retention_percent as u128, 100)
+                .max(terminal);
             remaining_years = remaining_years.saturating_sub(1);
         }
 
@@ -90,7 +79,7 @@ impl<T: Config> Pallet<T> {
         }
 
         let elapsed_years = epoch / epochs_per_year;
-        Inflation::default().inflation(elapsed_years)
+        Inflation::from_config::<T>().inflation(elapsed_years)
     }
 
     /// Return `(subnet_emissions, foundation_emissions)` for `epoch`.
@@ -103,8 +92,8 @@ impl<T: Config> Pallet<T> {
         let annual_emissions = Self::get_inflation(epoch);
         let annual_foundation_emissions = Inflation::mul_ratio(
             annual_emissions,
-            FOUNDATION_NUMERATOR,
-            EMISSIONS_SPLIT_DENOMINATOR,
+            T::Economics::get().foundation_share_percent as u128,
+            100,
         );
         let annual_subnet_emissions = annual_emissions.saturating_sub(annual_foundation_emissions);
 

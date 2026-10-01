@@ -8,10 +8,11 @@ use crate::{
     ValidatorColdkey, ValidatorIdHotkey, ValidatorOverwatchNodeId,
 };
 use frame_support::traits::Currency;
-use frame_support::{assert_err, assert_ok};
+use frame_support::{assert_err, assert_noop, assert_ok};
 use sp_std::collections::btree_map::BTreeMap;
 
 fn insert_commit(epoch: u32, node_id: u32, subnet_id: u32, hash: sp_core::H256) {
+    seed_overwatch_epoch_eligibility(node_id);
     OverwatchCommits::<Test>::mutate(epoch, node_id, |commits| {
         commits
             .try_insert(subnet_id, hash)
@@ -97,9 +98,16 @@ fn test_do_commit_and_reveal_weights_success() {
         // Weight + salt
         let weight: u128 = 123456;
         let salt: Vec<u8> = b"secret-salt".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            overwatch_node_id,
+            subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
 
         // Commit
+        seed_overwatch_epoch_eligibility(overwatch_node_id);
         assert_ok!(Network::perform_commit_overwatch_subnet_weights(
             overwatch_node_id,
             vec![OverwatchCommit {
@@ -141,7 +149,13 @@ fn test_reveal_batch_validation_is_atomic() {
         let missing_commit_subnet_id = 12;
         let weight = 123_456;
         let salt = b"atomic-reveal".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            overwatch_node_id,
+            valid_subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
 
         insert_commit(
             overwatch_epoch,
@@ -192,9 +206,17 @@ fn test_commit_batch_validation_is_atomic() {
         insert_subnet(new_subnet_id, SubnetState::Active, 0);
         insert_subnet(duplicate_subnet_id, SubnetState::Active, 0);
 
-        let existing_hash = make_commit(10, b"existing".to_vec());
-        let new_hash = make_commit(20, b"new".to_vec());
+        let existing_hash = make_commit(
+            node_id,
+            duplicate_subnet_id,
+            epoch,
+            10,
+            b"existing".to_vec(),
+        );
+        let new_hash = make_commit(node_id, new_subnet_id, epoch, 20, b"new".to_vec());
         insert_commit(epoch, node_id, duplicate_subnet_id, existing_hash);
+
+        seed_overwatch_epoch_eligibility(node_id);
 
         assert_err!(
             Network::perform_commit_overwatch_subnet_weights(
@@ -233,23 +255,34 @@ fn test_repeated_commit_calls_respect_cumulative_subnet_bound() {
         }
 
         for subnet_id in 1..=max_subnets {
+            seed_overwatch_epoch_eligibility(node_id);
             assert_ok!(Network::perform_commit_overwatch_subnet_weights(
                 node_id,
                 vec![OverwatchCommit {
                     subnet_id,
-                    weight: make_commit(subnet_id as u128, vec![subnet_id as u8]),
+                    weight: make_commit(
+                        node_id,
+                        subnet_id,
+                        epoch,
+                        subnet_id as u128,
+                        vec![subnet_id as u8]
+                    ),
                 }],
             ));
         }
 
         let row_before_failure = OverwatchCommits::<Test>::get(epoch, node_id);
         let overflow_subnet_id = max_subnets.saturating_add(1);
+        seed_overwatch_epoch_eligibility(node_id);
         assert_err!(
             Network::perform_commit_overwatch_subnet_weights(
                 node_id,
                 vec![OverwatchCommit {
                     subnet_id: overflow_subnet_id,
                     weight: make_commit(
+                        node_id,
+                        overflow_subnet_id,
+                        epoch,
                         overflow_subnet_id as u128,
                         vec![overflow_subnet_id as u8],
                     ),
@@ -258,7 +291,10 @@ fn test_repeated_commit_calls_respect_cumulative_subnet_bound() {
             Error::<Test>::MaxSubnets
         );
 
-        assert_eq!(OverwatchCommits::<Test>::get(epoch, node_id), row_before_failure);
+        assert_eq!(
+            OverwatchCommits::<Test>::get(epoch, node_id),
+            row_before_failure
+        );
         assert_eq!(stored_commit(epoch, node_id, overflow_subnet_id), None);
     });
 }
@@ -272,7 +308,13 @@ fn test_reveal_rejects_new_subnet_after_epoch_subnet_bound() {
         let new_subnet_id = max_subnets.saturating_add(1);
         let weight = 123_456;
         let salt = b"subnet-bound".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            overwatch_node_id,
+            new_subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
         insert_commit(
             overwatch_epoch,
             overwatch_node_id,
@@ -320,7 +362,13 @@ fn test_reveal_rejects_unique_record_after_epoch_product_bound() {
         let max_records = max_nodes.saturating_mul(max_subnets);
         let weight = 123_456;
         let salt = b"record-bound".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            overwatch_node_id,
+            subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
         insert_commit(overwatch_epoch, overwatch_node_id, subnet_id, commit_hash);
 
         let initial_stats = OverwatchRevealStats::<Test> {
@@ -373,24 +421,45 @@ fn reveal_stats_increment_once_and_removal_decrements_shared_and_sole_subnets() 
         let second_shared_weight = test_percent(3, 4);
         let second_shared_salt = b"second-shared".to_vec();
 
+        seed_overwatch_epoch_eligibility(first_node_id);
+
         assert_ok!(Network::perform_commit_overwatch_subnet_weights(
             first_node_id,
             vec![
                 OverwatchCommit {
                     subnet_id: shared_subnet_id,
-                    weight: make_commit(first_shared_weight, first_shared_salt.clone()),
+                    weight: make_commit(
+                        first_node_id,
+                        shared_subnet_id,
+                        epoch,
+                        first_shared_weight,
+                        first_shared_salt.clone()
+                    ),
                 },
                 OverwatchCommit {
                     subnet_id: sole_subnet_id,
-                    weight: make_commit(first_sole_weight, first_sole_salt.clone()),
+                    weight: make_commit(
+                        first_node_id,
+                        sole_subnet_id,
+                        epoch,
+                        first_sole_weight,
+                        first_sole_salt.clone()
+                    ),
                 },
             ],
         ));
+        seed_overwatch_epoch_eligibility(second_node_id);
         assert_ok!(Network::perform_commit_overwatch_subnet_weights(
             second_node_id,
             vec![OverwatchCommit {
                 subnet_id: shared_subnet_id,
-                weight: make_commit(second_shared_weight, second_shared_salt.clone()),
+                weight: make_commit(
+                    second_node_id,
+                    shared_subnet_id,
+                    epoch,
+                    second_shared_weight,
+                    second_shared_salt.clone()
+                ),
             }],
         ));
 
@@ -457,7 +526,7 @@ fn reveal_stats_increment_once_and_removal_decrements_shared_and_sole_subnets() 
         ));
         assert_eq!(ActiveOverwatchRevealStats::<Test>::get(), stats_after_both);
 
-        assert_ok!(Network::perform_remove_overwatch_node(first_node_id));
+        assert_ok!(Network::perform_disqualify_overwatch_node(first_node_id));
 
         let remaining_stats = ActiveOverwatchRevealStats::<Test>::get();
         assert_eq!(remaining_stats.records, 1);
@@ -528,9 +597,16 @@ fn test_do_commit_and_reveal_weights_not_key_owner_error() {
         // Weight + salt
         let weight: u128 = 123456;
         let salt: Vec<u8> = b"secret-salt".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            overwatch_node_id,
+            subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
 
         // Commit
+        seed_overwatch_epoch_eligibility(1);
         assert_err!(
             Network::commit_overwatch_subnet_weights(
                 RuntimeOrigin::signed(account(999)),
@@ -594,9 +670,16 @@ fn test_do_commit_and_reveal_weights_commits_empty_error() {
         // Weight + salt
         let weight: u128 = 123456;
         let salt: Vec<u8> = b"secret-salt".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            current_uid,
+            subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
 
         // Commit
+        seed_overwatch_epoch_eligibility(current_uid);
         assert_err!(
             Network::commit_overwatch_subnet_weights(
                 RuntimeOrigin::signed(hotkey.clone()),
@@ -665,9 +748,16 @@ fn test_do_commit_and_reveal_weights_already_committed_error() {
         // Weight + salt
         let weight: u128 = 123456;
         let salt: Vec<u8> = b"secret-salt".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            overwatch_node_id,
+            subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
 
         // Commit
+        seed_overwatch_epoch_eligibility(current_uid);
         assert_ok!(Network::commit_overwatch_subnet_weights(
             RuntimeOrigin::signed(hotkey.clone()),
             current_uid,
@@ -698,6 +788,8 @@ fn test_do_commit_and_reveal_weights_already_committed_error() {
             stored_reveal(overwatch_epoch, current_uid, subnet_id),
             Some(weight)
         );
+
+        seed_overwatch_epoch_eligibility(current_uid);
 
         assert_err!(
             Network::commit_overwatch_subnet_weights(
@@ -765,9 +857,16 @@ fn test_commit_and_reveal_extrinsics() {
         // Weight + salt
         let weight: u128 = 123456;
         let salt: Vec<u8> = b"secret-salt".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            overwatch_node_id,
+            subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
 
         // Commit
+        seed_overwatch_epoch_eligibility(overwatch_node_id);
         assert_ok!(Network::commit_overwatch_subnet_weights(
             RuntimeOrigin::signed(hotkey.clone()),
             overwatch_node_id,
@@ -853,9 +952,16 @@ fn test_reveal_overwatch_subnet_weights_not_key_owner_error() {
         // Weight + salt
         let weight: u128 = 123456;
         let salt: Vec<u8> = b"secret-salt".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            overwatch_node_id,
+            subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
 
         // Commit
+        seed_overwatch_epoch_eligibility(overwatch_node_id);
         assert_ok!(Network::commit_overwatch_subnet_weights(
             RuntimeOrigin::signed(hotkey.clone()),
             overwatch_node_id,
@@ -951,11 +1057,18 @@ fn test_reveal_overwatch_subnet_weights_no_commit_found_error() {
         // Weight + salt
         let weight: u128 = 123456;
         let salt: Vec<u8> = b"secret-salt".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            overwatch_node_id,
+            subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
 
         set_block_to_overwatch_reveal_block(overwatch_epoch);
 
         // Reveal
+        seed_overwatch_epoch_eligibility(overwatch_node_id);
         assert_err!(
             Network::reveal_overwatch_subnet_weights(
                 RuntimeOrigin::signed(hotkey.clone()),
@@ -1020,11 +1133,18 @@ fn test_reveal_overwatch_subnet_weights_reveal_mismatch_error() {
         // Weight + salt
         let weight: u128 = 123456;
         let salt: Vec<u8> = b"secret-salt".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            overwatch_node_id,
+            subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
 
         let fake_salt: Vec<u8> = b"fake-salt".to_vec();
 
         // Commit
+        seed_overwatch_epoch_eligibility(overwatch_node_id);
         assert_ok!(Network::commit_overwatch_subnet_weights(
             RuntimeOrigin::signed(hotkey.clone()),
             overwatch_node_id,
@@ -1139,15 +1259,27 @@ fn test_commit_reveal_multiple_times_in_same_epoch() {
         // Subnet 1
         let weight_1: u128 = 123456;
         let salt_1: Vec<u8> = b"secret-salt-1".to_vec();
-        let commit_hash_1 = make_commit(weight_1, salt_1.clone());
+        let overwatch_epoch = Network::get_current_overwatch_epoch_as_u32();
+        let commit_hash_1 = make_commit(
+            overwatch_node_id,
+            subnet_id_1,
+            overwatch_epoch,
+            weight_1,
+            salt_1.clone(),
+        );
         // Subnet 2
         let weight_2: u128 = 78910;
         let salt_2: Vec<u8> = b"secret-salt-2".to_vec();
-        let commit_hash_2 = make_commit(weight_2, salt_2.clone());
-
-        let overwatch_epoch = Network::get_current_overwatch_epoch_as_u32();
+        let commit_hash_2 = make_commit(
+            overwatch_node_id,
+            subnet_id_2,
+            overwatch_epoch,
+            weight_2,
+            salt_2.clone(),
+        );
 
         // Commit
+        seed_overwatch_epoch_eligibility(overwatch_node_id);
         assert_ok!(Network::commit_overwatch_subnet_weights(
             RuntimeOrigin::signed(hotkey.clone()),
             overwatch_node_id,
@@ -1166,6 +1298,8 @@ fn test_commit_reveal_multiple_times_in_same_epoch() {
             stored_commit(overwatch_epoch, overwatch_node_id, subnet_id_2),
             None
         );
+
+        seed_overwatch_epoch_eligibility(overwatch_node_id);
 
         assert_ok!(Network::commit_overwatch_subnet_weights(
             RuntimeOrigin::signed(hotkey.clone()),
@@ -1262,7 +1396,13 @@ fn test_commit_and_reveal_phase_errors() {
         // Weight + salt
         let weight: u128 = 123456;
         let salt: Vec<u8> = b"secret-salt".to_vec();
-        let commit_hash = make_commit(weight, salt.clone());
+        let commit_hash = make_commit(
+            overwatch_node_id,
+            subnet_id,
+            overwatch_epoch,
+            weight,
+            salt.clone(),
+        );
 
         // Reveal
         assert_err!(
@@ -1281,6 +1421,7 @@ fn test_commit_and_reveal_phase_errors() {
         set_block_to_overwatch_reveal_block(overwatch_epoch);
 
         // Commit fail
+        seed_overwatch_epoch_eligibility(overwatch_node_id);
         assert_err!(
             Network::commit_overwatch_subnet_weights(
                 RuntimeOrigin::signed(hotkey.clone()),
@@ -1293,4 +1434,190 @@ fn test_commit_and_reveal_phase_errors() {
             Error::<Test>::NotCommitPeriod
         );
     });
+}
+
+#[test]
+fn copied_commitment_cannot_be_revealed_by_another_node_even_if_submitted_first() {
+    new_test_ext().execute_with(|| {
+        let epoch = Network::get_current_overwatch_epoch_as_u32();
+        let subnet_id = 1;
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+        manual_insert_validator(1, 101, 201);
+        manual_insert_validator(2, 102, 202);
+        let honest_node = insert_overwatch_node_v2(1);
+        let copying_node = insert_overwatch_node_v2(2);
+        let weight = test_percent(3, 5);
+        let salt = b"honest-private-salt".to_vec();
+        let commitment = make_commit(honest_node, subnet_id, epoch, weight, salt.clone());
+
+        set_block_to_overwatch_commit_block(epoch);
+        // The attacker can front-run the honest transaction with its public hash.
+        for (node, hotkey) in [(copying_node, account(202)), (honest_node, account(201))] {
+            seed_overwatch_epoch_eligibility(node);
+            assert_ok!(Network::commit_overwatch_subnet_weights(
+                RuntimeOrigin::signed(hotkey),
+                node,
+                vec![OverwatchCommit {
+                    subnet_id,
+                    weight: commitment
+                }],
+            ));
+        }
+
+        set_block_to_overwatch_reveal_block(epoch);
+        let reveal = || {
+            vec![OverwatchReveal {
+                subnet_id,
+                weight,
+                salt: salt.clone().try_into().unwrap(),
+            }]
+        };
+        assert_ok!(Network::reveal_overwatch_subnet_weights(
+            RuntimeOrigin::signed(account(201)),
+            honest_node,
+            reveal(),
+        ));
+        assert_eq!(stored_reveal(epoch, honest_node, subnet_id), Some(weight));
+        let stats = ActiveOverwatchRevealStats::<Test>::get();
+        assert_eq!(stats.records, 1);
+
+        // Learning the honest node's weight and salt does not open the copied hash.
+        assert_noop!(
+            Network::reveal_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(202)),
+                copying_node,
+                reveal(),
+            ),
+            Error::<Test>::RevealMismatch
+        );
+        // Claiming the honest node ID instead fails authentication.
+        assert_noop!(
+            Network::reveal_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(202)),
+                honest_node,
+                reveal(),
+            ),
+            Error::<Test>::NotKeyOwner
+        );
+        // The attacker cannot replace its commitment after observing the reveal.
+        seed_overwatch_epoch_eligibility(copying_node);
+        assert_noop!(
+            Network::commit_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(202)),
+                copying_node,
+                vec![OverwatchCommit {
+                    subnet_id,
+                    weight: make_commit(copying_node, subnet_id, epoch, weight, salt.clone()),
+                }],
+            ),
+            Error::<Test>::NotCommitPeriod
+        );
+        assert_eq!(stored_reveal(epoch, copying_node, subnet_id), None);
+        assert_eq!(ActiveOverwatchRevealStats::<Test>::get(), stats);
+    });
+}
+
+#[test]
+fn commitments_cannot_be_replayed_across_subnets_or_epochs() {
+    // Change exactly one bound context field in each case.
+    for replay_in_next_epoch in [false, true] {
+        new_test_ext().execute_with(|| {
+            let epoch = Network::get_current_overwatch_epoch_as_u32();
+            let subnet_id = 1;
+            let other_subnet_id = 2;
+            insert_subnet(subnet_id, SubnetState::Active, 0);
+            insert_subnet(other_subnet_id, SubnetState::Active, 0);
+            manual_insert_validator(1, 101, 201);
+            let node = insert_overwatch_node_v2(1);
+            let weight = test_percent(1, 2);
+            let salt = b"context-bound-salt".to_vec();
+            let commitment = make_commit(node, subnet_id, epoch, weight, salt.clone());
+            let target_subnet = if replay_in_next_epoch {
+                subnet_id
+            } else {
+                other_subnet_id
+            };
+            let target_epoch = if replay_in_next_epoch {
+                epoch + 1
+            } else {
+                epoch
+            };
+            set_overwatch_epoch(target_epoch);
+            set_block_to_overwatch_commit_block(target_epoch);
+            seed_overwatch_epoch_eligibility(node);
+            assert_ok!(Network::commit_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(201)),
+                node,
+                vec![OverwatchCommit {
+                    subnet_id: target_subnet,
+                    weight: commitment
+                }],
+            ));
+            set_block_to_overwatch_reveal_block(target_epoch);
+            assert_noop!(
+                Network::reveal_overwatch_subnet_weights(
+                    RuntimeOrigin::signed(account(201)),
+                    node,
+                    vec![OverwatchReveal {
+                        subnet_id: target_subnet,
+                        weight,
+                        salt: salt.try_into().unwrap(),
+                    }],
+                ),
+                Error::<Test>::RevealMismatch
+            );
+            assert_eq!(stored_reveal(target_epoch, node, target_subnet), None);
+        });
+    }
+}
+
+#[test]
+fn unbound_commitment_is_rejected_atomically_with_a_valid_reveal_prefix() {
+    use sp_runtime::traits::Hash;
+
+    new_test_ext().execute_with(|| {
+        let epoch = Network::get_current_overwatch_epoch_as_u32();
+        let node = 1;
+        let weight = test_percent(1, 2);
+        let salt = b"unbound-salt".to_vec();
+        insert_commit(
+            epoch,
+            node,
+            1,
+            make_commit(node, 1, epoch, weight, salt.clone()),
+        );
+        insert_commit(epoch, node, 2, Hashing::hash_of(&(weight, salt.clone())));
+        assert_noop!(
+            Network::perform_reveal_overwatch_subnet_weights(
+                node,
+                vec![
+                    OverwatchReveal {
+                        subnet_id: 1,
+                        weight,
+                        salt: salt.clone().try_into().unwrap()
+                    },
+                    OverwatchReveal {
+                        subnet_id: 2,
+                        weight,
+                        salt: salt.try_into().unwrap()
+                    },
+                ],
+            ),
+            Error::<Test>::RevealMismatch
+        );
+    });
+}
+
+#[test]
+fn overwatch_commitment_matches_client_encoding_vector() {
+    // Independently encoded SCALE preimage and Blake2b-256 digest, also in the client docs.
+    let expected = sp_core::H256::from([
+        0x4d, 0x77, 0x85, 0xea, 0x48, 0x19, 0x1e, 0x23, 0xd6, 0xce, 0xd1, 0x0e, 0xe0, 0x6e, 0x38,
+        0x68, 0x05, 0x31, 0x83, 0xc3, 0x26, 0x65, 0xe9, 0x8e, 0x5d, 0xf1, 0x69, 0xf6, 0xb3, 0xfc,
+        0xb4, 0x9c,
+    ]);
+    assert_eq!(
+        Network::hash_overwatch_commitment(7, 11, 13, 123456, b"secret-salt"),
+        expected,
+    );
 }

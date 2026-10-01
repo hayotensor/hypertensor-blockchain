@@ -1,6 +1,6 @@
 //! Smart contracts share the native balances and accounts of this runtime.
 
-use super::*;
+use crate::*;
 use frame_support::traits::ConstBool;
 use frame_system::EnsureSigned;
 use pallet_revive::evm::runtime::EthExtra;
@@ -11,8 +11,8 @@ parameter_types! {
     pub const ChainId: u64 = 1337;
     pub const DepositPerItem: Balance = deposit(1, 0);
     pub const DepositPerByte: Balance = deposit(0, 1);
-    pub const DepositPerChildTrieItem: Balance = deposit(1, 0) / 100;
-    pub const CodeHashLockupDepositPercent: Perbill = Perbill::from_percent(30);
+    pub const DepositPerChildTrieItem: Balance = tokenomics::POLICY.storage_child_item_deposit;
+    pub const CodeHashLockupDepositPercent: Perbill = Perbill::from_percent(tokenomics::CODE_HASH_LOCKUP_PERCENT);
     // Leave room for Network's 50% hook budget and at least 10% for other work.
     // This scales the normal-class max extrinsic, not the entire block weight.
     pub const MaxEthExtrinsicWeight: FixedU128 = FixedU128::from_rational(3, 5);

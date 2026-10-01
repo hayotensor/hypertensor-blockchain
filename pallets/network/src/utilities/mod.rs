@@ -11,5 +11,6 @@ pub mod randomness;
 pub mod reputation;
 pub mod slot;
 pub mod subnet;
+pub mod subnet_balance_time;
 pub mod subnet_node;
 pub mod validator;

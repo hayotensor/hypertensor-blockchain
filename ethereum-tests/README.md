@@ -1,6 +1,6 @@
 # Ethereum contract integration tests
 
-Run real Ethereum transactions against a disposable Talaris node and the matching
+Run real Ethereum transactions against a disposable node and the matching
 Revive `eth-rpc` adapter. The suite uses ethers v6, Node's test runner, solc, and
 OpenZeppelin contracts. It compiles Solidity, deploys bytecode, signs transactions,
 waits for finalized receipts, and queries contract state over Ethereum JSON-RPC.
@@ -33,10 +33,10 @@ ETH_RPC="$PWD/.tools/bin/eth-rpc" npm test
 ```
 
 `SKIP_WASM_BUILD=1` applies only to the adapter installation, whose build uses
-native development-runtime metadata. The Talaris node must include its Wasm,
+native development-runtime metadata. The node must include its Wasm,
 which is why its build command explicitly unsets that variable.
 
-If `eth-rpc` is already on `PATH`, simply run `npm test`. `TALARIS_NODE` can select
+If `eth-rpc` is already on `PATH`, simply run `npm test`. `VALIDATOR_NODE` can select
 another built node binary; its default is `../target/release/hypertensor-node`.
 `ETH_RPC` selects the adapter executable. These select binaries, not existing
 network endpoints. `fast-runtime` is optional; the cases do not wait for an era.
@@ -72,7 +72,7 @@ Ethereum client, but does not copy its manual-seal RPCs or assume Frontier's gas
 schedule. Reference:
 [Frontier ts-tests at 24fcbdb](https://github.com/polkadot-evm/frontier/tree/24fcbdb175d15c4727c9e139a5e84a71270afeba/ts-tests).
 
-Reviewed alongside the repository's `runtime/src/revive_tests.rs`, the
+Reviewed alongside the repository's `runtime/src/tests/revive/mod.rs`, the
 [pinned Revive RPC tests](https://github.com/paritytech/polkadot-sdk/blob/72284b37a234f8a1565f2043ddbf8280a69fcf29/substrate/frame/revive/rpc/src/tests.rs),
 Revive's runtime tests, and
 [Parity's EVM test suite at b98df5a](https://github.com/paritytech/evm-test-suite/tree/b98df5aa538f70f9e272442f71d3882943d002b0).

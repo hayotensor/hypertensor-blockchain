@@ -30,7 +30,7 @@ use crate::{
     SlotAssignment, SubnetBootnodeAccess, SubnetBootnodes, SubnetConsensusAttestorWeights,
     SubnetConsensusSubmission, SubnetData, SubnetDelegateStakeRewardsPercentage,
     SubnetElectedValidator, SubnetEnactmentEpochs, SubnetIdFriendlyUid, SubnetMaxStakeBalance,
-    SubnetMinStakeBalance, SubnetName, SubnetNetFlow, SubnetNetFlowSmoothedWeight, SubnetNode,
+    SubnetMinStakeBalance, SubnetName, SubnetBalanceTime, SubnetBalanceTimes, SubnetNode,
     SubnetNodeClass, SubnetNodeClassification, SubnetNodeConsecutiveIncludedEpochs,
     SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeIdleConsecutiveEpochs,
     SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeQueue, SubnetNodeQueueEpochs,
@@ -169,6 +169,11 @@ fn test_register_subnet() {
         let subnet = SubnetsData::<Test>::get(subnet_id).unwrap();
 
         assert_eq!(subnet.consensus_mechanism, ConsensusMechanism::Attestation);
+        assert_eq!(SubnetBalanceTimes::<Test>::get(subnet_id), Some(SubnetBalanceTime {
+            last_updated_block: block_number,
+            current_epoch_area: Default::default(),
+            previous_epoch_area: Default::default(),
+        }));
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SubnetRegistered {
@@ -539,8 +544,11 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
             subnet_id,
             SubnetReputationFactorSchedule::default(),
         );
-        SubnetNetFlow::<Test>::insert(subnet_id, -22);
-        SubnetNetFlowSmoothedWeight::<Test>::insert(subnet_id, 23);
+        SubnetBalanceTimes::<Test>::insert(subnet_id, SubnetBalanceTime {
+            last_updated_block: System::block_number(),
+            current_epoch_area: 22u128.into(),
+            previous_epoch_area: 23u128.into(),
+        });
         EmergencySubnetNodeElectionData::<Test>::insert(
             subnet_id,
             EmergencySubnetValidatorData {
@@ -684,10 +692,7 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
         assert!(!SubnetReputationFactorSchedules::<Test>::contains_key(
             subnet_id
         ));
-        assert!(!SubnetNetFlow::<Test>::contains_key(subnet_id));
-        assert!(!SubnetNetFlowSmoothedWeight::<Test>::contains_key(
-            subnet_id
-        ));
+        assert!(!SubnetBalanceTimes::<Test>::contains_key(subnet_id));
         assert!(!EmergencySubnetNodeElectionData::<Test>::contains_key(
             subnet_id
         ));
@@ -899,7 +904,7 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
             TotalDelegateStake::<Test>::get(),
             total_delegate_stake_before.saturating_sub(delegate_balance_before)
         );
-        assert!(!SubnetNetFlow::<Test>::contains_key(subnet_id));
+        assert!(!SubnetBalanceTimes::<Test>::contains_key(subnet_id));
     })
 }
 

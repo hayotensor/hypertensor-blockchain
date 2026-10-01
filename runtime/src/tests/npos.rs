@@ -1,11 +1,11 @@
-use super::*;
+use crate::*;
 use frame_support::{__private::TestExternalities, assert_ok};
 use sp_consensus_babe::AuthorityId as BabeId;
 use sp_core::{proof_of_possession::ProofOfPossessionGenerator, Pair};
 use sp_runtime::{traits::Header as HeaderT, BuildStorage};
 
 fn authority(seed: &str) -> (AccountId, BabeId, GrandpaId) {
-    genesis_config_presets::authority_keys_from_seed(seed)
+    genesis::presets::authority_keys_from_seed(seed)
 }
 
 fn key_proof(
@@ -51,7 +51,7 @@ fn from_preset(preset: serde_json::Value) -> TestExternalities {
 }
 
 pub(super) fn ext() -> TestExternalities {
-    from_preset(genesis_config_presets::local_config_genesis())
+    from_preset(genesis::presets::local_config_genesis())
 }
 
 fn validate_report(
@@ -145,9 +145,9 @@ fn advance_to_era(era: u32) -> bool {
 #[test]
 fn presets_have_funded_native_stakers_and_matching_consensus_keys() {
     for (preset, expected) in [
-        (genesis_config_presets::development_config_genesis(), 1),
-        (genesis_config_presets::local_config_genesis(), 2),
-        (genesis_config_presets::four_validator_test_genesis(), 4),
+        (genesis::presets::development_config_genesis(), 1),
+        (genesis::presets::local_config_genesis(), 2),
+        (genesis::presets::four_validator_test_genesis(), 4),
     ] {
         from_preset(preset).execute_with(|| {
             use sp_staking::currency_to_vote::CurrencyToVote;
@@ -297,7 +297,7 @@ fn bonded_stake_is_held_and_cannot_be_transferred() {
 #[test]
 fn staking_offences_disable_the_more_severe_offender_within_the_session_limit() {
     use sp_staking::offence::{OffenceDetails, OnOffenceHandler};
-    from_preset(genesis_config_presets::four_validator_test_genesis()).execute_with(|| {
+    from_preset(genesis::presets::four_validator_test_genesis()).execute_with(|| {
         block(1);
         let validators = Session::validators();
         assert_eq!(validators.len(), 4);

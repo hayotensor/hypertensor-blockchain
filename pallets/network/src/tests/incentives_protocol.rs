@@ -6376,6 +6376,176 @@ fn test_proposal_derived_reputation_skips_one_identity_step_below_supermajority(
 }
 
 #[test]
+fn test_non_attestor_reward_uses_snapshotted_timing_floor() {
+    // Exercise both sides of the reputation gate, emergency eligibility, configurable endpoints,
+    // and an integer floor that cannot be represented exactly as f64.
+    for emergency in [false, true] {
+        for attesting_count in [6u32, 7] {
+            for minimum in [
+                0,
+                330_000_000_000_000_000,
+                330_000_000_000_000_001,
+                1_000_000_000_000_000_000,
+            ] {
+                new_test_ext().execute_with(|| {
+                    let node_count = if emergency { 9 } else { 8 };
+                    let (subnet_id, subnet_epoch, proposer_node_id, proposer_hotkey, mut scores) =
+                        build_elected_subnet_for_consensus_with_setup(
+                            b"non-attestor-reward-floor".to_vec(),
+                            node_count,
+                            |subnet_id| {
+                                crate::AttestorMinRewardFactor::<Test>::put(minimum);
+                                if emergency {
+                                    install_active_emergency_validator_set(
+                                        subnet_id,
+                                        (1..=8).collect(),
+                                    );
+                                }
+                            },
+                        );
+                    set_equal_validator_delegate_weights_for_elected_round(subnet_id, node_count);
+                    for entry in &mut scores {
+                        entry.score = 1;
+                    }
+                    let non_attestor = (1..=8).find(|id| *id != proposer_node_id).unwrap();
+                    let additional_attestors = (1..=8)
+                        .filter(|id| *id != proposer_node_id && *id != non_attestor)
+                        .take((attesting_count - 1) as usize)
+                        .collect::<Vec<_>>();
+                    let late_attestor = additional_attestors[0];
+                    let percentage_factor = Network::percentage_factor_as_u128();
+
+                    // Both recorded attestations and the settlement fallback must retain the
+                    // elected minimum even when governance changes the live value before proposing.
+                    crate::AttestorMinRewardFactor::<Test>::put(percentage_factor - minimum);
+                    assert_ok!(Network::propose_attestation(
+                        RuntimeOrigin::signed(proposer_hotkey),
+                        subnet_id,
+                        scores,
+                        None,
+                        None,
+                        None,
+                        None,
+                    ));
+                    System::set_block_number(System::block_number() + EpochLength::get() * 9 / 10);
+                    attest_subnet_nodes(subnet_id, &additional_attestors);
+                    let (submission, _) = Network::precheck_subnet_consensus_submission(
+                        subnet_id,
+                        subnet_epoch,
+                        Network::get_current_epoch_as_u32(),
+                    );
+                    let submission = submission.unwrap();
+                    assert_eq!(submission.policy.attestor_min_reward_factor, minimum);
+                    assert_eq!(submission.eligible_validator_identity_count, 8);
+                    assert_eq!(submission.identity_attestation_count, attesting_count);
+                    assert!(
+                        submission.attestation_ratio
+                            >= submission.policy.min_attestation_percentage
+                    );
+                    assert_eq!(
+                        submission.identity_attestation_ratio
+                            >= submission.policy.super_majority_attestation_ratio,
+                        attesting_count == 7,
+                    );
+                    let late_factor = submission.attests[&late_attestor].reward_factor;
+                    assert!(late_factor >= minimum);
+                    if minimum == test_percent(33, 100) {
+                        assert!(late_factor < percentage_factor);
+                    }
+                    assert!(!submission.attests.contains_key(&non_attestor));
+                    let node_pool = 1_000_000_000_000u128;
+                    let gross_reward = Network::percent_mul(
+                        Network::percent_div(1, submission.weight_sum),
+                        node_pool,
+                    );
+                    let non_attestor_stake = NodeSubnetStake::<Test>::get(non_attestor, subnet_id);
+                    let late_attestor_stake =
+                        NodeSubnetStake::<Test>::get(late_attestor, subnet_id);
+                    let outside_stake = NodeSubnetStake::<Test>::get(9, subnet_id);
+                    SubnetNodeReputation::<Test>::insert(
+                        subnet_id,
+                        non_attestor,
+                        percentage_factor,
+                    );
+
+                    distribute_identity_gate_round_with_rewards(
+                        subnet_id,
+                        subnet_epoch,
+                        submission,
+                        RewardsData {
+                            subnet_node_rewards: node_pool,
+                            ..Default::default()
+                        },
+                    );
+
+                    let non_attestor_reward =
+                        NodeSubnetStake::<Test>::get(non_attestor, subnet_id) - non_attestor_stake;
+                    let late_attestor_reward =
+                        NodeSubnetStake::<Test>::get(late_attestor, subnet_id)
+                            - late_attestor_stake;
+                    assert_eq!(
+                        non_attestor_reward,
+                        Network::percent_mul(gross_reward, minimum)
+                    );
+                    assert_eq!(
+                        late_attestor_reward,
+                        Network::percent_mul(gross_reward, late_factor)
+                    );
+                    assert!(non_attestor_reward <= late_attestor_reward);
+                    if attesting_count == 6 {
+                        assert_eq!(
+                            SubnetNodeReputation::<Test>::get(subnet_id, non_attestor),
+                            Some(percentage_factor),
+                            "the reward floor must apply without a reputation penalty",
+                        );
+                    }
+                    if emergency {
+                        assert_eq!(
+                            NodeSubnetStake::<Test>::get(9, subnet_id) - outside_stake,
+                            gross_reward,
+                            "nodes outside the emergency set cannot attest and retain full rewards",
+                        );
+                    }
+                });
+            }
+        }
+    }
+}
+
+#[test]
+fn test_attestor_reward_factor_never_falls_below_integer_fallback() {
+    let percentage_factor = Network::percentage_factor_as_u128();
+    for minimum in [
+        0,
+        1,
+        test_percent(33, 100),
+        test_percent(33, 100) + 1,
+        percentage_factor - 1,
+        percentage_factor,
+    ] {
+        let policy = ConsensusPolicySnapshot {
+            attestor_min_reward_factor: minimum,
+            attestor_reward_exponent: 10,
+            ..Default::default()
+        };
+        for progress in [
+            0,
+            percentage_factor / 2,
+            percentage_factor * 9 / 10,
+            percentage_factor - 1,
+            percentage_factor,
+        ] {
+            let factor = Network::get_attestor_reward_multiplier_for_policy(progress, &policy);
+            assert!(
+                factor >= minimum,
+                "attestation must not earn less than abstention after conversion"
+            );
+            assert!(factor <= percentage_factor);
+        }
+    }
+}
+
+#[test]
 fn test_non_attestor_decrease_requires_identity_supermajority_despite_stake_supermajority() {
     new_test_ext().execute_with(|| {
         let node_count = 8;
@@ -11034,5 +11204,69 @@ fn test_validator_delegate_rewards_require_circulating_shares() {
             TotalValidatorDelegateStakeBalance::<Test>::get(),
             1 + activation_deposit + expected_delegate_reward
         );
+    });
+}
+
+#[test]
+fn accepted_settlement_missing_balance_time_preserves_payouts_and_liability_for_retry() {
+    new_test_ext().execute_with(|| {
+        let (subnet_id, subnet_epoch, proposer, hotkey, data) =
+            build_elected_subnet_for_consensus(b"balance-time-settlement-retry".to_vec(), 4);
+        set_equal_validator_delegate_weights_for_elected_round(subnet_id, 4);
+        let additional_attestors: Vec<_> = (1..=4).filter(|id| *id != proposer).collect();
+        let submission = propose_and_precheck_identity_gate_round(
+            subnet_id, subnet_epoch, hotkey, data, &additional_attestors,
+        );
+        assert_eq!(submission.attestation_ratio, Network::percentage_factor_as_u128());
+        let (rewards, _) = Network::calculate_rewards_with_policy(
+            1_000_000_000_000_000_000_000,
+            Network::percentage_factor_as_u128(),
+            &submission.policy,
+        ).unwrap();
+        assert!(rewards.delegate_stake_rewards > 0);
+        assert!(TotalSubnetDelegateStakeCirculatingShares::<Test>::get(subnet_id) > 0);
+        let saved_record = crate::SubnetBalanceTimes::<Test>::take(subnet_id).unwrap();
+        let owner = SubnetOwner::<Test>::get(subnet_id).unwrap();
+        let owner_before = Balances::free_balance(&owner);
+        let node_stakes_before: Vec<_> = NodeSubnetStake::<Test>::iter().collect();
+        let validator_pools_before: Vec<_> = ValidatorDelegateStakeBalance::<Test>::iter().collect();
+        let pool_before = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+        let total_before = TotalDelegateStake::<Test>::get();
+        let reputation_before: Vec<_> = SubnetNodeReputation::<Test>::iter_prefix(subnet_id).collect();
+        let events_before = System::events().len();
+        let pending_before = crate::PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id);
+        let liability_before = crate::NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer);
+        assert_eq!(pending_before, Some(subnet_epoch));
+        assert!(liability_before > 0);
+
+        distribute_identity_gate_round_with_rewards(subnet_id, subnet_epoch, submission.clone(), rewards.clone());
+        assert!(!Network::is_consensus_round_settled(subnet_id, subnet_epoch));
+        assert_eq!(crate::PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id), pending_before);
+        assert_eq!(crate::NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer), liability_before);
+        assert_eq!(Balances::free_balance(&owner), owner_before);
+        assert_eq!(NodeSubnetStake::<Test>::iter().collect::<Vec<_>>(), node_stakes_before);
+        assert_eq!(ValidatorDelegateStakeBalance::<Test>::iter().collect::<Vec<_>>(), validator_pools_before);
+        assert_eq!(SubnetNodeReputation::<Test>::iter_prefix(subnet_id).collect::<Vec<_>>(), reputation_before);
+        assert_eq!(TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id), pool_before);
+        assert_eq!(TotalDelegateStake::<Test>::get(), total_before);
+        assert_eq!(System::events().len(), events_before);
+
+        crate::SubnetBalanceTimes::<Test>::insert(subnet_id, saved_record);
+        distribute_identity_gate_round_with_rewards(subnet_id, subnet_epoch, submission.clone(), rewards.clone());
+        assert!(Network::is_consensus_round_settled(subnet_id, subnet_epoch));
+        assert!(crate::PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id).is_none());
+        assert_eq!(crate::NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer), 0);
+        assert_eq!(TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id), pool_before + rewards.delegate_stake_rewards);
+        let owner_paid = Balances::free_balance(&owner);
+        let nodes_paid: Vec<_> = NodeSubnetStake::<Test>::iter().collect();
+        let pool_paid = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+        let accounting_paid = crate::SubnetBalanceTimes::<Test>::get(subnet_id);
+        let events_paid = System::events().len();
+        distribute_identity_gate_round_with_rewards(subnet_id, subnet_epoch, submission, rewards);
+        assert_eq!(Balances::free_balance(&owner), owner_paid);
+        assert_eq!(NodeSubnetStake::<Test>::iter().collect::<Vec<_>>(), nodes_paid);
+        assert_eq!(TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id), pool_paid);
+        assert_eq!(crate::SubnetBalanceTimes::<Test>::get(subnet_id), accounting_paid);
+        assert_eq!(System::events().len(), events_paid);
     });
 }
