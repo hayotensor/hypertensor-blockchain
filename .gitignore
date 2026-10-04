@@ -1,7 +1,5 @@
 target/
 /eth-rpc-data/
 /docs/**/*.tex
-/configure-genesis.py
-/fund-validator.py
-/transfer.py
+/testnet-helpers
 /validator/
