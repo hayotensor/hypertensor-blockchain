@@ -43,3 +43,17 @@ Create a reviewed JSON specification with operator-controlled keys, allocations,
 validator counts, and the production runtime, then run with `--chain <SPEC.json>`.
 The Ethereum chain ID must also be assigned before launch. This project targets
 fresh genesis state.
+
+## Future: post-quantum security by 2029
+
+Hypertensor's goal is to become quantum proof (QP) by **2029** through
+post-quantum cryptography (PQC), targeting quantum-resistant transaction signatures,
+validator authentication, and network communications. Potential algorithms we may
+adopt from [NIST's PQC standards](https://csrc.nist.gov/projects/post-quantum-cryptography) include:
+
+- **ML-KEM (CRYSTALS-Kyber)** for establishing shared keys for encrypted communications.
+- **ML-DSA (CRYSTALS-Dilithium)** for transaction and validator signatures.
+- **SLH-DSA (SPHINCS+)** as an alternative hash-based signature scheme.
+
+This is a forward-looking goal. Final algorithm choices and adoption will depend
+on security review, performance testing, and ecosystem readiness.
