@@ -386,7 +386,7 @@ impl<T: Config> Pallet<T> {
         }
 
         // In registration, this equals total electable nodes
-        if TotalActiveSubnetNodes::<T>::get(subnet_id) < MinSubnetNodes::<T>::get() {
+        if TotalAdmittedSubnetNodes::<T>::get(subnet_id) < MinSubnetNodes::<T>::get() {
             return (false, Some(SubnetRemovalReason::MinSubnetNodes));
         }
 

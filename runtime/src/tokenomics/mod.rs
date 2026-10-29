@@ -126,6 +126,8 @@ impl Tokenomics {
                 base_validator_reward: supply / 50_000_000,
                 max_slash: supply / 50_000_000,
                 base_node_burn: supply / 5_000_000_000_000,
+                // Flat validator-identity registration burn: 1 TENSOR at launch supply.
+                validator_registration_burn: supply / 50_000_000,
                 initial_registration_cost: supply / 50_000_000,
                 min_registration_cost: supply / 500_000_000,
             },

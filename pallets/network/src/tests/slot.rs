@@ -9,10 +9,9 @@ use crate::{
     OverwatchNodeValidatorId, OverwatchNodeWeights, OverwatchStakeWeightFactor,
     OverwatchSubnetWeights, OverwatchValidatorWhitelist, OverwatchWeightFactor,
     PendingOverwatchSettlement, PendingSubnetDelegateStakeRewardsPercentage,
-    PendingSubnetDelegateStakeRewardsPercentageUpdate, QueueImmunityEpochs,
-    RegisteredSubnetNodesData, RewardsData, SubnetConsensusSubmission,
-    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName, SubnetBalanceTime,
-    SubnetBalanceTimes, SubnetNodeQueue,
+    PendingSubnetDelegateStakeRewardsPercentageUpdate, QueueImmunityEpochs, QueuedSubnetNodesData,
+    RewardsData, SubnetBalanceTime, SubnetBalanceTimes, SubnetConsensusSubmission,
+    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName, SubnetNodeQueue,
     SubnetOwnerPercentage, SubnetRemovalReason, SubnetWeightFactors, SubnetWeightFactorsData,
     SubnetsData, TotalActiveSubnets, TotalDelegateStake, TotalElectableNodes,
     TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeCirculatingShares,
@@ -30,8 +29,6 @@ use sp_std::collections::btree_map::BTreeMap;
 // emission_step: See incentives_protocol.rs
 // 	- test_distribute_rewards_prioritized_queue_node_id: Tests node registration queue prioritization
 // 	- test_distribute_rewards_remove_queue_node_id: Tests removing node from registration
-// 	- test_distribute_rewards_graduate_idle_to_included: Tests graduating nodes
-// 	- test_distribute_rewards_graduate_included_to_validator: Tests emissions generation
 // handle_registration_queue
 // See:
 //  - test_distribute_rewards_prioritized_queue_node_id
@@ -186,8 +183,6 @@ fn test_calculate_overwatch_rewards() {
 // 		// See:
 // 		// 	test_distribute_rewards_prioritized_queue_node_id: Tests node registration queue prioritization
 // 		// 	test_distribute_rewards_remove_queue_node_id: Tests removing node from registration
-// 		// 	test_distribute_rewards_graduate_idle_to_included: Tests graduating nodes
-// 		// 	test_distribute_rewards_graduate_included_to_validator: Tests emissions generation
 // 	});
 // }
 
@@ -819,7 +814,7 @@ fn test_precheck_subnet_consensus_submission() {
 
         let new_start = end;
         let new_end = new_start + 4;
-        build_registered_nodes_in_queue(subnet_id, new_start, new_end, deposit_amount, amount);
+        build_queued_subnet_nodes(subnet_id, new_start, new_end, deposit_amount, amount);
 
         QueueImmunityEpochs::<Test>::insert(subnet_id, 1);
 
@@ -835,15 +830,15 @@ fn test_precheck_subnet_consensus_submission() {
         set_block_to_subnet_slot_epoch(removal_epoch, subnet_id);
 
         // Store data
-        let mut registered_nodes_data: BTreeMap<u32, u32> = BTreeMap::new(); // node ID => start_epoch
+        let mut queued_nodes_data: BTreeMap<u32, u32> = BTreeMap::new(); // node ID => start_epoch
         for n in new_start..new_end {
             let _n = n + 1;
             let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, _n);
             let hotkey_subnet_node_id = _n;
             let subnet_node_data =
-                RegisteredSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id)
+                QueuedSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id)
                     .unwrap();
-            registered_nodes_data.insert(
+            queued_nodes_data.insert(
                 hotkey_subnet_node_id,
                 subnet_node_data.classification.start_epoch,
             );
@@ -936,7 +931,7 @@ fn test_precheck_queue_removal_uses_saturating_immunity_epoch() {
 
         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-        build_registered_nodes_in_queue(subnet_id, end, end + 4, deposit_amount, amount);
+        build_queued_subnet_nodes(subnet_id, end, end + 4, deposit_amount, amount);
 
         let mut queue = SubnetNodeQueue::<Test>::get(subnet_id);
         let remove_id = queue.first().unwrap().id;

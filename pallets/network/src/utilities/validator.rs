@@ -279,13 +279,14 @@ impl<T: Config> Pallet<T> {
 
         ensure!(coldkey == validator_coldkey, Error::<T>::NotKeyOwner);
 
-        ValidatorsData::<T>::try_mutate_exists(validator_id, |maybe_params| -> DispatchResult {
-            let params = maybe_params
-                .as_mut()
-                .ok_or(Error::<T>::InvalidValidatorId)?;
-            params.identity = identity.clone();
-            Ok(())
-        });
+        ensure!(
+            ValidatorsData::<T>::contains_key(validator_id),
+            Error::<T>::InvalidValidatorId
+        );
+        match &identity {
+            Some(identity) => ValidatorMetadata::<T>::insert(validator_id, identity),
+            None => ValidatorMetadata::<T>::remove(validator_id),
+        }
 
         Self::deposit_event(Event::IdentityUpdated {
             validator_id,

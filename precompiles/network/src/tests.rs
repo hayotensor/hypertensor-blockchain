@@ -19,7 +19,7 @@ fn manifest_covers_every_native_extrinsic_and_only_signed_calls_have_selectors()
             .map(|c| c["index"].as_u64().unwrap())
             .collect()
     );
-    assert_eq!(entries.len(), 160);
+    assert_eq!(entries.len(), 157);
     let mut implemented = 0;
     for e in &entries {
         let marker = format!("#[pallet::call_index({})]", e["index"]);
@@ -51,7 +51,7 @@ fn manifest_covers_every_native_extrinsic_and_only_signed_calls_have_selectors()
             assert!(e.get("signature").is_none());
         }
     }
-    assert_eq!(implemented, 75);
+    assert_eq!(implemented, 74);
 }
 
 #[test]

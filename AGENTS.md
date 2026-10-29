@@ -53,7 +53,7 @@ document.
 | Validator coldkey | Funds node stake; registers nodes; manages identity, keys, reward splits, and allocation weights. Financial operations require this signer, not merely a hotkey. |
 | Validator hotkey | Default operational signing account for the identity's nodes. Must differ from its coldkey. |
 | Node hotkey | Optional override in `SubnetNodeIdHotkey(subnet_id, subnet_node_id)`. If absent, the validator hotkey is effective. Consensus uses the effective hotkey. |
-| Subnet node | Identified by `(subnet_id, subnet_node_id)` and owned by a validator identity. The `Validator` classification makes it a consensus candidate; an elected candidate proposes a particular round. |
+| Subnet node | Identified by `(subnet_id, subnet_node_id)` and owned by a validator identity. The `Active` classification makes it a consensus candidate; an elected candidate proposes a particular round. |
 | Delegate staker | Any funded signed account owning shares in a subnet or validator pool. It need not register a validator or node. |
 | Delegate account | Optional reward beneficiary configured by a validator. Its accrued `DelegateAccountStake` is a separate balance, not pool shares. |
 | Overwatch node | Separate whitelisted network assessment role; evaluates subnets with commit/reveal. Ordinary subnet participation does not require this role. |
@@ -175,11 +175,11 @@ point lookups may return `null`; a missing parent for a paged method is an error
 | Find subnet and its requirements | `network_getSubnetInfo(subnetId, at)`, `network_getSubnets(page, at)` |
 | Find validator identity and ownership | `network_getValidatorByColdkey(account, at)`, `network_getValidatorByHotkey(account, at)`, `network_getValidatorInfo(validatorId, at)` |
 | Find node, including a queued node | `network_getSubnetNodeInfo(subnetId, nodeId, at)` |
-| Enumerate active nodes / endpoints | `network_getSubnetNodes(subnetId, page, at)`, `network_getBootnodes(subnetId, at)` |
+| Enumerate admitted nodes / endpoints | `network_getSubnetNodes(subnetId, page, at)`, `network_getBootnodes(subnetId, at)` |
 | Inspect validator's nodes, stake, allocations | `network_getValidatorNodes`, `network_getValidatorNodeStakes`, `network_getValidatorNodeAllocations` with `(validatorId, page, at)` |
 | Decide whether to propose/attest | `network_getSubnetEpochStatus(subnetId, at)`, `network_getConsensusRound(subnetId, subnetEpoch, at)` |
 | Inspect current validator candidates | `network_getSubnetValidatorNodes(subnetId, page, at)`; this is not a list of attestations |
-| Inspect queue / bootstrap whitelist | `RegisteredSubnetNodesData`, `SubnetNodeQueue`, `NodeRegistrationInitialValidatorIds`, `InitialValidatorData` |
+| Inspect queue / bootstrap whitelist | `QueuedSubnetNodesData`, `SubnetNodeQueue`, `NodeRegistrationInitialValidatorIds`, `InitialValidatorData` |
 | Inspect withdrawable positions | Pool share/generation storage, `NodeSubnetStake`, `StakeUnbondingLedger`, `QueuedSwapRefundBalance` |
 
 Pages use `{ "cursor": null, "limit": 50 }` with limits 1–100. Reuse the opaque
@@ -192,6 +192,11 @@ for discovery. An archive node may be necessary for older block hashes.
 
 1. Fund separate coldkey and hotkey accounts. The coldkey signs
    `register_validator(hotkey, delegate_reward_rate, delegate_account, identity)`.
+   Each successful identity registration burns the flat
+   `Network.Economics.validator_registration_burn` amount from the coldkey
+   (1 TENSOR at the configured launch supply), in addition to transaction fees.
+   Keep enough unlocked balance to pay the burn and preserve the account. This
+   fee is separate from subnet-node registration burns and direct node stake.
    The rate is the Q18 share allocated to validator-pool delegates, bounded by
    `MaxDelegateStakePercentage` and Q18. Optional `delegate_account` has
    `{ account_id, rate }`; use `None` if no beneficiary is intended. Read the new
@@ -223,13 +228,13 @@ for discovery. An archive node may be necessary for older block hashes.
    `network_getValidatorNodes`, then query its details. The current registration
    path does not emit `SubnetNodeRegistered`, despite that event being declared.
    Initial nodes registered while the subnet is `Registered` fast-track to
-   `Validator` and emit `SubnetNodeActivated`. Nodes joining an active subnet
-   enter `Registered` in the queue, then progress through `Idle`, `Included`,
-   and `Validator` under queue/consensus rules.
+   `Active` and emit `SubnetNodeAdmitted`. Nodes joining an active subnet enter
+   `Queued`, are admitted as `Probation`, and become `Active` after qualifying
+   score-vector inclusions and full reputation.
 5. Operate the off-chain service immediately and monitor classification. There
    is no public `activate_subnet_node` extrinsic. Queue maturity, churn limits,
-   available capacity, and accepted-round progression govern admission. Merely
-   waiting a fixed number of blocks does not guarantee validator eligibility.
+   and available capacity govern admission; accepted-round progression governs promotion.
+   Merely waiting a fixed number of blocks does not guarantee validator eligibility.
 
 Coldkeys use `update_node_hotkey(subnet_id, subnet_node_id, new_hotkey)` to set
 or clear an override, and the `update_node_peer_info`,
@@ -355,8 +360,8 @@ For each open round:
 
    Scores are relative unsigned weights, normalized by the protocol; they need
    not sum to Q18. Avoid overflow. Submit unique IDs with justified scores.
-   The runtime filters scores to eligible `Included`-or-higher nodes and excludes
-   pending removals. Duplicate IDs collapse to their lowest score. Idle nodes
+   The runtime filters scores to eligible `Probation`-or-higher nodes and excludes
+   pending removals. Duplicate IDs collapse to their lowest score. Queued nodes
    cannot be made score-eligible by listing them. Usually leave queue actions
    `None`; use them only when the subnet's rules justify prioritization/removal.
 3. Each eligible attestor independently checks the recorded proposal and signs
@@ -378,6 +383,12 @@ For each open round:
    round as successful. Extrinsic acceptance does not imply round acceptance.
    Settlement is performed by hooks; there is no subnet `claim_rewards` call.
 
+Failed quorum or a missing elected proposal retains the full scheduled subnet
+allocation in `SubnetRewardCapacitor`. Accepted nonzero-score rounds supplement
+their normal allocation by up to 10%, drawn from that balance and distributed
+using the round's reward split. Zero-score/zero-allocation rounds leave it stored;
+permanent subnet removal clears it. See [REWARDS.md](pallets/network/REWARDS.md).
+
 Election candidates/policy freeze at election; attestor weights freeze when the
 proposal is submitted. Changes before proposal submission can still affect its
 weight snapshot. Later changes do not rewrite already-recorded snapshots.
@@ -385,11 +396,20 @@ Missing proposals or insufficient agreement can affect
 reputation and slash the proposer's direct stake and, when enabled, its validator
 delegate pool. Use the recorded policy to calculate exposure and thresholds.
 
-Active-subnet newcomers advance through successful settlement counters: Idle
-promotion depends on successful rounds; Included promotion requires consecutive
-accepted appearances, the required identity agreement, and reputation. Inspect
-classification counters and [bank/rewards.rs](pallets/network/src/bank/rewards.rs)
-instead of implementing a timer that assumes automatic promotion.
+Admitted newcomers are Probation nodes: they occupy capacity and can appear in
+scores, but cannot propose, attest, or receive node rewards or associated delegate
+allocations. `ProbationRounds` defaults to two qualifying inclusions and promotion
+also requires full reputation. Only ordinary accepted rounds with a nonzero total
+score and distinct-identity supermajority update `SubnetNodeProbationProgress`:
+inclusion increments it and omission resets it. A zero-score entry can count when
+the round total is nonzero. Other rounds, including emergency rounds, freeze progress.
+Quarantined nodes cannot progress. Promotion emits `SubnetNodePromoted`, clears the
+counter, and enables the next election, including one later in the same hook; it
+never grants rewards for the completed Probation round. Owner changes use
+`owner_update_probation_rounds(subnet_id, value)` and take effect through the
+existing delayed, snapshotted policy. `TotalAdmittedSubnetNodes` counts Probation
+and Active nodes; election counters are separate. Inspect
+[bank/rewards.rs](pallets/network/src/bank/rewards.rs) for settlement behavior.
 
 ## Staking, delegation, swaps, and exits
 
@@ -467,7 +487,7 @@ corresponding stake/balance removal and unbonding claim path.
    slash liabilities settle; changing keys or removing a node does not bypass
    this. Direct stake cannot fall below the enforced node minimum while the
    relevant live-node constraints apply.
-2. Submit the corresponding removal. To fully exit an active node, request
+2. Submit the corresponding removal. To fully exit an admitted node, request
    `remove_subnet_node(subnet_id, subnet_node_id)` with its coldkey, wait for any
    deferred cleanup/settlement, then remove the remaining direct stake. A live
    subnet's currently elected proposer cannot self-remove
@@ -609,12 +629,12 @@ events are authoritative; they are not mirrored into Ethereum receipt logs.
 | `NotKeyOwner` or operational authorization failure | Canonical coldkey mapping, node/Overwatch override, and effective hotkey |
 | Registration rejected | Whitelist, phase, allowance, queue/capacity, stake bounds, peer encoding, burn ceiling |
 | Successful activation but missing subnet | Activation removal branch and `SubnetDeactivated` reason |
-| No proposer or no accepted rounds | Eligibility slot, three distinct identities, validator classification, nonzero delegated voting weight, pending settlement |
+| No proposer or no accepted rounds | Eligibility slot, three distinct identities, Active classification, nonzero delegated voting weight, pending settlement |
 | Attestation rejected | Epoch rollover, current proposal, effective signer, proposal snapshot membership, duplicate attestation |
 | Cannot withdraw/deposit/swap | Live-node minimum, shares versus balance, current generation, positive output bounds, slash liability, rate limit, ledger capacity |
 | Withdrawal succeeded but wallet unchanged | Ledger maturity and explicit `claim_unbondings`; deferred refund credit |
 | Node call succeeded without intended change | Pending-removal cleanup branch; re-read before any resubmission |
-| Node remains queued/Idle/Included | Churn/queue settings, successful settlement counters, inclusion, identity quorum, reputation |
+| Node remains Queued/Probation | Churn/queue settings, successful settlement counters, inclusion, identity quorum, reputation |
 
 `TxRateLimit` checks generally require more than the configured number of blocks
 since the relevant previous transaction, not merely equality. Decode actual

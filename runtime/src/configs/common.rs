@@ -446,8 +446,7 @@ parameter_types! {
     pub const NetworkMinAttestationPercentage: u128 = 666_666_666_666_666_666;
     pub const NetworkSuperMajorityAttestationRatio: u128 = 875_000_000_000_000_000;
     pub const NetworkInitialSubnetUid: u32 = 128_000;
-    pub const NetworkMaxPhysicalSubnetsUpperBound: u32 =
-        pallet_network::physical_subnet_upper_bound(BLOCKS_PER_EPOCH);
+    pub const NetworkMaxPhysicalSubnetsUpperBound: u32 = 16;
     pub const NetworkMaxSubnetNodesUpperBound: u32 = 512;
     pub const NetworkMaxValidatorNodesUpperBound: u32 = 512;
     pub const NetworkMaxOverwatchNodesUpperBound: u32 = 64;

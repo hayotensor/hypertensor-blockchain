@@ -18,8 +18,10 @@ pub fn validators<T: Config>(
                 .saturating_mul(64)
                 .saturating_add(128),
         ),
-        C::getValidator(_) => (8, identity_bytes),
-        C::getValidatorByColdkey(_) | C::getValidatorByHotkey(_) => (9, identity_bytes),
+        // `read` charges a 3,500-byte trie allowance per key in addition to this payload
+        // envelope. The separate metadata key therefore adds one read and one trie allowance.
+        C::getValidator(_) => (9, identity_bytes),
+        C::getValidatorByColdkey(_) | C::getValidatorByHotkey(_) => (10, identity_bytes),
         _ => return Err(unknown()),
     };
     charge::<T>(env, reads, bytes)?;

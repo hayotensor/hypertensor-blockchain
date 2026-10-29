@@ -56,22 +56,10 @@ impl<T: Config> Pallet<T> {
             ),
             pending_subnet_node_queue_epochs: PendingSubnetNodeQueueEpochs::<T>::get(subnet_id)
                 .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
-            idle_classification_epochs: Self::get_idle_classification_epochs_for_epoch(
-                subnet_id,
-                current_subnet_epoch,
-            ),
-            pending_idle_classification_epochs: PendingIdleClassificationEpochs::<T>::get(
-                subnet_id,
-            )
-            .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
-            included_classification_epochs: Self::get_included_classification_epochs_for_epoch(
-                subnet_id,
-                current_subnet_epoch,
-            ),
-            pending_included_classification_epochs: PendingIncludedClassificationEpochs::<T>::get(
-                subnet_id,
-            )
-            .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
+
+            probation_rounds: Self::get_probation_rounds_for_epoch(subnet_id, current_subnet_epoch),
+            pending_probation_rounds: PendingProbationRounds::<T>::get(subnet_id)
+                .filter(|pending| pending.effective_subnet_epoch > current_subnet_epoch),
             delegate_stake_percentage: Self::get_subnet_delegate_stake_rewards_percentage_for_epoch(
                 subnet_id,
                 current_subnet_epoch,
@@ -139,7 +127,7 @@ impl<T: Config> Pallet<T> {
             bootnode_access: SubnetBootnodeAccess::<T>::get(subnet_id),
             bootnodes: SubnetBootnodes::<T>::get(subnet_id),
             total_nodes: TotalSubnetNodes::<T>::get(subnet_id),
-            total_active_nodes: TotalActiveSubnetNodes::<T>::get(subnet_id),
+            total_admitted_nodes: TotalAdmittedSubnetNodes::<T>::get(subnet_id),
             total_electable_nodes: TotalSubnetElectableNodes::<T>::get(subnet_id),
             current_min_delegate_stake: Self::get_min_subnet_delegate_stake_balance(subnet_id),
             total_subnet_stake: TotalSubnetStake::<T>::get(subnet_id),
@@ -153,8 +141,8 @@ impl<T: Config> Pallet<T> {
     pub fn get_subnet_node_info(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNodeInfo<T>> {
         let subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             SubnetNodesData::<T>::get(subnet_id, subnet_node_id)
-        } else if RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
-            RegisteredSubnetNodesData::<T>::get(subnet_id, subnet_node_id)
+        } else if QueuedSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
+            QueuedSubnetNodesData::<T>::get(subnet_id, subnet_node_id)
         } else {
             return None;
         };
@@ -167,29 +155,24 @@ impl<T: Config> Pallet<T> {
         }
         let coldkey = ValidatorColdkey::<T>::get(validator_id)?;
         let hotkey = Self::get_subnet_node_associated_hotkey(subnet_id, subnet_node_id).ok()?;
+        let metadata = SubnetNodeMetadata::<T>::get(subnet_id, subnet_node_id).unwrap_or_default();
         let info = SubnetNodeInfo {
             validator_id: Some(validator_id),
             subnet_id: subnet_id,
             subnet_node_id: subnet_node_id,
             coldkey: coldkey,
             hotkey,
-            peer_info: subnet_node.peer_info,
-            bootnode_peer_info: subnet_node.bootnode_peer_info,
-            client_peer_info: subnet_node.client_peer_info,
+            peer_info: metadata.peer_info,
+            bootnode_peer_info: metadata.bootnode_peer_info,
+            client_peer_info: metadata.client_peer_info,
             classification: subnet_node.classification,
-            unique: subnet_node.unique,
-            non_unique: subnet_node.non_unique,
+            unique: metadata.unique,
+            non_unique: metadata.non_unique,
             stake_balance: NodeSubnetStake::<T>::get(subnet_node_id, subnet_id),
             subnet_node_reputation: SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id),
             node_slot_index: NodeSlotIndex::<T>::get(subnet_id, subnet_node_id),
-            consecutive_idle_epochs: SubnetNodeIdleConsecutiveEpochs::<T>::get(
-                subnet_id,
-                subnet_node_id,
-            ),
-            consecutive_included_epochs: SubnetNodeConsecutiveIncludedEpochs::<T>::get(
-                subnet_id,
-                subnet_node_id,
-            ),
+
+            probation_progress: SubnetNodeProbationProgress::<T>::get(subnet_id, subnet_node_id),
         };
 
         return Some(info);
@@ -209,7 +192,7 @@ impl<T: Config> Pallet<T> {
             delegate_reward_rate: validator.delegate_reward_rate,
             last_delegate_reward_rate_update: validator.last_delegate_reward_rate_update,
             delegate_account: validator.delegate_account,
-            identity: validator.identity,
+            identity: ValidatorMetadata::<T>::get(validator_id),
         };
 
         return Some(info);

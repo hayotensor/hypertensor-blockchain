@@ -1,6 +1,6 @@
 use super::mock::*;
 use crate::inflation::Inflation;
-use crate::{MaxSubnetNodes, MaxSubnets, TotalActiveNodes};
+use crate::{MaxSubnetNodes, MaxSubnets, TotalAdmittedNodes};
 
 const TOKEN: u128 = 1_000_000_000_000_000_000;
 
@@ -90,12 +90,12 @@ fn epoch_emissions_are_independent_of_subnet_node_utilization() {
 
         MaxSubnets::<Test>::put(0);
         MaxSubnetNodes::<Test>::put(0);
-        TotalActiveNodes::<Test>::put(0);
+        TotalAdmittedNodes::<Test>::put(0);
         assert_eq!(Network::get_epoch_emissions(epoch), expected);
 
         MaxSubnets::<Test>::put(u32::MAX);
         MaxSubnetNodes::<Test>::put(u32::MAX);
-        TotalActiveNodes::<Test>::put(u32::MAX);
+        TotalAdmittedNodes::<Test>::put(u32::MAX);
         assert_eq!(Network::get_epoch_emissions(epoch), expected);
     });
 }

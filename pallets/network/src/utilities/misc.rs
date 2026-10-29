@@ -85,7 +85,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn get_avg_nodes_per_subnet() -> u128 {
         let subnets = TotalActiveSubnets::<T>::get();
-        let nodes = TotalActiveNodes::<T>::get();
+        let nodes = TotalAdmittedNodes::<T>::get();
         Self::percent_div(nodes as u128, subnets as u128)
     }
 

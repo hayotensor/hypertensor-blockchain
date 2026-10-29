@@ -3,6 +3,60 @@
 This is the clean, typed network RPC contract. It intentionally has no legacy aliases and does not
 return SCALE-encoded response blobs.
 
+Validator identity metadata is stored in `Network.ValidatorMetadata(validatorId)`, separately
+from the operational `Network.ValidatorsData(validatorId)` record. Validator RPC responses
+continue to include the optional `identity` field by combining these records. A missing metadata
+entry means `identity: null`; an explicitly stored identity with all fields absent remains an
+identity object. Clients querying storage directly must use the separate map. This is the
+prelaunch storage layout; no migration or fallback to the previous embedded identity is provided.
+
+Live node networking and descriptive fields are stored in
+`Network.SubnetNodeMetadata(subnetId, subnetNodeId)`. Its `NodeMetadata` value contains
+`peer_info`, `bootnode_peer_info`, `client_peer_info`, `unique`, and `non_unique`, with the same
+field limits as the registration and update calls. A missing entry means all five fields are
+absent. An explicitly present empty byte vector remains distinct from an absent field.
+
+The raw `SubnetNodesData` and `QueuedSubnetNodesData` values now contain only `id`,
+`validator_id`, and `classification`, in that order. `SubnetNodeQueue` is an ordered vector of
+the same compact records. The metadata map uses `Identity` for both `u32` keys and `OptionQuery`.
+One entry survives the transition from Queued to Probation to Active; quarantine retains it and physical
+node removal deletes it. Whole-subnet removal clears the metadata prefix. Direct storage clients
+must join the new map with an existing operational record. Metadata alone does not establish
+that a node exists.
+
+Node metadata remains available in RPC and contract responses. The declared
+`SubnetNodeRegistered` event has a separate `SubnetNodeRegistrationData` payload type.
+Historical `ConsensusSubnetNode` snapshots retain proposal-time classification.
+All classifications use the three-state schema below, with no migration or fallback reader.
+
+Node `classification.nodeClass` is `queued`, `probation`, or `active`; SCALE and contract
+codes are 0, 1, and 2 respectively. Subnet lifecycle states are unchanged. Node information
+exposes `probationProgress`; subnet configuration exposes `probationRounds` and
+`pendingProbationRounds`; consensus policy exposes its snapshotted `probationRounds`.
+Probation progress counts consecutive qualifying inclusions, not elapsed epochs. It
+advances only on ordinary accepted nonzero-total-score rounds with identity supermajority;
+endorsed omission resets it. Emergency and other non-qualifying rounds leave it unchanged.
+A zero-score entry still counts in a nonzero-total-score round. Promotion additionally
+requires full reputation. Probation nodes earn no node-related rewards and cannot vote.
+
+`totalAdmittedNodes` counts Probation and Active nodes occupying subnet capacity.
+`totalElectableNodes` is the separate physical election-candidate count; eligibility resolution
+excludes pending removals. Bootnode results expose `admittedNodes`, and historical proposal
+results expose `admittedSubnetNodeIds`, both covering Probation and Active nodes.
+Storage uses `TotalAdmittedSubnetNodes`, `TotalAdmittedNodes`, `SubnetNodeProbationProgress`,
+`ProbationRounds`, and `PendingProbationRounds`. Quarantine uses
+`PendingAdmittedNodeRemovals` and `PendingQueuedNodeRemovals`. Admission emits
+`SubnetNodeAdmitted`; promotion emits `SubnetNodePromoted`.
+
+`Network.SubnetConsensusSubmission(subnetId, subnetEpoch)` appends `weight_sum: u128`
+and `eligible_validator_identity_count: u32` to its stored `ConsensusData`, in that order
+after `emergency`. This adds 20 SCALE bytes. The runtime computes these immutable summaries
+from the validated proposal scores and the final eligible-identity map after quarantine
+filtering. Attestations change only votes; settlement reuses the summaries while computing
+actual participation and checking live payment/removal state. Direct storage readers must
+use the new runtime metadata. Composed RPC responses and the Solidity ABI remain unchanged.
+This prelaunch layout has no migration, legacy reader, or malformed-storage repair fallback.
+
 ## Wire conventions
 
 - `u128` values (balances, shares, fixed-point percentages, weights, and reputation) are decimal
@@ -33,9 +87,9 @@ Validator-wide node, stake, and allocation collections are protocol-bounded to a
 per validator identity, while their JSON responses remain paged to at most 100 entries.
 
 Subnet lists contain only the live protocol-bounded subnet set. `network_getSubnetNodes` contains
-only active nodes and excludes the registration queue; the runtime ceiling is 512 active nodes per
+only admitted Probation and Active nodes and excludes the registration queue; the runtime ceiling is 512 admitted nodes per
 subnet. `network_getBootnodes` is unpaged and returns two separately bounded arrays: up to 256
-official subnet bootnodes and bootnode endpoints advertised by up to 512 active subnet nodes.
+official subnet bootnodes and bootnode endpoints advertised by up to 512 admitted subnet nodes.
 Overwatch membership is capped at 64. `network_getSubnetInfo` deliberately omits the registration
 validator whitelist and registration tracking maps.
 
@@ -44,9 +98,9 @@ validator whitelist and registration tracking maps.
 The API intentionally has no methods that enumerate all validator identities, account subnet/node/
 validator delegation positions, or Overwatch commit/reveal history. Those collections can grow with
 user activity or historical churn and must be queried through archive-node storage or an external
-indexer. The API also omits registered-node queues, even though each subnet queue is bounded by its
+indexer. The API also omits registration queues, even though each subnet queue is bounded by its
 `MaxRegisteredNodes` setting and the runtime's corresponding upper bound. Point lookups such as
-validator and active or registered subnet-node information remain available.
+validator and admitted or queued subnet-node information remain available.
 
 ## Methods
 
@@ -55,8 +109,8 @@ validator and active or registered subnet-node information remain available.
 | `network_getSubnetInfo` | `subnetId` | Subnet details or `null` |
 | `network_getSubnets` | `page` | Page of subnets |
 | `network_getSubnetNodeInfo` | `subnetId`, `subnetNodeId` | Node details or `null` |
-| `network_getSubnetNodes` | `subnetId`, `page` | Page of active subnet nodes (maximum 512) |
-| `network_getBootnodes` | `subnetId` | Official and active-node bootnodes or `null` |
+| `network_getSubnetNodes` | `subnetId`, `page` | Page of admitted subnet nodes (maximum 512) |
+| `network_getBootnodes` | `subnetId` | Official and admitted-node bootnodes or `null` |
 | `network_getValidatorInfo` | `validatorId` | Validator identity/economic summary or `null` |
 | `network_getValidatorByColdkey` | `coldkey` | Validator summary or `null` |
 | `network_getValidatorByHotkey` | `hotkey` | Validator summary or `null` |
@@ -79,7 +133,7 @@ and are not rewritten when active membership changes.
 
 `network_getSubnetValidatorNodes` means the current effective candidate set, not nodes that have
 attested. A pending or expired emergency set does not replace the regular set. An active emergency
-set includes only members that remain validator-class nodes. Actual proposal-time eligibility and
+set includes only members that remain Active-class nodes. Actual proposal-time eligibility and
 attestations are exposed by `network_getConsensusRound`.
 
 The consensus-round result preserves the elected node and validator identity, election source,

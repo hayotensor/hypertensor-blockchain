@@ -17,6 +17,8 @@ pub struct NetworkEconomics {
     pub base_validator_reward: u128,
     pub max_slash: u128,
     pub base_node_burn: u128,
+    /// Flat, non-refundable burn paid by the coldkey when creating a validator identity.
+    pub validator_registration_burn: u128,
     pub initial_registration_cost: u128,
     pub min_registration_cost: u128,
 }
@@ -31,6 +33,7 @@ impl NetworkEconomics {
         assert!(self.max_subnet_min_stake <= self.max_stake);
         assert!(self.min_subnet_delegate_stake > 0);
         assert!(self.overwatch_min_stake > 0);
+        assert!(self.validator_registration_burn > 0);
         assert!(self.min_registration_cost > 0);
         assert!(self.min_registration_cost <= self.initial_registration_cost);
     }

@@ -7,16 +7,17 @@ use crate::{
     MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     MinSubnetNodes, MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex,
     NodeSubnetStake, OverwatchNodeValidatorId, OverwatchNodes, PeerIdSubnetNodeId, PeerInfo,
-    RegisteredSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName,
-    SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots,
-    SubnetNodeIdHotkey, SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId,
-    SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState,
-    TotalActiveNodes, TotalActiveSubnetNodes, TotalActiveSubnets, TotalElectableNodes, TotalNodes,
-    TotalOverwatchNodeUids, TotalOverwatchNodes, TotalStake, TotalSubnetElectableNodes,
+    QueuedSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNode,
+    SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeIdHotkey,
+    SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData,
+    SubnetOwner, SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState,
+    TotalActiveSubnets, TotalAdmittedNodes, TotalAdmittedSubnetNodes, TotalElectableNodes,
+    TotalNodes, TotalOverwatchNodeUids, TotalOverwatchNodes, TotalStake, TotalSubnetElectableNodes,
     TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorIds,
     UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey, ValidatorData,
-    ValidatorIdHotkey, ValidatorsData,
+    ValidatorIdHotkey, ValidatorMetadata, ValidatorsData,
 };
+use crate::{NodeMetadata, SubnetNodeMetadata};
 use frame_support::traits::{Currency, ExistenceRequirement};
 use frame_support::weights::WeightMeter;
 use frame_support::BoundedVec;
@@ -38,6 +39,7 @@ fn register_validator_for_rotation(coldkey: &AccountId, hotkey: &AccountId) -> u
     let total_before = TotalValidatorIds::<Test>::get();
     let reward_rate = MaxDelegateStakePercentage::<Test>::get().saturating_sub(1);
 
+    fund_validator_registration(&coldkey);
     assert_ok!(Network::do_register_validator(
         RuntimeOrigin::signed(coldkey.clone()),
         hotkey.clone(),
@@ -148,6 +150,7 @@ fn test_register_validator() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey.clone(),
@@ -169,7 +172,7 @@ fn test_register_validator() {
         let v_delegate_reward_rate = v_data.delegate_reward_rate;
         let v_last_delegate_reward_rate_update = v_data.last_delegate_reward_rate_update;
         let v_delegate_account = v_data.delegate_account;
-        let v_identity = v_data.identity;
+        let v_identity = ValidatorMetadata::<Test>::get(current_id);
 
         assert_eq!(v_id, current_id);
         assert_eq!(v_hotkey, hotkey.clone());
@@ -454,7 +457,7 @@ fn test_stale_old_coldkey_index_does_not_authorize_validator_owner_calls() {
             TotalSubnetNodes::<Test>::get(subnet_id),
             TotalNodes::<Test>::get(),
             PeerIdSubnetNodeId::<Test>::get(subnet_id, &register_peer_id),
-            RegisteredSubnetNodesData::<Test>::get(subnet_id, next_subnet_node_id),
+            QueuedSubnetNodesData::<Test>::get(subnet_id, next_subnet_node_id),
             SubnetNodesData::<Test>::get(subnet_id, next_subnet_node_id),
             SubnetNodeValidatorId::<Test>::get(subnet_id, next_subnet_node_id),
         );
@@ -484,7 +487,7 @@ fn test_stale_old_coldkey_index_does_not_authorize_validator_owner_calls() {
                 TotalSubnetNodes::<Test>::get(subnet_id),
                 TotalNodes::<Test>::get(),
                 PeerIdSubnetNodeId::<Test>::get(subnet_id, &register_peer_id),
-                RegisteredSubnetNodesData::<Test>::get(subnet_id, next_subnet_node_id),
+                QueuedSubnetNodesData::<Test>::get(subnet_id, next_subnet_node_id),
                 SubnetNodesData::<Test>::get(subnet_id, next_subnet_node_id),
                 SubnetNodeValidatorId::<Test>::get(subnet_id, next_subnet_node_id),
             ),
@@ -497,7 +500,7 @@ fn test_stale_old_coldkey_index_does_not_authorize_validator_owner_calls() {
             10_025,
             10_026,
             10_027,
-            SubnetNodeClass::Registered,
+            SubnetNodeClass::Queued,
             0,
         );
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
@@ -505,7 +508,7 @@ fn test_stale_old_coldkey_index_does_not_authorize_validator_owner_calls() {
             TotalSubnetNodeUids::<Test>::get(subnet_id),
             TotalSubnetNodes::<Test>::get(subnet_id),
             TotalNodes::<Test>::get(),
-            RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id),
+            QueuedSubnetNodesData::<Test>::get(subnet_id, subnet_node_id),
             SubnetNodesData::<Test>::get(subnet_id, subnet_node_id),
             SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id),
         );
@@ -523,7 +526,7 @@ fn test_stale_old_coldkey_index_does_not_authorize_validator_owner_calls() {
                 TotalSubnetNodeUids::<Test>::get(subnet_id),
                 TotalSubnetNodes::<Test>::get(subnet_id),
                 TotalNodes::<Test>::get(),
-                RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id),
+                QueuedSubnetNodesData::<Test>::get(subnet_id, subnet_node_id),
                 SubnetNodesData::<Test>::get(subnet_id, subnet_node_id),
                 SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id),
             ),
@@ -818,6 +821,7 @@ fn test_register_validator_subnet_node() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey.clone(),
@@ -839,7 +843,7 @@ fn test_register_validator_subnet_node() {
         let v_delegate_reward_rate = v_data.delegate_reward_rate;
         let v_last_delegate_reward_rate_update = v_data.last_delegate_reward_rate_update;
         let v_delegate_account = v_data.delegate_account;
-        let v_identity = v_data.identity;
+        let v_identity = ValidatorMetadata::<Test>::get(current_id);
 
         assert_eq!(v_id, current_id);
         assert_eq!(v_hotkey, hotkey.clone());
@@ -950,22 +954,24 @@ fn test_register_validator_subnet_node() {
             burn_amount + 100000000,
         ));
         let node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
-        let node = RegisteredSubnetNodesData::<Test>::get(subnet_id, node_id);
+        let node = QueuedSubnetNodesData::<Test>::get(subnet_id, node_id);
+        let node_metadata =
+            crate::SubnetNodeMetadata::<Test>::get(subnet_id, node_id).unwrap_or_default();
         assert_eq!(node.id, node_id);
         assert_eq!(node.validator_id, current_id);
         assert_eq!(
-            node.peer_info,
+            node_metadata.peer_info,
             Some(PeerInfo::<Test> {
                 peer_id: peer(999),
                 multiaddr: None,
             })
         );
-        assert_eq!(node.bootnode_peer_info, None);
-        assert_eq!(node.client_peer_info, None);
-        assert_eq!(node.classification.node_class, SubnetNodeClass::Registered);
+        assert_eq!(node_metadata.bootnode_peer_info, None);
+        assert_eq!(node_metadata.client_peer_info, None);
+        assert_eq!(node.classification.node_class, SubnetNodeClass::Queued);
         // assert_eq!(node.classification.start_epoch, 0);
-        assert_eq!(node.unique, None);
-        assert_eq!(node.non_unique, None);
+        assert_eq!(node_metadata.unique, None);
+        assert_eq!(node_metadata.non_unique, None);
 
         assert_eq!(
             SubnetNodeValidatorId::<Test>::get(subnet_id, node_id).unwrap(),
@@ -990,24 +996,28 @@ fn test_get_hotkey_associated_subnet_node_prefers_subnet_node_hotkey_override() 
         let subnet_node_hotkey = account(1101);
 
         ValidatorIdHotkey::<Test>::insert(validator_id, validator_hotkey.clone());
-        SubnetNodesData::<Test>::insert(
+        SubnetNodeMetadata::<Test>::insert(
             subnet_id,
             subnet_node_id,
-            SubnetNode::<Test> {
-                id: subnet_node_id,
-                validator_id,
+            NodeMetadata {
                 peer_info: Some(PeerInfo::<Test> {
                     peer_id: peer(1),
                     multiaddr: None,
                 }),
                 bootnode_peer_info: None,
                 client_peer_info: None,
+                unique: None,
+                non_unique: None, });
+        SubnetNodesData::<Test>::insert(
+            subnet_id,
+            subnet_node_id,
+            SubnetNode {
+                id: subnet_node_id,
+                validator_id,
                 classification: SubnetNodeClassification {
-                    node_class: SubnetNodeClass::Registered,
+                    node_class: SubnetNodeClass::Queued,
                     start_epoch: 0,
                 },
-                unique: None,
-                non_unique: None,
             },
         );
         SubnetNodeIdHotkey::<Test>::insert(subnet_id, subnet_node_id, &subnet_node_hotkey);
@@ -1040,24 +1050,28 @@ fn test_get_hotkey_associated_subnet_node_uses_validator_hotkey_without_override
         let validator_hotkey = account(1200);
 
         ValidatorIdHotkey::<Test>::insert(validator_id, validator_hotkey.clone());
-        SubnetNodesData::<Test>::insert(
+        SubnetNodeMetadata::<Test>::insert(
             subnet_id,
             subnet_node_id,
-            SubnetNode::<Test> {
-                id: subnet_node_id,
-                validator_id,
+            NodeMetadata {
                 peer_info: Some(PeerInfo::<Test> {
                     peer_id: peer(2),
                     multiaddr: None,
                 }),
                 bootnode_peer_info: None,
                 client_peer_info: None,
+                unique: None,
+                non_unique: None, });
+        SubnetNodesData::<Test>::insert(
+            subnet_id,
+            subnet_node_id,
+            SubnetNode {
+                id: subnet_node_id,
+                validator_id,
                 classification: SubnetNodeClassification {
-                    node_class: SubnetNodeClass::Registered,
+                    node_class: SubnetNodeClass::Queued,
                     start_epoch: 0,
                 },
-                unique: None,
-                non_unique: None,
             },
         );
 
@@ -1122,6 +1136,7 @@ fn test_update_validator_hotkey() {
         let new_hotkey = account(2);
         let new_hotkey_2 = account(3);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey.clone(),
@@ -1193,6 +1208,7 @@ fn test_update_validator_delegate_reward_rate() {
         let new_hotkey_2 = account(3);
         let reward_rate = test_percent(1, 20); // 5%
         let new_reward_rate = 59000000000000000; // 5.9%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey.clone(),
@@ -1252,6 +1268,7 @@ fn test_update_validator_delegate_reward_rate_validation_branches() {
         let max_decrease = MaxRewardRateDecrease::<Test>::get();
         let reward_rate = max_decrease.saturating_mul(3);
 
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1319,6 +1336,7 @@ fn test_update_validator_identity() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey.clone(),
@@ -1364,8 +1382,7 @@ fn test_update_validator_identity() {
             Some(identity),
         ));
 
-        let v_data = ValidatorsData::<Test>::get(current_id);
-        let v_identity = v_data.identity;
+        let v_identity = ValidatorMetadata::<Test>::get(current_id);
         assert!(v_identity.is_some());
 
         assert_eq!(v_identity.clone().unwrap().name, Some(name.clone()));
@@ -1405,8 +1422,7 @@ fn test_update_validator_identity() {
             Some(identity),
         ));
 
-        let v_data = ValidatorsData::<Test>::get(current_id);
-        let v_identity = v_data.identity;
+        let v_identity = ValidatorMetadata::<Test>::get(current_id);
         assert!(v_identity.is_some());
 
         assert_eq!(v_identity.clone().unwrap().name, Some(name.clone()));
@@ -1433,8 +1449,7 @@ fn test_update_validator_identity() {
             None,
         ));
 
-        let v_data = ValidatorsData::<Test>::get(current_id);
-        let v_identity = v_data.identity;
+        let v_identity = ValidatorMetadata::<Test>::get(current_id);
         assert!(v_identity.is_none());
     })
 }

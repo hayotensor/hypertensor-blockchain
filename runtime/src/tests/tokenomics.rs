@@ -18,6 +18,10 @@ fn small_and_large_supplies_preserve_affordability_and_voting_power() {
         assert_eq!(policy.transaction_byte_fee * 50_000_000_000_000, supply);
         assert_eq!(policy.validator_bond * 50_000, supply);
         assert_eq!(policy.network.initial_annual_emissions * 500, supply);
+        assert_eq!(
+            policy.network.validator_registration_burn * 50_000_000,
+            supply
+        );
         assert_eq!(policy.consensus_annual_emissions * 50_000, supply);
         assert!(policy.storage_child_item_deposit > 0);
         assert!(policy.storage_byte_deposit > 0);

@@ -184,20 +184,7 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_min_idle_classification_epochs(value: u32) -> DispatchResult {
-        MinIdleClassificationEpochs::<T>::set(value);
 
-        Self::deposit_event(Event::SetMinIdleClassificationEpochs(value));
-
-        Ok(())
-    }
-    pub fn do_set_max_idle_classification_epochs(value: u32) -> DispatchResult {
-        MaxIdleClassificationEpochs::<T>::set(value);
-
-        Self::deposit_event(Event::SetMaxIdleClassificationEpochs(value));
-
-        Ok(())
-    }
     pub fn do_set_subnet_activation_enactment_epochs(value: u32) -> DispatchResult {
         SubnetEnactmentEpochs::<T>::set(value);
 
@@ -205,13 +192,13 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_included_classification_epochs(min: u32, max: u32) -> DispatchResult {
-        ensure!(min < max, Error::<T>::InvalidValues);
+    pub fn do_set_probation_rounds(min: u32, max: u32) -> DispatchResult {
+        ensure!(min > 0 && min < max, Error::<T>::InvalidValues);
 
-        MinIncludedClassificationEpochs::<T>::set(min);
-        MaxIncludedClassificationEpochs::<T>::set(max);
+        MinProbationRounds::<T>::set(min);
+        MaxProbationRounds::<T>::set(max);
 
-        Self::deposit_event(Event::SetIncludedClassificationEpochs(min, max));
+        Self::deposit_event(Event::SetProbationRounds(min, max));
 
         Ok(())
     }

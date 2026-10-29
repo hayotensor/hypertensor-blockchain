@@ -38,6 +38,7 @@ use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 
 fn setup_overwatch_validator(coldkey_n: u32, hotkey_n: u32, funding: u128) -> (u32, AccountId) {
     let coldkey = account(coldkey_n);
+    fund_validator_registration(&coldkey);
     assert_ok!(Network::do_register_validator(
         RuntimeOrigin::signed(coldkey.clone()),
         account(hotkey_n),
@@ -1554,6 +1555,7 @@ fn test_register_overwatch_node() {
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1601,6 +1603,7 @@ fn test_register_overwatch_node_requires_whitelisted_validator() {
         let coldkey = account(1);
         let hotkey = account(2);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1624,6 +1627,7 @@ fn test_register_overwatch_node_min_stake_error() {
         let hotkey = account(2);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1655,7 +1659,7 @@ fn test_register_overwatch_node_min_stake_error() {
         );
 
         let _ =
-            Balances::deposit_creating(&coldkey.clone(), OverwatchMinStakeBalance::<Test>::get());
+            Balances::make_free_balance_be(&coldkey, OverwatchMinStakeBalance::<Test>::get());
 
         assert_err!(
             Network::register_overwatch_node(
@@ -1676,6 +1680,7 @@ fn test_register_overwatch_node_stake_failure_does_not_commit_partial_state_or_c
         let coldkey = account(coldkey_n);
         let hotkey = account(hotkey_n);
 
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1754,6 +1759,7 @@ fn test_register_overwatch_node_errors() {
         let hotkey = account(2);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1787,7 +1793,7 @@ fn test_register_overwatch_node_errors() {
             Error::<Test>::NotEnoughBalanceToStake
         );
 
-        let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000);
+        let _ = Balances::make_free_balance_be(&coldkey, amount);
         assert_err!(
             Network::register_overwatch_node(RuntimeOrigin::signed(coldkey.clone()), amount,),
             Error::<Test>::BalanceWithdrawalError
@@ -1820,6 +1826,7 @@ fn test_set_overwatch_peer_id_v2() {
         let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -2000,6 +2007,7 @@ fn test_update_overwatch_hotkey_override_and_clear() {
         let overwatch_hotkey = account(3);
         let _ = Balances::deposit_creating(&coldkey, OverwatchMinStakeBalance::<Test>::get() + 500);
 
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             validator_hotkey.clone(),
@@ -2077,6 +2085,7 @@ fn test_set_overwatch_peer_id_errors() {
         let hotkey = account(2);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -2159,7 +2168,14 @@ fn test_set_overwatch_peer_id_errors() {
         let snn_hotkey = get_hotkey(subnet_id_key_offset, max_subnet_nodes, max_subnets, end);
 
         let subnet_node_data = SubnetNodesData::<Test>::try_get(subnet_id, end).unwrap();
-        let snn_peer_id = subnet_node_data.peer_info.as_ref().unwrap().peer_id.clone();
+        let subnet_node_data_metadata =
+            crate::SubnetNodeMetadata::<Test>::get(subnet_id, end).unwrap_or_default();
+        let snn_peer_id = subnet_node_data_metadata
+            .peer_info
+            .as_ref()
+            .unwrap()
+            .peer_id
+            .clone();
 
         assert_err!(
             Network::set_overwatch_node_peer_id(
@@ -2191,6 +2207,7 @@ fn test_remove_overwatch_node() {
         let hotkey = account(2);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -2281,6 +2298,7 @@ fn test_add_overwatch_node_stake_rejects_removed_overwatch_node() {
         let hotkey = account(2);
 
         let reward_rate = test_percent(1, 20);
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -3339,6 +3357,7 @@ fn test_add_to_overwatch_stake() {
         let hotkey = account(2);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -3401,6 +3420,7 @@ fn test_add_to_overwatch_stake_errors() {
         let hotkey = account(2);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -3412,7 +3432,7 @@ fn test_add_to_overwatch_stake_errors() {
         let validator_id = TotalValidatorIds::<Test>::get();
         OverwatchValidatorWhitelist::<Test>::insert(validator_id, ());
 
-        let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
+        let _ = Balances::make_free_balance_be(&coldkey, amount + EXISTENTIAL_DEPOSIT);
 
         let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
 
@@ -3455,6 +3475,7 @@ fn test_add_to_remove_overwatch_stake() {
         let coldkey = account(1);
         let hotkey = account(2);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -3531,6 +3552,7 @@ fn test_add_to_remove_overwatch_stake_unbond() {
         let hotkey = account(2);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -3624,6 +3646,7 @@ fn test_remove_overwatch_stake_after_removing_overwatch_node() {
         let hotkey = account(2);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -3693,6 +3716,7 @@ fn test_add_to_remove_overwatch_stake_errors() {
         let hotkey = account(2);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,

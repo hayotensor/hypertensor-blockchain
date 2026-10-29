@@ -2,7 +2,10 @@
 use super::*;
 use ::network_precompiles::{abi, addresses, convert};
 use pallet_network as n;
-use pallet_revive::{precompiles::alloy::sol_types::SolCall, TransactionLimits};
+use pallet_revive::{
+    precompiles::alloy::sol_types::{SolCall, SolValue},
+    TransactionLimits,
+};
 
 fn address(id: u16) -> H160 {
     H160(addresses::address(id))
@@ -40,20 +43,110 @@ fn invoke<C: SolCall>(id: u16, call: C) -> sp_runtime::DispatchOutcome {
     native_call(contract_call(address(id), 0, call.abi_encode()))
 }
 
+fn fund_identity_registration(coldkey: &AccountId) {
+    assert_ok!(native_call(
+        pallet_balances::Call::transfer_keep_alive {
+            dest: coldkey.clone(),
+            value: crate::tokenomics::POLICY
+                .network
+                .validator_registration_burn
+                + EXISTENTIAL_DEPOSIT,
+        }
+        .into()
+    ));
+}
+
+fn maximum_validator_identity() -> abi::OptionalIdentity {
+    let bytes = abi::OptionalBytes {
+        present: true,
+        value: vec![1; <Runtime as n::Config>::MaxVectorLength::get() as usize].into(),
+    };
+    let url = abi::OptionalBytes {
+        present: true,
+        value: vec![2; <Runtime as n::Config>::MaxUrlLength::get() as usize].into(),
+    };
+    let social = abi::OptionalBytes {
+        present: true,
+        value: vec![3; <Runtime as n::Config>::MaxSocialIdLength::get() as usize].into(),
+    };
+    abi::OptionalIdentity {
+        present: true,
+        value: abi::Identity {
+            name: bytes.clone(),
+            url: url.clone(),
+            image: url.clone(),
+            discord: social.clone(),
+            x: social.clone(),
+            telegram: social,
+            github: url.clone(),
+            huggingFace: url,
+            description: bytes.clone(),
+            misc: bytes,
+        },
+    }
+}
+
+#[test]
+fn validator_identity_registration_burns_the_same_amount_natively_and_through_precompile() {
+    for precompile in [false, true] {
+        crate::tests::npos::ext().execute_with(|| {
+            let coldkey = setup();
+            let balance_before = Balances::free_balance(&coldkey);
+            let issuance_before = Balances::total_issuance();
+            let burn = crate::tokenomics::POLICY
+                .network
+                .validator_registration_burn;
+            assert!(burn > 0);
+
+            if precompile {
+                // Call the real engine without an outer transaction fee so the identity
+                // burn can be checked exactly, independently of dispatch weight pricing.
+                let result = Revive::bare_call(
+                    RuntimeOrigin::signed(coldkey.clone()),
+                    address(addresses::VALIDATORS),
+                    U256::zero(),
+                    TransactionLimits::WeightAndDeposit {
+                        weight_limit: CONTRACT_WEIGHT,
+                        deposit_limit: TENSOR,
+                    },
+                    registration(42).abi_encode(),
+                    &Default::default(),
+                );
+                assert!(!result.result.expect("precompile executes").did_revert());
+            } else {
+                assert_ok!(Network::register_validator(
+                    RuntimeOrigin::signed(coldkey.clone()),
+                    AccountId::new([42; 32]),
+                    0,
+                    None,
+                    None,
+                ));
+            }
+
+            assert_eq!(Balances::free_balance(&coldkey), balance_before - burn);
+            assert_eq!(Balances::total_issuance(), issuance_before - burn);
+            assert!(n::ColdkeyValidatorId::<Runtime>::contains_key(&coldkey));
+        });
+    }
+}
+
 #[test]
 fn direct_native_and_precompile_registration_have_identical_network_state_and_events() {
     let execute = |precompile: bool| {
         crate::tests::npos::ext().execute_with(|| {
             let who = setup();
+            let identity = maximum_validator_identity();
             if precompile {
-                assert_ok!(invoke(addresses::VALIDATORS, registration(42)));
+                let mut call = registration(42);
+                call.identity = identity.clone();
+                assert_ok!(invoke(addresses::VALIDATORS, call));
             } else {
                 assert_ok!(Network::register_validator(
                     RuntimeOrigin::signed(who.clone()),
                     AccountId::new([42; 32]),
                     0,
                     None,
-                    None
+                    convert::identity::<Runtime>(&identity).unwrap()
                 ));
             }
             let id = n::ColdkeyValidatorId::<Runtime>::get(&who).unwrap();
@@ -67,12 +160,68 @@ fn direct_native_and_precompile_registration_have_identical_network_state_and_ev
             (
                 id,
                 n::ValidatorsData::<Runtime>::get(id).encode(),
+                n::ValidatorMetadata::<Runtime>::get(id).encode(),
                 n::ValidatorColdkey::<Runtime>::get(id),
                 events,
             )
         })
     };
     assert_eq!(execute(false), execute(true));
+}
+
+#[test]
+fn validator_metadata_contract_updates_and_reads_preserve_optional_identity() {
+    crate::tests::npos::ext().execute_with(|| {
+        let who = setup();
+        assert_ok!(invoke(addresses::VALIDATORS, registration(42)));
+        let id = n::ColdkeyValidatorId::<Runtime>::get(&who).unwrap();
+        let core = n::ValidatorsData::<Runtime>::get(id).encode();
+        for identity in [
+            maximum_validator_identity(),
+            abi::OptionalIdentity {
+                present: true,
+                value: Default::default(),
+            },
+            Default::default(),
+        ] {
+            assert_ok!(invoke(
+                addresses::VALIDATORS,
+                abi::IValidators::updateValidatorIdentityCall {
+                    validatorId: id,
+                    identity: identity.clone()
+                }
+            ));
+            assert_eq!(n::ValidatorsData::<Runtime>::get(id).encode(), core);
+            assert_eq!(
+                n::ValidatorMetadata::<Runtime>::get(id),
+                convert::identity::<Runtime>(&identity).unwrap()
+            );
+            let by_id = read(
+                addresses::VALIDATORS,
+                abi::IValidators::getValidatorCall { validatorId: id },
+            );
+            let by_coldkey = read(
+                addresses::VALIDATORS,
+                abi::IValidators::getValidatorByColdkeyCall {
+                    accountId: convert::account_out(who.clone()),
+                },
+            );
+            let by_hotkey = read(
+                addresses::VALIDATORS,
+                abi::IValidators::getValidatorByHotkeyCall {
+                    accountId: [42; 32].into(),
+                },
+            );
+            assert!(by_id.exists && by_coldkey.exists && by_hotkey.exists);
+            for returned in [
+                by_id.info.identity,
+                by_coldkey.info.identity,
+                by_hotkey.info.identity,
+            ] {
+                assert_eq!(returned.abi_encode_params(), identity.abi_encode_params());
+            }
+        }
+    });
 }
 
 /// Forward calldata to a precompile, propagating revert data. No Solidity compiler required.
@@ -111,8 +260,21 @@ fn contract_is_the_network_caller_and_outer_reverts_undo_network_changes() {
             let who = setup();
             let contract = deploy(forwarder(addresses::VALIDATORS, 0xf1, revert_after));
             let account = Mapper::to_account_id(&contract);
+            fund_identity_registration(&account);
+            let balance_before = Balances::free_balance(&account);
             let result = native_call(contract_call(contract, 0, registration(43).abi_encode()));
             assert_eq!(result.is_ok(), !revert_after);
+            let expected_burn = if revert_after {
+                0
+            } else {
+                crate::tokenomics::POLICY
+                    .network
+                    .validator_registration_burn
+            };
+            assert_eq!(
+                Balances::free_balance(&account),
+                balance_before - expected_burn
+            );
             assert_eq!(
                 n::ColdkeyValidatorId::<Runtime>::contains_key(&account),
                 !revert_after
@@ -132,6 +294,7 @@ fn static_delegate_nonpayable_malformed_and_unknown_calls_cannot_mutate() {
         let who = setup();
         for opcode in [0xfa, 0xf4] {
             let contract = deploy(forwarder(addresses::VALIDATORS, opcode, false));
+            fund_identity_registration(&Mapper::to_account_id(&contract));
             assert!(
                 native_call(contract_call(contract, 0, registration(44).abi_encode())).is_err()
             );
@@ -341,6 +504,7 @@ fn pvm_contract_can_call_a_network_precompile_as_its_own_account() {
             &[],
         );
         let contract = deploy(blob.into_vec().unwrap());
+        fund_identity_registration(&Mapper::to_account_id(&contract));
         assert_ok!(native_call(contract_call(contract, 0, vec![])));
         let id = n::ColdkeyValidatorId::<Runtime>::get(Mapper::to_account_id(&contract))
             .expect("PVM caller owns validator");
@@ -406,8 +570,7 @@ fn every_mutation_selector_routes_to_its_declared_native_call_index() {
         ownerUpdateChurnLimitCall => 15,
         ownerUpdateChurnLimitMultiplierCall => 16,
         ownerUpdateRegistrationQueueEpochsCall => 17,
-        ownerUpdateIdleClassificationEpochsCall => 18,
-        ownerUpdateIncludedClassificationEpochsCall => 19,
+        ownerUpdateProbationRoundsCall => 19,
         ownerUpdateSubnetNodeMinWeightDecreaseReputationThresholdCall => 27,
         ownerUpdateMinSubnetNodeReputationCall => 28,
         ownerAddOrUpdateInitialValidatorsCall => 29,
@@ -773,4 +936,389 @@ fn initial_validator_removal_uses_the_registered_node_bound() {
     let max = <Runtime as n::Config>::MaxRegisteredNodesUpperBound::get();
     assert!(convert::validator_set::<Runtime>(&(0..max).collect::<Vec<_>>()).is_ok());
     assert!(convert::validator_set::<Runtime>(&(0..=max).collect::<Vec<_>>()).is_err());
+}
+
+fn node_metadata_contract_fixture(immediate: bool) -> (AccountId, u32) {
+    let who = setup();
+    assert_ok!(Network::register_validator(
+        RuntimeOrigin::signed(who.clone()),
+        AccountId::new([42; 32]),
+        0,
+        None,
+        None
+    ));
+    let validator = n::ColdkeyValidatorId::<Runtime>::get(&who).unwrap();
+    n::SubnetsData::<Runtime>::insert(
+        1,
+        n::SubnetData {
+            id: 1,
+            state: if immediate {
+                n::SubnetState::Registered
+            } else {
+                n::SubnetState::Active
+            },
+            ..Default::default()
+        },
+    );
+    n::SubnetSlot::<Runtime>::insert(1, 3);
+    n::SubnetOwner::<Runtime>::insert(1, &who);
+    if immediate {
+        n::NodeRegistrationInitialValidatorIds::<Runtime>::insert(
+            1,
+            std::collections::BTreeMap::from([(validator, 1)]),
+        );
+    }
+    (who, validator)
+}
+
+fn contract_node_metadata(seed: u8) -> (abi::OptionalPeerInfo, abi::OptionalBytes) {
+    use n::utilities::multiaddr::{encode_varint, DNS4, P2P};
+    let mut id = vec![b'a'; 128];
+    id[..2].copy_from_slice(b"Qm");
+    id[2] = seed;
+    let mut address = Vec::new();
+    encode_varint(DNS4, &mut address);
+    encode_varint(889, &mut address);
+    address.extend(vec![b'a'; 889]);
+    encode_varint(P2P, &mut address);
+    encode_varint(128, &mut address);
+    address.extend(&id);
+    (
+        abi::OptionalPeerInfo {
+            present: true,
+            value: abi::PeerInfo {
+                peerId: id.into(),
+                multiaddr: abi::OptionalBytes {
+                    present: true,
+                    value: address.into(),
+                },
+            },
+        },
+        abi::OptionalBytes {
+            present: true,
+            value: vec![seed; 1024].into(),
+        },
+    )
+}
+
+#[test]
+fn node_metadata_native_and_contract_registration_and_reads_agree() {
+    for immediate in [false, true] {
+        let execute = |contract: bool| {
+            crate::tests::npos::ext().execute_with(|| {
+                let (who, validator) = node_metadata_contract_fixture(immediate);
+                let (peer, unique) = contract_node_metadata(61);
+                let (bootnode, _) = contract_node_metadata(62);
+                let (client, _) = contract_node_metadata(63);
+                let call = abi::ISubnetNodes::registerSubnetNodeCall {
+                    validatorId: validator,
+                    subnetId: 1,
+                    hotkey: Default::default(),
+                    peerInfo: peer.clone(),
+                    bootnodePeerInfo: bootnode.clone(),
+                    clientPeerInfo: client.clone(),
+                    stakeToBeAdded: n::MinSubnetMinStake::<Runtime>::get(),
+                    unique: unique.clone(),
+                    nonUnique: unique.clone(),
+                    maxBurnAmount: u128::MAX,
+                };
+                if contract {
+                    assert_ok!(invoke(addresses::SUBNET_NODES, call));
+                } else {
+                    assert_ok!(Network::register_subnet_node(
+                        RuntimeOrigin::signed(who),
+                        validator,
+                        1,
+                        None,
+                        convert::peer_info::<Runtime>(&peer).unwrap(),
+                        convert::peer_info::<Runtime>(&bootnode).unwrap(),
+                        convert::peer_info::<Runtime>(&client).unwrap(),
+                        n::MinSubnetMinStake::<Runtime>::get(),
+                        convert::network_bytes::<Runtime>(&unique).unwrap(),
+                        convert::network_bytes::<Runtime>(&unique).unwrap(),
+                        u128::MAX
+                    ));
+                }
+                let node = n::TotalSubnetNodeUids::<Runtime>::get(1);
+                let info = read(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::getSubnetNodeCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                    },
+                );
+                assert!(info.exists);
+                assert_eq!(
+                    info.info.peerInfo.abi_encode_params(),
+                    peer.abi_encode_params()
+                );
+                assert_eq!(
+                    info.info.bootnodePeerInfo.abi_encode_params(),
+                    bootnode.abi_encode_params()
+                );
+                assert_eq!(
+                    info.info.clientPeerInfo.abi_encode_params(),
+                    client.abi_encode_params()
+                );
+                assert_eq!(
+                    info.info.unique.abi_encode_params(),
+                    unique.abi_encode_params()
+                );
+                let associated = read(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::getAssociatedValidatorCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                    },
+                );
+                assert!(associated.present);
+                assert_eq!(associated.value, validator);
+                let events: Vec<_> = System::events()
+                    .into_iter()
+                    .filter_map(|e| match e.event {
+                        RuntimeEvent::Network(event) => Some(event.encode()),
+                        _ => None,
+                    })
+                    .collect();
+                (
+                    n::SubnetNodesData::<Runtime>::try_get(1, node)
+                        .ok()
+                        .encode(),
+                    n::QueuedSubnetNodesData::<Runtime>::try_get(1, node)
+                        .ok()
+                        .encode(),
+                    n::SubnetNodeMetadata::<Runtime>::get(1, node).encode(),
+                    n::SubnetNodeQueue::<Runtime>::get(1).encode(),
+                    events,
+                )
+            })
+        };
+        assert_eq!(execute(false), execute(true));
+    }
+}
+
+#[test]
+fn contract_node_metadata_updates_preserve_optional_values_and_operational_state() {
+    for immediate in [false, true] {
+        crate::tests::npos::ext().execute_with(|| {
+            let (_, validator) = node_metadata_contract_fixture(immediate);
+            assert_ok!(invoke(
+                addresses::SUBNET_NODES,
+                abi::ISubnetNodes::registerSubnetNodeCall {
+                    validatorId: validator,
+                    subnetId: 1,
+                    stakeToBeAdded: n::MinSubnetMinStake::<Runtime>::get(),
+                    maxBurnAmount: u128::MAX,
+                    ..Default::default()
+                }
+            ));
+            let node = n::TotalSubnetNodeUids::<Runtime>::get(1);
+            let before = (
+                n::SubnetNodesData::<Runtime>::get(1, node),
+                n::QueuedSubnetNodesData::<Runtime>::get(1, node),
+                n::SubnetNodeQueue::<Runtime>::get(1),
+            );
+            for seed in [61, 71] {
+                let (peer, bytes) = contract_node_metadata(seed);
+                let (bootnode, _) = contract_node_metadata(seed + 1);
+                let (client, _) = contract_node_metadata(seed + 2);
+                assert_ok!(invoke(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::updateNodePeerInfoCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                        newPeerInfo: peer.clone()
+                    }
+                ));
+                assert_ok!(invoke(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::updateNodeBootnodePeerInfoCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                        newPeerInfo: bootnode.clone()
+                    }
+                ));
+                assert_ok!(invoke(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::updateNodeClientPeerInfoCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                        newPeerInfo: client.clone()
+                    }
+                ));
+                assert_ok!(invoke(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::updateNodeUniqueCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                        unique: bytes.clone()
+                    }
+                ));
+                assert_ok!(invoke(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::updateNodeNonUniqueCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                        nonUnique: bytes.clone()
+                    }
+                ));
+                let result = read(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::getSubnetNodeCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                    },
+                );
+                assert_eq!(
+                    result.info.peerInfo.abi_encode_params(),
+                    peer.abi_encode_params()
+                );
+                assert_eq!(
+                    result.info.bootnodePeerInfo.abi_encode_params(),
+                    bootnode.abi_encode_params()
+                );
+                assert_eq!(
+                    result.info.clientPeerInfo.abi_encode_params(),
+                    client.abi_encode_params()
+                );
+                assert_eq!(
+                    result.info.unique.abi_encode_params(),
+                    bytes.abi_encode_params()
+                );
+                assert_eq!(
+                    result.info.nonUnique.abi_encode_params(),
+                    bytes.abi_encode_params()
+                );
+            }
+            assert_ok!(invoke(
+                addresses::SUBNET_NODES,
+                abi::ISubnetNodes::updateNodePeerInfoCall {
+                    subnetId: 1,
+                    subnetNodeId: node,
+                    newPeerInfo: Default::default()
+                }
+            ));
+            assert_ok!(invoke(
+                addresses::SUBNET_NODES,
+                abi::ISubnetNodes::updateNodeBootnodePeerInfoCall {
+                    subnetId: 1,
+                    subnetNodeId: node,
+                    newPeerInfo: Default::default()
+                }
+            ));
+            assert_ok!(invoke(
+                addresses::SUBNET_NODES,
+                abi::ISubnetNodes::updateNodeClientPeerInfoCall {
+                    subnetId: 1,
+                    subnetNodeId: node,
+                    newPeerInfo: Default::default()
+                }
+            ));
+            for value in [
+                abi::OptionalBytes {
+                    present: true,
+                    value: Default::default(),
+                },
+                Default::default(),
+            ] {
+                assert_ok!(invoke(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::updateNodeUniqueCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                        unique: value.clone()
+                    }
+                ));
+                assert_ok!(invoke(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::updateNodeNonUniqueCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                        nonUnique: value.clone()
+                    }
+                ));
+                let result = read(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::getSubnetNodeCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                    },
+                );
+                assert!(result.exists);
+                assert_eq!(
+                    result.info.unique.abi_encode_params(),
+                    value.abi_encode_params()
+                );
+            }
+            assert!(!n::SubnetNodeMetadata::<Runtime>::contains_key(1, node));
+            assert_eq!(
+                (
+                    n::SubnetNodesData::<Runtime>::get(1, node),
+                    n::QueuedSubnetNodesData::<Runtime>::get(1, node),
+                    n::SubnetNodeQueue::<Runtime>::get(1)
+                ),
+                before
+            );
+        });
+    }
+}
+
+#[test]
+fn contract_node_class_codes_match_queued_probation_and_active() {
+    crate::tests::npos::ext().execute_with(|| {
+        let (who, validator) = node_metadata_contract_fixture(false);
+        assert_ok!(Network::register_subnet_node(
+            RuntimeOrigin::signed(who),
+            validator,
+            1,
+            None,
+            None,
+            None,
+            None,
+            n::MinSubnetMinStake::<Runtime>::get(),
+            None,
+            None,
+            u128::MAX,
+        ));
+        let node = n::TotalSubnetNodeUids::<Runtime>::get(1);
+        let assert_code = |expected| {
+            let result = read(
+                addresses::SUBNET_NODES,
+                abi::ISubnetNodes::getSubnetNodeCall {
+                    subnetId: 1,
+                    subnetNodeId: node,
+                },
+            );
+            assert!(result.exists);
+            let native = Network::rpc_get_subnet_node_info(1, node).unwrap();
+            assert_eq!(result.info.nodeClass, expected);
+            assert_eq!(
+                result.info.nodeClass,
+                native.classification.node_class as u8
+            );
+            assert_eq!(
+                result.info.classStartEpoch,
+                native.classification.start_epoch
+            );
+        };
+        assert_code(0);
+        let queued = n::QueuedSubnetNodesData::<Runtime>::get(1, node);
+        let epoch =
+            queued.classification.start_epoch + n::SubnetNodeQueueEpochs::<Runtime>::get(1) + 1;
+        n::ChurnLimitMultiplier::<Runtime>::insert(1, 1);
+        Network::handle_registration_queue(
+            &mut frame_support::weights::WeightMeter::new(),
+            1,
+            epoch,
+        );
+        assert_code(1);
+        // ABI conversion fixture: settlement/promotion is exercised by pallet lifecycle tests.
+        n::SubnetNodesData::<Runtime>::mutate(1, node, |data| {
+            data.classification = n::SubnetNodeClassification {
+                node_class: n::SubnetNodeClass::Active,
+                start_epoch: epoch + 2,
+            };
+        });
+        assert_code(2);
+    });
 }

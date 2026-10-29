@@ -11,10 +11,25 @@ use alloc::{
     vec,
 };
 use frame_benchmarking::v2::*;
-use frame_support::{dispatch::GetDispatchInfo, traits::Get};
+use frame_support::{
+    dispatch::GetDispatchInfo,
+    traits::{Currency, Get},
+};
 use pallet_network as n;
 use pallet_revive::precompiles::alloy::sol_types::{SolCall, SolInterface};
-use sp_runtime::AccountId32;
+use sp_runtime::{AccountId32, SaturatedConversion};
+
+fn fund_validator_registration<T: Config>(coldkey: &AccountId32) {
+    let minimum_balance: u128 = <T as n::Config>::Currency::minimum_balance().saturated_into();
+    let funding = <T as n::Config>::Economics::get()
+        .validator_registration_burn
+        .checked_add(minimum_balance)
+        .expect("registration funding fits in u128");
+    let _ = <T as n::Config>::Currency::deposit_creating(
+        coldkey,
+        n::Pallet::<T>::u128_to_balance(funding).unwrap(),
+    );
+}
 
 fn optional_bytes(len: u32) -> abi::OptionalBytes {
     abi::OptionalBytes {
@@ -42,16 +57,11 @@ fn full_identity<T: Config>() -> abi::OptionalIdentity {
         },
     }
 }
-fn empty_node<T: Config>() -> n::SubnetNode<T> {
+fn empty_node<T: Config>() -> n::SubnetNode {
     n::SubnetNode {
         id: 0,
         validator_id: 0,
-        peer_info: None,
-        bootnode_peer_info: None,
-        client_peer_info: None,
         classification: Default::default(),
-        unique: None,
-        non_unique: None,
     }
 }
 fn full_peer<T: Config>() -> n::PeerInfo<T> {
@@ -150,14 +160,14 @@ mod benchmarks {
 
     #[benchmark]
     fn dispatch_weight_selection() {
-        let active: BTreeSet<_> = (1..=T::MaxSubnetNodesUpperBound::get()).collect();
-        let registered: BTreeSet<_> = (1..=T::MaxRegisteredNodesUpperBound::get()).collect();
-        let active: frame_support::BoundedBTreeSet<_, T::MaxSubnetNodesUpperBound> =
-            active.try_into().unwrap();
-        n::PendingActiveNodeRemovals::<T>::insert(1, active);
-        let registered: frame_support::BoundedBTreeSet<_, T::MaxRegisteredNodesUpperBound> =
-            registered.try_into().unwrap();
-        n::PendingRegisteredNodeRemovals::<T>::insert(1, registered);
+        let admitted: BTreeSet<_> = (1..=T::MaxSubnetNodesUpperBound::get()).collect();
+        let queued: BTreeSet<_> = (1..=T::MaxRegisteredNodesUpperBound::get()).collect();
+        let admitted: frame_support::BoundedBTreeSet<_, T::MaxSubnetNodesUpperBound> =
+            admitted.try_into().unwrap();
+        n::PendingAdmittedNodeRemovals::<T>::insert(1, admitted);
+        let queued: frame_support::BoundedBTreeSet<_, T::MaxRegisteredNodesUpperBound> =
+            queued.try_into().unwrap();
+        n::PendingQueuedNodeRemovals::<T>::insert(1, queued);
         n::SubnetNodeValidatorId::<T>::insert(1, 1, 1);
         n::TotalValidatorNodes::<T>::insert(1, T::MaxValidatorNodesUpperBound::get());
         n::TotalSubnetElectableNodes::<T>::insert(1, T::MaxSubnetNodesUpperBound::get());
@@ -207,6 +217,7 @@ mod benchmarks {
     fn validator_read() {
         let coldkey = AccountId32::new([7; 32]);
         let hotkey = AccountId32::new([8; 32]);
+        fund_validator_registration::<T>(&coldkey);
         n::Pallet::<T>::do_register_validator(
             frame_system::RawOrigin::Signed(coldkey.clone()).into(),
             hotkey,
@@ -299,6 +310,7 @@ mod benchmarks {
     fn node_read() {
         let coldkey = AccountId32::new([7; 32]);
         let hotkey = AccountId32::new([8; 32]);
+        fund_validator_registration::<T>(&coldkey);
         n::Pallet::<T>::do_register_validator(
             frame_system::RawOrigin::Signed(coldkey.clone()).into(),
             hotkey,
@@ -312,16 +324,18 @@ mod benchmarks {
         let mut node = empty_node::<T>();
         node.id = 1;
         node.validator_id = validator_id;
-        node.peer_info = Some(full_peer::<T>());
-        node.bootnode_peer_info = Some(full_peer::<T>());
-        node.client_peer_info = Some(full_peer::<T>());
-        node.unique = Some(
+        let mut metadata = n::NodeMetadata::<T>::default();
+        metadata.peer_info = Some(full_peer::<T>());
+        metadata.bootnode_peer_info = Some(full_peer::<T>());
+        metadata.client_peer_info = Some(full_peer::<T>());
+        metadata.unique = Some(
             vec![1; T::MaxVectorLength::get() as usize]
                 .try_into()
                 .unwrap(),
         );
-        node.non_unique = node.unique.clone();
+        metadata.non_unique = metadata.unique.clone();
         n::SubnetNodesData::<T>::insert(1, 1, node);
+        n::SubnetNodeMetadata::<T>::insert(1, 1, metadata);
         let input = abi::ISubnetNodes::ISubnetNodesCalls::getSubnetNode(
             abi::ISubnetNodes::getSubnetNodeCall {
                 subnetId: 1,

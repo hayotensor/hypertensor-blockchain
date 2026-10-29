@@ -6,7 +6,7 @@ use crate::{
     NewRegistrationCostMultiplier, PrevSubnetActivationEpoch, SubnetEnactmentEpochs, SubnetName,
     SubnetOwner, SubnetPauseData, SubnetRegistrationEpoch, SubnetRegistrationEpochs,
     SubnetRemovalActivationCooldown, SubnetRemovalCheckInterval, SubnetRemovalReason,
-    SubnetReputation, SubnetState, SubnetsData, TotalActiveSubnetNodes,
+    SubnetReputation, SubnetState, SubnetsData, TotalAdmittedSubnetNodes,
     TotalSubnetDelegateStakeBalance, NETWORK_EPOCH_PRELIMINARIES_SLOT,
 };
 use frame_support::assert_ok;
@@ -698,7 +698,7 @@ fn test_do_epoch_preliminaries_remove_registered_min_nodes() {
         let max_enactment_epoch = max_registration_epoch.saturating_add(subnet_enactment_epochs);
 
         // Force set node count below minimum
-        TotalActiveSubnetNodes::<Test>::insert(subnet_id, MinSubnetNodes::<Test>::get() - 1);
+        TotalAdmittedSubnetNodes::<Test>::insert(subnet_id, MinSubnetNodes::<Test>::get() - 1);
 
         // push into enactment period
         set_epoch(max_enactment_epoch, NETWORK_EPOCH_PRELIMINARIES_SLOT);

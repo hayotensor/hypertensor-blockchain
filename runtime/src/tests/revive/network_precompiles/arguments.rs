@@ -65,11 +65,8 @@ fn scalar_account_and_byte_arguments_preserve_the_native_call_payload() {
         subnetId => subnet_id: 101u32,
         value => value: 102u32,
     );
-    case!(subnets, ISubnets, ISubnetsCalls, ownerUpdateIdleClassificationEpochsCall => owner_update_idle_classification_epochs;
-        subnetId => subnet_id: 101u32,
-        value => value: 102u32,
-    );
-    case!(subnets, ISubnets, ISubnetsCalls, ownerUpdateIncludedClassificationEpochsCall => owner_update_included_classification_epochs;
+
+    case!(subnets, ISubnets, ISubnetsCalls, ownerUpdateProbationRoundsCall => owner_update_probation_rounds;
         subnetId => subnet_id: 101u32,
         value => value: 102u32,
     );

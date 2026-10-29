@@ -27,10 +27,10 @@ fn rpc_subnet_state(value: SubnetState) -> rpc::SubnetState {
 
 fn rpc_node_class(value: SubnetNodeClass) -> rpc::SubnetNodeClass {
     match value {
-        SubnetNodeClass::Registered => rpc::SubnetNodeClass::Registered,
-        SubnetNodeClass::Idle => rpc::SubnetNodeClass::Idle,
-        SubnetNodeClass::Included => rpc::SubnetNodeClass::Included,
-        SubnetNodeClass::Validator => rpc::SubnetNodeClass::Validator,
+        SubnetNodeClass::Queued => rpc::SubnetNodeClass::Queued,
+
+        SubnetNodeClass::Probation => rpc::SubnetNodeClass::Probation,
+        SubnetNodeClass::Active => rpc::SubnetNodeClass::Active,
     }
 }
 
@@ -76,8 +76,8 @@ fn rpc_subnet_node_info<T: Config>(
         stake_balance: value.stake_balance.into(),
         subnet_node_reputation: value.subnet_node_reputation.map(Into::into),
         node_slot_index: value.node_slot_index,
-        consecutive_idle_epochs: value.consecutive_idle_epochs,
-        consecutive_included_epochs: value.consecutive_included_epochs,
+
+        probation_progress: value.probation_progress,
     })
 }
 
@@ -160,8 +160,8 @@ fn rpc_consensus_policy(value: ConsensusPolicySnapshot) -> rpc::ConsensusPolicyI
             .into(),
         consensus_validator_node_count_decay: value.consensus_validator_node_count_decay.into(),
         consensus_validator_stake_weight_power: value.consensus_validator_stake_weight_power.into(),
-        idle_classification_epochs: value.idle_classification_epochs,
-        included_classification_epochs: value.included_classification_epochs,
+
+        probation_rounds: value.probation_rounds,
         queue_immunity_epochs: value.queue_immunity_epochs,
         reputation_factors: rpc_reputation_factors(value.reputation_factors),
     }
@@ -217,22 +217,15 @@ impl<T: Config> Pallet<T> {
                     owner: pending.owner,
                 },
             ),
-            idle_classification_epochs: value.idle_classification_epochs,
-            pending_idle_classification_epochs: value.pending_idle_classification_epochs.map(
-                |pending| rpc::PendingValueUpdate {
+
+            probation_rounds: value.probation_rounds,
+            pending_probation_rounds: value.pending_probation_rounds.map(|pending| {
+                rpc::PendingValueUpdate {
                     value: pending.value,
                     effective_subnet_epoch: pending.effective_subnet_epoch,
                     owner: pending.owner,
-                },
-            ),
-            included_classification_epochs: value.included_classification_epochs,
-            pending_included_classification_epochs: value
-                .pending_included_classification_epochs
-                .map(|pending| rpc::PendingValueUpdate {
-                    value: pending.value,
-                    effective_subnet_epoch: pending.effective_subnet_epoch,
-                    owner: pending.owner,
-                }),
+                }
+            }),
             delegate_stake_percentage: value.delegate_stake_percentage.into(),
             pending_delegate_stake_percentage: value.pending_delegate_stake_percentage.map(
                 |pending| rpc::PendingValueUpdate {
@@ -307,7 +300,7 @@ impl<T: Config> Pallet<T> {
                 })
                 .collect(),
             total_nodes: value.total_nodes,
-            total_active_nodes: value.total_active_nodes,
+            total_admitted_nodes: value.total_admitted_nodes,
             total_electable_nodes: value.total_electable_nodes,
             current_min_delegate_stake: value.current_min_delegate_stake.into(),
             total_subnet_stake: value.total_subnet_stake.into(),
@@ -364,9 +357,10 @@ impl<T: Config> Pallet<T> {
                     multiaddr: Some(rpc_bytes(multiaddr.into_inner())),
                 })
                 .collect(),
-            active_nodes: SubnetNodesData::<T>::iter_prefix(subnet_id)
-                .filter_map(|(_, node)| {
-                    let peer_info = node.bootnode_peer_info?;
+            admitted_nodes: SubnetNodesData::<T>::iter_prefix(subnet_id)
+                .filter_map(|(node_id, _)| {
+                    let peer_info =
+                        SubnetNodeMetadata::<T>::get(subnet_id, node_id)?.bootnode_peer_info?;
                     let multiaddr = peer_info.multiaddr?;
                     Some(rpc::BootnodeInfo {
                         peer_id: rpc_bytes(peer_info.peer_id.0),
@@ -398,7 +392,7 @@ impl<T: Config> Pallet<T> {
                     account_id: delegate.account_id,
                     rate: delegate.rate.into(),
                 }),
-            identity: validator.identity.map(rpc_identity::<T>),
+            identity: ValidatorMetadata::<T>::get(validator_id).map(rpc_identity::<T>),
             delegate_pool_shares: ValidatorDelegateStakeShares::<T>::get(validator_id).into(),
             delegate_pool_balance: ValidatorDelegateStakeBalance::<T>::get(validator_id).into(),
             delegate_pool_slash_lock_until: ValidatorDelegateStakeSlashLockUntil::<T>::get(
@@ -599,7 +593,7 @@ impl<T: Config> Pallet<T> {
                     validator_epoch_progress: submission.validator_epoch_progress.into(),
                     validator_reward_factor: submission.validator_reward_factor.into(),
                     eligible_attestors,
-                    active_subnet_node_ids: submission
+                    admitted_subnet_node_ids: submission
                         .subnet_nodes
                         .into_iter()
                         .map(|node| node.id)

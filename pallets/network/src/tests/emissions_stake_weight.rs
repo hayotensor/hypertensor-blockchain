@@ -1,11 +1,8 @@
 use super::mock::*;
 use super::test_utils::*;
 use crate::{
-  Error, 
-  TotalSubnetDelegateStakeBalance,
-  TotalActiveSubnetNodes,
-  TotalActiveNodes,
-  TotalDelegateStake,
+    Error, TotalAdmittedNodes, TotalAdmittedSubnetNodes, TotalDelegateStake,
+    TotalSubnetDelegateStakeBalance,
 };
 
 // #[test]
@@ -31,12 +28,12 @@ use crate::{
 //     let total_stake = stake_1 + stake_2 + stake_3;
 //     TotalDelegateStake::<Test>::put(total_stake);
 
-//     TotalActiveSubnetNodes::<Test>::insert(1, 10);
-//     TotalActiveSubnetNodes::<Test>::insert(2, 5);
-//     TotalActiveSubnetNodes::<Test>::insert(3, 20);
+//     TotalAdmittedSubnetNodes::<Test>::insert(1, 10);
+//     TotalAdmittedSubnetNodes::<Test>::insert(2, 5);
+//     TotalAdmittedSubnetNodes::<Test>::insert(3, 20);
 
 //     let total_nodes = 10 + 5 + 20;
-//     TotalActiveNodes::<Test>::put(total_nodes);
+//     TotalAdmittedNodes::<Test>::put(total_nodes);
 
 //     // --- Call Function
 //     let weights = Network::calculate_emission_weights(
@@ -91,11 +88,11 @@ use crate::{
 //     // Set mock storage values
 //     for (i, subnet_id) in subnet_ids.iter().enumerate() {
 //       TotalSubnetDelegateStakeBalance::<Test>::insert(subnet_id, stakes[i]);
-//       TotalActiveSubnetNodes::<Test>::insert(subnet_id, node_counts[i]);
+//       TotalAdmittedSubnetNodes::<Test>::insert(subnet_id, node_counts[i]);
 //     }
 
 //     // Total active nodes
-//     TotalActiveNodes::<Test>::put(60u32);
+//     TotalAdmittedNodes::<Test>::put(60u32);
 
 //     // alpha = 0.5
 //     let alpha_stake = 500_000_000_000_000_000u128;
@@ -132,10 +129,10 @@ use crate::{
 //     TotalSubnetDelegateStakeBalance::<Test>::insert(1, 0);
 //     TotalSubnetDelegateStakeBalance::<Test>::insert(2, 1_000_000_000_000_000_000u128);
 
-//     TotalActiveSubnetNodes::<Test>::insert(1, 10);
-//     TotalActiveSubnetNodes::<Test>::insert(2, 10);
+//     TotalAdmittedSubnetNodes::<Test>::insert(1, 10);
+//     TotalAdmittedSubnetNodes::<Test>::insert(2, 10);
 
-//     TotalActiveNodes::<Test>::put(20);
+//     TotalAdmittedNodes::<Test>::put(20);
 //     let total_delegate_stake = 1_000_000_000_000_000_000u128;
 
 //     let weights = Network::calculate_emission_weights(
@@ -157,10 +154,10 @@ use crate::{
 //     TotalSubnetDelegateStakeBalance::<Test>::insert(1, 1_000_000_000_000_000_000u128);
 //     TotalSubnetDelegateStakeBalance::<Test>::insert(2, 1_000_000_000_000_000_000u128);
 
-//     TotalActiveSubnetNodes::<Test>::insert(1, 0); // test 0
-//     TotalActiveSubnetNodes::<Test>::insert(2, 10);
+//     TotalAdmittedSubnetNodes::<Test>::insert(1, 0); // test 0
+//     TotalAdmittedSubnetNodes::<Test>::insert(2, 10);
 
-//     TotalActiveNodes::<Test>::put(10);
+//     TotalAdmittedNodes::<Test>::put(10);
 //     let total_delegate_stake = 2_000_000_000_000_000_000u128;
 
 //     let weights = Network::calculate_emission_weights(
@@ -195,9 +192,9 @@ fn test_stake_and_node_dominance_is_dampened_2_nets() {
     // Insert into storage
     TotalSubnetDelegateStakeBalance::<Test>::insert(1, stake_a);
     TotalSubnetDelegateStakeBalance::<Test>::insert(2, stake_b);
-    TotalActiveSubnetNodes::<Test>::insert(1, nodes_a);
-    TotalActiveSubnetNodes::<Test>::insert(2, nodes_b);
-    TotalActiveNodes::<Test>::put(total_nodes);
+    TotalAdmittedSubnetNodes::<Test>::insert(1, nodes_a);
+    TotalAdmittedSubnetNodes::<Test>::insert(2, nodes_b);
+    TotalAdmittedNodes::<Test>::put(total_nodes);
 
     // Constants
     let percentage_factor = Network::percentage_factor_as_u128();
@@ -248,10 +245,10 @@ fn test_stake_and_node_dominance_is_dampened_3_nets() {
     TotalSubnetDelegateStakeBalance::<Test>::insert(1, stake_a);
     TotalSubnetDelegateStakeBalance::<Test>::insert(2, stake_b);
     TotalSubnetDelegateStakeBalance::<Test>::insert(3, stake_c);
-    TotalActiveSubnetNodes::<Test>::insert(1, nodes_a);
-    TotalActiveSubnetNodes::<Test>::insert(2, nodes_b);
-    TotalActiveSubnetNodes::<Test>::insert(3, nodes_c);
-    TotalActiveNodes::<Test>::put(total_nodes);
+    TotalAdmittedSubnetNodes::<Test>::insert(1, nodes_a);
+    TotalAdmittedSubnetNodes::<Test>::insert(2, nodes_b);
+    TotalAdmittedSubnetNodes::<Test>::insert(3, nodes_c);
+    TotalAdmittedNodes::<Test>::put(total_nodes);
 
     // Constants
     let percentage_factor = Network::percentage_factor_as_u128();

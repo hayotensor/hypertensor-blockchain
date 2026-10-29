@@ -19,6 +19,7 @@ fn test_update_delegate_account() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -53,6 +54,7 @@ fn test_update_delegate_account_not_key_owner_error() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -87,6 +89,7 @@ fn test_update_delegate_account_requires_canonical_validator_coldkey() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -122,6 +125,7 @@ fn test_update_delegate_account_invalid_delegate_account_parameters_error() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -154,6 +158,7 @@ fn test_update_delegate_account_delegate_account_id_none_error() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -186,6 +191,7 @@ fn test_update_delegate_account_delegate_account_rate_none_error() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -218,6 +224,7 @@ fn test_update_delegate_account_delegate_account_cannot_be_hotkey_error() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey.clone(),
@@ -275,6 +282,7 @@ fn test_update_delegate_account_delegate_account_cannot_be_coldkey_error() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -332,6 +340,7 @@ fn test_update_delegate_account_invalid_delegate_account_rate_error() {
         let coldkey = account(0);
         let hotkey = account(1);
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,

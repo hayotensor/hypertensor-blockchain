@@ -2105,6 +2105,7 @@ parameter_types! {
         base_validator_reward: 1_000_000_000_000_000_000,
         max_slash: 1_000_000_000_000_000_000,
         base_node_burn: 10_000_000_000_000,
+        validator_registration_burn: 1_000_000_000_000_000_000,
         initial_registration_cost: 1_000_000_000_000_000_000,
         min_registration_cost: 100_000_000_000_000_000,
     };

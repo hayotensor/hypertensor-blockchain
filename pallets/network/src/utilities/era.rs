@@ -219,14 +219,8 @@ impl<T: Config> Pallet<T> {
                 Self::get_consensus_validator_node_count_decay_for_epoch(subnet_id, subnet_epoch),
             consensus_validator_stake_weight_power:
                 Self::get_consensus_validator_stake_weight_power_for_epoch(subnet_id, subnet_epoch),
-            idle_classification_epochs: Self::get_idle_classification_epochs_for_epoch(
-                subnet_id,
-                subnet_epoch,
-            ),
-            included_classification_epochs: Self::get_included_classification_epochs_for_epoch(
-                subnet_id,
-                subnet_epoch,
-            ),
+
+            probation_rounds: Self::get_probation_rounds_for_epoch(subnet_id, subnet_epoch),
             queue_immunity_epochs: Self::get_queue_immunity_epochs_for_epoch(
                 subnet_id,
                 subnet_epoch,
@@ -623,11 +617,11 @@ impl<T: Config> Pallet<T> {
     /// This function iterates over all registered subnets and enforces several rules:
     ///
     /// - Subnets in the **registration period** are allowed to exist without reputation decrease.
-    /// - Subnets in the **enactment period** must meet minimum active node counts or get removed.
+    /// - Subnets in the **enactment period** must meet minimum admitted node counts or get removed.
     /// - Subnets **out of enactment period** but not activated are removed.
     /// - Subnets in the **paused state** are penalized if they exceed allowed pause duration, potentially leading to removal.
     /// - Activated subnets are checked to ensure they meet minimum delegate stake requirements; otherwise they are removed.
-    /// - Activated subnets with insufficient active nodes decrease reputation.  
+    /// - Activated subnets with insufficient admitted nodes decrease reputation.
     /// - Subnets below the minimum reputation are removed.
     /// - If successful health removals still leave the network above its configured maximum, at
     ///   most one eligible subnet with the lowest delegate stake is removed for capacity.
@@ -713,8 +707,8 @@ impl<T: Config> Pallet<T> {
                         // --- Enactment Period
                         // - Check min nodes
                         // We don't check delegate stake here because users can continue to stake in this phase
-                        let active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
-                        if active_nodes < min_subnet_nodes {
+                        let admitted_nodes = TotalAdmittedSubnetNodes::<T>::get(subnet_id);
+                        if admitted_nodes < min_subnet_nodes {
                             if Self::try_do_remove_subnet(
                                 weight_meter,
                                 *subnet_id,

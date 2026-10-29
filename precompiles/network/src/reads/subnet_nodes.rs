@@ -9,7 +9,7 @@ pub fn subnet_nodes<T: Config>(
     let (reads, bytes) = match input {
         C::getAssociatedValidator(_) => (1, 64),
         C::getSubnetNode(_) => (
-            32,
+            33,
             T::MaxVectorLength::get()
                 .saturating_mul(12)
                 .saturating_add(8192),

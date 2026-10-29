@@ -80,13 +80,13 @@ This protects both parties from accidental transfers. Until the pending owner ac
 
 ### Node Registration and Queue Settings
 
-Owners can configure how nodes enter and progress through the subnet. These controls include the registration queue duration, queue immunity period, target node registrations per epoch, maximum queued registrations (`MaxRegisteredNodes`), churn limits, and churn multipliers. `MaxRegisteredNodes` caps the active subnet's registration-queue length; the separate network `MaxSubnetNodes` value caps active subnet nodes.
+Owners can configure how nodes enter and progress through the subnet. These controls include the registration queue duration, queue immunity period, target node registrations per epoch, maximum queued registrations (`MaxRegisteredNodes`), churn limits, and churn multipliers. `MaxRegisteredNodes` caps the active subnet's registration-queue length; the separate network `MaxSubnetNodes` value caps admitted Probation and Active nodes.
 
 Together, these settings shape how quickly the subnet admits new nodes, how much protection queued nodes receive before evaluation, and how much turnover the subnet allows. They help owners balance growth, stability, and competition among node operators.
 
 Registration queue duration and queue immunity changes are scheduled for the next subnet epoch. The live values continue to govern the current subnet epoch, giving queued nodes and validators a complete epoch boundary before the new timing applies.
 
-A queued node remains in its waiting and immunity periods while the current subnet epoch is equal to `start_epoch + configured_epochs`. The period has passed only in a later subnet epoch. Consequently, when queue duration and immunity are equal, a removal cannot be authorized before the node reaches duration-based activation eligibility. Actual activation can still wait for queue capacity and the configured churn cadence.
+A queued node remains in its waiting and immunity periods while the current subnet epoch is equal to `start_epoch + configured_epochs`. The period has passed only in a later subnet epoch. Consequently, when queue duration and immunity are equal, a removal cannot be authorized before the node reaches duration-based admission eligibility. Actual admission can still wait for queue capacity and the configured churn cadence.
 
 ### Initial Validators
 
@@ -113,13 +113,13 @@ The owner can update bootnodes directly and can also grant or remove bootnode ma
 
 Owners can set an emergency validator set while the subnet is paused. This feature is intended for recovery situations where the normal validator set is unhealthy, unavailable, or needs temporary replacement.
 
-Emergency validators are selected from valid subnet validator nodes and operate under protocol limits, including size limits, duration limits, and cooldowns. When the emergency period expires, or when the owner reverts the emergency set while the subnet is paused, the subnet returns to normal validator behavior.
+Emergency validators are selected from valid Active subnet nodes and operate under protocol limits, including size limits, duration limits, and cooldowns. When the emergency period expires, or when the owner reverts the emergency set while the subnet is paused, the subnet returns to normal validator behavior.
 
 ### Node Reputation and Classification Policy
 
-Owners can tune several reputation and classification parameters that affect how subnet nodes progress and are evaluated. These include idle and included classification timing, the minimum reputation required for subnet nodes, and reputation thresholds related to node weight decreases.
+Owners can tune several reputation and classification parameters that affect how subnet nodes progress and are evaluated. These include the required qualifying probation rounds, the minimum reputation required for subnet nodes, and reputation thresholds related to node weight decreases.
 
-These controls allow subnet owners to define how strict or permissive their subnet is toward node performance. Idle timing, Included timing, minimum node reputation, and the minimum-weight decrease threshold are all scheduled for the next subnet epoch. Minimum reputation and the minimum-weight threshold cannot be changed while an emergency validator set is active.
+These controls allow subnet owners to define how strict or permissive their subnet is toward node performance. `owner_update_probation_rounds` schedules `ProbationRounds` (default 2) for the next subnet epoch; each elected round snapshots its own value. Minimum node reputation and the minimum-weight decrease threshold are also scheduled for the next subnet epoch. Probation counts qualifying inclusions rather than elapsed epochs, and promotion additionally requires full reputation. Minimum reputation and the minimum-weight threshold cannot be changed while an emergency validator set is active.
 
 ### Reputation Factors
 
@@ -132,21 +132,22 @@ The proposal-derived factors `included_increase`, `absent_decrease`,
 with a nonzero score sum whose distinct-validator-identity support reaches the round's snapshotted
 network supermajority threshold, 87.5% in the current runtime. Equality qualifies. This
 identity-verification gate also controls
-whether an Included node's consecutive-inclusion state can advance or reset because of the score
+whether a Probation node's progress can advance or reset because of the score
 vector. It prevents one large delegated-stake position from making subjective score data
 reputation-authoritative.
 
 Once the gate is met, these node factors retain their configured meanings and are applied at the
-node level. In a normal round, `included_increase` applies to an Included- or Validator-class node
-present in the score vector; `absent_decrease` applies to an Included- or Validator-class node
-omitted from it; and `below_min_weight_decrease` applies when a scored Validator-class node's score
-share is below the owner's configured threshold. During an emergency round, normal Idle and
-Included progression is suspended and the snapshotted emergency factor policy is evaluated over
-the round's captured active-node set; score entries are still limited to nodes that had reached at
-least Included at submission. Identity
-deduplication does not merge sibling-node duties or outcomes. Rewards, Idle-to-Included time
-progression, minimum-reputation removal, and objective lifecycle penalties are not controlled by
-this gate.
+node level. In a normal round, `included_increase` applies to a Probation or Active node
+present in the score vector; `absent_decrease` applies to a Probation or Active node
+omitted from it; and `below_min_weight_decrease` applies when a scored Active-class node's score
+share is below the owner's configured threshold. In ordinary accepted nonzero-total-score rounds
+with identity supermajority, score-vector presence advances probation progress and omission resets
+it; a zero individual score still counts. Other rounds freeze progress. During an emergency round,
+the snapshotted emergency factor policy still governs reputation, but Probation nodes neither
+progress nor earn node-related rewards. The proposal snapshot contains admitted Probation and
+Active nodes; only historical Active nodes can earn node-related rewards. Identity deduplication
+does not merge sibling-node duties or outcomes. Reward eligibility, queue admission,
+minimum-reputation removal, and objective lifecycle penalties are not controlled by this gate.
 
 `validator_non_consensus_decrease` is the maximum percentage of current node reputation that the
 elected proposer can lose when its submitted proposal is strongly rejected. The actual loss is
@@ -168,7 +169,7 @@ decrease uses the same identity shortfall and compounds after
 `validator_non_consensus_decrease` has been applied to the proposer node. Minimum-reputation
 removal is evaluated after both decreases.
 
-`non_attestor_decrease` is a separate fixed node-reputation factor for a scored Validator-class
+`non_attestor_decrease` is a separate fixed node-reputation factor for a scored Active-class
 node that does not attest to an accepted, nonzero-score proposal. It is applied in full only when
 the distinct-validator-identity attestation ratio is at least the round's snapshotted network
 supermajority threshold; equality qualifies. The ratio counts each eligible parent validator

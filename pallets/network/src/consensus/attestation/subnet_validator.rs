@@ -72,7 +72,8 @@ impl<T: Config> Pallet<T> {
                 !pending_ids.contains(&entry.subnet_node_id)
                     && SubnetNodesData::<T>::try_get(subnet_id, entry.subnet_node_id)
                         .map(|subnet_node| {
-                            subnet_node.has_classification(&SubnetNodeClass::Included, subnet_epoch)
+                            subnet_node
+                                .has_classification(&SubnetNodeClass::Probation, subnet_epoch)
                         })
                         .unwrap_or(false)
             })
@@ -235,7 +236,7 @@ impl<T: Config> Pallet<T> {
     /// * `hotkey` - The hotkey of the elected validator submitting the consensus data.
     /// * `data` - A vector of consensus data containing scores for each peer in the subnet.
     ///   Duplicates based on `subnet_node_id` are collapsed to the lowest submitted score,
-    ///   and only peers with `Included` classification are retained.
+    ///   and only Probation and Active peers are retained.
     /// * `prioritize_queue_node_id` - Optional node ID from the registration queue to move
     ///   to the front of the queue. The node must exist in the queue or this parameter is ignored.
     /// * `remove_queue_node_id` - Optional node ID from the registration queue to remove.
@@ -256,7 +257,7 @@ impl<T: Config> Pallet<T> {
     /// 2. Verifies the caller is the elected validator for this epoch
     /// 3. Ensures consensus has not already been submitted for this epoch
     /// 4. Qualifies the consensus data by:
-    ///    - Filtering out non-Included peers
+    ///    - Filtering out Queued peers
     ///    - Collapsing duplicate subnet node IDs to the lowest submitted score
     ///    - Validating scores don't overflow when summed
     /// 5. Validates queue operations (prioritize/remove) if specified
@@ -338,9 +339,9 @@ impl<T: Config> Pallet<T> {
         // --- Qualify the data
         //
 
-        // Remove queue classified entries, collapse duplicate node IDs to the lowest score,
+        // Remove Queued entries, collapse duplicate node IDs to the lowest score,
         // and ensure the canonical score sum does not overflow.
-        let (data, _) = Self::canonicalize_consensus_data_for_submission(
+        let (data, weight_sum) = Self::canonicalize_consensus_data_for_submission(
             subnet_id,
             subnet_epoch,
             data,
@@ -358,16 +359,13 @@ impl<T: Config> Pallet<T> {
             },
         )]);
 
-        // --- Get all (activated) Idle + consensus-eligible nodes
-        // We get this here instead of in the rewards distribution to handle block weight more efficiently
-        // during block steps (on_initialize). As well, we get this here to define the point of which
-        // nodes are eligible for rewards. If a node were to remove itself after attesting, and is here
-        // when the validator submit their data, this will enable the node to still get rewarded for contributing
-        // to the subnet's consensus even if they leave -- versus calling this in the rewards distribution
-        // where the node would have already been removed even if they contributed to the subnet's consensus.
-        let subnet_nodes: Vec<ConsensusSubnetNode> = Self::get_active_classified_subnet_nodes(
+        // Snapshot admitted Probation and Active nodes for scoring and historical settlement.
+        // Capturing membership here avoids a live node scan during on_initialize. The historical
+        // classification determines settlement: Probation can progress but earns no node rewards;
+        // Active can receive rewards for its contribution even if it leaves before settlement.
+        let subnet_nodes: Vec<ConsensusSubnetNode> = Self::get_admitted_classified_subnet_nodes(
             subnet_id,
-            &SubnetNodeClass::Idle,
+            &SubnetNodeClass::Probation,
             subnet_epoch,
         )
         .iter()
@@ -400,6 +398,11 @@ impl<T: Config> Pallet<T> {
                     .ok_or(Error::<T>::InvalidSubnetNodeId)
             })
             .collect::<Result<BTreeMap<_, _>, _>>()?;
+        let eligible_validator_identity_count = validator_identity_ids
+            .values()
+            .copied()
+            .collect::<BTreeSet<_>>()
+            .len() as u32;
         let emergency_snapshot = elected_round.emergency.as_ref().map(|snapshot| {
             let mut filtered_snapshot = snapshot.clone();
             filtered_snapshot
@@ -498,6 +501,8 @@ impl<T: Config> Pallet<T> {
             data: data,
             args: None,
             emergency: emergency_snapshot,
+            weight_sum,
+            eligible_validator_identity_count,
         };
 
         // --- Store the data
@@ -550,7 +555,7 @@ impl<T: Config> Pallet<T> {
 
         // --- Ensure node classified to attest
         ensure!(
-            subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch),
+            subnet_node.has_classification(&SubnetNodeClass::Active, subnet_epoch),
             Error::<T>::InvalidSubnetNodeClassification
         );
 
@@ -580,7 +585,7 @@ impl<T: Config> Pallet<T> {
                     .ok_or(Error::<T>::InvalidSubnetConsensusSubmission)?;
 
                 // Ensure they are in the validator list and are eligible to attest
-                // Only validator classified nodes can attest
+                // Only Active nodes can attest
                 //
                 // See `do_propose_attestation` for the logic of how the validator set is determined as the
                 // official point of truth.
@@ -855,23 +860,24 @@ impl<T: Config> Pallet<T> {
         let reputation = if let Some(identity_shortfall) = proposer_node_reputation_shortfall {
             weight = weight.saturating_add(db_weight.reads(1));
             SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id).map(|rep| {
-                let new_reputation = Self::decrease_and_return_node_reputation(
-                    subnet_id,
-                    subnet_node_id,
+                let new_reputation = Self::decrease_rep(
                     rep,
                     validator_non_consensus_reputation_factor,
                     Some(identity_shortfall),
                 );
-                // try_mutate_exists, plus the NodeReputationUpdate event's System event storage
-                // accesses. The explicit `get` read is metered above even when no entry exists.
-                weight = weight.saturating_add(db_weight.reads_writes(5, 3));
+                weight = weight.saturating_add(Self::persist_node_reputation_change(
+                    subnet_id,
+                    subnet_node_id,
+                    rep,
+                    new_reputation,
+                ));
                 new_reputation
             })
         } else {
             None
         };
 
-        // Quarantine a validator-class subnet node below the minimum reputation. Physical
+        // Quarantine an Active-class subnet node below the minimum reputation. Physical
         // deletion is reserved for an assigned subnet slot with spare hook weight or an
         // authenticated node-specific call.
         // Callers that need the proposer to receive a subsequent attestor-role decrease pass a
@@ -879,7 +885,7 @@ impl<T: Config> Pallet<T> {
         if let (true, Some(reputation)) = (validator_exists, reputation) {
             if reputation < min_subnet_node_reputation {
                 let (pending_weight, _) =
-                    Self::persist_pending_active_node_removal(subnet_id, subnet_node_id);
+                    Self::persist_pending_admitted_node_removal(subnet_id, subnet_node_id);
                 weight = weight.saturating_add(pending_weight);
             }
         }

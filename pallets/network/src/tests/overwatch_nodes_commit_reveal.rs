@@ -57,6 +57,7 @@ fn test_do_commit_and_reveal_weights_success() {
         let subnet_id = 99;
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey.clone(),
@@ -574,6 +575,7 @@ fn test_do_commit_and_reveal_weights_not_key_owner_error() {
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey.clone(),
@@ -629,6 +631,7 @@ fn test_do_commit_and_reveal_weights_commits_empty_error() {
         let subnet_id = 99;
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey.clone(),
@@ -707,6 +710,7 @@ fn test_do_commit_and_reveal_weights_already_committed_error() {
         let hotkey: AccountId = account(2);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey.clone(),
@@ -1229,6 +1233,7 @@ fn test_commit_reveal_multiple_times_in_same_epoch() {
         let hotkey: AccountId = account(2);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,

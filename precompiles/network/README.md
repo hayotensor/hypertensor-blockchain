@@ -2,7 +2,7 @@
 
 Six stateless Revive precompiles expose the network pallet through typed Solidity
 interfaces. They are compiled into the runtime; no contract deployment is needed.
-All 75 signed network extrinsics have one wrapper. The 86 collective-controlled
+All 74 signed network extrinsics have one wrapper. The 83 collective-controlled
 extrinsics are recorded as deferred in [coverage.json](coverage.json).
 
 | Interface | Address | Responsibility |
@@ -74,8 +74,12 @@ RPC response. In particular `ConsensusRound` reports election identity and propo
 presence without expanding every attestor's metadata. Enum codes follow:
 
 - Subnet state: 0 registered, 1 active, 2 paused.
-- Node class: 0 registered, 1 idle, 2 included, 3 validator.
+- Node class: 0 queued, 1 probation, 2 active.
 - Round status: 0 elected, 1 proposed; election source: 0 regular, 1 emergency.
+
+Subnet owners configure qualifying probation inclusions with
+`ownerUpdateProbationRounds(subnetId, value)`. Probation nodes can be scored but
+cannot propose, attest, or receive node rewards. Bootstrap nodes enter Active directly.
 
 Unbondings are ordered by unlock block and limited by the runtime's hard ceiling.
 Commitment queries use the current Overwatch epoch. Epoch timing exposes the

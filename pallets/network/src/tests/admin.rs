@@ -11,32 +11,32 @@ use crate::{
     Error, InConsensusSubnetReputationFactor, LessThanMinNodesSubnetReputationFactor, MaxBootnodes,
     MaxChurnLimit, MaxChurnLimitMultiplier, MaxConsensusValidatorStakeWeightPower,
     MaxDelegateStakePercentage, MaxEmergencySubnetNodes, MaxEmergencyValidatorEpochsMultiplier,
-    MaxIdleClassificationEpochs, MaxIncludedClassificationEpochs, MaxMaxRegisteredNodes,
-    MaxMinSubnetNodeReputation, MaxNodeBurnRate, MaxNodeReputationFactor, MaxOverwatchNodes,
-    MaxPauseEpochsSubnetReputationFactor, MaxQueueEpochs, MaxRewardRateDecrease, MaxSlashAmount,
-    MaxSubnetBootnodeAccess, MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
+    MaxMaxRegisteredNodes, MaxMinSubnetNodeReputation, MaxNodeBurnRate, MaxNodeReputationFactor,
+    MaxOverwatchNodes, MaxPauseEpochsSubnetReputationFactor, MaxProbationRounds, MaxQueueEpochs,
+    MaxRewardRateDecrease, MaxSlashAmount, MaxSubnetBootnodeAccess,
+    MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
     MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnetPauseEpochs,
     MaxSubnets, MaxSwapQueueCallsPerBlock, MaxUnbondings, MaxValidatorDelegateStakeSlashAmount,
     MinActiveNodeStakeEpochs, MinChurnLimit, MinChurnLimitMultiplier,
     MinConsensusValidatorStakeWeightPower, MinDelegateStakeDeposit, MinDelegateStakePercentage,
-    MinIdleClassificationEpochs, MinIncludedClassificationEpochs, MinMaxRegisteredNodes,
-    MinMinSubnetNodeReputation, MinNodeBurnRate, MinNodeReputationFactor, MinQueueEpochs,
-    MinRegistrationCost, MinSubnetDelegateStakeBalance, MinSubnetDelegateStakeFactor,
-    MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetReputation,
-    NetworkMaxStakeBalance, NewRegistrationCostMultiplier, NodeDelegateStakeCooldownEpochs,
-    NodeRewardRateUpdatePeriod, NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
+    MinMaxRegisteredNodes, MinMinSubnetNodeReputation, MinNodeBurnRate, MinNodeReputationFactor,
+    MinProbationRounds, MinQueueEpochs, MinRegistrationCost, MinSubnetDelegateStakeBalance,
+    MinSubnetDelegateStakeFactor, MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs,
+    MinSubnetReputation, NetworkMaxStakeBalance, NewRegistrationCostMultiplier,
+    NodeDelegateStakeCooldownEpochs, NodeRewardRateUpdatePeriod,
+    NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
     OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock, OverwatchMinStakeBalance,
     OverwatchStakeWeightFactor, OverwatchTxPauseStartBlock, OverwatchValidatorWhitelist,
     OverwatchWeightFactor, RegistrationCostAlpha, RegistrationCostDecayBlocks,
     RequireSubnetRegistrationWhitelist, StakeCooldownEpochs,
     SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower, SubnetEnactmentEpochs,
-    SubnetName, SubnetNodeValidatorId, SubnetOwnerPercentage,
-    SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetRegistrationWhitelist,
-    SubnetRemovalActivationCooldown, SubnetRemovalCheckInterval, SubnetWeightFactors,
-    SubnetWeightFactorsData, SubnetsData, TotalValidatorNodes, TxRateLimit,
-    ValidatorAbsentSubnetReputationFactor, ValidatorDelegateStakeSlashThreshold,
-    ValidatorNodeDelegateStakeWeightUpdateInterval, ValidatorNodeDelegateStakeWeights,
-    ValidatorRewardK, ValidatorRewardMidpoint, ValidatorSubnetNodes,
+    SubnetName, SubnetNodeValidatorId, SubnetOwnerPercentage, SubnetPauseCooldownEpochs,
+    SubnetRegistrationEpochs, SubnetRegistrationWhitelist, SubnetRemovalActivationCooldown,
+    SubnetRemovalCheckInterval, SubnetWeightFactors, SubnetWeightFactorsData, SubnetsData,
+    TotalValidatorNodes, TxRateLimit, ValidatorAbsentSubnetReputationFactor,
+    ValidatorDelegateStakeSlashThreshold, ValidatorNodeDelegateStakeWeightUpdateInterval,
+    ValidatorNodeDelegateStakeWeights, ValidatorRewardK, ValidatorRewardMidpoint,
+    ValidatorSubnetNodes,
 };
 use frame_support::{assert_err, assert_ok};
 
@@ -758,46 +758,6 @@ fn test_set_queue_epochs() {
 }
 
 #[test]
-fn test_set_min_idle_classification_epochs() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let new_value: u32 = 5;
-
-        assert_ok!(Network::set_min_idle_classification_epochs(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-            new_value
-        ));
-
-        assert_eq!(MinIdleClassificationEpochs::<Test>::get(), new_value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetMinIdleClassificationEpochs(new_value)
-        );
-    });
-}
-
-#[test]
-fn test_set_max_idle_classification_epochs() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let new_value: u32 = 20;
-
-        assert_ok!(Network::set_max_idle_classification_epochs(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-            new_value
-        ));
-
-        assert_eq!(MaxIdleClassificationEpochs::<Test>::get(), new_value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetMaxIdleClassificationEpochs(new_value)
-        );
-    });
-}
-
-#[test]
 fn test_set_subnet_activation_enactment_epochs() {
     new_test_ext().execute_with(|| {
         System::set_block_number(System::block_number() + 1);
@@ -818,24 +778,24 @@ fn test_set_subnet_activation_enactment_epochs() {
 }
 
 #[test]
-fn test_set_included_classification_epochs() {
+fn test_set_probation_rounds() {
     new_test_ext().execute_with(|| {
         System::set_block_number(System::block_number() + 1);
 
         let min: u32 = 2;
         let max: u32 = 15;
 
-        assert_ok!(Network::set_included_classification_epochs(
+        assert_ok!(Network::set_probation_rounds(
             RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
             min,
             max
         ));
 
-        assert_eq!(MinIncludedClassificationEpochs::<Test>::get(), min);
-        assert_eq!(MaxIncludedClassificationEpochs::<Test>::get(), max);
+        assert_eq!(MinProbationRounds::<Test>::get(), min);
+        assert_eq!(MaxProbationRounds::<Test>::get(), max);
         assert_eq!(
             *network_events().last().unwrap(),
-            Event::SetIncludedClassificationEpochs(min, max)
+            Event::SetProbationRounds(min, max)
         );
     });
 }
@@ -2621,6 +2581,44 @@ fn test_set_max_pause_epochs_subnet_reputation_factor() {
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SetMaxPauseEpochsSubnetReputationFactor(value)
+        );
+    });
+}
+
+#[test]
+fn probation_round_bounds_reject_zero_reversed_and_unauthorized_updates() {
+    new_test_ext().execute_with(|| {
+        let before = (
+            MinProbationRounds::<Test>::get(),
+            MaxProbationRounds::<Test>::get(),
+        );
+        for (min, max) in [(0, 0), (0, 2), (2, 2), (3, 2)] {
+            assert_err!(
+                Network::set_probation_rounds(
+                    RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+                    min,
+                    max,
+                ),
+                Error::<Test>::InvalidValues
+            );
+            assert_eq!(
+                (
+                    MinProbationRounds::<Test>::get(),
+                    MaxProbationRounds::<Test>::get()
+                ),
+                before
+            );
+        }
+        assert_err!(
+            Network::set_probation_rounds(RuntimeOrigin::signed(account(1)), 1, 2),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        assert_eq!(
+            (
+                MinProbationRounds::<Test>::get(),
+                MaxProbationRounds::<Test>::get()
+            ),
+            before
         );
     });
 }

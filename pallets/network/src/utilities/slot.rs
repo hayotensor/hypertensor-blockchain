@@ -378,7 +378,7 @@ impl<T: Config> Pallet<T> {
     /// - Distributes emissions: `distribute_rewards`
     /// - Elects validator: `elect_validator`
     /// - Drains pending physical removals with the remaining subnet-slot weight
-    /// - Handles registration queue (i.e., activates nodes from the queue): `handle_registration_queue`
+    /// - Handles registration queue (i.e., admits Queued nodes as Probation): `handle_registration_queue`
     /// - Updates burn rate EMA: `update_burn_rate_for_epoch`
     pub fn emission_step(
         weight_meter: &mut WeightMeter,
@@ -548,8 +548,8 @@ impl<T: Config> Pallet<T> {
 
             if subnet.state == SubnetState::Active {
                 // Registration and burn maintenance are the final slot priority. Select one
-                // complete generated envelope from the physical registered-node count. Pending
-                // registered nodes remain physical but are absent from the queue, so this is a
+                // complete generated envelope from the physical queued-node count. Pending
+                // queued nodes remain physical but are absent from the queue, so this is a
                 // conservative queue bound.
                 let maintenance_selector_weight = db_weight.reads(2);
                 if !weight_meter.can_consume(maintenance_selector_weight) {
@@ -557,17 +557,17 @@ impl<T: Config> Pallet<T> {
                 }
                 weight_meter.consume(maintenance_selector_weight);
 
-                let registered_nodes = TotalSubnetNodes::<T>::get(subnet_id)
-                    .saturating_sub(TotalActiveSubnetNodes::<T>::get(subnet_id))
+                let queued_nodes = TotalSubnetNodes::<T>::get(subnet_id)
+                    .saturating_sub(TotalAdmittedSubnetNodes::<T>::get(subnet_id))
                     .clamp(1, T::MaxRegisteredNodesUpperBound::get());
-                let maintenance_weight = T::WeightInfo::emission_step_queue(registered_nodes)
-                    // Queue activation now checks the bounded pending set once per candidate.
+                let maintenance_weight = T::WeightInfo::emission_step_queue(queued_nodes)
+                    // Queue admission checks the bounded pending set once per candidate.
                     // Compose that new scan until the queue benchmark is regenerated.
                     .saturating_add(
-                        T::WeightInfo::pending_registered_removal_scan(
+                        T::WeightInfo::pending_queued_removal_scan(
                             T::MaxRegisteredNodesUpperBound::get(),
                         )
-                        .saturating_mul(registered_nodes.into()),
+                        .saturating_mul(queued_nodes.into()),
                     );
 
                 if weight_meter.can_consume(maintenance_weight) {
@@ -587,31 +587,31 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Attempt deterministic physical cleanup of every persisted quarantine marker. Active nodes
-    /// are considered first, then registered nodes. A marker remains durable whenever its complete
+    /// Attempt deterministic physical cleanup of every persisted quarantine marker. Admitted nodes
+    /// are considered first, then queued nodes. A marker remains durable whenever its complete
     /// selector/removal/write path does not fit, so the next assigned subnet slot can retry it.
     pub fn cleanup_pending_node_removals(weight_meter: &mut WeightMeter, subnet_id: u32) {
-        Self::cleanup_pending_active_node_removals(weight_meter, subnet_id);
-        Self::cleanup_pending_registered_node_removals(weight_meter, subnet_id);
+        Self::cleanup_pending_admitted_node_removals(weight_meter, subnet_id);
+        Self::cleanup_pending_queued_node_removals(weight_meter, subnet_id);
     }
 
-    fn cleanup_pending_active_node_removals(weight_meter: &mut WeightMeter, subnet_id: u32) {
+    fn cleanup_pending_admitted_node_removals(weight_meter: &mut WeightMeter, subnet_id: u32) {
         let db_weight = T::DbWeight::get();
         // The cardinality is encoded inside the set itself, so admit the generated maximum scan
         // before decoding it. Per-node physical branches below remain independently metered.
         let pending_read_weight =
-            T::WeightInfo::pending_active_removal_scan(T::MaxSubnetNodesUpperBound::get());
+            T::WeightInfo::pending_admitted_removal_scan(T::MaxSubnetNodesUpperBound::get());
         if !weight_meter.can_consume(pending_read_weight) {
             return;
         }
         weight_meter.consume(pending_read_weight);
 
-        let pending = PendingActiveNodeRemovals::<T>::get(subnet_id);
+        let pending = PendingAdmittedNodeRemovals::<T>::get(subnet_id);
         if pending.is_empty() {
             return;
         }
 
-        // Select the generated active-removal model from the compact physical election counter.
+        // Select the generated admitted-removal model from the compact physical election counter.
         let election_count_read_weight = db_weight.reads(1);
         if !weight_meter.can_consume(election_count_read_weight) {
             return;
@@ -643,7 +643,7 @@ impl<T: Config> Pallet<T> {
                 T::MaxValidatorNodesUpperBound::get()
             };
             let removal_weight =
-                Self::active_subnet_node_removal_weight(validator_nodes, electable_nodes_count)
+                Self::admitted_subnet_node_removal_weight(validator_nodes, electable_nodes_count)
                     .saturating_add(marker_clear_weight);
             if !weight_meter.can_consume(removal_weight) {
                 // Branch cost varies with validator ownership. Keep the deterministic scan going
@@ -652,33 +652,33 @@ impl<T: Config> Pallet<T> {
             }
 
             weight_meter.consume(removal_weight);
-            Self::remove_active_subnet_node(subnet_id, subnet_node_id);
+            Self::remove_admitted_subnet_node(subnet_id, subnet_node_id);
         }
     }
 
-    fn cleanup_pending_registered_node_removals(weight_meter: &mut WeightMeter, subnet_id: u32) {
+    fn cleanup_pending_queued_node_removals(weight_meter: &mut WeightMeter, subnet_id: u32) {
         let db_weight = T::DbWeight::get();
         let pending_read_weight =
-            T::WeightInfo::pending_registered_removal_scan(T::MaxRegisteredNodesUpperBound::get());
+            T::WeightInfo::pending_queued_removal_scan(T::MaxRegisteredNodesUpperBound::get());
         if !weight_meter.can_consume(pending_read_weight) {
             return;
         }
         weight_meter.consume(pending_read_weight);
 
-        let pending = PendingRegisteredNodeRemovals::<T>::get(subnet_id);
+        let pending = PendingQueuedNodeRemovals::<T>::get(subnet_id);
         if pending.is_empty() {
             return;
         }
 
-        // The queue no longer contains quarantined registered nodes. Use compact physical counts
+        // The queue no longer contains quarantined queued nodes. Use compact physical counts
         // as a conservative upper bound for the generated queue/removal component.
-        let registered_count_read_weight = db_weight.reads(2);
-        if !weight_meter.can_consume(registered_count_read_weight) {
+        let queued_count_read_weight = db_weight.reads(2);
+        if !weight_meter.can_consume(queued_count_read_weight) {
             return;
         }
-        weight_meter.consume(registered_count_read_weight);
-        let registered_nodes_count = TotalSubnetNodes::<T>::get(subnet_id)
-            .saturating_sub(TotalActiveSubnetNodes::<T>::get(subnet_id))
+        weight_meter.consume(queued_count_read_weight);
+        let queued_nodes_count = TotalSubnetNodes::<T>::get(subnet_id)
+            .saturating_sub(TotalAdmittedSubnetNodes::<T>::get(subnet_id))
             .clamp(1, T::MaxRegisteredNodesUpperBound::get());
 
         let validator_selector_weight = T::WeightInfo::subnet_node_validator_id_selector();
@@ -700,17 +700,15 @@ impl<T: Config> Pallet<T> {
             } else {
                 T::MaxValidatorNodesUpperBound::get()
             };
-            let removal_weight = T::WeightInfo::remove_registered_subnet_node(
-                validator_nodes,
-                registered_nodes_count,
-            )
-            .saturating_add(marker_clear_weight);
+            let removal_weight =
+                T::WeightInfo::remove_queued_subnet_node(validator_nodes, queued_nodes_count)
+                    .saturating_add(marker_clear_weight);
             if !weight_meter.can_consume(removal_weight) {
                 continue;
             }
 
             weight_meter.consume(removal_weight);
-            Self::remove_registered_subnet_node(subnet_id, subnet_node_id);
+            Self::remove_queued_subnet_node(subnet_id, subnet_node_id);
         }
     }
 
@@ -740,15 +738,15 @@ impl<T: Config> Pallet<T> {
         let subnet_node_queue_epochs =
             Self::get_subnet_node_queue_epochs_for_epoch(subnet_id, current_subnet_epoch);
         let max_nodes = MaxSubnetNodes::<T>::get();
-        let total_active_nodes = TotalActiveSubnetNodes::<T>::get(subnet_id);
+        let total_admitted_nodes = TotalAdmittedSubnetNodes::<T>::get(subnet_id);
         let churn_limit = ChurnLimit::<T>::get(subnet_id);
 
         // Consume weight for the 5 storage reads above
         weight_meter.consume(db_weight.reads(5));
 
         // Calculate how many nodes to process
-        let take = if max_nodes.saturating_sub(total_active_nodes) < churn_limit {
-            max_nodes.saturating_sub(total_active_nodes)
+        let take = if max_nodes.saturating_sub(total_admitted_nodes) < churn_limit {
+            max_nodes.saturating_sub(total_admitted_nodes)
         } else {
             churn_limit
         };
@@ -758,7 +756,7 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        // Get all of the nodes in the queue (Registered classified nodes)
+        // Get all of the nodes in the queue (Queued nodes)
         let mut queue = SubnetNodeQueue::<T>::get(subnet_id);
         weight_meter.consume(db_weight.reads(1));
 
@@ -766,25 +764,25 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        let mut activated_nodes = 0;
+        let mut admitted_nodes = 0;
         let nodes_to_process: Vec<_> = queue.iter().take(take as usize).collect();
 
         for subnet_node in nodes_to_process {
-            // Check if node is eligible for activation first (early exit)
+            // Check if node is eligible for admission first (early exit)
             if !Self::has_epoch_period_elapsed(
                 subnet_node.classification.start_epoch,
                 subnet_node_queue_epochs,
                 current_subnet_epoch,
             ) {
                 // Nodes are ordered by epoch, so we can break early if the first node
-                // is not ready yet to be activated from the queue
+                // is not ready yet to be admitted from the queue
                 break;
             }
 
             // The generated `emission_step_queue(q)` model covers bounded CPU/vector work. This
             // internal meter only needs to reserve the storage work that the helper consumes and
             // the one final queue write.
-            let storage_write_weight = if activated_nodes == 0 {
+            let storage_write_weight = if admitted_nodes == 0 {
                 db_weight.writes(1) // Only count the storage write once
             } else {
                 Weight::zero()
@@ -795,15 +793,15 @@ impl<T: Config> Pallet<T> {
                 .saturating_add(Self::pending_subnet_node_removal_proof_weight());
             let total_weight_needed = storage_write_weight
                 .saturating_add(pending_lookup_weight)
-                .saturating_add(db_weight.reads_writes(4, 4)); // Account for do_activate_subnet_node weight consumption
+                .saturating_add(db_weight.reads_writes(4, 4)); // Account for do_admit_subnet_node weight consumption
 
-            // Check if we can consume the complete operation (activation + cleanup + db updates)
+            // Check if we can consume the complete operation (admission + cleanup + db updates)
             if !weight_meter.can_consume(total_weight_needed) {
                 break;
             }
 
-            // Attempt activation
-            let can_consume = Self::do_activate_subnet_node(
+            // Attempt admission
+            let can_consume = Self::do_admit_subnet_node(
                 weight_meter,
                 subnet_id,
                 SubnetState::Active, // We know the subnet is active if `handle_registration_queue` is called
@@ -813,15 +811,15 @@ impl<T: Config> Pallet<T> {
             );
 
             if !can_consume {
-                break; // Stop if activation failed due to weight constraints or other reasons
+                break; // Stop if admission failed due to weight constraints or other reasons
             }
 
-            activated_nodes += 1;
+            admitted_nodes += 1;
         }
 
         // Cleanup: We've pre-calculated that we can afford this
-        if activated_nodes > 0 {
-            queue.drain(0..activated_nodes);
+        if admitted_nodes > 0 {
+            queue.drain(0..admitted_nodes);
 
             // Consume the storage write weight we reserved
             weight_meter.consume(db_weight.writes(1));
@@ -1161,7 +1159,7 @@ impl<T: Config> Pallet<T> {
     pub fn precheck_subnet_consensus_submission(
         subnet_id: u32,
         prev_subnet_epoch: u32,
-        _current_epoch: u32,
+        current_epoch: u32,
     ) -> (Option<ConsensusSubmissionData<T>>, Weight) {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
@@ -1183,6 +1181,36 @@ impl<T: Config> Pallet<T> {
                     if Self::is_consensus_round_settled(subnet_id, prev_subnet_epoch) {
                         return (None, weight);
                     }
+
+                    // Missing proposals retain the allocation belonging to this exact round,
+                    // including when settlement is retried in a later global epoch.
+                    let emission_epoch = ConsensusRoundSettlementEmissionEpoch::<T>::get(
+                        subnet_id,
+                        prev_subnet_epoch,
+                    )
+                    .unwrap_or(current_epoch);
+                    let allocation = FinalSubnetEmissionWeights::<T>::get(emission_epoch);
+                    weight = weight.saturating_add(db_weight.reads(2));
+                    let subnet_weight = allocation
+                        .subnet_weights
+                        .get(&subnet_id)
+                        .copied()
+                        .unwrap_or(0);
+                    if subnet_weight > Self::percentage_factor_as_u128() {
+                        return (None, weight);
+                    }
+                    let reward = Self::percent_mul(allocation.subnets_emissions, subnet_weight);
+                    let next_capacitor = if reward > 0 {
+                        weight = weight.saturating_add(db_weight.reads(1));
+                        let Some(balance) =
+                            SubnetRewardCapacitor::<T>::get(subnet_id).checked_add(reward)
+                        else {
+                            return (None, weight);
+                        };
+                        Some(balance)
+                    } else {
+                        None
+                    };
 
                     let validator_subnet_node_id = round.validator_subnet_node_id;
 
@@ -1209,6 +1237,10 @@ impl<T: Config> Pallet<T> {
                         // economic settlement commits successfully.
                         return (None, weight);
                     }
+                    if let Some(balance) = next_capacitor {
+                        SubnetRewardCapacitor::<T>::insert(subnet_id, balance);
+                        weight = weight.saturating_add(db_weight.writes(1));
+                    }
                     weight = weight.saturating_add(Self::finalize_consensus_round_slash_liability(
                         subnet_id,
                         prev_subnet_epoch,
@@ -1229,18 +1261,23 @@ impl<T: Config> Pallet<T> {
                     //
                     // Update node rep
                     //
-                    let mut newly_pending_active_removals = BoundedVec::default();
+                    let mut newly_pending_admitted_removals = BoundedVec::default();
                     let reputation_factors = round.policy.reputation_factors;
+                    weight = weight.saturating_add(db_weight.reads(1));
                     if let Some(rep) =
                         SubnetNodeReputation::<T>::get(subnet_id, validator_subnet_node_id)
                     {
-                        let new_reputation = Self::decrease_and_return_node_reputation(
-                            subnet_id,
-                            validator_subnet_node_id,
+                        let new_reputation = Self::decrease_rep(
                             rep,
                             reputation_factors.validator_absent_decrease,
                             None,
                         );
+                        weight = weight.saturating_add(Self::persist_node_reputation_change(
+                            subnet_id,
+                            validator_subnet_node_id,
+                            rep,
+                            new_reputation,
+                        ));
 
                         let min_node_reputation = round
                             .emergency
@@ -1249,25 +1286,24 @@ impl<T: Config> Pallet<T> {
                             .unwrap_or(round.policy.min_subnet_node_reputation);
                         if new_reputation < min_node_reputation {
                             let (pending_weight, inserted) =
-                                Self::persist_pending_active_node_removal(
+                                Self::persist_pending_admitted_node_removal(
                                     subnet_id,
                                     validator_subnet_node_id,
                                 );
                             weight = weight.saturating_add(pending_weight);
                             if inserted {
-                                newly_pending_active_removals
+                                newly_pending_admitted_removals
                                     .try_push(validator_subnet_node_id)
-                                    .expect("one missing proposer fits the active-removal event");
+                                    .expect("one missing proposer fits the admitted-removal event");
                             }
                         }
                     }
 
-                    weight = weight.saturating_add(db_weight.reads_writes(1, 1));
-                    if !newly_pending_active_removals.is_empty() {
+                    if !newly_pending_admitted_removals.is_empty() {
                         Self::deposit_event(Event::SubnetNodesPendingRemoval {
                             subnet_id,
-                            active_subnet_node_ids: newly_pending_active_removals,
-                            registered_subnet_node_ids: BoundedVec::default(),
+                            admitted_subnet_node_ids: newly_pending_admitted_removals,
+                            queued_subnet_node_ids: BoundedVec::default(),
                         });
                     }
                 }
@@ -1317,12 +1353,8 @@ impl<T: Config> Pallet<T> {
             0
         };
 
-        let eligible_validator_identities: BTreeSet<u32> = submission
-            .validator_identity_ids
-            .values()
-            .copied()
-            .collect();
-        let eligible_validator_identity_count = eligible_validator_identities.len() as u32;
+        // Proposal membership is immutable. Only the actual attesting set grows afterward.
+        let eligible_validator_identity_count = submission.eligible_validator_identity_count;
         let attesting_validator_identities: BTreeSet<u32> = submission
             .attests
             .keys()
@@ -1344,10 +1376,10 @@ impl<T: Config> Pallet<T> {
             0
         };
 
-        let (data, weight_sum) = match Self::canonicalize_consensus_data_entries(submission.data) {
-            Ok(canonical_data) => canonical_data,
-            Err(_) => return (None, weight),
-        };
+        // Proposal creation already sorted/deduplicated these scores and checked their sum.
+        // No runtime operation changes them afterward; retain the original reward denominator.
+        let data = submission.data;
+        let weight_sum = submission.weight_sum;
 
         let consensus_data = ConsensusSubmissionData::<T> {
             policy: round.policy,

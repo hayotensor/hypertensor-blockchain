@@ -4,35 +4,35 @@ use crate::weights::WeightInfo;
 use crate::{
     AttestEntry, ConsensusPolicySnapshot, ConsensusSubmissionData, ConsensusSubnetNode,
     EmergencySubnetNodeElectionData, EmergencySubnetValidatorData, Error, Event, MinSubnetMinStake,
-    MinSubnetNodes, NodeSubnetStake, PendingActiveNodeRemovals, PendingRegisteredNodeRemovals,
-    RegisteredSubnetNodesData, RewardsData, SubnetConsensusAttestorWeights,
-    SubnetConsensusSubmission, SubnetElectedValidator, SubnetName, SubnetNodeClass,
-    SubnetNodeConsensusData, SubnetNodeElectionSlots, SubnetNodeReputation, SubnetNodeValidatorId,
-    SubnetNodesData, SubnetOwner, SubnetReputationFactors, SubnetState,
+    MinSubnetNodes, NodeSubnetStake, PendingAdmittedNodeRemovals, PendingQueuedNodeRemovals,
+    QueuedSubnetNodesData, RewardsData, SubnetConsensusAttestorWeights, SubnetConsensusSubmission,
+    SubnetElectedValidator, SubnetName, SubnetNodeClass, SubnetNodeConsensusData,
+    SubnetNodeElectionSlots, SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData,
+    SubnetOwner, SubnetReputationFactors, SubnetState,
 };
 use frame_support::pallet_prelude::Pays;
 use frame_support::traits::{Get, Hooks};
 use frame_support::weights::{Weight, WeightMeter};
 use frame_support::{assert_err, assert_ok};
-use sp_std::collections::btree_map::BTreeMap;
+use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 
-fn mark_active_pending(subnet_id: u32, subnet_node_id: u32) {
-    PendingActiveNodeRemovals::<Test>::mutate(subnet_id, |pending| {
+fn mark_admitted_pending(subnet_id: u32, subnet_node_id: u32) {
+    PendingAdmittedNodeRemovals::<Test>::mutate(subnet_id, |pending| {
         pending
             .try_insert(subnet_node_id)
             .expect("test pending-active set fits its bound");
     });
 }
 
-fn mark_registered_pending(subnet_id: u32, subnet_node_id: u32) {
-    PendingRegisteredNodeRemovals::<Test>::mutate(subnet_id, |pending| {
+fn mark_queued_pending(subnet_id: u32, subnet_node_id: u32) {
+    PendingQueuedNodeRemovals::<Test>::mutate(subnet_id, |pending| {
         pending
             .try_insert(subnet_node_id)
             .expect("test pending-registered set fits its bound");
     });
 }
 
-fn seed_active_pending(subnet_id: u32) -> (u32, AccountId) {
+fn seed_admitted_pending(subnet_id: u32) -> (u32, AccountId) {
     let validator_id = subnet_id.saturating_mul(10);
     let coldkey_number = 100_000u32.saturating_add(subnet_id.saturating_mul(10));
     insert_subnet_node(
@@ -41,20 +41,20 @@ fn seed_active_pending(subnet_id: u32) -> (u32, AccountId) {
         coldkey_number,
         coldkey_number.saturating_add(1),
         coldkey_number.saturating_add(2),
-        SubnetNodeClass::Validator,
+        SubnetNodeClass::Active,
         0,
     );
     let subnet_node_id = 1;
-    mark_active_pending(subnet_id, subnet_node_id);
+    mark_admitted_pending(subnet_id, subnet_node_id);
     (subnet_node_id, account(coldkey_number))
 }
 
-fn assert_active_pending_cleaned(subnet_id: u32, subnet_node_id: u32) {
+fn assert_admitted_pending_cleaned(subnet_id: u32, subnet_node_id: u32) {
     assert!(!SubnetNodesData::<Test>::contains_key(
         subnet_id,
         subnet_node_id
     ));
-    assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).is_empty());
+    assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).is_empty());
 }
 
 #[test]
@@ -111,7 +111,7 @@ fn election_scans_to_the_next_healthy_candidate_wraps_and_handles_all_pending() 
             candidates.len(),
             |index| index + 1 < candidates.len(),
         );
-        mark_active_pending(successor_subnet_id, candidates[selected_index]);
+        mark_admitted_pending(successor_subnet_id, candidates[selected_index]);
 
         Network::elect_validator(successor_subnet_id, successor_epoch, System::block_number());
 
@@ -142,7 +142,7 @@ fn election_scans_to_the_next_healthy_candidate_wraps_and_handles_all_pending() 
             seed_election_draw(wrap_subnet_id, wrap_epoch, candidates.len(), |index| {
                 index + 1 == candidates.len()
             });
-        mark_active_pending(wrap_subnet_id, candidates[selected_index]);
+        mark_admitted_pending(wrap_subnet_id, candidates[selected_index]);
 
         Network::elect_validator(wrap_subnet_id, wrap_epoch, System::block_number());
 
@@ -162,7 +162,7 @@ fn election_scans_to_the_next_healthy_candidate_wraps_and_handles_all_pending() 
         let all_pending_epoch = 9;
         seed_election_candidates(all_pending_subnet_id, &candidates);
         for subnet_node_id in &candidates {
-            mark_active_pending(all_pending_subnet_id, *subnet_node_id);
+            mark_admitted_pending(all_pending_subnet_id, *subnet_node_id);
         }
 
         Network::elect_validator(all_pending_subnet_id, all_pending_epoch, 0);
@@ -195,7 +195,7 @@ fn election_falls_back_when_too_few_emergency_candidates_are_healthy() {
                 10_000 + ordinal,
                 20_000 + ordinal,
                 30_000 + ordinal,
-                SubnetNodeClass::Validator,
+                SubnetNodeClass::Active,
                 subnet_epoch,
             );
         }
@@ -217,7 +217,7 @@ fn election_falls_back_when_too_few_emergency_candidates_are_healthy() {
 
         // Quarantining one emergency candidate takes that set below MinSubnetNodes, while the
         // larger regular set remains viable.
-        mark_active_pending(subnet_id, emergency_candidates[0]);
+        mark_admitted_pending(subnet_id, emergency_candidates[0]);
         Network::elect_validator(subnet_id, subnet_epoch, 0);
 
         let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
@@ -254,10 +254,12 @@ fn accepted_queue_removal_quarantines_and_dequeues_before_physical_cleanup() {
             coldkey_number,
             30_002,
             30_003,
-            SubnetNodeClass::Registered,
+            SubnetNodeClass::Queued,
             0,
         );
-        let registered_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
+        let queued_node = QueuedSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
+        let metadata = crate::SubnetNodeMetadata::<Test>::get(subnet_id, subnet_node_id).unwrap();
+        let peer = metadata.peer_info.as_ref().unwrap().peer_id.clone();
         let accepted_submission = ConsensusSubmissionData::<Test> {
             policy: Default::default(),
             validator_subnet_node_id: 0,
@@ -287,19 +289,27 @@ fn accepted_queue_removal_quarantines_and_dequeues_before_physical_cleanup() {
         );
 
         assert_eq!(newly_pending.as_slice(), &[subnet_node_id]);
-        assert!(PendingRegisteredNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
+        assert!(PendingQueuedNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
         assert!(crate::SubnetNodeQueue::<Test>::get(subnet_id).is_empty());
-        assert!(RegisteredSubnetNodesData::<Test>::contains_key(
+        assert!(QueuedSubnetNodesData::<Test>::contains_key(
             subnet_id,
             subnet_node_id
         ));
 
+        assert_eq!(
+            crate::SubnetNodeMetadata::<Test>::get(subnet_id, subnet_node_id),
+            Some(metadata)
+        );
+        assert!(crate::PeerIdSubnetNodeId::<Test>::contains_key(
+            subnet_id, &peer
+        ));
+
         // Even a stale direct activation attempt cannot bypass logical quarantine.
-        assert!(!Network::do_activate_subnet_node(
+        assert!(!Network::do_admit_subnet_node(
             &mut WeightMeter::new(),
             subnet_id,
             SubnetState::Active,
-            registered_node,
+            queued_node,
             1,
             true,
         ));
@@ -316,11 +326,18 @@ fn accepted_queue_removal_quarantines_and_dequeues_before_physical_cleanup() {
             subnet_node_id,
             requested_metadata,
         ));
-        assert!(!RegisteredSubnetNodesData::<Test>::contains_key(
+        assert!(!QueuedSubnetNodesData::<Test>::contains_key(
             subnet_id,
             subnet_node_id
         ));
-        assert!(PendingRegisteredNodeRemovals::<Test>::get(subnet_id).is_empty());
+        assert!(PendingQueuedNodeRemovals::<Test>::get(subnet_id).is_empty());
+        assert!(!crate::SubnetNodeMetadata::<Test>::contains_key(
+            subnet_id,
+            subnet_node_id
+        ));
+        assert!(!crate::PeerIdSubnetNodeId::<Test>::contains_key(
+            subnet_id, &peer
+        ));
     });
 }
 
@@ -344,7 +361,7 @@ fn pending_proposal_and_attestation_are_authenticated_cleanup_only_and_pay_fees(
         insert_elected_subnet_node(subnet_id, subnet_epoch, proposer_node_id);
         let proposer_hotkey =
             Network::get_subnet_node_associated_hotkey(subnet_id, proposer_node_id).unwrap();
-        mark_active_pending(subnet_id, proposer_node_id);
+        mark_admitted_pending(subnet_id, proposer_node_id);
 
         assert_err!(
             Network::propose_attestation(
@@ -362,7 +379,7 @@ fn pending_proposal_and_attestation_are_authenticated_cleanup_only_and_pay_fees(
             subnet_id,
             proposer_node_id
         ));
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).contains(&proposer_node_id));
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).contains(&proposer_node_id));
 
         let proposer_post_info = Network::propose_attestation(
             RuntimeOrigin::signed(proposer_hotkey),
@@ -388,12 +405,12 @@ fn pending_proposal_and_attestation_are_authenticated_cleanup_only_and_pay_fees(
             subnet_id,
             proposer_node_id
         ));
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).is_empty());
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).is_empty());
 
         let attestor_node_id = 2;
         let attestor_hotkey =
             Network::get_subnet_node_associated_hotkey(subnet_id, attestor_node_id).unwrap();
-        mark_active_pending(subnet_id, attestor_node_id);
+        mark_admitted_pending(subnet_id, attestor_node_id);
 
         assert_err!(
             Network::attest(
@@ -421,7 +438,7 @@ fn pending_proposal_and_attestation_are_authenticated_cleanup_only_and_pay_fees(
             subnet_id,
             attestor_node_id
         ));
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).is_empty());
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).is_empty());
     });
 }
 
@@ -464,7 +481,7 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
                 *id != proposer_node_id && *id != pending_node_id && *id != healthy_scored_node_id
             })
             .unwrap();
-        mark_active_pending(subnet_id, pending_node_id);
+        mark_admitted_pending(subnet_id, pending_node_id);
 
         let proposer_hotkey =
             Network::get_subnet_node_associated_hotkey(subnet_id, proposer_node_id).unwrap();
@@ -498,6 +515,8 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
                 score: 1,
             }]
         );
+        assert_eq!(stored_submission.weight_sum, 1);
+        assert_eq!(stored_submission.eligible_validator_identity_count, stored_submission.validator_identity_ids.values().copied().collect::<BTreeSet<_>>().len() as u32);
         assert!(!stored_submission.validator_ids.contains(&pending_node_id));
         assert!(!stored_submission
             .validator_identity_ids
@@ -512,7 +531,7 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
         assert!(!stored_weights.weights.contains_key(&pending_node_id));
 
         // Quarantine changes after proposal storage do not rewrite the historical round.
-        mark_active_pending(subnet_id, later_pending_node_id);
+        mark_admitted_pending(subnet_id, later_pending_node_id);
         assert_eq!(
             SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap(),
             stored_submission
@@ -525,7 +544,7 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
 }
 
 #[test]
-fn proposal_ignores_queue_requests_for_pending_registered_nodes() {
+fn proposal_ignores_queue_requests_for_pending_queued_nodes() {
     new_test_ext().execute_with(|| {
         let subnet_name = b"pending-registered-queue-requests".to_vec();
         build_activated_subnet(
@@ -547,14 +566,14 @@ fn proposal_ignores_queue_requests_for_pending_registered_nodes() {
             93_001,
             93_002,
             93_003,
-            SubnetNodeClass::Registered,
+            SubnetNodeClass::Queued,
             subnet_epoch,
         );
-        let pending_registered_node_id = crate::TotalSubnetNodeUids::<Test>::get(subnet_id);
-        mark_registered_pending(subnet_id, pending_registered_node_id);
+        let pending_queued_node_id = crate::TotalSubnetNodeUids::<Test>::get(subnet_id);
+        mark_queued_pending(subnet_id, pending_queued_node_id);
         assert!(crate::SubnetNodeQueue::<Test>::get(subnet_id)
             .iter()
-            .any(|node| node.id == pending_registered_node_id));
+            .any(|node| node.id == pending_queued_node_id));
 
         let proposer_node_id = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch)
             .unwrap()
@@ -565,8 +584,8 @@ fn proposal_ignores_queue_requests_for_pending_registered_nodes() {
             RuntimeOrigin::signed(proposer_hotkey),
             subnet_id,
             vec![],
-            Some(pending_registered_node_id),
-            Some(pending_registered_node_id),
+            Some(pending_queued_node_id),
+            Some(pending_queued_node_id),
             None,
             None,
         )
@@ -576,12 +595,12 @@ fn proposal_ignores_queue_requests_for_pending_registered_nodes() {
         let stored = SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
         assert_eq!(stored.prioritize_queue_node_id, None);
         assert_eq!(stored.remove_queue_node_id, None);
-        assert!(RegisteredSubnetNodesData::<Test>::contains_key(
+        assert!(QueuedSubnetNodesData::<Test>::contains_key(
             subnet_id,
-            pending_registered_node_id
+            pending_queued_node_id
         ));
-        assert!(PendingRegisteredNodeRemovals::<Test>::get(subnet_id)
-            .contains(&pending_registered_node_id));
+        assert!(PendingQueuedNodeRemovals::<Test>::get(subnet_id)
+            .contains(&pending_queued_node_id));
     });
 }
 
@@ -603,7 +622,7 @@ fn pending_remove_stake_cleans_first_and_withdraws_only_on_retry() {
             Network::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id).unwrap();
         let stake_before = crate::NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
         assert_eq!(stake_before, stake);
-        mark_active_pending(subnet_id, subnet_node_id);
+        mark_admitted_pending(subnet_id, subnet_node_id);
 
         assert_err!(
             Network::remove_node_stake(
@@ -634,7 +653,7 @@ fn pending_remove_stake_cleans_first_and_withdraws_only_on_retry() {
             subnet_id,
             subnet_node_id
         ));
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).is_empty());
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).is_empty());
         assert_eq!(
             crate::NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
             stake_before
@@ -685,7 +704,7 @@ fn pending_self_removal_bypasses_the_elected_validator_guard_after_authenticatio
             subnet_node_id
         ));
 
-        mark_active_pending(subnet_id, subnet_node_id);
+        mark_admitted_pending(subnet_id, subnet_node_id);
         assert!(Network::remove_subnet_node(
             RuntimeOrigin::signed(account(92_001)),
             subnet_id,
@@ -696,7 +715,7 @@ fn pending_self_removal_bypasses_the_elected_validator_guard_after_authenticatio
             subnet_id,
             subnet_node_id
         ));
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
 
         // Exact owner authentication reaches cleanup before the elected-validator prohibition.
         assert_ok!(Network::remove_subnet_node(
@@ -704,7 +723,7 @@ fn pending_self_removal_bypasses_the_elected_validator_guard_after_authenticatio
             subnet_id,
             subnet_node_id,
         ));
-        assert_active_pending_cleaned(subnet_id, subnet_node_id);
+        assert_admitted_pending_cleaned(subnet_id, subnet_node_id);
     });
 }
 
@@ -719,20 +738,20 @@ fn direct_physical_removal_clears_both_marker_classes() {
             40_001,
             40_002,
             40_003,
-            SubnetNodeClass::Validator,
+            SubnetNodeClass::Active,
             0,
         );
-        mark_active_pending(subnet_id, subnet_node_id);
+        mark_admitted_pending(subnet_id, subnet_node_id);
         // A mismatched stale marker must not survive the common terminal removal path either.
-        mark_registered_pending(subnet_id, subnet_node_id);
+        mark_queued_pending(subnet_id, subnet_node_id);
 
-        assert!(Network::remove_active_subnet_node(
+        assert!(Network::remove_admitted_subnet_node(
             subnet_id,
             subnet_node_id
         ));
 
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).is_empty());
-        assert!(PendingRegisteredNodeRemovals::<Test>::get(subnet_id).is_empty());
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).is_empty());
+        assert!(PendingQueuedNodeRemovals::<Test>::get(subnet_id).is_empty());
         assert!(!SubnetNodesData::<Test>::contains_key(
             subnet_id,
             subnet_node_id
@@ -741,31 +760,31 @@ fn direct_physical_removal_clears_both_marker_classes() {
 }
 
 #[test]
-fn registered_collective_and_whole_subnet_removals_clear_pending_markers() {
+fn queued_collective_and_whole_subnet_removals_clear_pending_markers() {
     new_test_ext().execute_with(|| {
-        // Direct registered-node removal clears both its real marker and any stale mismatched one.
-        let registered_subnet_id = 42;
-        let registered_node_id = 1;
+        // Direct queued-node removal clears both its real marker and any stale mismatched one.
+        let queued_subnet_id = 42;
+        let queued_node_id = 1;
         insert_subnet_node(
             402,
-            registered_subnet_id,
+            queued_subnet_id,
             42_001,
             42_002,
             42_003,
-            SubnetNodeClass::Registered,
+            SubnetNodeClass::Queued,
             0,
         );
-        mark_registered_pending(registered_subnet_id, registered_node_id);
-        mark_active_pending(registered_subnet_id, registered_node_id);
+        mark_queued_pending(queued_subnet_id, queued_node_id);
+        mark_admitted_pending(queued_subnet_id, queued_node_id);
 
-        Network::remove_registered_subnet_node(registered_subnet_id, registered_node_id);
+        Network::remove_queued_subnet_node(queued_subnet_id, queued_node_id);
 
-        assert!(!RegisteredSubnetNodesData::<Test>::contains_key(
-            registered_subnet_id,
-            registered_node_id
+        assert!(!QueuedSubnetNodesData::<Test>::contains_key(
+            queued_subnet_id,
+            queued_node_id
         ));
-        assert!(PendingRegisteredNodeRemovals::<Test>::get(registered_subnet_id).is_empty());
-        assert!(PendingActiveNodeRemovals::<Test>::get(registered_subnet_id).is_empty());
+        assert!(PendingQueuedNodeRemovals::<Test>::get(queued_subnet_id).is_empty());
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(queued_subnet_id).is_empty());
 
         // Collective removal of one active node also terminates both marker classes.
         let collective_name = b"pending-collective-node-removal".to_vec();
@@ -778,8 +797,8 @@ fn registered_collective_and_whole_subnet_removals_clear_pending_markers() {
         );
         let collective_subnet_id = SubnetName::<Test>::get(collective_name).unwrap();
         let collective_node_id = 1;
-        mark_active_pending(collective_subnet_id, collective_node_id);
-        mark_registered_pending(collective_subnet_id, collective_node_id);
+        mark_admitted_pending(collective_subnet_id, collective_node_id);
+        mark_queued_pending(collective_subnet_id, collective_node_id);
 
         assert_ok!(Network::collective_remove_subnet_node(
             RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
@@ -790,8 +809,8 @@ fn registered_collective_and_whole_subnet_removals_clear_pending_markers() {
             collective_subnet_id,
             collective_node_id
         ));
-        assert!(PendingActiveNodeRemovals::<Test>::get(collective_subnet_id).is_empty());
-        assert!(PendingRegisteredNodeRemovals::<Test>::get(collective_subnet_id).is_empty());
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(collective_subnet_id).is_empty());
+        assert!(PendingQueuedNodeRemovals::<Test>::get(collective_subnet_id).is_empty());
 
         // Whole-subnet deletion drops every outstanding active and registered marker together.
         let whole_name = b"pending-whole-subnet-removal".to_vec();
@@ -809,19 +828,19 @@ fn registered_collective_and_whole_subnet_removals_clear_pending_markers() {
             49_001,
             49_002,
             49_003,
-            SubnetNodeClass::Registered,
+            SubnetNodeClass::Queued,
             0,
         );
-        let registered_node_id = crate::TotalSubnetNodeUids::<Test>::get(whole_subnet_id);
-        mark_active_pending(whole_subnet_id, 1);
-        mark_registered_pending(whole_subnet_id, registered_node_id);
+        let queued_node_id = crate::TotalSubnetNodeUids::<Test>::get(whole_subnet_id);
+        mark_admitted_pending(whole_subnet_id, 1);
+        mark_queued_pending(whole_subnet_id, queued_node_id);
 
         assert_ok!(Network::collective_remove_subnet(
             RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
             whole_subnet_id,
         ));
-        assert!(PendingActiveNodeRemovals::<Test>::get(whole_subnet_id).is_empty());
-        assert!(PendingRegisteredNodeRemovals::<Test>::get(whole_subnet_id).is_empty());
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(whole_subnet_id).is_empty());
+        assert!(PendingQueuedNodeRemovals::<Test>::get(whole_subnet_id).is_empty());
     });
 }
 
@@ -838,15 +857,15 @@ fn pending_cleanup_obeys_the_exact_meter_boundary_and_subnet_scope() {
             50_001,
             50_002,
             50_003,
-            SubnetNodeClass::Validator,
+            SubnetNodeClass::Active,
             0,
         );
-        mark_active_pending(subnet_id, subnet_node_id);
+        mark_admitted_pending(subnet_id, subnet_node_id);
 
         let db_weight: frame_support::weights::RuntimeDbWeight =
             <Test as frame_system::Config>::DbWeight::get();
         let scan_weight =
-            <() as WeightInfo>::pending_active_removal_scan(NetworkMaxSubnetNodesUpperBound::get());
+            <() as WeightInfo>::pending_admitted_removal_scan(NetworkMaxSubnetNodesUpperBound::get());
         let selector_weight = <() as WeightInfo>::subnet_node_validator_id_selector();
         let validator_nodes = Network::validator_owned_nodes_weight_param(validator_id);
         let election_nodes = crate::TotalSubnetElectableNodes::<Test>::get(subnet_id);
@@ -855,7 +874,7 @@ fn pending_cleanup_obeys_the_exact_meter_boundary_and_subnet_scope() {
             .saturating_add(db_weight.reads(1))
             .saturating_add(selector_weight)
             .saturating_add(db_weight.reads(1))
-            .saturating_add(Network::active_subnet_node_removal_weight(
+            .saturating_add(Network::admitted_subnet_node_removal_weight(
                 validator_nodes,
                 election_nodes,
             ))
@@ -871,11 +890,11 @@ fn pending_cleanup_obeys_the_exact_meter_boundary_and_subnet_scope() {
             subnet_id,
             subnet_node_id
         ));
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
 
         // Work admitted for a different subnet never drains this subnet's durable marker.
         Network::cleanup_pending_node_removals(&mut WeightMeter::new(), other_subnet_id);
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
 
         let mut exact_meter = WeightMeter::with_limit(exact_active_cleanup_weight);
         Network::cleanup_pending_node_removals(&mut exact_meter, subnet_id);
@@ -883,7 +902,7 @@ fn pending_cleanup_obeys_the_exact_meter_boundary_and_subnet_scope() {
             subnet_id,
             subnet_node_id
         ));
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).is_empty());
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).is_empty());
         assert_eq!(exact_meter.consumed(), exact_active_cleanup_weight);
     });
 }
@@ -901,7 +920,7 @@ fn assigned_slot_cleanup_retries_on_the_next_assigned_slot_without_a_proposal() 
         );
         let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
         let subnet_node_id = 1;
-        mark_active_pending(subnet_id, subnet_node_id);
+        mark_admitted_pending(subnet_id, subnet_node_id);
 
         let first_epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(first_epoch, subnet_id);
@@ -910,7 +929,7 @@ fn assigned_slot_cleanup_retries_on_the_next_assigned_slot_without_a_proposal() 
         // Run the assigned step with less than the minimum active-pending scan. Settlement still
         // gets first priority, while the durable cleanup marker must survive for a later retry.
         let pending_scan =
-            <() as WeightInfo>::pending_active_removal_scan(NetworkMaxSubnetNodesUpperBound::get());
+            <() as WeightInfo>::pending_admitted_removal_scan(NetworkMaxSubnetNodesUpperBound::get());
         let one_ref_time_short = Weight::from_parts(
             pending_scan.ref_time().saturating_sub(1),
             pending_scan.proof_size(),
@@ -929,7 +948,7 @@ fn assigned_slot_cleanup_retries_on_the_next_assigned_slot_without_a_proposal() 
             subnet_id,
             subnet_node_id
         ));
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
 
         // Restoring weight on a block that is not this subnet's slot cannot drain its marker.
         let unrelated_block = first_assigned_block.saturating_add(1);
@@ -939,7 +958,7 @@ fn assigned_slot_cleanup_retries_on_the_next_assigned_slot_without_a_proposal() 
         );
         System::set_block_number(unrelated_block);
         Network::on_initialize(unrelated_block);
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
 
         // There is deliberately no successful proposal for the intervening round. Cleanup is an
         // independent operational step and therefore succeeds at this subnet's next slot anyway.
@@ -954,7 +973,7 @@ fn assigned_slot_cleanup_retries_on_the_next_assigned_slot_without_a_proposal() 
 
         Network::on_initialize(System::block_number());
 
-        assert_active_pending_cleaned(subnet_id, subnet_node_id);
+        assert_admitted_pending_cleaned(subnet_id, subnet_node_id);
     });
 }
 
@@ -970,7 +989,7 @@ fn missing_proposal_threshold_crossing_persists_pending_marker_and_event() {
             53_001,
             53_002,
             53_003,
-            SubnetNodeClass::Validator,
+            SubnetNodeClass::Active,
             0,
         );
 
@@ -999,28 +1018,28 @@ fn missing_proposal_threshold_crossing_persists_pending_marker_and_event() {
             subnet_id,
             subnet_node_id
         ));
-        assert!(PendingActiveNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).contains(&subnet_node_id));
         assert!(network_events().iter().any(|event| {
             matches!(
                 event,
                 Event::SubnetNodesPendingRemoval {
                     subnet_id: event_subnet_id,
-                    active_subnet_node_ids,
-                    registered_subnet_node_ids,
+                    admitted_subnet_node_ids,
+                    queued_subnet_node_ids,
                 } if *event_subnet_id == subnet_id
-                    && active_subnet_node_ids.as_slice() == [subnet_node_id]
-                    && registered_subnet_node_ids.is_empty()
+                    && admitted_subnet_node_ids.as_slice() == [subnet_node_id]
+                    && queued_subnet_node_ids.is_empty()
             )
         }));
     });
 }
 
 #[test]
-fn every_active_node_mutation_can_only_authenticate_then_cleanup() {
+fn every_admitted_node_mutation_can_only_authenticate_then_cleanup() {
     new_test_ext().execute_with(|| {
         let wrong_owner = account(999_999);
 
-        let (node_id, owner) = seed_active_pending(61);
+        let (node_id, owner) = seed_admitted_pending(61);
         assert!(Network::update_node_hotkey(
             RuntimeOrigin::signed(wrong_owner.clone()),
             61,
@@ -1035,9 +1054,9 @@ fn every_active_node_mutation_can_only_authenticate_then_cleanup() {
             node_id,
             Some(account(1_000_001)),
         ));
-        assert_active_pending_cleaned(61, node_id);
+        assert_admitted_pending_cleaned(61, node_id);
 
-        let (node_id, owner) = seed_active_pending(62);
+        let (node_id, owner) = seed_admitted_pending(62);
         assert!(Network::update_node_peer_info(
             RuntimeOrigin::signed(wrong_owner.clone()),
             62,
@@ -1052,9 +1071,9 @@ fn every_active_node_mutation_can_only_authenticate_then_cleanup() {
             node_id,
             None,
         ));
-        assert_active_pending_cleaned(62, node_id);
+        assert_admitted_pending_cleaned(62, node_id);
 
-        let (node_id, owner) = seed_active_pending(63);
+        let (node_id, owner) = seed_admitted_pending(63);
         assert!(Network::update_node_bootnode_peer_info(
             RuntimeOrigin::signed(wrong_owner.clone()),
             63,
@@ -1069,9 +1088,9 @@ fn every_active_node_mutation_can_only_authenticate_then_cleanup() {
             node_id,
             None,
         ));
-        assert_active_pending_cleaned(63, node_id);
+        assert_admitted_pending_cleaned(63, node_id);
 
-        let (node_id, owner) = seed_active_pending(64);
+        let (node_id, owner) = seed_admitted_pending(64);
         assert!(Network::update_node_client_peer_info(
             RuntimeOrigin::signed(wrong_owner.clone()),
             64,
@@ -1086,9 +1105,9 @@ fn every_active_node_mutation_can_only_authenticate_then_cleanup() {
             node_id,
             None,
         ));
-        assert_active_pending_cleaned(64, node_id);
+        assert_admitted_pending_cleaned(64, node_id);
 
-        let (node_id, owner) = seed_active_pending(65);
+        let (node_id, owner) = seed_admitted_pending(65);
         assert!(Network::update_node_unique(
             RuntimeOrigin::signed(wrong_owner.clone()),
             65,
@@ -1103,9 +1122,9 @@ fn every_active_node_mutation_can_only_authenticate_then_cleanup() {
             node_id,
             Some(vec![9].try_into().unwrap()),
         ));
-        assert_active_pending_cleaned(65, node_id);
+        assert_admitted_pending_cleaned(65, node_id);
 
-        let (node_id, owner) = seed_active_pending(66);
+        let (node_id, owner) = seed_admitted_pending(66);
         assert!(Network::update_node_non_unique(
             RuntimeOrigin::signed(wrong_owner.clone()),
             66,
@@ -1120,9 +1139,9 @@ fn every_active_node_mutation_can_only_authenticate_then_cleanup() {
             node_id,
             Some(vec![8].try_into().unwrap()),
         ));
-        assert_active_pending_cleaned(66, node_id);
+        assert_admitted_pending_cleaned(66, node_id);
 
-        let (node_id, owner) = seed_active_pending(67);
+        let (node_id, owner) = seed_admitted_pending(67);
         let stake_before = crate::NodeSubnetStake::<Test>::get(node_id, 67);
         assert!(Network::add_node_stake(
             RuntimeOrigin::signed(wrong_owner.clone()),
@@ -1138,13 +1157,13 @@ fn every_active_node_mutation_can_only_authenticate_then_cleanup() {
             node_id,
             1,
         ));
-        assert_active_pending_cleaned(67, node_id);
+        assert_admitted_pending_cleaned(67, node_id);
         assert_eq!(
             crate::NodeSubnetStake::<Test>::get(node_id, 67),
             stake_before
         );
 
-        let (node_id, owner) = seed_active_pending(68);
+        let (node_id, owner) = seed_admitted_pending(68);
         assert!(
             Network::remove_subnet_node(RuntimeOrigin::signed(wrong_owner), 68, node_id,).is_err()
         );
@@ -1154,12 +1173,12 @@ fn every_active_node_mutation_can_only_authenticate_then_cleanup() {
             68,
             node_id,
         ));
-        assert_active_pending_cleaned(68, node_id);
+        assert_admitted_pending_cleaned(68, node_id);
     });
 }
 
 #[test]
-fn registered_node_calls_require_the_owner_and_then_only_cleanup() {
+fn queued_node_calls_require_the_owner_and_then_only_cleanup() {
     new_test_ext().execute_with(|| {
         let wrong_owner = account(999_998);
 
@@ -1172,10 +1191,10 @@ fn registered_node_calls_require_the_owner_and_then_only_cleanup() {
             91_001,
             91_002,
             91_003,
-            SubnetNodeClass::Registered,
+            SubnetNodeClass::Queued,
             0,
         );
-        mark_registered_pending(hotkey_subnet_id, hotkey_node_id);
+        mark_queued_pending(hotkey_subnet_id, hotkey_node_id);
 
         assert!(Network::update_node_hotkey(
             RuntimeOrigin::signed(wrong_owner.clone()),
@@ -1184,7 +1203,7 @@ fn registered_node_calls_require_the_owner_and_then_only_cleanup() {
             Some(account(91_004)),
         )
         .is_err());
-        assert!(RegisteredSubnetNodesData::<Test>::contains_key(
+        assert!(QueuedSubnetNodesData::<Test>::contains_key(
             hotkey_subnet_id,
             hotkey_node_id
         ));
@@ -1194,11 +1213,11 @@ fn registered_node_calls_require_the_owner_and_then_only_cleanup() {
             hotkey_node_id,
             Some(account(91_004)),
         ));
-        assert!(!RegisteredSubnetNodesData::<Test>::contains_key(
+        assert!(!QueuedSubnetNodesData::<Test>::contains_key(
             hotkey_subnet_id,
             hotkey_node_id
         ));
-        assert!(PendingRegisteredNodeRemovals::<Test>::get(hotkey_subnet_id).is_empty());
+        assert!(PendingQueuedNodeRemovals::<Test>::get(hotkey_subnet_id).is_empty());
 
         let removal_subnet_id = 92;
         let removal_node_id = 1;
@@ -1209,10 +1228,10 @@ fn registered_node_calls_require_the_owner_and_then_only_cleanup() {
             92_001,
             92_002,
             92_003,
-            SubnetNodeClass::Registered,
+            SubnetNodeClass::Queued,
             0,
         );
-        mark_registered_pending(removal_subnet_id, removal_node_id);
+        mark_queued_pending(removal_subnet_id, removal_node_id);
 
         assert!(Network::remove_subnet_node(
             RuntimeOrigin::signed(wrong_owner),
@@ -1220,7 +1239,7 @@ fn registered_node_calls_require_the_owner_and_then_only_cleanup() {
             removal_node_id,
         )
         .is_err());
-        assert!(RegisteredSubnetNodesData::<Test>::contains_key(
+        assert!(QueuedSubnetNodesData::<Test>::contains_key(
             removal_subnet_id,
             removal_node_id
         ));
@@ -1229,11 +1248,11 @@ fn registered_node_calls_require_the_owner_and_then_only_cleanup() {
             removal_subnet_id,
             removal_node_id,
         ));
-        assert!(!RegisteredSubnetNodesData::<Test>::contains_key(
+        assert!(!QueuedSubnetNodesData::<Test>::contains_key(
             removal_subnet_id,
             removal_node_id
         ));
-        assert!(PendingRegisteredNodeRemovals::<Test>::get(removal_subnet_id).is_empty());
+        assert!(PendingQueuedNodeRemovals::<Test>::get(removal_subnet_id).is_empty());
     });
 }
 
@@ -1257,7 +1276,7 @@ fn more_than_four_threshold_crossings_withhold_without_redistribution() {
                 account_base,
                 account_base.saturating_add(1),
                 account_base.saturating_add(2),
-                SubnetNodeClass::Validator,
+                SubnetNodeClass::Active,
                 0,
             );
             SubnetNodeReputation::<Test>::insert(
@@ -1350,7 +1369,7 @@ fn more_than_four_threshold_crossings_withhold_without_redistribution() {
             rewards.clone(),
         );
 
-        let pending = PendingActiveNodeRemovals::<Test>::get(subnet_id);
+        let pending = PendingAdmittedNodeRemovals::<Test>::get(subnet_id);
         assert_eq!(
             pending.iter().copied().collect::<Vec<_>>(),
             vec![1, 2, 3, 4, 5]
@@ -1418,7 +1437,7 @@ fn pending_proposer_forfeits_every_node_related_allocation_without_redistributio
                 account_base,
                 account_base.saturating_add(1),
                 account_base.saturating_add(2),
-                SubnetNodeClass::Validator,
+                SubnetNodeClass::Active,
                 0,
             );
             crate::NodeSubnetStake::<Test>::insert(subnet_node_id, subnet_id, initial_node_stake);
@@ -1529,7 +1548,7 @@ fn pending_proposer_forfeits_every_node_related_allocation_without_redistributio
             rewards.clone(),
         );
 
-        let pending = PendingActiveNodeRemovals::<Test>::get(subnet_id);
+        let pending = PendingAdmittedNodeRemovals::<Test>::get(subnet_id);
         assert!(pending.contains(&proposer_node_id));
         assert_eq!(
             SubnetNodeReputation::<Test>::get(subnet_id, proposer_node_id),

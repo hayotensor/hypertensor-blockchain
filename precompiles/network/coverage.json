@@ -338,26 +338,7 @@
     "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
   },
   {
-    "name": "owner_update_idle_classification_epochs",
-    "args": [
-      [
-        "subnet_id",
-        "u32"
-      ],
-      [
-        "value",
-        "u32"
-      ]
-    ],
-    "origin": "signed",
-    "index": 18,
-    "domain": "Subnets",
-    "signature": "ownerUpdateIdleClassificationEpochs(uint32,uint32)",
-    "status": "implemented",
-    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
-  },
-  {
-    "name": "owner_update_included_classification_epochs",
+    "name": "owner_update_probation_rounds",
     "args": [
       [
         "subnet_id",
@@ -371,7 +352,7 @@
     "origin": "signed",
     "index": 19,
     "domain": "Subnets",
-    "signature": "ownerUpdateIncludedClassificationEpochs(uint32,uint32)",
+    "signature": "ownerUpdateProbationRounds(uint32,uint32)",
     "status": "implemented",
     "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
   },
@@ -1795,34 +1776,6 @@
     "authorization": "Council approval: at least 4/5 of members in this runtime"
   },
   {
-    "name": "set_min_idle_classification_epochs",
-    "args": [
-      [
-        "value",
-        "u32"
-      ]
-    ],
-    "origin": "majority",
-    "index": 101,
-    "domain": "Governance",
-    "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
-  },
-  {
-    "name": "set_max_idle_classification_epochs",
-    "args": [
-      [
-        "value",
-        "u32"
-      ]
-    ],
-    "origin": "majority",
-    "index": 102,
-    "domain": "Governance",
-    "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
-  },
-  {
     "name": "set_subnet_activation_enactment_epochs",
     "args": [
       [
@@ -1837,7 +1790,7 @@
     "authorization": "Council approval: at least 2/3 of members in this runtime"
   },
   {
-    "name": "set_included_classification_epochs",
+    "name": "set_probation_rounds",
     "args": [
       [
         "min",

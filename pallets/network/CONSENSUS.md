@@ -5,7 +5,7 @@ Consensus is the per-subnet process that turns an elected validator node's view 
 Consensus is not global block production. It is a subnet-level incentives and attestation system.
 Each consensus-live active subnet attempts an election on its own epoch schedule. When its
 effective candidate set is nonempty and internally consistent, one subnet node is elected to
-propose consensus data and the eligible validator-class subnet nodes can attest to that proposal.
+propose consensus data and the eligible Active-class subnet nodes can attest to that proposal.
 
 Each subnet stores a `ConsensusMechanism` selector for future mechanism-specific routing. The only
 supported variant is currently `Attestation`, it is assigned automatically during registration,
@@ -14,7 +14,7 @@ and subnet owners cannot change it.
 At a high level, consensus answers four questions for each subnet epoch:
 
 - Which subnet nodes performed well enough to receive emissions?
-- Did enough validator-class nodes agree with the proposed scoring data?
+- Did enough Active-class nodes agree with the proposed scoring data?
 - Should queued nodes be prioritized or removed?
 - Should the proposer, attestors, subnet, or subnet nodes be rewarded or penalized?
 
@@ -24,12 +24,11 @@ At a high level, consensus answers four questions for each subnet epoch:
 
 Subnet nodes are the entities being scored and rewarded. A subnet node can move through several classifications:
 
-- `Registered`: the node is registered but not active in the subnet.
-- `Idle`: the node has activated from the registration queue but is not yet included in consensus scoring.
-- `Included`: the node can appear in consensus score data.
-- `Validator`: the node can be elected to propose consensus data and can attest to proposals.
+- `Queued`: the node awaits queue maturity and available subnet capacity; it cannot be scored, vote, or earn node rewards.
+- `Probation`: the node occupies subnet capacity and can be scored, but cannot propose, attest, or earn node-related rewards.
+- `Active`: the node can be scored, elected to propose, attest, and earn node-related rewards.
 
-Only validator-class nodes are election candidates and attestors. Included and validator-class nodes can be scored by consensus data. Idle nodes can graduate into Included through epoch progression.
+Only Active nodes are election candidates and attestors. Probation and Active nodes can be scored. The admitted population consists of both classifications; Queued nodes occupy the separate registration queue.
 
 ### Validators
 
@@ -39,7 +38,7 @@ The validator identity itself is not elected. A specific subnet node owned by th
 
 ### Subnet Owners
 
-Subnet owners configure subnet-level policy inside network bounds. For consensus, the most important owner controls are validator node-count decay, per-node validator stake-weight power, reputation factors, classification timing, queue settings, and emergency validator sets. The admin collective separately controls the network-wide validator-identity attestation percentage.
+Subnet owners configure subnet-level policy inside network bounds. For consensus, the most important owner controls are validator node-count decay, per-node validator stake-weight power, reputation factors, probation requirements, queue settings, and emergency validator sets. The admin collective separately controls the network-wide validator-identity attestation percentage.
 
 ### Delegators
 
@@ -56,7 +55,7 @@ The normal flow at a subnet's slot is:
 2. For a present proposal, attestation ratios are calculated from its stored snapshots.
 3. Rewards or penalties are applied to that allocated round when its precheck yields settlement
    data.
-4. If the subnet is active and consensus-live, it attempts to elect a validator-class node for the
+4. If the subnet is active and consensus-live, it attempts to elect an Active-class node for the
    new subnet epoch. An election is stored only when the effective candidate set is nonempty and
    every candidate resolves to a validator identity.
 5. If the subnet is active, its registration queue is processed.
@@ -178,11 +177,13 @@ weights are never used as a fallback.
 
 ## Becoming Electable
 
-A subnet node becomes electable only when it reaches `Validator` classification.
+A subnet node becomes electable only when it reaches `Active` classification.
 
-During subnet bootstrap, initial validator nodes enter directly as validator-class nodes while the subnet is still in the registration phase - this is similar to how blockchains are required to be bootstrapped by multiple validators. After the subnet is active, new nodes normally enter the registration queue, activate as Idle, progress to Included, and eventually graduate to Validator if they satisfy the subnet's consensus and reputation requirements.
+During subnet bootstrap, initial validator nodes enter directly as Active-class nodes while the subnet is still in the registration phase - this is similar to how blockchains are required to be bootstrapped by multiple validators. After the subnet is active, new nodes enter as Queued and are admitted directly as Probation when queue maturity, capacity, and churn controls allow.
 
-When a node graduates to Validator, it is inserted into `SubnetNodeElectionSlots`. That list is the election candidate set for the subnet. Removing a validator-class node removes it from the election set.
+Probation requires `ProbationRounds` qualifying inclusions (default 2) and full reputation. An ordinary accepted round qualifies only when its canonical score total is nonzero and its distinct-identity support reaches the snapshotted supermajority threshold. A scored Probation node advances even if its individual score is zero; omission in such a round resets its progress. Missing, rejected, zero-total-score, below-supermajority, and emergency rounds leave progress unchanged. Quarantined nodes cannot progress.
+
+Promotion atomically changes the node to Active, inserts it into `SubnetNodeElectionSlots`, updates the slot index and electable counters, clears probation progress, and emits `SubnetNodePromoted`. It takes effect for the next election, including one later in the same hook. It does not grant rewards or voting rights in the round that evaluated the node as Probation. Removing an Active node removes it from the election set.
 
 ## Validator Election
 
@@ -190,7 +191,7 @@ At the subnet's slot, the pallet randomly selects one node from the effective el
 new subnet epoch. If that set is empty or any candidate lacks its node-to-validator attribution,
 the attempt stores no election.
 
-Election probability is per eligible subnet node, not stake-weighted. If a validator operates multiple validator-class nodes in the same subnet, each eligible node is separately present in the election list unless removed or replaced by an emergency validator set.
+Election probability is per eligible subnet node, not stake-weighted. If a validator operates multiple Active-class nodes in the same subnet, each eligible node is separately present in the election list unless removed or replaced by an emergency validator set.
 
 If an emergency validator set is active, election uses the active emergency validator nodes instead of the normal election list. Emergency validator sets are owner-controlled recovery tools and are only activated through the pause and unpause flow.
 
@@ -214,11 +215,11 @@ there is no separate proposal-signature or attestation-signature payload.
 
 ### Score Data
 
-Score data is a list of `(subnet_node_id, score)` entries. Scores are produced off-chain by the subnet's own validation logic. The pallet does not decide whether a score is semantically correct for the subnet's application; it verifies whether enough eligible validator-class nodes attest to the submitted data.
+Score data is a list of `(subnet_node_id, score)` entries. Scores are produced off-chain by the subnet's own validation logic. The pallet does not decide whether a score is semantically correct for the subnet's application; it verifies whether enough eligible Active-class nodes attest to the submitted data.
 
 Before storage, consensus data is canonicalized:
 
-- nodes below `Included` classification are filtered out;
+- Queued nodes and nodes whose classification is not yet effective are filtered out;
 - duplicate entries for the same subnet node are collapsed to the lowest submitted score;
 - score totals are checked for overflow;
 - the canonical data is ordered by subnet node ID.
@@ -227,12 +228,12 @@ The score sum is later used to normalize node rewards.
 
 ## Attesting
 
-After a proposal exists, validator-class subnet nodes can call `attest` for the same subnet epoch.
+After a proposal exists, Active-class subnet nodes can call `attest` for the same subnet epoch.
 
 An attesting node must:
 
 - submit the `attest` extrinsic from the hotkey associated with that subnet node;
-- currently have `Validator` classification;
+- currently have `Active` classification;
 - be part of the proposal's snapshotted validator set;
 - not have attested already for that proposal.
 
@@ -386,7 +387,7 @@ The same snapshotted threshold supplies two separate supermajority gates:
 
 - queue prioritization or removal requires the **stake-weighted** attestation ratio to be at least
   the threshold;
-- proposal-derived reputation-score and Included-to-Validator classification changes require the
+- proposal-derived reputation-score and Probation-to-Active classification changes require the
   **distinct-validator-identity** attestation ratio to be at least the threshold.
 
 Equality qualifies for both gates. The identity ratio is:
@@ -466,7 +467,7 @@ Subnet rewards are then calculated from the subnet's emission weight. The reward
 - a configured delegate account then receives its percentage of the remaining node reward;
 - the final remainder is added to node stake.
 
-For each scored validator-class node:
+For each scored Active-class node:
 
 ```text
 node_score_share = node_score / total_score
@@ -477,7 +478,7 @@ If the canonical score sum is zero but consensus is reached, the proposer reward
 
 ## Reputation Updates
 
-Settlement of allocated rounds also drives subnet and node reputation.
+Settlement of accepted rounds also drives subnet and node reputation, even with zero reward allocation.
 
 When consensus succeeds, proposal contents affect reputation scores only if the proposal is
 identity-verified. At or above the snapshotted identity-supermajority threshold:
@@ -485,13 +486,13 @@ identity-verified. At or above the snapshotted identity-supermajority threshold:
 - subnet reputation can increase when its existing minimum-node precondition is met, scaled by the
   distinct-identity support ratio rather than stake support;
 - `included_increase` can increase the reputation of nodes present in the score vector;
-- `absent_decrease` can decrease nodes omitted from that vector and reset an omitted Included
-  node's consecutive-inclusion count;
-- `below_min_weight_decrease` can decrease scored Validator-class nodes below the configured
+- `absent_decrease` can decrease nodes omitted from that vector and reset an omitted Probation
+  node's progress in an ordinary, nonzero-total-score round;
+- `below_min_weight_decrease` can decrease scored Active-class nodes below the configured
   score-share threshold;
-- Included nodes present in the score vector can advance their consecutive-inclusion count and
-  progress toward Validator classification;
-- scored Validator-class nodes without their own attestation can receive the full configured
+- Probation nodes present in an ordinary, nonzero-total-score round can advance their progress
+  toward Active classification; promotion also requires full reputation;
+- scored Active-class nodes without their own attestation can receive the full configured
   `non_attestor_decrease`.
 
 These are full configured factors except for the subnet increase, whose existing multiplier is
@@ -503,9 +504,9 @@ attested.
 
 An accepted proposal between the ordinary quorum and the identity-supermajority gate can still
 distribute rewards, but its subjective score vector is neutral for reputation scores and
-Included-to-Validator classification.
-Queue actions remain independently stake-supermajority gated. Idle-to-Included time progression,
-minimum-reputation removal, and other lifecycle checks are objective and remain independent of
+Probation-to-Active classification.
+Queue actions remain independently stake-supermajority gated. Queue admission,
+minimum-reputation removal, and other objective lifecycle checks remain independent of
 identity verification. The existing zero-score early return also remains: it skips the per-node
 distribution loop. In an emergency-validator round, the identity gate uses only the snapshotted
 emergency identities, non-attestor accountability is limited to the emergency nodes, and normal
@@ -672,13 +673,13 @@ Queue duration and immunity changes become effective at the next subnet epoch. B
 period_has_elapsed = start_epoch + configured_epochs < evaluated_subnet_epoch
 ```
 
-Equality is still the final waiting or immune epoch. With equal queue-duration and immunity values, the node becomes activation-eligible by duration no later than removal becomes valid. Actual activation can still wait for queue capacity and churn cadence. Saturating epoch arithmetic keeps an overflowed deadline from becoming prematurely eligible.
+Equality is still the final waiting or immune epoch. With equal queue-duration and immunity values, the node becomes admission-eligible by duration no later than removal becomes valid. Actual admission can still wait for subnet capacity and churn cadence. Saturating epoch arithmetic keeps an overflowed deadline from becoming prematurely eligible.
 
 ## Emergency Validator Sets
 
 An emergency validator set lets a subnet owner recover a paused subnet with a temporary validator set.
 
-Emergency validator nodes must already be valid validator-class subnet nodes. When the emergency set activates, proposer election and attestor snapshots use the emergency node set instead of the normal election list. The emergency snapshot also carries the reputation factors and minimum reputation settings that should apply during the emergency period.
+Emergency validator nodes must already be valid Active-class subnet nodes. When the emergency set activates, proposer election and attestor snapshots use the emergency node set instead of the normal election list. The emergency snapshot also carries the reputation factors and minimum reputation settings that should apply during the emergency period.
 
 Emergency sets are bounded by size, duration, expiration rules, and cooldowns. They end automatically when their target duration is reached, their maximum epoch expires, or too few emergency validators remain valid. The owner can also revert the set while the subnet is paused.
 
@@ -688,4 +689,4 @@ On-chain consensus verifies participation, stake-weighted agreement, validator-i
 score normalization, reward distribution, and penalties. It does not run the subnet's off-chain
 evaluation logic itself.
 
-Each subnet is responsible for defining how its nodes produce scores and how validators decide whether to attest. The chain enforces the economic result once enough eligible validator-class nodes attest under the configured thresholds.
+Each subnet is responsible for defining how its nodes produce scores and how validators decide whether to attest. The chain enforces the economic result once enough eligible Active-class nodes attest under the configured thresholds.

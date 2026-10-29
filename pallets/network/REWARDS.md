@@ -38,7 +38,7 @@ For each eligible subnet `s`, the inputs are:
 | Input | What is measured |
 | --- | --- |
 | Delegate-stake share `D_s` | The subnet's `TotalSubnetDelegateStakeBalance` divided by the total for eligible subnets. This is delegation to the subnet, separate from delegation to validator identities or direct node stake. |
-| Node-count share `C_s` | The number of eligible node IDs in the stored election round divided by their total across eligible subnets. This is the election's candidate count, not every registered or active node. |
+| Node-count share `C_s` | The number of eligible node IDs in the stored election round divided by their total across eligible subnets. This is the election's candidate count, not every Queued or admitted node. |
 | Smoothed net-flow weight `F_s` | A relative, smoothed measure of deposits into minus withdrawals from subnet delegate stake. Reward credits do not count as new inflow. |
 | Overwatch multiplier `O_s` | The latest valid effective Overwatch subnet signal, scaled by `OverwatchWeightFactor` and capped at 100%; otherwise `DefaultOverwatchSubnetWeight`. An explicit zero signal stays zero. |
 
@@ -121,8 +121,13 @@ gross_node_reward = node_budget * node_score_share * node_reward_factor
 
 The implementation represents shares and factors at `1e18` precision and rounds down at each division or multiplication. Consensus attestation weights determine whether the proposal passes; the accepted node scores determine each node's share of rewards.
 
-In normal operation, live Idle and Included nodes pass through graduation rules before becoming rewarded Validator-class nodes. Merely appearing in the score vector does not guarantee payment. Nodes absent from the score vector, with zero score, or quarantined for removal receive no node reward. Reputation checks can quarantine a node during settlement. Emergency validator sets alter the usual graduation and attestation handling; settlement uses the historical submission snapshot
-and can also credit a departed node for an otherwise eligible historical contribution.
+Only nodes captured as Active in the proposal snapshot can earn node-related rewards. Queued
+nodes cannot be scored; Probation nodes can be scored but receive no node reward or associated
+validator-pool/delegate-account allocation, including during emergency consensus or the round
+that promotes them. Their scores remain in the canonical denominator, so withheld rewards are
+not redistributed. Nodes absent from the score vector, with zero score, or quarantined for removal
+receive no node reward. Reputation checks can quarantine a node during settlement. Settlement
+can credit a departed node only for an otherwise eligible historical Active contribution.
 
 An attesting node uses its stored timing factor: later attestation can reduce its reward. The proposer's automatic attestation has a 100% factor for its score-based node reward. A node without an attestation currently defaults to a 100% factor, although identity-supermajority endorsement can cause a reputation penalty and possible removal. Emergency nodes outside the temporary validator set also use 100%. Reduced or skipped node rewards are not redistributed to other nodes, and the score denominator is not recomputed to exclude unpaid nodes.
 
@@ -173,7 +178,11 @@ Two rewards sit outside the scheduled foundation/subnet budget:
 
 ## When allocated rewards remain uncredited
 
-Allocation is a ceiling, not a guaranteed payout. Missing proposals or failed consensus quorums do not pay subnet rewards. An **accepted zero-score round** still pays the owner and an active subnet delegate pool, and can pay an eligible proposer bonus, but pays no score-based node rewards. Inactive pools, node eligibility checks, timing reductions, and rounding can leave further budget uncredited. These unused amounts are neither redistributed nor carried forward to a later epoch.
+Missing elected proposals and failed consensus quorums retain **100% of their scheduled subnet allocation** in `SubnetRewardCapacitor(subnet_id)`. Each round accumulates only once, using its original emission allocation even if settlement is delayed. The separate proposal-validator bonus is not part of this allocation.
+
+An accepted round with a nonzero score total releases `min(capacitor, normal_allocation / 10)`, rounded down in atomic units. The combined budget follows the successful round's existing owner, subnet-delegate, and node reward split. For a normal allocation of 100 tokens and a capacitor containing 100 tokens, the budget is 110 tokens and the capacitor retains 90. A zero allocation or zero-score round leaves the capacitor untouched. Permanent subnet removal clears its remaining capacitor.
+
+Allocation remains a ceiling, not a guaranteed payout: existing eligibility, timing, active-pool, and rounding rules apply to the combined budget. An **accepted zero-score round** still pays its normal owner and active subnet-delegate rewards, and can pay an eligible proposer bonus, but pays no score-based node rewards. Amounts left uncredited by these accepted-round rules are not added to the capacitor.
 
 ## Implementation references
 

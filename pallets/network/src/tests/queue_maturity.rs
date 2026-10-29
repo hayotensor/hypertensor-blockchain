@@ -2,9 +2,8 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     ChurnLimit, MinSubnetMinStake, PendingOwnerU32Update, PendingSubnetNodeQueueEpochs,
-    QueueImmunityEpochs, RegisteredSubnetNodesData, SubnetConsensusSubmission,
-    SubnetElectedValidator, SubnetName, SubnetNodeClass, SubnetNodeQueue, SubnetNodeQueueEpochs,
-    SubnetNodesData,
+    QueueImmunityEpochs, QueuedSubnetNodesData, SubnetConsensusSubmission, SubnetElectedValidator,
+    SubnetName, SubnetNodeClass, SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetNodesData,
 };
 use frame_support::weights::WeightMeter;
 
@@ -35,7 +34,7 @@ fn default_queue_immunity_covers_activation_boundary() {
             stake_amount,
         );
         let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
-        build_registered_nodes_in_queue(
+        build_queued_subnet_nodes(
             subnet_id,
             initial_node_count,
             initial_node_count + 1,
@@ -72,7 +71,7 @@ fn default_queue_immunity_covers_activation_boundary() {
         assert_eq!(boundary_submission.remove_queue_node_id, None);
 
         Network::handle_registration_queue(&mut WeightMeter::new(), subnet_id, boundary_epoch);
-        assert!(RegisteredSubnetNodesData::<Test>::contains_key(
+        assert!(QueuedSubnetNodesData::<Test>::contains_key(
             subnet_id,
             queued_node.id
         ));
@@ -81,7 +80,7 @@ fn default_queue_immunity_covers_activation_boundary() {
             .any(|node| node.id == queued_node.id));
 
         // On the following epoch, queue processing runs in `on_initialize` before
-        // consensus extrinsics and activates the node at its first opportunity.
+        // consensus extrinsics and admits the node at its first opportunity.
         let eligible_epoch = boundary_epoch.saturating_add(1);
         set_block_to_subnet_slot_epoch(eligible_epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
@@ -100,7 +99,7 @@ fn default_queue_immunity_covers_activation_boundary() {
             .iter()
             .any(|node| node.id == queued_node.id));
         let active_node = SubnetNodesData::<Test>::get(subnet_id, queued_node.id);
-        assert_eq!(active_node.classification.node_class, SubnetNodeClass::Idle);
+        assert_eq!(active_node.classification.node_class, SubnetNodeClass::Probation);
 
         // Once activated, it cannot be selected as a queue removal even if a
         // validator supplies the old queue ID later in the epoch.
@@ -127,7 +126,7 @@ fn registration_queue_processing_uses_duration_scheduled_for_evaluated_epoch() {
             stake_amount,
         );
         let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
-        build_registered_nodes_in_queue(
+        build_queued_subnet_nodes(
             subnet_id,
             initial_node_count,
             initial_node_count + 2,

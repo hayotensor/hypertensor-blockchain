@@ -16,7 +16,7 @@ flowchart TB
 
     subgraph S[Each registered subnet]
         SO[Subnet owner] -->|lifecycle and policy controls| SD[Subnet state, metadata, and assigned slot]
-        SD --- N[Subnet nodes: Registered, Idle, Included, or Validator]
+        SD --- N[Subnet nodes: Queued, Probation, or Active]
         SD --- BN[Official bootnode set]
     end
 

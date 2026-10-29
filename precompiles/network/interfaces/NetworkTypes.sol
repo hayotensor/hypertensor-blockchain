@@ -173,6 +173,7 @@ struct SubnetNodeInfo {
     uint32 validatorId;
     bytes32 coldkey;
     bytes32 hotkey;
+    /// 0 = Queued, 1 = Probation, 2 = Active.
     uint8 nodeClass;
     uint32 classStartEpoch;
     OptionalPeerInfo peerInfo;

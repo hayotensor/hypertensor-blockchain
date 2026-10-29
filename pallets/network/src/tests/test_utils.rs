@@ -8,26 +8,26 @@ use crate::{
     HotkeyValidatorId, InitialValidatorData, MaxMaxRegisteredNodes, MaxOverwatchNodes,
     MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs,
     MultiaddrSubnetNodeId, NetworkMaxStakeBalance, NodeSubnetStake, OverwatchCommitCutoffPercent,
-    OverwatchEpochLengthMultiplier, OverwatchEpochSnapshot,
-    OverwatchEpochSnapshots, OverwatchEpochStartBlock, OverwatchMinStakeBalance,
-    OverwatchNodeIdHotkey, OverwatchNodeStakeSnapshot, OverwatchNodeStakeBalance,
-    OverwatchNodeValidatorId, OverwatchNodes, OverwatchReveals, OverwatchStakeWeightFactor,
-    OverwatchValidatorWhitelist, PeerIdSubnetNodeId, PeerInfo, PendingOverwatchSettlement,
-    PendingOverwatchSettlementData, RegisteredSubnetNodesData, RegistrationSubnetData,
-    StakeCooldownEpochs, StakeUnbondingLedger, SubnetConsensusSubmission, SubnetData,
-    SubnetElectedValidator, SubnetIdFriendlyUid, SubnetMaxStakeBalance, SubnetMinStakeBalance,
-    SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeConsensusData,
-    SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueue, SubnetNodeReputation,
-    SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseCooldownEpochs,
-    SubnetPauseData, SubnetRegistrationEpoch, SubnetRegistrationEpochs, SubnetReputation,
-    SubnetSlot, SubnetState, SubnetsData, TotalActiveNodes, TotalActiveSubnetNodes,
-    TotalActiveSubnets, TotalNodes, TotalOverwatchNodeStakeBalance, TotalOverwatchNodeUids,
+    OverwatchEpochLengthMultiplier, OverwatchEpochSnapshot, OverwatchEpochSnapshots,
+    OverwatchEpochStartBlock, OverwatchMinStakeBalance, OverwatchNodeIdHotkey,
+    OverwatchNodeStakeBalance, OverwatchNodeStakeSnapshot, OverwatchNodeValidatorId,
+    OverwatchNodes, OverwatchReveals, OverwatchStakeWeightFactor, OverwatchValidatorWhitelist,
+    PeerIdSubnetNodeId, PeerInfo, PendingOverwatchSettlement, PendingOverwatchSettlementData,
+    QueuedSubnetNodesData, RegistrationSubnetData, StakeCooldownEpochs, StakeUnbondingLedger,
+    SubnetConsensusSubmission, SubnetData, SubnetElectedValidator, SubnetIdFriendlyUid,
+    SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
+    SubnetNodeClassification, SubnetNodeConsensusData, SubnetNodeElectionSlots, SubnetNodeIdHotkey,
+    SubnetNodeQueue, SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
+    SubnetPauseCooldownEpochs, SubnetPauseData, SubnetRegistrationEpoch, SubnetRegistrationEpochs,
+    SubnetReputation, SubnetSlot, SubnetState, SubnetsData, TotalActiveSubnets, TotalAdmittedNodes,
+    TotalAdmittedSubnetNodes, TotalNodes, TotalOverwatchNodeStakeBalance, TotalOverwatchNodeUids,
     TotalOverwatchNodes, TotalStake, TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids,
     TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorDelegateStakeBalance,
     TotalValidatorNodes, UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey,
     ValidatorData, ValidatorDelegateStakeBalance, ValidatorIdHotkey, ValidatorOverwatchNodeId,
     ValidatorSubnetNodes, ValidatorsData,
 };
+use crate::{NodeMetadata, SubnetNodeMetadata};
 use frame_support::assert_ok;
 use frame_support::storage::bounded_vec::BoundedVec;
 use frame_support::traits::{Currency, ExistenceRequirement, Hooks};
@@ -46,6 +46,13 @@ pub const PERCENTAGE_FACTOR: u128 = 1_000_000_000_000_000_000_u128;
 pub const DEFAULT_SCORE: u128 = PERCENTAGE_FACTOR / 2;
 // pub const MAX_SUBNET_NODES: u32 = 254;
 pub const DEFAULT_REGISTRATION_BLOCKS: u32 = 130_000;
+
+/// Fund fixture registration separately from the balances reserved for later operations.
+pub fn fund_validator_registration(coldkey: &AccountId) {
+    let fee = TestEconomics::get().validator_registration_burn;
+    let keep_alive = EXISTENTIAL_DEPOSIT.saturating_sub(Balances::free_balance(coldkey));
+    let _ = Balances::deposit_creating(coldkey, fee.checked_add(keep_alive).unwrap());
+}
 
 pub fn get_elected_subnet_node_id(subnet_id: u32, subnet_epoch: u32) -> Option<u32> {
     SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch)
@@ -367,6 +374,7 @@ pub fn build_activated_subnet(
             );
             let v_reward_rate = test_percent(1, 20); // 5%
 
+            fund_validator_registration(&coldkey);
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
                 hotkey.clone(),
@@ -428,15 +436,21 @@ pub fn build_activated_subnet(
 
         // Is activated, registered element is removed
         assert_eq!(
-            RegisteredSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
+            QueuedSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
             Err(())
         );
 
         let subnet_node_data = SubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
+        let subnet_node_data_metadata =
+            crate::SubnetNodeMetadata::<Test>::get(subnet_id, subnet_node_id).unwrap_or_default();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
         assert_eq!(
-            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            subnet_node_data_metadata
+                .peer_info
+                .as_ref()
+                .unwrap()
+                .peer_id,
             peer_id.clone()
         );
 
@@ -446,7 +460,7 @@ pub fn build_activated_subnet(
         );
         assert_eq!(multiaddr_subnet_node_id, subnet_node_id);
         assert_eq!(
-            subnet_node_data.peer_info,
+            subnet_node_data_metadata.peer_info,
             Some(PeerInfo::<Test> {
                 peer_id: peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), None),
@@ -459,7 +473,7 @@ pub fn build_activated_subnet(
         );
         assert_eq!(bootnode_multiaddr_subnet_node_id, subnet_node_id);
         assert_eq!(
-            subnet_node_data.bootnode_peer_info,
+            subnet_node_data_metadata.bootnode_peer_info,
             Some(PeerInfo::<Test> {
                 peer_id: bootnode_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(1)),
@@ -472,19 +486,19 @@ pub fn build_activated_subnet(
         );
         assert_eq!(client_multiaddr_subnet_node_id, subnet_node_id);
         assert_eq!(
-            subnet_node_data.client_peer_info,
+            subnet_node_data_metadata.client_peer_info,
             Some(PeerInfo::<Test> {
                 peer_id: client_peer_id.clone(),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(_n), Some(2)),
             })
         );
 
-        // --- Is ``Validator`` if registered before subnet activation
+        // --- Bootstrap nodes are Active before subnet activation
         assert_eq!(
             subnet_node_data.classification.node_class,
-            SubnetNodeClass::Validator
+            SubnetNodeClass::Active
         );
-        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Validator, subnet_epoch));
+        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Active, subnet_epoch));
 
         let subnet_node_account = PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id.clone());
         assert_eq!(subnet_node_account, subnet_node_id);
@@ -507,7 +521,7 @@ pub fn build_activated_subnet(
             .contains(&subnet_node_id))
     }
 
-    let total_nodes = TotalActiveSubnetNodes::<Test>::get(subnet_id);
+    let total_nodes = TotalAdmittedSubnetNodes::<Test>::get(subnet_id);
     assert_eq!(total_nodes, initial_end.saturating_sub(start));
 
     let slot_list = SubnetNodeElectionSlots::<Test>::get(subnet_id);
@@ -587,6 +601,7 @@ pub fn build_activated_subnet(
                 max_subnets,
                 expected_validator_id,
             );
+            fund_validator_registration(&coldkey);
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
                 hotkey,
@@ -652,9 +667,9 @@ pub fn build_activated_subnet(
 
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         assert_eq!(subnet_node_id, node_index);
-        let queued_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
+        let queued_node = QueuedSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
         let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        assert!(Network::do_activate_subnet_node(
+        assert!(Network::do_admit_subnet_node(
             &mut WeightMeter::new(),
             subnet_id,
             SubnetState::Active,
@@ -665,20 +680,16 @@ pub fn build_activated_subnet(
         SubnetNodeQueue::<Test>::mutate(subnet_id, |queue| {
             queue.retain(|node| node.id != subnet_node_id)
         });
-        assert!(Network::graduate_class(
+        assert!(Network::promote_probation_node_to_active(
             subnet_id,
             subnet_node_id,
             current_subnet_epoch,
-        ));
-        assert!(Network::graduate_to_validator_class(
-            subnet_id,
-            subnet_node_id,
-            current_subnet_epoch,
+            &Default::default(),
         ));
     }
 
     assert_eq!(
-        TotalActiveSubnetNodes::<Test>::get(subnet_id),
+        TotalAdmittedSubnetNodes::<Test>::get(subnet_id),
         end.saturating_sub(start)
     );
     assert_eq!(
@@ -784,6 +795,7 @@ pub fn build_activated_subnet_new_excess_subnets(
             );
             let v_reward_rate = test_percent(1, 20); // 5%
 
+            fund_validator_registration(&coldkey);
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
                 hotkey.clone(),
@@ -840,24 +852,30 @@ pub fn build_activated_subnet_new_excess_subnets(
 
         // Is activated, registered element is removed
         assert_eq!(
-            RegisteredSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
+            QueuedSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
             Err(())
         );
 
         let subnet_node_data = SubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
+        let subnet_node_data_metadata =
+            crate::SubnetNodeMetadata::<Test>::get(subnet_id, subnet_node_id).unwrap_or_default();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
         assert_eq!(
-            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            subnet_node_data_metadata
+                .peer_info
+                .as_ref()
+                .unwrap()
+                .peer_id,
             peer_id.clone()
         );
 
-        // --- Is ``Validator`` if registered before subnet activation
+        // --- Bootstrap nodes are Active before subnet activation
         assert_eq!(
             subnet_node_data.classification.node_class,
-            SubnetNodeClass::Validator
+            SubnetNodeClass::Active
         );
-        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Validator, subnet_epoch));
+        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Active, subnet_epoch));
 
         let subnet_node_account = PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id.clone());
         assert_eq!(subnet_node_account, subnet_node_id);
@@ -880,7 +898,7 @@ pub fn build_activated_subnet_new_excess_subnets(
             .contains(&subnet_node_id))
     }
 
-    let total_nodes = TotalActiveSubnetNodes::<Test>::get(subnet_id);
+    let total_nodes = TotalAdmittedSubnetNodes::<Test>::get(subnet_id);
     assert_eq!(total_nodes, end);
 
     let slot_list = SubnetNodeElectionSlots::<Test>::get(subnet_id);
@@ -1043,6 +1061,7 @@ pub fn build_registered_subnet(
             );
             let v_reward_rate = test_percent(1, 20); // 5%
 
+            fund_validator_registration(&coldkey);
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
                 hotkey.clone(),
@@ -1104,24 +1123,30 @@ pub fn build_registered_subnet(
 
         // Is activated, registered element is removed
         assert_eq!(
-            RegisteredSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
+            QueuedSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
             Err(())
         );
 
         let subnet_node_data = SubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
+        let subnet_node_data_metadata =
+            crate::SubnetNodeMetadata::<Test>::get(subnet_id, subnet_node_id).unwrap_or_default();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
         assert_eq!(
-            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            subnet_node_data_metadata
+                .peer_info
+                .as_ref()
+                .unwrap()
+                .peer_id,
             peer_id.clone()
         );
 
-        // --- Is ``Validator`` if registered before subnet activation
+        // --- Bootstrap nodes are Active before subnet activation
         assert_eq!(
             subnet_node_data.classification.node_class,
-            SubnetNodeClass::Validator
+            SubnetNodeClass::Active
         );
-        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Validator, subnet_epoch));
+        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Active, subnet_epoch));
 
         let subnet_node_account = PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id.clone());
         assert_eq!(subnet_node_account, subnet_node_id);
@@ -1144,7 +1169,7 @@ pub fn build_registered_subnet(
             .contains(&subnet_node_id))
     }
 
-    let total_nodes = TotalActiveSubnetNodes::<Test>::get(subnet_id);
+    let total_nodes = TotalAdmittedSubnetNodes::<Test>::get(subnet_id);
     assert_eq!(total_nodes, end);
 
     let total_subnet_stake = TotalSubnetStake::<Test>::get(subnet_id);
@@ -1228,18 +1253,24 @@ pub fn insert_subnet_node(
         start_epoch: start_epoch,
     };
 
-    let subnet_node: SubnetNode<Test> = SubnetNode::<Test> {
+    SubnetNodeMetadata::<Test>::insert(
+        subnet_id,
+        subnet_node_id,
+        NodeMetadata {
+            peer_info: Some(PeerInfo::<Test> {
+                peer_id: peer_id.clone(),
+                multiaddr: None,
+            }),
+            bootnode_peer_info: None,
+            client_peer_info: None,
+            unique: None,
+            non_unique: None,
+        },
+    );
+    let subnet_node: SubnetNode = SubnetNode {
         id: subnet_node_id,
         validator_id: validator_id,
-        peer_info: Some(PeerInfo::<Test> {
-            peer_id: peer_id.clone(),
-            multiaddr: None,
-        }),
-        bootnode_peer_info: None,
-        client_peer_info: None,
         classification: classification,
-        unique: None,
-        non_unique: None,
     };
 
     TotalSubnetNodes::<Test>::mutate(subnet_id, |n: &mut u32| *n += 1);
@@ -1247,19 +1278,19 @@ pub fn insert_subnet_node(
 
     SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
 
-    if class == SubnetNodeClass::Registered {
-        RegisteredSubnetNodesData::<Test>::insert(subnet_id, subnet_node_id, &subnet_node);
+    if class == SubnetNodeClass::Queued {
+        QueuedSubnetNodesData::<Test>::insert(subnet_id, subnet_node_id, &subnet_node);
 
         SubnetNodeQueue::<Test>::mutate(subnet_id, |nodes| {
             nodes.push(subnet_node.clone());
         });
     } else {
         SubnetNodesData::<Test>::insert(subnet_id, subnet_node.id, &subnet_node);
-        // Increase total active nodes in subnet
-        TotalActiveSubnetNodes::<Test>::mutate(subnet_id, |n: &mut u32| *n += 1);
+        // Increase total admitted nodes in subnet
+        TotalAdmittedSubnetNodes::<Test>::mutate(subnet_id, |n: &mut u32| *n += 1);
 
-        // Increase total active nodes
-        TotalActiveNodes::<Test>::mutate(|n: &mut u32| *n += 1);
+        // Increase total admitted nodes
+        TotalAdmittedNodes::<Test>::mutate(|n: &mut u32| *n += 1);
 
         InitialValidatorData::<Test>::mutate(subnet_id, |maybe_map| {
             let map = maybe_map.get_or_insert_with(BTreeMap::new);
@@ -1270,7 +1301,7 @@ pub fn insert_subnet_node(
     }
 }
 
-pub fn build_registered_subnet_nodes(
+pub fn register_queued_subnet_nodes(
     subnet_id: u32,
     start: u32,
     mut end: u32,
@@ -1321,6 +1352,7 @@ pub fn build_registered_subnet_nodes(
             );
             let v_reward_rate = test_percent(1, 20); // 5%
 
+            fund_validator_registration(&coldkey);
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
                 hotkey.clone(),
@@ -1393,20 +1425,26 @@ pub fn build_registered_subnet_nodes(
         );
 
         let subnet_node_data =
-            RegisteredSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
+            QueuedSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
+        let subnet_node_data_metadata =
+            crate::SubnetNodeMetadata::<Test>::get(subnet_id, subnet_node_id).unwrap_or_default();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
         assert_eq!(
-            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            subnet_node_data_metadata
+                .peer_info
+                .as_ref()
+                .unwrap()
+                .peer_id,
             peer_id.clone()
         );
 
-        // --- Is ``Validator`` if registered before subnet activation
+        // --- Newcomers remain Queued until admission
         assert_eq!(
             subnet_node_data.classification.node_class,
-            SubnetNodeClass::Registered
+            SubnetNodeClass::Queued
         );
-        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Registered, subnet_epoch + 1));
+        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Queued, subnet_epoch + 1));
 
         let peer_subnet_node_account = PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id.clone());
         assert_eq!(peer_subnet_node_account, subnet_node_id);
@@ -1430,7 +1468,7 @@ pub fn build_registered_subnet_nodes(
     }
 }
 
-pub fn build_registered_nodes_in_queue(
+pub fn build_queued_subnet_nodes(
     subnet_id: u32,
     start: u32,
     mut end: u32,
@@ -1459,6 +1497,7 @@ pub fn build_registered_nodes_in_queue(
             );
             let v_reward_rate = test_percent(1, 20); // 5%
 
+            fund_validator_registration(&coldkey);
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
                 hotkey.clone(),
@@ -1514,24 +1553,29 @@ pub fn build_registered_nodes_in_queue(
         );
 
         let subnet_node_data =
-            RegisteredSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
+            QueuedSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
+        let subnet_node_data_metadata =
+            crate::SubnetNodeMetadata::<Test>::get(subnet_id, subnet_node_id).unwrap_or_default();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
         assert_eq!(
-            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            subnet_node_data_metadata
+                .peer_info
+                .as_ref()
+                .unwrap()
+                .peer_id,
             peer_id.clone()
         );
 
-        // --- Is ``Registered`` if registered before subnet activation
+        // --- Queued while awaiting admission to the active subnet
         assert_eq!(
             subnet_node_data.classification.node_class,
-            SubnetNodeClass::Registered
+            SubnetNodeClass::Queued
         );
-        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Registered, u32::MAX));
+        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Queued, u32::MAX));
         // Check other classifications
-        assert!(!subnet_node_data.has_classification(&SubnetNodeClass::Validator, u32::MAX));
-        assert!(!subnet_node_data.has_classification(&SubnetNodeClass::Idle, u32::MAX));
-        assert!(!subnet_node_data.has_classification(&SubnetNodeClass::Included, u32::MAX));
+        assert!(!subnet_node_data.has_classification(&SubnetNodeClass::Active, u32::MAX));
+        assert!(!subnet_node_data.has_classification(&SubnetNodeClass::Probation, u32::MAX));
 
         let subnet_node_account = PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id.clone());
         assert_eq!(subnet_node_account, subnet_node_id);
@@ -1618,6 +1662,7 @@ pub fn build_activated_subnet_with_delegator_rewards(
                 expected_validator_id,
             );
 
+            fund_validator_registration(&coldkey);
             assert_ok!(Network::register_validator(
                 RuntimeOrigin::signed(coldkey.clone()),
                 hotkey.clone(),
@@ -1662,19 +1707,25 @@ pub fn build_activated_subnet_with_delegator_rewards(
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
         let subnet_node_data = SubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id).unwrap();
+        let subnet_node_data_metadata =
+            crate::SubnetNodeMetadata::<Test>::get(subnet_id, subnet_node_id).unwrap_or_default();
         assert_eq!(subnet_node_data.validator_id, validator_id);
 
         assert_eq!(
-            subnet_node_data.peer_info.as_ref().unwrap().peer_id,
+            subnet_node_data_metadata
+                .peer_info
+                .as_ref()
+                .unwrap()
+                .peer_id,
             peer_id.clone()
         );
 
-        // --- Is ``Validator`` if registered before subnet activation
+        // --- Bootstrap nodes are Active before subnet activation
         assert_eq!(
             subnet_node_data.classification.node_class,
-            SubnetNodeClass::Validator
+            SubnetNodeClass::Active
         );
-        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Validator, subnet_epoch));
+        assert!(subnet_node_data.has_classification(&SubnetNodeClass::Active, subnet_epoch));
 
         let subnet_node_account = PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id.clone());
         assert_eq!(subnet_node_account, subnet_node_id);
@@ -2141,8 +2192,8 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
         });
     }
 
-    let included_subnet_nodes: Vec<crate::ConsensusSubnetNode> =
-        Network::get_active_classified_subnet_nodes(subnet_id, &SubnetNodeClass::Included, epoch)
+    let admitted_subnet_nodes: Vec<crate::ConsensusSubnetNode> =
+        Network::get_admitted_classified_subnet_nodes(subnet_id, &SubnetNodeClass::Probation, epoch)
             .iter()
             .map(crate::ConsensusSubnetNode::from)
             .collect();
@@ -2156,13 +2207,16 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
     } else {
         None
     };
-    let validator_identity_ids = validator_ids
+    let validator_identity_ids: BTreeMap<u32, u32> = validator_ids
         .iter()
         .filter_map(|subnet_node_id| {
             SubnetNodeValidatorId::<Test>::get(subnet_id, *subnet_node_id)
                 .map(|validator_id| (*subnet_node_id, validator_id))
         })
         .collect();
+
+    let weight_sum = data.iter().map(|entry| entry.score).sum();
+    let eligible_validator_identity_count = validator_identity_ids.values().copied().collect::<BTreeSet<_>>().len() as u32;
 
     ConsensusData::<Test> {
         validator_id: subnet_id * max_subnet_nodes,
@@ -2175,9 +2229,11 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
         data,
         prioritize_queue_node_id: None,
         remove_queue_node_id: None,
-        subnet_nodes: included_subnet_nodes,
+        subnet_nodes: admitted_subnet_nodes,
         args: None,
         emergency,
+        weight_sum,
+        eligible_validator_identity_count,
     }
 }
 
@@ -2341,24 +2397,28 @@ pub fn manual_insert_subnet_node_v2(
     class: SubnetNodeClass,
     start_epoch: u32,
 ) {
-    SubnetNodesData::<Test>::insert(
+    SubnetNodeMetadata::<Test>::insert(
         subnet_id,
         node_id,
-        SubnetNode::<Test> {
-            id: node_id,
-            validator_id: validator_id,
+        NodeMetadata {
             peer_info: Some(PeerInfo::<Test> {
                 peer_id: peer(peer_n),
                 multiaddr: get_multiaddr(Some(subnet_id), Some(node_id), None),
             }),
             bootnode_peer_info: None,
             client_peer_info: None,
+            unique: Some(BoundedVec::new()),
+            non_unique: Some(BoundedVec::new()), });
+    SubnetNodesData::<Test>::insert(
+        subnet_id,
+        node_id,
+        SubnetNode {
+            id: node_id,
+            validator_id: validator_id,
             classification: SubnetNodeClassification {
                 node_class: class,
                 start_epoch: start_epoch,
             },
-            unique: Some(BoundedVec::new()),
-            non_unique: Some(BoundedVec::new()),
         },
     );
     SubnetNodeIdHotkey::<Test>::insert(subnet_id, node_id, account(hotkey_n));
@@ -2373,7 +2433,6 @@ pub fn manual_insert_validator(validator_id: u32, coldkey_n: u32, hotkey_n: u32)
         delegate_reward_rate: 0,
         last_delegate_reward_rate_update: 0,
         delegate_account: None,
-        identity: None,
     };
 
     ValidatorIdHotkey::<Test>::insert(validator_id, account(hotkey_n));
@@ -2389,9 +2448,9 @@ pub fn set_registration_epoch(id: u32, epoch: u32) {
     SubnetRegistrationEpoch::<Test>::insert(id, epoch);
 }
 
-// Helper to set active nodes count
-pub fn set_active_nodes(id: u32, count: u32) {
-    TotalActiveSubnetNodes::<Test>::insert(id, count);
+// Helper to set the admitted node count
+pub fn set_admitted_nodes(id: u32, count: u32) {
+    TotalAdmittedSubnetNodes::<Test>::insert(id, count);
 }
 
 // Helper to set delegate stake balance
@@ -2453,7 +2512,7 @@ pub fn run_subnet_consensus_step_v2(
 
         let is_validator = match SubnetNodesData::<Test>::try_get(subnet_id, _n) {
             Ok(subnet_node) => {
-                subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
+                subnet_node.has_classification(&SubnetNodeClass::Active, subnet_epoch)
             }
             Err(()) => false,
         };
@@ -2479,7 +2538,7 @@ pub fn run_subnet_consensus_step_v2(
 
         let is_validator = match SubnetNodesData::<Test>::try_get(subnet_id, _n) {
             Ok(subnet_node) => {
-                subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
+                subnet_node.has_classification(&SubnetNodeClass::Active, subnet_epoch)
             }
             Err(()) => false,
         };

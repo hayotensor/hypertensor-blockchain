@@ -25,11 +25,11 @@ impl<T: pallet_network::Config> WeightInfo for SubstrateWeight<T> {
             Weight::from_parts(100_000_000, 16_384)
                 .saturating_add(T::DbWeight::get().reads(32))
                 .saturating_add(
-                    T::WeightInfo::pending_active_removal_scan(T::MaxSubnetNodesUpperBound::get())
+                    T::WeightInfo::pending_admitted_removal_scan(T::MaxSubnetNodesUpperBound::get())
                         .saturating_mul(2),
                 )
                 .saturating_add(
-                    T::WeightInfo::pending_registered_removal_scan(
+                    T::WeightInfo::pending_queued_removal_scan(
                         T::MaxRegisteredNodesUpperBound::get(),
                     )
                     .saturating_mul(2),

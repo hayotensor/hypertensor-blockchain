@@ -19,7 +19,7 @@
 // ///
 // ///
 // ///
-// /// Subnet Nodes Idle
+// /// Subnet Nodes Probation
 // ///
 // ///
 // ///

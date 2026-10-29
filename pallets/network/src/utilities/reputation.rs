@@ -14,13 +14,11 @@
 // limitations under the License.
 //
 // Handles all reputation based logic for subnets and subnet nodes
-// Note: All calls to update reputation must first check if the entity exists
-// before calling these functions.
-//
-// E.g. if !SubnetNodeIdHotkey::<T>::contains_key(subnet_id, subnet_node_id) { return; }
+// Node callers load the existing reputation once, calculate locally, and persist the
+// final change before leaving that node's settlement branch.
 
 use super::*;
-use frame_support::pallet_prelude::DispatchError;
+use frame_support::{pallet_prelude::DispatchError, weights::Weight};
 
 impl<T: Config> Pallet<T> {
     pub fn get_reputation_factors_for_epoch(
@@ -63,82 +61,28 @@ impl<T: Config> Pallet<T> {
         );
     }
 
-    pub fn increase_node_reputation(subnet_id: u32, subnet_node_id: u32, factor: u128) {
-        SubnetNodeReputation::<T>::mutate_exists(subnet_id, subnet_node_id, |maybe_reputation| {
-            if let Some(reputation) = maybe_reputation {
-                let prev_reputation = *reputation;
-                *reputation = Self::increase_rep(prev_reputation, factor, None);
-                Self::deposit_event(Event::NodeReputationUpdate {
-                    subnet_id,
-                    subnet_node_id,
-                    prev_reputation,
-                    new_reputation: *reputation,
-                });
-            }
+    /// Persist one completed node calculation, without re-reading its reputation.
+    /// The caller must have loaded an existing entry and must not remove it before this call.
+    /// Unchanged results produce neither a storage write nor a reputation event.
+    pub(crate) fn persist_node_reputation_change(
+        subnet_id: u32,
+        subnet_node_id: u32,
+        previous: u128,
+        current: u128,
+    ) -> Weight {
+        if previous == current {
+            return Weight::zero();
+        }
+        SubnetNodeReputation::<T>::insert(subnet_id, subnet_node_id, current);
+        Self::deposit_event(Event::NodeReputationUpdate {
+            subnet_id,
+            subnet_node_id,
+            prev_reputation: previous,
+            new_reputation: current,
         });
-    }
-
-    /// Increase node reputation and return new reputation
-    /// This takes in the current reputation and updates the nodes reputation
-    /// *based on the input parameter* being the source of truth of the reputation
-    pub fn increase_and_return_node_reputation(
-        subnet_id: u32,
-        subnet_node_id: u32,
-        current_reputation: u128,
-        factor_1: u128,
-        factor_2: Option<u128>,
-    ) -> u128 {
-        let new_reputation = SubnetNodeReputation::<T>::try_mutate_exists(
-            subnet_id,
-            subnet_node_id,
-            |maybe_reputation| -> Result<u128, DispatchError> {
-                if let Some(reputation) = maybe_reputation {
-                    *reputation = Self::increase_rep(current_reputation, factor_1, factor_2);
-                    Self::deposit_event(Event::NodeReputationUpdate {
-                        subnet_id,
-                        subnet_node_id,
-                        prev_reputation: current_reputation,
-                        new_reputation: *reputation,
-                    });
-                    Ok(*reputation)
-                } else {
-                    Ok(current_reputation)
-                }
-            },
-        );
-
-        new_reputation.unwrap_or(current_reputation)
-    }
-
-    /// Decrease from submitted node reputation and return new reputation
-    /// This function is used to track reputations locally to lessen db reads
-    pub fn decrease_and_return_node_reputation(
-        subnet_id: u32,
-        subnet_node_id: u32,
-        current_reputation: u128,
-        factor_1: u128,
-        factor_2: Option<u128>,
-    ) -> u128 {
-        let new_reputation = SubnetNodeReputation::<T>::try_mutate_exists(
-            subnet_id,
-            subnet_node_id,
-            |maybe_reputation| -> Result<u128, DispatchError> {
-                if let Some(reputation) = maybe_reputation {
-                    *reputation = Self::decrease_rep(current_reputation, factor_1, factor_2);
-                    Self::deposit_event(Event::NodeReputationUpdate {
-                        subnet_id,
-                        subnet_node_id,
-                        prev_reputation: current_reputation,
-                        new_reputation: *reputation,
-                    });
-                    Ok(*reputation)
-                } else {
-                    Ok(current_reputation)
-                }
-            },
-        );
-
-        new_reputation.unwrap_or(current_reputation)
+        // Reputation write plus System event storage. This diagnostic cost includes repeated
+        // event accesses; the generated settlement model accounts for their shared keys.
+        T::DbWeight::get().reads_writes(4, 3)
     }
 
     /// Increase reputation function designed to get a reputation back to 1.0

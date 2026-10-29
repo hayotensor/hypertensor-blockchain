@@ -57,8 +57,12 @@ record remain intact so finalized history stays immutable and residual principal
 ### Subnet Node Ownership
 
 Validators register and own subnet nodes. When a validator registers a subnet node, that node is
-linked to the validator ID and can then progress through the `Registered`, `Idle`, `Included`, and
-`Validator` classifications according to subnet rules.
+linked to the validator ID and progresses through `Queued`, `Probation`, and `Active`. Bootstrap
+registrations while the subnet is Registered enter Active directly. Queue admission starts
+Probation; ordinary accepted nonzero-total-score rounds with distinct-identity supermajority
+advance its progress when the node appears in the score vector, or reset it when omitted.
+Promotion requires `ProbationRounds` qualifying inclusions (default 2) plus full reputation.
+Other rounds freeze progress; a zero individual score still counts when the round total is nonzero.
 
 The validator coldkey controls the node's administrative settings. This includes node networking information, node-specific identifiers, node stake, node hotkeys, and removal of the node when removal is allowed.
 
@@ -66,7 +70,7 @@ Subnet owners may restrict early registration through initial validator rules wh
 
 ### Subnet Node Consensus
 
-Validator-owned subnet nodes can participate in subnet consensus once they reach the validator class. A subnet node may be elected to propose consensus data for an epoch, and eligible subnet nodes in the validator class can attest to that proposal.
+Validator-owned subnet nodes can participate in subnet consensus once they reach the Active classification. A subnet node may be elected to propose consensus data for an epoch, and eligible subnet nodes in the Active classification can attest to that proposal.
 
 Consensus submissions contain the elected subnet node's view of subnet node scores and may include queue decisions, such as prioritizing or removing queued nodes when the subnet rules allow it. Attestations from other eligible subnet nodes signal agreement with the submitted data.
 
@@ -86,21 +90,23 @@ ratio reaches the round's snapshotted supermajority threshold, currently 87.5%; 
 Only an identity-verified accepted proposal can apply proposal-derived reputation-score and
 classification changes. This includes node `included_increase`, `absent_decrease`,
 `below_min_weight_decrease`, and `non_attestor_decrease`; the subnet-reputation increase; and
-Included-to-Validator consecutive progression or reset based on score-vector presence. Identity
+Probation-to-Active consecutive progression or reset based on score-vector presence. Identity
 deduplication controls the gate, but responsibility remains node-level. An omitted sibling can
-receive `absent_decrease`, while a low-scored or non-attesting Validator-class sibling can receive
+receive `absent_decrease`, while a low-scored or non-attesting Active-class sibling can receive
 its corresponding consequence even if another node owned by the same validator attested. The
 subnet-reputation increase is scaled by identity support; node factors are not increased for
 support above the gate.
 
 An allocated accepted proposal below the identity-verification gate can still distribute rewards.
-Its score vector is simply neutral for reputation scores and Included-to-Validator classification.
+Its score vector is simply neutral for reputation scores and Probation-to-Active classification.
 Queue decisions use their separate stake-weighted supermajority check during settlement.
-Idle-to-Included time progression, minimum-reputation removal, and other objective lifecycle
-processing are unchanged. Accepted zero-score proposals retain their early-return behavior,
+Queue admission, minimum-reputation removal, and other objective lifecycle
+processing do not depend on that identity gate. Accepted zero-score proposals retain their early-return behavior,
 including skipping the per-node distribution loop. In an emergency round, only the snapshotted
 emergency identities establish the identity gate, non-attestor accountability is limited to
-emergency validators, and ordinary classification progression remains disabled.
+emergency validators, and probation progress is frozen. Probation never earns node rewards
+or the associated validator-pool/delegate-account allocations, including in emergency rounds or
+after promotion during settlement. The round's proposal-time classification governs its rewards.
 
 Queue decisions use a separate stake-weighted supermajority check. Reaching the identity
 supermajority for reputation scores does not by itself authorize queue prioritization or removal.

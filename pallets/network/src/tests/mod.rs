@@ -1,5 +1,6 @@
 mod admin;
 mod balance_time;
+mod capacity;
 mod delegate_account;
 mod delegate_staking;
 mod era;
@@ -10,6 +11,8 @@ mod math;
 pub mod mock;
 mod multiaddr;
 mod node_staking;
+mod node_classifications;
+mod node_metadata;
 mod on_initialize;
 mod overwatch_counterfactual;
 mod overwatch_nodes;
@@ -20,6 +23,7 @@ mod pending_removals;
 mod queue_maturity;
 mod randomization;
 mod registration_queue;
+mod reward_capacitor;
 mod rpc;
 mod slot;
 mod staking_queue;
@@ -31,6 +35,8 @@ mod subnet_node;
 mod test_utils;
 mod unbonding;
 mod validator;
+mod validator_metadata;
+mod validator_registration_burn;
 mod validator_delegate_staking;
 
 #[test]

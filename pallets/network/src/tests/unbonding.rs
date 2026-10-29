@@ -4,7 +4,7 @@ use crate::{
     AccountSubnetDelegateStakeShares, AccountValidatorDelegateStakeShares, DelegateAccountStake,
     DelegateStakeCooldownEpochs, Error, MaxSubnetNodes, MaxSubnets, MaxUnbondings,
     MinSubnetMinStake, NodeDelegateStakeCooldownEpochs, NodeSubnetStake, OverwatchMinStakeBalance,
-    OverwatchNodeStakeBalance, PeerInfo, RegisteredSubnetNodesData, StakeCooldownEpochs,
+    OverwatchNodeStakeBalance, PeerInfo, QueuedSubnetNodesData, StakeCooldownEpochs,
     StakeUnbondingLedger, SubnetName, SubnetNodeQueueEpochs, SubnetState,
     TotalAccountDelegateStake, TotalActiveSubnets, TotalDelegateStake,
     TotalNetworkUnbondingBalance, TotalOverwatchNodeStakeBalance, TotalStake,
@@ -546,6 +546,7 @@ fn test_full_unbonding_ledger_blocks_node_unstake_without_debit() {
         let burn_amount = Network::calculate_burn_amount(subnet_id);
         let _ = Balances::deposit_creating(&coldkey, node_stake + burn_amount + 500);
 
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -886,6 +887,7 @@ fn test_register_remove_claim_stake_unbondings() {
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1150,7 +1152,7 @@ fn test_register_remove_node_delegate_claim_stake_unbondings() {
 }
 
 #[test]
-fn test_register_activate_remove_claim_stake_unbondings() {
+fn test_register_admit_remove_claim_stake_unbondings() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 1000000000000000000000000;
@@ -1181,6 +1183,7 @@ fn test_register_activate_remove_claim_stake_unbondings() {
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1209,7 +1212,7 @@ fn test_register_activate_remove_claim_stake_unbondings() {
         ));
         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-        let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
+        let subnet_node = QueuedSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
         let start_epoch = subnet_node.classification.start_epoch;
 
         let stake_balance = NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id);
@@ -1229,11 +1232,11 @@ fn test_register_activate_remove_claim_stake_unbondings() {
         let epoch = Network::get_current_epoch_as_u32();
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        // Get subnet weights (nodes only activate from queue if there are weights)
+        // Get subnet weights (queue admission runs when subnet weights are available)
         // Note: This means a subnet is active if it gets weights
         let _ = Network::handle_subnet_emission_weights(epoch);
 
-        // Trigger the node activation
+        // Trigger queue admission
         Network::emission_step(
             &mut WeightMeter::new(),
             System::block_number(),
@@ -1243,7 +1246,7 @@ fn test_register_activate_remove_claim_stake_unbondings() {
         );
 
         assert_eq!(
-            RegisteredSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
+            QueuedSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
             Err(())
         );
 
@@ -1340,6 +1343,7 @@ fn test_remove_stake_twice_in_epoch() {
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1525,6 +1529,7 @@ fn test_claim_stake_unbondings_no_unbondings_err() {
         assert_eq!(starting_balance, deposit_amount + burn_amount + 500);
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,
@@ -1626,6 +1631,7 @@ fn test_remove_to_stake_max_unlockings_reached_err() {
         let starting_balance = Balances::free_balance(&coldkey.clone());
 
         let reward_rate = test_percent(1, 20); // 5%
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::do_register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,

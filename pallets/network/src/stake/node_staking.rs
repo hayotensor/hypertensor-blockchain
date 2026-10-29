@@ -51,7 +51,7 @@ impl<T: Config> Pallet<T> {
 
         ensure!(
             SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id)
-                || RegisteredSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id),
+                || QueuedSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id),
             Error::<T>::InvalidSubnetNodeId
         );
 
@@ -129,7 +129,7 @@ impl<T: Config> Pallet<T> {
 
         Self::ensure_node_stake_owner(&coldkey, subnet_id, subnet_node_id)?;
 
-        // Check if node is currently active
+        // Check whether the node is still registered as Queued, Probation, or Active.
         let is_subnet_node = SubnetNodeReputation::<T>::contains_key(subnet_id, subnet_node_id);
 
         let node_stake_balance: u128 = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);

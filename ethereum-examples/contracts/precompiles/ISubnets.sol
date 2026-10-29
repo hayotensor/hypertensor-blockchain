@@ -29,10 +29,8 @@ interface ISubnets {
     function ownerUpdateChurnLimitMultiplier(uint32 subnetId, uint32 value) external;
     /// Network::owner_update_registration_queue_epochs (call index 17).
     function ownerUpdateRegistrationQueueEpochs(uint32 subnetId, uint32 value) external;
-    /// Network::owner_update_idle_classification_epochs (call index 18).
-    function ownerUpdateIdleClassificationEpochs(uint32 subnetId, uint32 value) external;
-    /// Network::owner_update_included_classification_epochs (call index 19).
-    function ownerUpdateIncludedClassificationEpochs(uint32 subnetId, uint32 value) external;
+    /// Network::owner_update_probation_rounds (call index 19).
+    function ownerUpdateProbationRounds(uint32 subnetId, uint32 value) external;
     /// Network::owner_update_subnet_node_min_weight_decrease_reputation_threshold (call index 27).
     function ownerUpdateSubnetNodeMinWeightDecreaseReputationThreshold(uint32 subnetId, uint128 value) external;
     /// Network::owner_update_min_subnet_node_reputation (call index 28).

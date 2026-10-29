@@ -2,22 +2,22 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     ConsensusMechanism, ConsensusValidatorNodeCountDecay, ConsensusValidatorStakeWeightPower,
-    EmergencySubnetNodeElectionData, EmergencySubnetValidatorData, IdleClassificationEpochs,
-    IncludedClassificationEpochs, LastConsensusValidatorNodeCountDecayUpdate,
-    LastConsensusValidatorStakeWeightPowerUpdate, LastSubnetDelegateStakeRewardsUpdate,
-    MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodeReputation,
-    OverwatchNodeValidatorId, PeerInfo, PendingConsensusValidatorNodeCountDecay,
-    PendingConsensusValidatorStakeWeightPower, PendingIdleClassificationEpochs,
-    PendingIncludedClassificationEpochs, PendingMinSubnetNodeReputation, PendingOwnerU128Update,
-    PendingOwnerU32Update, PendingQueueImmunityEpochs, PendingSubnetDelegateStakeRewardsPercentage,
-    PendingSubnetDelegateStakeRewardsPercentageUpdate,
+    EmergencySubnetNodeElectionData, EmergencySubnetValidatorData,
+    LastConsensusValidatorNodeCountDecayUpdate, LastConsensusValidatorStakeWeightPowerUpdate,
+    LastSubnetDelegateStakeRewardsUpdate, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
+    MinSubnetNodeReputation, OverwatchNodeValidatorId, PeerInfo,
+    PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
+    PendingMinSubnetNodeReputation, PendingOwnerU128Update, PendingOwnerU32Update,
+    PendingProbationRounds, PendingQueueImmunityEpochs,
+    PendingSubnetDelegateStakeRewardsPercentage, PendingSubnetDelegateStakeRewardsPercentageUpdate,
     PendingSubnetNodeMinWeightDecreaseReputationThreshold, PendingSubnetNodeQueueEpochs,
-    QueueImmunityEpochs, RegisteredSubnetNodesData, SlotAssignment,
+    ProbationRounds, QueueImmunityEpochs, QueuedSubnetNodesData, SlotAssignment,
     SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName,
     SubnetNodeElectionSlots, SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeQueueEpochs,
     SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseData, SubnetSlot, SubnetState,
     SubnetsData, TotalActiveSubnets, ValidatorNodeDelegateStakeWeights,
 };
+use crate::{NodeMetadata, SubnetNodeMetadata};
 use frame_support::assert_ok;
 use network_rpc_types::{NetworkQueryError, PageRequest};
 use sp_std::collections::btree_map::BTreeMap;
@@ -66,10 +66,10 @@ fn test_get_subnet_info() {
         let pending_queue_immunity_epochs = 12;
         let subnet_node_queue_epochs = 13;
         let pending_subnet_node_queue_epochs = 14;
-        let idle_classification_epochs = 21;
-        let pending_idle_classification_epochs = 22;
-        let included_classification_epochs = 31;
-        let pending_included_classification_epochs = 32;
+
+
+        let probation_rounds = 31;
+        let pending_probation_rounds = 32;
         let delegate_stake_percentage = 41;
         let pending_delegate_stake_percentage = 42;
         let consensus_validator_node_count_decay = 51;
@@ -86,8 +86,8 @@ fn test_get_subnet_info() {
 
         QueueImmunityEpochs::<Test>::insert(subnet_id, queue_immunity_epochs);
         SubnetNodeQueueEpochs::<Test>::insert(subnet_id, subnet_node_queue_epochs);
-        IdleClassificationEpochs::<Test>::insert(subnet_id, idle_classification_epochs);
-        IncludedClassificationEpochs::<Test>::insert(subnet_id, included_classification_epochs);
+
+        ProbationRounds::<Test>::insert(subnet_id, probation_rounds);
         SubnetDelegateStakeRewardsPercentage::<Test>::insert(subnet_id, delegate_stake_percentage);
         ConsensusValidatorNodeCountDecay::<Test>::insert(
             subnet_id,
@@ -120,18 +120,14 @@ fn test_get_subnet_info() {
             effective_subnet_epoch,
             owner: owner.clone(),
         };
-        let pending_idle = PendingOwnerU32Update::<Test> {
-            value: pending_idle_classification_epochs,
-            effective_subnet_epoch,
-            owner: owner.clone(),
-        };
+
         let pending_subnet_node_queue = PendingOwnerU32Update::<Test> {
             value: pending_subnet_node_queue_epochs,
             effective_subnet_epoch,
             owner: owner.clone(),
         };
-        let pending_included = PendingOwnerU32Update::<Test> {
-            value: pending_included_classification_epochs,
+        let pending_probation = PendingOwnerU32Update::<Test> {
+            value: pending_probation_rounds,
             effective_subnet_epoch,
             owner: owner.clone(),
         };
@@ -163,8 +159,8 @@ fn test_get_subnet_info() {
 
         PendingQueueImmunityEpochs::<Test>::insert(subnet_id, pending_queue.clone());
         PendingSubnetNodeQueueEpochs::<Test>::insert(subnet_id, pending_subnet_node_queue.clone());
-        PendingIdleClassificationEpochs::<Test>::insert(subnet_id, pending_idle.clone());
-        PendingIncludedClassificationEpochs::<Test>::insert(subnet_id, pending_included.clone());
+
+        PendingProbationRounds::<Test>::insert(subnet_id, pending_probation.clone());
         PendingSubnetDelegateStakeRewardsPercentage::<Test>::insert(
             subnet_id,
             pending_delegate.clone(),
@@ -205,15 +201,15 @@ fn test_get_subnet_info() {
             info.pending_subnet_node_queue_epochs,
             Some(pending_subnet_node_queue)
         );
-        assert_eq!(info.idle_classification_epochs, idle_classification_epochs);
-        assert_eq!(info.pending_idle_classification_epochs, Some(pending_idle));
+
+
         assert_eq!(
-            info.included_classification_epochs,
-            included_classification_epochs
+            info.probation_rounds,
+            probation_rounds
         );
         assert_eq!(
-            info.pending_included_classification_epochs,
-            Some(pending_included)
+            info.pending_probation_rounds,
+            Some(pending_probation)
         );
         assert_eq!(info.delegate_stake_percentage, delegate_stake_percentage);
         assert_eq!(
@@ -268,10 +264,8 @@ fn test_get_subnet_info() {
         PendingSubnetNodeQueueEpochs::<Test>::mutate(subnet_id, |pending| {
             pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
         });
-        PendingIdleClassificationEpochs::<Test>::mutate(subnet_id, |pending| {
-            pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
-        });
-        PendingIncludedClassificationEpochs::<Test>::mutate(subnet_id, |pending| {
+
+        PendingProbationRounds::<Test>::mutate(subnet_id, |pending| {
             pending.as_mut().unwrap().effective_subnet_epoch = current_subnet_epoch;
         });
         PendingSubnetDelegateStakeRewardsPercentage::<Test>::mutate(subnet_id, |pending| {
@@ -301,16 +295,13 @@ fn test_get_subnet_info() {
             pending_subnet_node_queue_epochs
         );
         assert!(info.pending_subnet_node_queue_epochs.is_none());
+
+
         assert_eq!(
-            info.idle_classification_epochs,
-            pending_idle_classification_epochs
+            info.probation_rounds,
+            pending_probation_rounds
         );
-        assert!(info.pending_idle_classification_epochs.is_none());
-        assert_eq!(
-            info.included_classification_epochs,
-            pending_included_classification_epochs
-        );
-        assert!(info.pending_included_classification_epochs.is_none());
+        assert!(info.pending_probation_rounds.is_none());
         assert_eq!(
             info.delegate_stake_percentage,
             pending_delegate_stake_percentage
@@ -520,17 +511,17 @@ fn test_get_overwatch_nodes_page() {
 }
 
 #[test]
-fn typed_subnet_nodes_and_bootnodes_exclude_registered_queue_entries() {
+fn typed_subnet_nodes_and_bootnodes_exclude_queued_entries() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "test-subnet".into();
         let deposit_amount: u128 = 10000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
-        let active_node_count = 4;
+        let admitted_node_count = 4;
 
         build_activated_subnet(
             subnet_name.clone(),
             0,
-            active_node_count,
+            admitted_node_count,
             deposit_amount,
             stake_amount,
         );
@@ -540,14 +531,16 @@ fn typed_subnet_nodes_and_bootnodes_exclude_registered_queue_entries() {
         let queued_bootnode_peer_id = peer(99_999);
         let mut queued_node = SubnetNodesData::<Test>::get(subnet_id, 1);
         queued_node.id = queued_node_id;
-        queued_node.bootnode_peer_info = Some(PeerInfo::<Test> {
+        let mut metadata = SubnetNodeMetadata::<Test>::get(subnet_id, 1).unwrap();
+        metadata.bootnode_peer_info = Some(PeerInfo::<Test> {
             peer_id: queued_bootnode_peer_id.clone(),
             multiaddr: get_multiaddr(Some(subnet_id), Some(queued_node_id), Some(1)),
         });
-        RegisteredSubnetNodesData::<Test>::insert(subnet_id, queued_node_id, queued_node);
+        SubnetNodeMetadata::<Test>::insert(subnet_id, queued_node_id, metadata);
+        QueuedSubnetNodesData::<Test>::insert(subnet_id, queued_node_id, queued_node);
 
         let nodes = Network::rpc_get_subnet_nodes(subnet_id, PageRequest::default()).unwrap();
-        assert_eq!(nodes.items.len(), active_node_count as usize);
+        assert_eq!(nodes.items.len(), admitted_node_count as usize);
         assert!(nodes.next_cursor.is_none());
         assert!(nodes
             .items
@@ -555,20 +548,21 @@ fn typed_subnet_nodes_and_bootnodes_exclude_registered_queue_entries() {
             .all(|node| node.subnet_node_id != queued_node_id));
 
         let bootnodes = Network::rpc_get_bootnodes(subnet_id).unwrap();
-        let active_bootnode_peer_id = SubnetNodesData::<Test>::get(subnet_id, 1)
+        let active_bootnode_peer_id = SubnetNodeMetadata::<Test>::get(subnet_id, 1)
+            .unwrap_or_default()
             .bootnode_peer_info
             .unwrap()
             .peer_id;
 
         assert_eq!(bootnodes.official.len(), 1);
         assert_eq!(bootnodes.official[0].peer_id.0, peer(0).0);
-        assert_eq!(bootnodes.active_nodes.len(), active_node_count as usize);
+        assert_eq!(bootnodes.admitted_nodes.len(), admitted_node_count as usize);
         assert!(bootnodes
-            .active_nodes
+            .admitted_nodes
             .iter()
             .any(|node| node.peer_id.0 == active_bootnode_peer_id.0));
         assert!(bootnodes
-            .active_nodes
+            .admitted_nodes
             .iter()
             .all(|node| node.peer_id.0 != queued_bootnode_peer_id.0));
         assert!(Network::rpc_get_bootnodes(u32::MAX).is_none());

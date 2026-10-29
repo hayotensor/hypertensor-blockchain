@@ -5,7 +5,7 @@ use crate::{
     Error, FinalSubnetEmissionWeights, MaxSlashAmount, MaxSubnetNodes, MaxSubnets,
     MinActiveNodeStakeEpochs, MinSubnetMinStake, NodeStakePendingSlashLiabilityCount,
     NodeStakeSlashLockUntil, NodeSubnetStake, PeerInfo, PendingConsensusRoundSettlementEpoch,
-    RegisteredSubnetNodesData, StakeCooldownEpochs, StakeUnbondingLedger, SubnetElectedValidator,
+    QueuedSubnetNodesData, StakeCooldownEpochs, StakeUnbondingLedger, SubnetElectedValidator,
     SubnetMaxStakeBalance, SubnetName, SubnetNodeQueueEpochs, SubnetNodesData, SubnetRemovalReason,
     SubnetsData, TotalActiveSubnets, TotalStake, TotalSubnetNodeUids, TotalSubnetNodes,
     TotalSubnetStake, TotalValidatorIds, TxRateLimit, ValidatorSubnetNodes,
@@ -593,6 +593,9 @@ fn test_add_to_stake_balance_withdraw_error() {
         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
         let subnet_node_id = end;
 
+        // Registration now leaves an existential deposit; set the exact balance
+        // needed to exercise a withdrawal that would reap the coldkey.
+        let _ = Balances::make_free_balance_be(&coldkey, EXISTENTIAL_DEPOSIT);
         assert_err!(
             Network::add_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -820,7 +823,7 @@ fn test_remove_stake() {
 
 //         let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
-//         let subnet_node = RegisteredSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
+//         let subnet_node = QueuedSubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
 //         let start_epoch = subnet_node.classification.start_epoch;
 
 //         let queue_epochs = SubnetNodeQueueEpochs::<Test>::get(subnet_id);
@@ -834,11 +837,11 @@ fn test_remove_stake() {
 //         let epoch = Network::get_current_epoch_as_u32();
 //         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-//         // Get subnet weights (nodes only activate from queue if there are weights)
+//         // Get subnet weights (queue admission runs when subnet weights are available)
 //         // Note: This means a subnet is active if it gets weights
 //         let _ = Network::handle_subnet_emission_weights(epoch);
 
-//         // Trigger the node activation
+//         // Trigger queue admission
 //         Network::emission_step(
 //             &mut WeightMeter::new(),
 //             System::block_number(),
@@ -848,7 +851,7 @@ fn test_remove_stake() {
 //         );
 
 //         assert_eq!(
-//             RegisteredSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
+//             QueuedSubnetNodesData::<Test>::try_get(subnet_id, subnet_node_id),
 //             Err(())
 //         );
 
@@ -1162,6 +1165,7 @@ fn test_register_try_removing_all_stake_error() {
         let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount + burn_amount);
         let starting_balance = Balances::free_balance(&coldkey.clone());
 
+        fund_validator_registration(&coldkey);
         assert_ok!(Network::register_validator(
             RuntimeOrigin::signed(coldkey.clone()),
             hotkey,

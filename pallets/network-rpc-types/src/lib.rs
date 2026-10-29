@@ -207,6 +207,8 @@ pub enum SubnetState {
     Paused,
 }
 
+/// Ordered subnet-node lifecycle, distinct from the subnet's own registration state.
+/// SCALE and contract codes are Queued = 0, Probation = 1, and Active = 2.
 #[derive(
     Default,
     Copy,
@@ -225,10 +227,9 @@ pub enum SubnetState {
 #[serde(rename_all = "camelCase")]
 pub enum SubnetNodeClass {
     #[default]
-    Registered,
-    Idle,
-    Included,
-    Validator,
+    Queued = 0,
+    Probation = 1,
+    Active = 2,
 }
 
 mod decimal_u128 {
@@ -346,10 +347,8 @@ pub struct SubnetInfo<AccountId> {
     pub node_registrations_this_epoch: u32,
     pub subnet_node_queue_epochs: u32,
     pub pending_subnet_node_queue_epochs: Option<PendingValueUpdate<u32, AccountId>>,
-    pub idle_classification_epochs: u32,
-    pub pending_idle_classification_epochs: Option<PendingValueUpdate<u32, AccountId>>,
-    pub included_classification_epochs: u32,
-    pub pending_included_classification_epochs: Option<PendingValueUpdate<u32, AccountId>>,
+    pub probation_rounds: u32,
+    pub pending_probation_rounds: Option<PendingValueUpdate<u32, AccountId>>,
     pub delegate_stake_percentage: RpcU128,
     pub pending_delegate_stake_percentage: Option<PendingValueUpdate<RpcU128, AccountId>>,
     pub last_delegate_stake_rewards_update: u32,
@@ -379,7 +378,7 @@ pub struct SubnetInfo<AccountId> {
     pub bootnode_access: Vec<AccountId>,
     pub bootnodes: Vec<BootnodeInfo>,
     pub total_nodes: u32,
-    pub total_active_nodes: u32,
+    pub total_admitted_nodes: u32,
     pub total_electable_nodes: u32,
     pub current_min_delegate_stake: RpcU128,
     pub total_subnet_stake: RpcU128,
@@ -393,7 +392,7 @@ pub struct SubnetInfo<AccountId> {
 #[serde(rename_all = "camelCase")]
 pub struct SubnetBootnodes {
     pub official: Vec<BootnodeInfo>,
-    pub active_nodes: Vec<BootnodeInfo>,
+    pub admitted_nodes: Vec<BootnodeInfo>,
 }
 
 #[derive(
@@ -411,6 +410,7 @@ pub struct PeerInfo {
 #[serde(rename_all = "camelCase")]
 pub struct SubnetNodeClassification {
     pub node_class: SubnetNodeClass,
+    /// First subnet-local epoch in which this classification is effective.
     pub start_epoch: u32,
 }
 
@@ -431,8 +431,8 @@ pub struct SubnetNodeInfo<AccountId> {
     pub stake_balance: RpcU128,
     pub subnet_node_reputation: Option<RpcU128>,
     pub node_slot_index: Option<u32>,
-    pub consecutive_idle_epochs: u32,
-    pub consecutive_included_epochs: u32,
+    /// Qualifying inclusions toward promotion; zero for Queued and Active nodes.
+    pub probation_progress: u32,
 }
 
 // Validator and stake wire types.
@@ -597,8 +597,7 @@ pub struct ConsensusPolicyInfo {
     pub subnet_delegate_stake_rewards_percentage: RpcU128,
     pub consensus_validator_node_count_decay: RpcU128,
     pub consensus_validator_stake_weight_power: RpcU128,
-    pub idle_classification_epochs: u32,
-    pub included_classification_epochs: u32,
+    pub probation_rounds: u32,
     pub queue_immunity_epochs: u32,
     pub reputation_factors: SubnetReputationFactors,
 }
@@ -663,7 +662,7 @@ pub struct ConsensusProposalInfo {
     pub validator_epoch_progress: RpcU128,
     pub validator_reward_factor: RpcU128,
     pub eligible_attestors: Vec<ConsensusAttestorInfo>,
-    pub active_subnet_node_ids: Vec<u32>,
+    pub admitted_subnet_node_ids: Vec<u32>,
     pub prioritize_queue_node_id: Option<u32>,
     pub remove_queue_node_id: Option<u32>,
     pub scores: Vec<ConsensusNodeScore>,
@@ -733,6 +732,72 @@ pub type OverwatchNodesPage<AccountId> = Page<OverwatchNodeInfo<AccountId>, u32>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn node_classifications_have_exact_json_names_and_scale_codes() {
+        let scale_info::TypeDef::Variant(metadata) = SubnetNodeClass::type_info().type_def else {
+            panic!("node classification must be an enum");
+        };
+        assert_eq!(
+            metadata
+                .variants
+                .iter()
+                .map(|variant| (variant.name, variant.index))
+                .collect::<Vec<_>>(),
+            vec![("Queued", 0), ("Probation", 1), ("Active", 2)]
+        );
+        for (class, name, code) in [
+            (SubnetNodeClass::Queued, "queued", 0u8),
+            (SubnetNodeClass::Probation, "probation", 1),
+            (SubnetNodeClass::Active, "active", 2),
+        ] {
+            assert_eq!(class.encode(), vec![code]);
+            assert_eq!(SubnetNodeClass::decode(&mut &[code][..]).unwrap(), class);
+            assert_eq!(serde_json::to_value(class).unwrap(), name);
+            assert_eq!(
+                serde_json::from_value::<SubnetNodeClass>(name.into()).unwrap(),
+                class
+            );
+        }
+        assert!(SubnetNodeClass::decode(&mut &[3u8][..]).is_err());
+        for removed in ["registered", "idle", "included", "validator"] {
+            assert!(serde_json::from_value::<SubnetNodeClass>(removed.into()).is_err());
+        }
+    }
+
+    #[test]
+    fn node_information_exposes_probation_progress_without_removed_counters() {
+        let node = serde_json::to_value(SubnetNodeInfo::<u64> {
+            subnet_id: 1,
+            subnet_node_id: 2,
+            validator_id: 3,
+            coldkey: 4,
+            hotkey: 5,
+            peer_info: None,
+            bootnode_peer_info: None,
+            client_peer_info: None,
+            classification: SubnetNodeClassification {
+                node_class: SubnetNodeClass::Probation,
+                start_epoch: 7,
+            },
+            unique: None,
+            non_unique: None,
+            stake_balance: RpcU128(0),
+            subnet_node_reputation: None,
+            node_slot_index: None,
+            probation_progress: 1,
+        })
+        .unwrap();
+        assert_eq!(node["classification"]["nodeClass"], "probation");
+        assert_eq!(node["classification"]["startEpoch"], 7);
+        assert_eq!(node["probationProgress"], 1);
+        assert!(node.get("consecutiveIdleEpochs").is_none());
+        assert!(node.get("consecutiveIncludedEpochs").is_none());
+        assert_json_keys(&SubnetBootnodes::default(), &["official", "admittedNodes"]);
+        let proposal = serde_json::to_value(ConsensusProposalInfo::default()).unwrap();
+        assert!(proposal.get("admittedSubnetNodeIds").is_some());
+        assert!(proposal.get("activeSubnetNodeIds").is_none());
+    }
 
     fn assert_json_keys<T: serde::Serialize>(value: &T, expected_keys: &[&str]) {
         let value = serde_json::to_value(value).expect("serializes");
@@ -908,8 +973,7 @@ mod tests {
                 "subnetDelegateStakeRewardsPercentage",
                 "consensusValidatorNodeCountDecay",
                 "consensusValidatorStakeWeightPower",
-                "idleClassificationEpochs",
-                "includedClassificationEpochs",
+                "probationRounds",
                 "queueImmunityEpochs",
                 "reputationFactors",
             ],

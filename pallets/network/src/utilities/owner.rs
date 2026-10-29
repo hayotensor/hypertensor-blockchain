@@ -114,14 +114,6 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    pub fn get_idle_classification_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
-        Self::pending_owner_u32_value_for_epoch(
-            IdleClassificationEpochs::<T>::get(subnet_id),
-            PendingIdleClassificationEpochs::<T>::get(subnet_id),
-            subnet_epoch,
-        )
-    }
-
     pub fn get_subnet_node_queue_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
         Self::pending_owner_u32_value_for_epoch(
             SubnetNodeQueueEpochs::<T>::get(subnet_id),
@@ -130,10 +122,10 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    pub fn get_included_classification_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
+    pub fn get_probation_rounds_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
         Self::pending_owner_u32_value_for_epoch(
-            IncludedClassificationEpochs::<T>::get(subnet_id),
-            PendingIncludedClassificationEpochs::<T>::get(subnet_id),
+            ProbationRounds::<T>::get(subnet_id),
+            PendingProbationRounds::<T>::get(subnet_id),
             subnet_epoch,
         )
     }
@@ -288,10 +280,10 @@ impl<T: Config> Pallet<T> {
             // preparation slot runs queue maintenance, so it is intentionally not added.
             let delta = subnet_epoch.saturating_sub(pause.started_subnet_epoch);
 
-            // RegisteredSubnetNodesData is the canonical lookup, while SubnetNodeQueue owns
+            // QueuedSubnetNodesData is the canonical lookup, while SubnetNodeQueue owns
             // clones used by queue activation. Shift both so they cannot disagree.
-            for (uid, _) in RegisteredSubnetNodesData::<T>::iter_prefix(subnet_id) {
-                RegisteredSubnetNodesData::<T>::mutate(subnet_id, uid, |subnet_node| {
+            for (uid, _) in QueuedSubnetNodesData::<T>::iter_prefix(subnet_id) {
+                QueuedSubnetNodesData::<T>::mutate(subnet_id, uid, |subnet_node| {
                     let curr_start_epoch = subnet_node.classification.start_epoch;
                     subnet_node.classification.start_epoch = curr_start_epoch.saturating_add(delta);
                 });
@@ -465,7 +457,7 @@ impl<T: Config> Pallet<T> {
                 .map_err(|_| Error::<T>::InvalidEmergencySubnetNodeId)?;
 
             ensure!(
-                subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch),
+                subnet_node.has_classification(&SubnetNodeClass::Active, subnet_epoch),
                 Error::<T>::InvalidEmergencySubnetNodeId
             );
         }
@@ -519,7 +511,7 @@ impl<T: Config> Pallet<T> {
                 SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
                     .ok()
                     .filter(|subnet_node| {
-                        subnet_node.has_classification(&SubnetNodeClass::Validator, subnet_epoch)
+                        subnet_node.has_classification(&SubnetNodeClass::Active, subnet_epoch)
                     })
                     .map(|_| *subnet_node_id)
             })
@@ -531,12 +523,12 @@ impl<T: Config> Pallet<T> {
     /// Callers that scan more than one node should take this single snapshot and filter in memory,
     /// rather than decoding both bounded pending-removal sets once per candidate.
     pub(crate) fn pending_subnet_node_removal_ids(subnet_id: u32) -> BTreeSet<u32> {
-        let pending_active = PendingActiveNodeRemovals::<T>::get(subnet_id);
-        let pending_registered = PendingRegisteredNodeRemovals::<T>::get(subnet_id);
+        let pending_admitted = PendingAdmittedNodeRemovals::<T>::get(subnet_id);
+        let pending_queued = PendingQueuedNodeRemovals::<T>::get(subnet_id);
         let mut pending_ids = BTreeSet::new();
 
-        pending_ids.extend(pending_active.iter().copied());
-        pending_ids.extend(pending_registered.iter().copied());
+        pending_ids.extend(pending_admitted.iter().copied());
+        pending_ids.extend(pending_queued.iter().copied());
         pending_ids
     }
 
@@ -1030,7 +1022,7 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn do_owner_update_idle_classification_epochs(
+    pub fn do_owner_update_probation_rounds(
         origin: T::RuntimeOrigin,
         subnet_id: u32,
         value: u32,
@@ -1043,20 +1035,19 @@ impl<T: Config> Pallet<T> {
         );
 
         ensure!(
-            value >= MinIdleClassificationEpochs::<T>::get()
-                && value <= MaxIdleClassificationEpochs::<T>::get(),
-            Error::<T>::InvalidIdleClassificationEpochs
+            value >= MinProbationRounds::<T>::get() && value <= MaxProbationRounds::<T>::get(),
+            Error::<T>::InvalidProbationRounds
         );
 
         let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
         Self::prepare_pending_owner_u32_update(
             current_subnet_epoch,
-            PendingIdleClassificationEpochs::<T>::get(subnet_id),
-            |value| IdleClassificationEpochs::<T>::insert(subnet_id, value),
+            PendingProbationRounds::<T>::get(subnet_id),
+            |value| ProbationRounds::<T>::insert(subnet_id, value),
         )?;
         let effective_subnet_epoch =
             Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
-        PendingIdleClassificationEpochs::<T>::insert(
+        PendingProbationRounds::<T>::insert(
             subnet_id,
             PendingOwnerU32Update {
                 value,
@@ -1065,52 +1056,7 @@ impl<T: Config> Pallet<T> {
             },
         );
 
-        Self::deposit_event(Event::IdleClassificationEpochsUpdateScheduled {
-            subnet_id: subnet_id,
-            owner: coldkey,
-            value: value,
-            effective_subnet_epoch,
-        });
-
-        Ok(())
-    }
-
-    pub fn do_owner_update_included_classification_epochs(
-        origin: T::RuntimeOrigin,
-        subnet_id: u32,
-        value: u32,
-    ) -> DispatchResult {
-        let coldkey: T::AccountId = ensure_signed(origin)?;
-
-        ensure!(
-            Self::is_subnet_owner(&coldkey, subnet_id).unwrap_or(false),
-            Error::<T>::NotSubnetOwner
-        );
-
-        ensure!(
-            value >= MinIncludedClassificationEpochs::<T>::get()
-                && value <= MaxIncludedClassificationEpochs::<T>::get(),
-            Error::<T>::InvalidIncludedClassificationEpochs
-        );
-
-        let current_subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
-        Self::prepare_pending_owner_u32_update(
-            current_subnet_epoch,
-            PendingIncludedClassificationEpochs::<T>::get(subnet_id),
-            |value| IncludedClassificationEpochs::<T>::insert(subnet_id, value),
-        )?;
-        let effective_subnet_epoch =
-            Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
-        PendingIncludedClassificationEpochs::<T>::insert(
-            subnet_id,
-            PendingOwnerU32Update {
-                value,
-                effective_subnet_epoch,
-                owner: coldkey.clone(),
-            },
-        );
-
-        Self::deposit_event(Event::IncludedClassificationEpochsUpdateScheduled {
+        Self::deposit_event(Event::ProbationRoundsUpdateScheduled {
             subnet_id: subnet_id,
             owner: coldkey,
             value: value,
@@ -1357,14 +1303,14 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    /// Update maximum registered nodes
+    /// Update the maximum registration-queue length.
     ///
     /// This function can only be called by the current owner of the subnet.  
     ///
     /// # Parameters
     /// - `origin`: The caller, must be the current subnet owner.
     /// - `subnet_id`: The ID of the subnet.
-    /// - `value`: The new number maximum registered nodes.
+    /// - `value`: The new maximum number of Queued nodes in the registration queue.
     ///
     /// # Errors
     /// - [`NotSubnetOwner`]: Caller is not the owner of the subnet.
