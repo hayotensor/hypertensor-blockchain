@@ -265,8 +265,7 @@ pub fn get_multiaddr(
     encode_varint(peer.0.len() as u64, &mut bytes);
     bytes.extend_from_slice(&peer.0);
 
-    let ma = Multiaddr::verify(&bytes).unwrap();
-    let segs = ma.to_vec().unwrap();
+    crate::multiaddr::verify(&bytes).unwrap();
 
     Some(bytes.try_into().expect("bootnode too long"))
 }

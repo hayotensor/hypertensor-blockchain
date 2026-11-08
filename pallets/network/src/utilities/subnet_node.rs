@@ -389,7 +389,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn do_verify_multiaddr(multiaddr: &[u8]) -> DispatchResult {
-        multiaddr::Multiaddr::verify(multiaddr).map_err(|e| match e {
+        multiaddr::verify(multiaddr).map_err(|e| match e {
             multiaddr::MultiaddrError::InvalidVarint => Error::<T>::MultiaddrInvalidVarint,
             multiaddr::MultiaddrError::InvalidProtocol => Error::<T>::MultiaddrInvalidProtocol,
             multiaddr::MultiaddrError::InvalidAddress => Error::<T>::MultiaddrInvalidAddress,

@@ -26,7 +26,7 @@ fn fixture(queued: bool) -> (u32, u32, AccountId) {
 }
 
 fn maximum(seed: u8) -> NodeMetadata<Test> {
-    use crate::utilities::multiaddr::{encode_varint, Multiaddr, DNS4, P2P};
+    use crate::utilities::multiaddr::{encode_varint, DNS4, P2P};
     let peer = |role: u8| {
         let mut id = vec![b'a'; 128];
         id[..2].copy_from_slice(b"Qm");
@@ -39,7 +39,7 @@ fn maximum(seed: u8) -> NodeMetadata<Test> {
         encode_varint(P2P, &mut addr);
         encode_varint(128, &mut addr);
         addr.extend(&id);
-        assert!(Multiaddr::verify(&addr).is_ok());
+        assert!(multiaddr::verify(&addr).is_ok());
         PeerInfo {
             peer_id: OpaquePeerId(id),
             multiaddr: Some(addr.try_into().unwrap()),
@@ -319,20 +319,29 @@ fn errors_preserve_metadata_indexes_and_events() {
                 ),
                 Error::<Test>::InvalidPeerId
             );
-            let mut invalid_address = maximum(43).peer_info.unwrap();
-            invalid_address.multiaddr = Some(vec![0xff].try_into().unwrap());
-            assert!(
-                Network::do_verify_multiaddr(invalid_address.multiaddr.as_ref().unwrap()).is_err()
-            );
-            let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
-            assert!(Network::update_node_peer_info(
-                RuntimeOrigin::signed(coldkey.clone()),
-                subnet,
-                node,
-                Some(invalid_address)
-            )
-            .is_err());
-            assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+            let mut malformed_addresses = vec![vec![0xff]];
+            for length in [u32::MAX as u64 - 5, u64::MAX - 10, u64::MAX] {
+                let mut bytes = vec![54]; // DNS4 with an overflowing length.
+                multiaddr::encode_varint(length, &mut bytes);
+                malformed_addresses.push(bytes);
+            }
+            for bytes in malformed_addresses {
+                let mut invalid_address = maximum(43).peer_info.unwrap();
+                invalid_address.multiaddr = Some(bytes.try_into().unwrap());
+                assert!(
+                    Network::do_verify_multiaddr(invalid_address.multiaddr.as_ref().unwrap())
+                        .is_err()
+                );
+                let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+                assert!(Network::update_node_peer_info(
+                    RuntimeOrigin::signed(coldkey.clone()),
+                    subnet,
+                    node,
+                    Some(invalid_address)
+                )
+                .is_err());
+                assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+            }
             // A different live node owns this value. The old unique index must survive rejection.
             let conflict: NetworkBytes<Test> = vec![44; 1024].try_into().unwrap();
             assert_ok!(Network::do_update_node_unique(

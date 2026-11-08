@@ -273,7 +273,7 @@ impl<T: Config> Pallet<T> {
                 let addr: &[u8] = &multiaddr.clone();
 
                 ensure!(
-                    multiaddr::Multiaddr::verify(addr).is_ok(),
+                    multiaddr::verify(addr).is_ok(),
                     Error::<T>::InvalidMultiaddr
                 );
 

@@ -224,6 +224,10 @@ for discovery. An archive node may be necessary for older block hashes.
    Text PeerIDs are encoded as bytes; multiaddresses must be the binary multiaddr
    encoding, ending in `/p2p/<peer-id>`, not UTF-8 address text. Respect metadata
    length bounds and uniqueness requirements for peer IDs and `unique` data.
+   Address validation accepts at most 1,024 bytes in the fixed order
+   `ip4|ip6|dns4|dns6|dnsaddr`, optional `tcp|udp`, optional `ws|wss`, then `p2p`.
+   DNS and peer payloads must be nonempty; their contents are not validated.
+   Repeated/reordered protocols, trailing bytes, and noncanonical varints fail.
 4. Discover the node through `ValidatorSubnetNodes(validator_id)` or
    `network_getValidatorNodes`, then query its details. The current registration
    path does not emit `SubnetNodeRegistered`, despite that event being declared.

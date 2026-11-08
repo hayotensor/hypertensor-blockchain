@@ -25,7 +25,7 @@ pub(super) fn max_node_peer<T: Config>(subnet_id: u32, node_id: u32, role: u8) -
     encode_varint(peer.len() as u64, &mut address);
     address.extend(peer);
     assert_eq!(address.len(), T::MaxVectorLength::get() as usize);
-    assert!(Multiaddr::verify(&address).is_ok());
+    assert!(multiaddr::verify(&address).is_ok());
     PeerInfo {
         peer_id,
         multiaddr: Some(address.try_into().unwrap()),

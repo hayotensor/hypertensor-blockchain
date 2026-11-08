@@ -11,7 +11,7 @@ pub const MAX_NOMINATIONS: u32 = 16;
 /// Maximum supported validator candidates and elected validators.
 pub const MAX_VALIDATORS: u32 = 32;
 /// Maximum supported number of accounts that nominate validators.
-pub const MAX_NOMINATORS: u32 = 256;
+pub const MAX_NOMINATORS: u32 = 1;
 /// Initial minimum number of validators required for a successful election.
 pub const MIN_VALIDATOR_COUNT: u32 = 1;
 /// Initial minimum validator stake, also bonded by each genesis validator.

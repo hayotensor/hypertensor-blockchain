@@ -1,13 +1,14 @@
-#![allow(dead_code)]
+//! Loose, bounded validation of binary multiaddresses.
+//!
+//! Accepted shape: host / [tcp|udp / port] / [ws|wss] / p2p / peer bytes.
+//! The host is ip4, ip6, dns4, dns6, or dnsaddr. DNS and peer payloads are opaque:
+//! only their nonempty lengths are checked, not their contents or reachability.
+//! Validation has at most four protocol reads and two length reads, with no
+//! loops, recursion, allocation, or unchecked cursor arithmetic.
 
+#[cfg(any(feature = "std", feature = "runtime-benchmarks", test))]
 extern crate alloc;
 
-use alloc::format;
-use alloc::string::String;
-use alloc::vec::Vec;
-use bs58;
-
-/* Errors */
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MultiaddrError {
     InvalidVarint,
@@ -16,11 +17,10 @@ pub enum MultiaddrError {
     Truncated,
 }
 
-/* Protocol codes */
 pub const IP4: u64 = 4;
 pub const IP6: u64 = 41;
 pub const TCP: u64 = 6;
-pub const UDP: u64 = 17;
+pub const UDP: u64 = 273;
 pub const DNS4: u64 = 54;
 pub const DNS6: u64 = 55;
 pub const DNSADDR: u64 = 56;
@@ -28,322 +28,93 @@ pub const P2P: u64 = 421;
 pub const WS: u64 = 477;
 pub const WSS: u64 = 478;
 
-/* Fixed wire-format dimensions */
-const IPV4_OCTET_COUNT: usize = 4;
-const IPV6_BYTE_COUNT: usize = 16;
-const PORT_BYTE_COUNT: usize = core::mem::size_of::<u16>();
-const IPV6_SEGMENT_COUNT: usize = IPV6_BYTE_COUNT / PORT_BYTE_COUNT;
-const IPV6_RADIX: u32 = 16;
-const MAX_IPV6_COMPRESSION_PARTS: usize = 2;
-const VARINT_CONTINUATION_BIT: u8 = 0x80;
-const VARINT_DATA_MASK: u8 = 0x7f;
-const VARINT_PAYLOAD_BITS: u32 = 7;
-const MAX_U64_VARINT_SHIFT: u32 = u64::BITS - 1;
+/// Matches the runtime's NetworkBytes limit; also bounds direct callers.
+pub const MAX_MULTIADDR_BYTES: usize = 1024;
 
-/* Multiaddr */
-#[derive(Clone, PartialEq, Eq, Debug)]
-pub struct Multiaddr {
-    bytes: Vec<u8>,
-}
-
-impl Multiaddr {
-    /* =====================
-    Verify multiaddr bytes
-    ===================== */
-    pub fn verify(bytes: &[u8]) -> Result<Self, MultiaddrError> {
-        let mut i = 0;
-        let mut last_proto = 0;
-
-        while i < bytes.len() {
-            let (proto, read) = decode_varint(&bytes[i..]).ok_or(MultiaddrError::InvalidVarint)?;
-            i += read;
-
-            match proto {
-                IP4 => advance(bytes, &mut i, IPV4_OCTET_COUNT)?,
-                IP6 => advance(bytes, &mut i, IPV6_BYTE_COUNT)?,
-                TCP | UDP => advance(bytes, &mut i, PORT_BYTE_COUNT)?,
-                WS | WSS => advance(bytes, &mut i, 0)?, // WebSockets have no payload
-                DNS4 | DNS6 | DNSADDR => {
-                    // DNS protocols have a length-prefixed string
-                    let (len, read) =
-                        decode_varint(&bytes[i..]).ok_or(MultiaddrError::InvalidVarint)?;
-                    i += read;
-                    advance(bytes, &mut i, len as usize)?;
-                }
-                P2P => {
-                    let (len, read) =
-                        decode_varint(&bytes[i..]).ok_or(MultiaddrError::InvalidVarint)?;
-                    i += read;
-                    advance(bytes, &mut i, len as usize)?;
-                }
-                _ => return Err(MultiaddrError::InvalidProtocol),
-            }
-
-            last_proto = proto;
-        }
-
-        // Ensure multiaddr ends with /p2p
-        if last_proto != P2P {
-            return Err(MultiaddrError::InvalidProtocol);
-        }
-
-        Ok(Self {
-            bytes: bytes.to_vec(),
-        })
-    }
-
-    /* =====================
-    Access raw bytes
-    ===================== */
-    pub fn to_bytes(&self) -> Vec<u8> {
-        self.bytes.clone()
-    }
-
-    /* =====================
-    Extend / join
-    ===================== */
-    pub fn extend(&mut self, other: &Multiaddr) {
-        self.bytes.extend_from_slice(&other.bytes);
-    }
-
-    /* =====================
-    Format to vec of string segments
-    Example: ["/ip4/127.0.0.1", "/tcp/38960", "/p2p/12D3Koo..."]
-    ===================== */
-    pub fn to_vec(&self) -> Result<Vec<String>, MultiaddrError> {
-        let mut i = 0;
-        let mut out = Vec::new();
-
-        while i < self.bytes.len() {
-            let (proto, read) =
-                decode_varint(&self.bytes[i..]).ok_or(MultiaddrError::InvalidVarint)?;
-            i += read;
-
-            match proto {
-                IP4 => {
-                    let a = &self.bytes[i..i + IPV4_OCTET_COUNT];
-                    i += IPV4_OCTET_COUNT;
-                    out.push(format!("/ip4/{}.{}.{}.{}", a[0], a[1], a[2], a[3]));
-                }
-                IP6 => {
-                    let a = &self.bytes[i..i + IPV6_BYTE_COUNT];
-                    i += IPV6_BYTE_COUNT;
-                    let segs: [u16; IPV6_SEGMENT_COUNT] = [
-                        u16::from_be_bytes([a[0], a[1]]),
-                        u16::from_be_bytes([a[2], a[3]]),
-                        u16::from_be_bytes([a[4], a[5]]),
-                        u16::from_be_bytes([a[6], a[7]]),
-                        u16::from_be_bytes([a[8], a[9]]),
-                        u16::from_be_bytes([a[10], a[11]]),
-                        u16::from_be_bytes([a[12], a[13]]),
-                        u16::from_be_bytes([a[14], a[15]]),
-                    ];
-                    out.push(format!(
-                        "/ip6/{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}:{:x}",
-                        segs[0], segs[1], segs[2], segs[3], segs[4], segs[5], segs[6], segs[7]
-                    ));
-                }
-                TCP | UDP => {
-                    let port = u16::from_be_bytes([self.bytes[i], self.bytes[i + 1]]);
-                    i += PORT_BYTE_COUNT;
-                    out.push(format!(
-                        "/{}/{}",
-                        if proto == TCP { "tcp" } else { "udp" },
-                        port
-                    ));
-                }
-                DNS4 | DNS6 | DNSADDR => {
-                    let (len, read) =
-                        decode_varint(&self.bytes[i..]).ok_or(MultiaddrError::InvalidVarint)?;
-                    i += read;
-
-                    let name_bytes = &self.bytes[i..i + len as usize];
-                    i += len as usize;
-
-                    let name = core::str::from_utf8(name_bytes)
-                        .map_err(|_| MultiaddrError::InvalidAddress)?;
-
-                    let proto_str = match proto {
-                        DNS4 => "dns4",
-                        DNS6 => "dns6",
-                        DNSADDR => "dnsaddr",
-                        _ => unreachable!(),
-                    };
-
-                    out.push(format!("/{}/{}", proto_str, name));
-                }
-                WS => out.push("/ws".into()),
-                WSS => out.push("/wss".into()),
-                P2P => {
-                    let (len, read) =
-                        decode_varint(&self.bytes[i..]).ok_or(MultiaddrError::InvalidVarint)?;
-                    i += read;
-                    let peer_bytes = &self.bytes[i..i + len as usize];
-                    i += len as usize;
-
-                    let encoded = bs58::encode(peer_bytes).into_string();
-                    out.push(format!("/p2p/{}", encoded));
-                }
-                _ => return Err(MultiaddrError::InvalidProtocol),
-            }
-        }
-
-        Ok(out)
-    }
-
-    #[cfg(feature = "std")]
-    pub fn from_str(s: &str) -> Result<Self, MultiaddrError> {
-        let mut bytes = Vec::new();
-        let mut parts = s.split('/').filter(|p| !p.is_empty());
-
-        while let Some(proto) = parts.next() {
-            match proto {
-                "ip4" => {
-                    let addr = parts.next().ok_or(MultiaddrError::InvalidAddress)?;
-                    let octets: Vec<u8> = addr
-                        .split('.')
-                        .map(|b| b.parse::<u8>().map_err(|_| MultiaddrError::InvalidAddress))
-                        .collect::<Result<_, _>>()?;
-
-                    if octets.len() != IPV4_OCTET_COUNT {
-                        return Err(MultiaddrError::InvalidAddress);
-                    }
-
-                    encode_varint(IP4, &mut bytes);
-                    bytes.extend_from_slice(&octets);
-                }
-
-                "ip6" => {
-                    let addr = parts.next().ok_or(MultiaddrError::InvalidAddress)?;
-                    let segs = parse_ipv6(addr)?;
-                    encode_varint(IP6, &mut bytes);
-                    for s in segs {
-                        bytes.extend_from_slice(&s.to_be_bytes());
-                    }
-                }
-
-                "dns4" | "dns6" | "dnsaddr" => {
-                    let name = parts.next().ok_or(MultiaddrError::InvalidAddress)?;
-                    let proto_code = match proto {
-                        "dns4" => DNS4,
-                        "dns6" => DNS6,
-                        _ => DNSADDR,
-                    };
-
-                    encode_varint(proto_code, &mut bytes);
-                    encode_varint(name.len() as u64, &mut bytes);
-                    bytes.extend_from_slice(name.as_bytes());
-                }
-
-                "tcp" | "udp" => {
-                    let port = parts.next().ok_or(MultiaddrError::InvalidAddress)?;
-                    let port: u16 = port.parse().map_err(|_| MultiaddrError::InvalidAddress)?;
-
-                    encode_varint(if proto == "tcp" { TCP } else { UDP }, &mut bytes);
-                    bytes.extend_from_slice(&port.to_be_bytes());
-                }
-
-                "ws" => {
-                    encode_varint(WS, &mut bytes);
-                }
-
-                "wss" => {
-                    encode_varint(WSS, &mut bytes);
-                }
-
-                "p2p" => {
-                    let peer = parts.next().ok_or(MultiaddrError::InvalidAddress)?;
-                    let peer_bytes = bs58::decode(peer)
-                        .into_vec()
-                        .map_err(|_| MultiaddrError::InvalidAddress)?;
-
-                    encode_varint(P2P, &mut bytes);
-                    encode_varint(peer_bytes.len() as u64, &mut bytes);
-                    bytes.extend_from_slice(&peer_bytes);
-                }
-
-                _ => return Err(MultiaddrError::InvalidProtocol),
-            }
-        }
-
-        Multiaddr::verify(&bytes)
-    }
-}
-
-/* ============================================================
-   Helpers
-============================================================ */
-/// Parses IPv6 addresses with support for "::" compression
-fn parse_ipv6(addr: &str) -> Result<[u16; IPV6_SEGMENT_COUNT], MultiaddrError> {
-    let mut segs = [0u16; IPV6_SEGMENT_COUNT];
-    let parts: Vec<&str> = addr.split("::").collect();
-    if parts.len() > MAX_IPV6_COMPRESSION_PARTS {
+pub fn verify(mut bytes: &[u8]) -> Result<(), MultiaddrError> {
+    if bytes.len() > MAX_MULTIADDR_BYTES {
         return Err(MultiaddrError::InvalidAddress);
     }
 
-    // Collect left and right parts as Vec<&str> so they have the same type
-    let left: Vec<&str> = parts[0].split(':').filter(|s| !s.is_empty()).collect();
-    let right: Vec<&str> = if parts.len() == MAX_IPV6_COMPRESSION_PARTS {
-        parts[1].split(':').filter(|s| !s.is_empty()).collect()
-    } else {
-        Vec::new()
-    };
+    match read_protocol(&mut bytes)? {
+        IP4 => skip(&mut bytes, 4)?,
+        IP6 => skip(&mut bytes, 16)?,
+        DNS4 | DNS6 | DNSADDR => skip_payload(&mut bytes)?,
+        _ => return Err(MultiaddrError::InvalidProtocol),
+    }
 
-    if left.len() + right.len() > IPV6_SEGMENT_COUNT {
+    let mut protocol = read_protocol(&mut bytes)?;
+    if matches!(protocol, TCP | UDP) {
+        skip(&mut bytes, 2)?;
+        protocol = read_protocol(&mut bytes)?;
+    }
+    if matches!(protocol, WS | WSS) {
+        protocol = read_protocol(&mut bytes)?;
+    }
+    if protocol != P2P {
+        return Err(MultiaddrError::InvalidProtocol);
+    }
+
+    skip_payload(&mut bytes)?;
+    if !bytes.is_empty() {
+        return Err(MultiaddrError::InvalidProtocol);
+    }
+    Ok(())
+}
+
+fn read_protocol(bytes: &mut &[u8]) -> Result<u64, MultiaddrError> {
+    if bytes.is_empty() {
+        return Err(MultiaddrError::InvalidProtocol);
+    }
+    read_varint(bytes)
+}
+
+/// All supported codes and lengths fit in two bytes. Reject longer and
+/// noncanonical encodings without scanning any additional input.
+fn read_varint(bytes: &mut &[u8]) -> Result<u64, MultiaddrError> {
+    match *bytes {
+        [value @ 0..=127, rest @ ..] => {
+            *bytes = rest;
+            Ok(u64::from(*value))
+        }
+        [low @ 128..=255, high @ 1..=127, rest @ ..] => {
+            *bytes = rest;
+            Ok(u64::from(*low & 127) | (u64::from(*high) << 7))
+        }
+        _ => Err(MultiaddrError::InvalidVarint),
+    }
+}
+
+fn skip_payload(bytes: &mut &[u8]) -> Result<(), MultiaddrError> {
+    // At most 14 bits: the conversion is safe on native and Wasm targets.
+    let len = read_varint(bytes)? as usize;
+    if len == 0 {
         return Err(MultiaddrError::InvalidAddress);
     }
-
-    // Fill left segments
-    for (i, p) in left.iter().enumerate() {
-        segs[i] = u16::from_str_radix(p, IPV6_RADIX).map_err(|_| MultiaddrError::InvalidAddress)?;
-    }
-
-    // Fill right segments
-    let mut j = IPV6_SEGMENT_COUNT - right.len();
-    for p in right {
-        segs[j] = u16::from_str_radix(p, IPV6_RADIX).map_err(|_| MultiaddrError::InvalidAddress)?;
-        j += 1;
-    }
-
-    Ok(segs)
+    skip(bytes, len)
 }
 
-pub fn advance(bytes: &[u8], i: &mut usize, len: usize) -> Result<(), MultiaddrError> {
-    if *i + len > bytes.len() {
-        Err(MultiaddrError::Truncated)
-    } else {
-        *i += len;
-        Ok(())
-    }
+fn skip(bytes: &mut &[u8], len: usize) -> Result<(), MultiaddrError> {
+    *bytes = bytes.get(len..).ok_or(MultiaddrError::Truncated)?;
+    Ok(())
 }
 
-pub fn encode_varint(mut value: u64, out: &mut Vec<u8>) {
-    while value >= VARINT_CONTINUATION_BIT as u64 {
-        out.push((value as u8) | VARINT_CONTINUATION_BIT);
-        value >>= VARINT_PAYLOAD_BITS;
-    }
-    out.push(value as u8);
-}
-
-pub fn decode_varint(input: &[u8]) -> Option<(u64, usize)> {
-    let mut value = 0u64;
-    let mut shift = 0u32;
-    let mut i = 0;
-
-    while i < input.len() {
-        let byte = input[i];
-        value |= ((byte & VARINT_DATA_MASK) as u64) << shift;
-        i += 1;
-
-        if byte & VARINT_CONTINUATION_BIT == 0 {
-            return Some((value, i));
-        }
-
-        shift += VARINT_PAYLOAD_BITS;
-        if shift > MAX_U64_VARINT_SHIFT {
-            return None;
-        }
-    }
-
-    None
+/// Fixture/benchmark encoder, excluded from the production Wasm runtime.
+#[cfg(any(feature = "std", feature = "runtime-benchmarks", test))]
+pub fn encode_varint(value: u64, out: &mut alloc::vec::Vec<u8>) {
+    let mut bytes = [
+        value as u8 | 128,
+        (value >> 7) as u8 | 128,
+        (value >> 14) as u8 | 128,
+        (value >> 21) as u8 | 128,
+        (value >> 28) as u8 | 128,
+        (value >> 35) as u8 | 128,
+        (value >> 42) as u8 | 128,
+        (value >> 49) as u8 | 128,
+        (value >> 56) as u8 | 128,
+        (value >> 63) as u8,
+    ];
+    let len = (u64::BITS - value.leading_zeros()).max(1).div_ceil(7) as usize;
+    bytes[len - 1] &= 127;
+    out.extend_from_slice(&bytes[..len]);
 }

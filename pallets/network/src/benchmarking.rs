@@ -24,7 +24,7 @@ use super::*;
 
 mod capacity;
 
-use crate::utilities::multiaddr::{encode_varint, Multiaddr, DNS4, IP4, P2P, TCP};
+use crate::utilities::multiaddr::{encode_varint, DNS4, IP4, P2P, TCP};
 #[allow(unused)]
 use crate::Pallet as Network;
 use crate::*;
@@ -931,8 +931,7 @@ pub fn get_multiaddr<T: Config>(
     encode_varint(peer.0.len() as u64, &mut bytes);
     bytes.extend_from_slice(&peer.0);
 
-    let ma = Multiaddr::verify(&bytes).unwrap();
-    let _ = ma.to_vec().unwrap();
+    multiaddr::verify(&bytes).unwrap();
 
     Some(bytes.try_into().expect("multiaddr too long"))
 }
@@ -1499,7 +1498,7 @@ fn maximum_valid_benchmark_multiaddr<T: Config>() -> NetworkBytes<T> {
         encode_varint(P2P, &mut bytes);
         encode_varint(peer_payload.len() as u64, &mut bytes);
         bytes.extend_from_slice(&peer_payload);
-        if bytes.len() <= maximum_length && Multiaddr::verify(&bytes).is_ok() {
+        if bytes.len() <= maximum_length && multiaddr::verify(&bytes).is_ok() {
             return bytes
                 .try_into()
                 .expect("maximum valid multiaddr fits NetworkBytes");
