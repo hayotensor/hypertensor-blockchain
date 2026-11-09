@@ -649,7 +649,6 @@ pub mod pallet {
         SetMinMaxSubnetNodes(u32, u32),
         SetMinStakeBalance(u128),
         SetTxRateLimit(u32),
-        SetMinSubnetDelegateStakeFactor(u128),
 
         // Consensus / Validation and Attestation
         ValidatorSubmission {
@@ -1554,7 +1553,7 @@ pub mod pallet {
     /// * `total_admitted_nodes` - Population occupying subnet capacity: Probation and Active.
     /// * `total_electable_nodes` - Count of nodes eligible to be elected as validators
     ///   (physical Active election slots; effective eligibility excludes pending removals).
-    /// * `current_min_delegate_stake` - The current minimum required subnet delegate stake balance.
+    /// * `current_min_delegate_stake` - The governance-configured base delegate balance for all subnets.
     pub const DEFAULT_ABSENT_DECREASE_REPUTATION_FACTOR: u128 = 100000000000000000;
     pub const DEFAULT_INCLUDED_INCREASE_REPUTATION_FACTOR: u128 = 100000000000000000;
     pub const DEFAULT_BELOW_MIN_WEIGHT_DECREASE_REPUTATION_FACTOR: u128 = 100000000000000000;
@@ -3076,13 +3075,6 @@ pub mod pallet {
     pub fn DefaultMinActiveNodeStakeEpochs<T: Config>() -> u32 {
         // 1 day
         T::EpochsPerYear::get() / 365
-    }
-    /// This type value is referenced in:
-    /// - MinSubnetDelegateStakeFactor
-    #[pallet::type_value]
-    pub fn DefaultMinSubnetDelegateStakeFactor() -> u128 {
-        // 50%
-        500_000_000_000_000_000
     }
     /// This type value is referenced in:
     /// - MinSubnetDelegateStakeBalance
@@ -5117,12 +5109,7 @@ pub mod pallet {
     // Delegate Staking
     //
 
-    /// Percentage of the average live-subnet delegation required for subnet survival.
-    #[pallet::storage]
-    pub type MinSubnetDelegateStakeFactor<T> =
-        StorageValue<_, u128, ValueQuery, DefaultMinSubnetDelegateStakeFactor>;
-
-    /// Absolute delegate-stake minimum required for every live subnet.
+    /// Network-wide base delegate balance required for activation and live-subnet survival.
     #[pallet::storage]
     pub type MinSubnetDelegateStakeBalance<T: Config> =
         StorageValue<_, u128, ValueQuery, DefaultMinSubnetDelegateStakeBalance<T>>;
@@ -7578,22 +7565,6 @@ pub mod pallet {
             Self::do_collective_remove_overwatch_node(overwatch_node_id)
         }
 
-        /// Set new minimum subnet delegate stake factor
-        ///
-        /// # Requirements
-        ///
-        /// Requires super majority vote
-        ///
-        #[pallet::call_index(84)]
-        #[pallet::weight(T::WeightInfo::set_min_subnet_delegate_stake_factor())]
-        pub fn set_min_subnet_delegate_stake_factor(
-            origin: OriginFor<T>,
-            value: u128,
-        ) -> DispatchResult {
-            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_min_subnet_delegate_stake_factor(value)
-        }
-
         /// Set new subnet owner percentage of emissions
         ///
         /// # Requirements
@@ -8457,7 +8428,7 @@ pub mod pallet {
         ///
         /// 3. **Activation** (see `do_activate_subnet`):
         ///    - Must meet minimum requirements:
-        ///      - Sufficient delegate stake (`get_min_subnet_delegate_stake_balance`)
+        ///      - Sufficient delegate stake (`MinSubnetDelegateStakeBalance`)
         ///      - Minimum node count (`MinSubnetNodes`)
         ///      - Minimum reputation (`MinSubnetReputation`)
         ///    - If requirements not met by end of enactment period, subnet is removed
@@ -9135,8 +9106,7 @@ pub mod pallet {
         /// ### 8. Insufficient Delegate Stake (Active Subnets)
         /// - **State**: Subnet in `Active` state
         /// - **Condition**:
-        ///   1. `TotalSubnetDelegateStakeBalance` is below the shared delegate-stake minimum
-        ///      snapshotted for the pass
+        ///   1. `TotalSubnetDelegateStakeBalance` is below `MinSubnetDelegateStakeBalance`
         ///   2. `epoch % DelegateStakeSubnetRemovalInterval == 0` (only on designated epochs)
         /// - **Reason**: `SubnetRemovalReason::MinSubnetDelegateStake`
         /// - **Rationale**: Insufficient community stake support, checked periodically to give time to recover

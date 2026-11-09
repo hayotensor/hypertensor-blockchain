@@ -8,6 +8,7 @@ mod incentives_protocol;
 mod inflation;
 mod keys;
 mod math;
+mod min_subnet_delegate_stake;
 pub mod mock;
 mod multiaddr;
 mod node_staking;

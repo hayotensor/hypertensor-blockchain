@@ -533,8 +533,8 @@ pub fn build_activated_subnet(
     assert_eq!(total_subnet_stake, amount_staked);
 
     let delegate_staker_account = 1;
-    // Add 100e18 to account for block increase on activation
-    let mut min_subnet_delegate_stake = Network::get_min_subnet_delegate_stake_balance(subnet_id);
+    // Fund above the configured base for the fixture
+    let mut min_subnet_delegate_stake = crate::MinSubnetDelegateStakeBalance::<Test>::get();
     min_subnet_delegate_stake = min_subnet_delegate_stake
         + Network::percent_mul(min_subnet_delegate_stake, 10000000000000000);
 
@@ -910,8 +910,8 @@ pub fn build_activated_subnet_new_excess_subnets(
     assert_eq!(total_subnet_stake, amount_staked);
 
     let delegate_staker_account = 1;
-    // Add 100e18 to account for block increase on activation
-    let mut min_subnet_delegate_stake = Network::get_min_subnet_delegate_stake_balance(subnet_id);
+    // Fund above the configured base for the fixture
+    let mut min_subnet_delegate_stake = crate::MinSubnetDelegateStakeBalance::<Test>::get();
     min_subnet_delegate_stake = min_subnet_delegate_stake
         + Network::percent_mul(min_subnet_delegate_stake, 10000000000000000);
 
@@ -1179,9 +1179,9 @@ pub fn build_registered_subnet(
 
     if delegate_stake_conditional {
         let delegate_staker_account = 1;
-        // Add 100e18 to account for block increase on activation
+        // Fund above the configured base for the fixture
         let mut min_subnet_delegate_stake =
-            Network::get_min_subnet_delegate_stake_balance(subnet_id);
+            crate::MinSubnetDelegateStakeBalance::<Test>::get();
         min_subnet_delegate_stake = min_subnet_delegate_stake
             + Network::percent_mul(min_subnet_delegate_stake, 10000000000000000);
         if Balances::free_balance(&alice.clone()) <= min_subnet_delegate_stake {
@@ -1740,9 +1740,9 @@ pub fn build_activated_subnet_with_delegator_rewards(
     assert_eq!(total_subnet_stake, amount_staked);
 
     let delegate_staker_account = 1000;
-    // Add 100e18 to account for block increase on activation
+    // Fund above the configured base for the fixture
     let min_subnet_delegate_stake =
-        Network::get_min_subnet_delegate_stake_balance(subnet_id) + 100e+18 as u128;
+        crate::MinSubnetDelegateStakeBalance::<Test>::get() + 100e+18 as u128;
 
     let _ = Balances::deposit_creating(
         &account(delegate_staker_account),
@@ -2361,8 +2361,8 @@ pub fn insert_subnet(id: u32, state: SubnetState, start_epoch: u32) {
 
 pub fn insert_subnet_requirements(id: u32) {
     let delegate_staker_account = 1;
-    // Add 100e18 to account for block increase on activation
-    let mut min_subnet_delegate_stake = Network::get_min_subnet_delegate_stake_balance(id);
+    // Fund above the configured base for the fixture
+    let mut min_subnet_delegate_stake = crate::MinSubnetDelegateStakeBalance::<Test>::get();
     min_subnet_delegate_stake = min_subnet_delegate_stake
         + Network::percent_mul(min_subnet_delegate_stake, 10000000000000000);
     // let _ = Balances::deposit_creating(&account(delegate_staker_account), min_subnet_delegate_stake+500);

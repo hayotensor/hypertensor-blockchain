@@ -14,17 +14,9 @@ use frame_support::traits::{Currency, OnInitialize};
 use frame_support::weights::WeightMeter;
 
 fn top_up_subnet_delegate_stake(subnet_id: u32, margin: u128) {
-    for _ in 0..16 {
-        let current = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-        let required =
-            Network::get_min_subnet_delegate_stake_balance(subnet_id).saturating_add(margin);
-        if current >= required {
-            return;
-        }
-
-        // The top-up itself changes the live subnet average and can raise the requirement.
-        // Recompute until the inclusive boundary is met; the minimum deposit guarantees forward
-        // progress at the end.
+    let current = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+    let required = crate::MinSubnetDelegateStakeBalance::<Test>::get().saturating_add(margin);
+    if current < required {
         let amount = required
             .saturating_sub(current)
             .max(MinDelegateStakeDeposit::<Test>::get());
@@ -41,7 +33,7 @@ fn top_up_subnet_delegate_stake(subnet_id: u32, margin: u128) {
 
     assert!(
         TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id)
-            >= Network::get_min_subnet_delegate_stake_balance(subnet_id).saturating_add(margin)
+            >= crate::MinSubnetDelegateStakeBalance::<Test>::get().saturating_add(margin)
     );
 }
 
@@ -409,7 +401,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake() {
 
         // ensure removal subnet has less than minimum dstake
         let min_subnet_delegate_stake =
-            Network::get_min_subnet_delegate_stake_balance(remove_subnet_id);
+            crate::MinSubnetDelegateStakeBalance::<Test>::get();
         TotalSubnetDelegateStakeBalance::<Test>::insert(
             remove_subnet_id,
             min_subnet_delegate_stake - 1,
@@ -469,7 +461,7 @@ fn test_do_epoch_preliminaries_remove_under_min_delegate_stake_fail() {
 
         // ensure removal subnet has less than minimum dstake
         let min_subnet_delegate_stake =
-            Network::get_min_subnet_delegate_stake_balance(remove_subnet_id);
+            crate::MinSubnetDelegateStakeBalance::<Test>::get();
         TotalSubnetDelegateStakeBalance::<Test>::insert(
             remove_subnet_id,
             min_subnet_delegate_stake - 1,
@@ -630,7 +622,7 @@ fn test_do_epoch_preliminaries_remove_max_subnets() {
                             MinDelegateStakeDeposit::<Test>::get().saturating_mul(10)
                         };
                         TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id)
-                            >= Network::get_min_subnet_delegate_stake_balance(subnet_id)
+                            >= crate::MinSubnetDelegateStakeBalance::<Test>::get()
                                 .saturating_add(margin)
                     });
                     if all_funded {

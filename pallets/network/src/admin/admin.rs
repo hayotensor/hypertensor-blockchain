@@ -503,18 +503,6 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_min_subnet_delegate_stake_factor(value: u128) -> DispatchResult {
-        ensure!(
-            value <= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
-        );
-
-        MinSubnetDelegateStakeFactor::<T>::set(value);
-
-        Self::deposit_event(Event::SetMinSubnetDelegateStakeFactor(value));
-
-        Ok(())
-    }
     pub fn do_collective_remove_subnet(subnet_id: u32) -> DispatchResultWithPostInfo {
         ensure!(
             !PendingConsensusRoundSettlementEpoch::<T>::contains_key(subnet_id),

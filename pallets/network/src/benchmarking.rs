@@ -581,10 +581,9 @@ fn build_activated_subnet<T: Config>(
     let total_subnet_stake = TotalSubnetStake::<T>::get(subnet_id);
     assert_eq!(total_subnet_stake, amount_staked);
 
-    // Use an unfunded destination because the transfer below creates the account. Minting funds
-    // after calculating this issuance-based minimum would leave the pool just below that minimum.
+    // Use an unfunded destination because the transfer below creates the account.
     let delegate_staker_account: T::AccountId = get_account::<T>("delegate_staker", 1);
-    let min_subnet_delegate_stake = Network::<T>::get_min_subnet_delegate_stake_balance(subnet_id)
+    let min_subnet_delegate_stake = MinSubnetDelegateStakeBalance::<T>::get()
         + (1000e+18 as u128 * subnets.saturating_add(1) as u128);
     // --- Add the minimum required delegate stake balance to activate the subnet
 
@@ -792,7 +791,7 @@ fn build_registered_subnet<T: Config>(
     let total_subnet_stake = TotalSubnetStake::<T>::get(subnet_id);
     assert_eq!(total_subnet_stake, amount_staked);
 
-    let min_subnet_delegate_stake = Network::<T>::get_min_subnet_delegate_stake_balance(subnet_id)
+    let min_subnet_delegate_stake = MinSubnetDelegateStakeBalance::<T>::get()
         + (1000e+18 as u128 * subnets as u128);
     // --- Add the minimum required delegate stake balance to activate the subnet
 
@@ -1450,38 +1449,6 @@ fn seed_live_subnet_delegate_stake_cohort<T: Config>(
     }
 
     subnet_ids
-}
-
-/// Populate every non-target physical slot from the maximal removal fixture as a live subnet.
-/// This makes `activate_subnet` cover the same bounded delegation scan that it invokes through
-/// `can_subnet_be_active` before entering its maximal expired-enactment cleanup branch.
-fn seed_live_delegation_peers_for_activation<T: Config>(target_subnet_id: u32) -> Vec<u32> {
-    let assigned_slots = AssignedSlots::<T>::get();
-    assert_eq!(
-        assigned_slots.len() as u32,
-        T::MaxPhysicalSubnetsUpperBound::get()
-    );
-
-    let mut peer_ids = Vec::with_capacity(assigned_slots.len().saturating_sub(1));
-    for slot in assigned_slots.iter().copied() {
-        let subnet_id = SlotAssignment::<T>::get(slot)
-            .expect("every assigned benchmark slot has a reverse assignment");
-        if subnet_id == target_subnet_id {
-            continue;
-        }
-        assert!(!SubnetsData::<T>::contains_key(subnet_id));
-        insert_live_benchmark_subnet::<T>(subnet_id, slot, DEFAULT_DELEGATE_STAKE_TO_BE_ADDED);
-        peer_ids.push(subnet_id);
-    }
-
-    assert_eq!(
-        peer_ids.len() as u32,
-        T::MaxPhysicalSubnetsUpperBound::get().saturating_sub(1)
-    );
-    TotalSubnets::<T>::put(T::MaxPhysicalSubnetsUpperBound::get());
-    TotalActiveSubnets::<T>::put(peer_ids.len() as u32);
-
-    peer_ids
 }
 
 fn maximum_valid_benchmark_multiaddr<T: Config>() -> NetworkBytes<T> {
@@ -3813,20 +3780,10 @@ mod benchmarks {
                 .saturating_add(1),
         );
 
-        // `can_subnet_be_active` computes the shared minimum before this expired-enactment branch
-        // performs its maximal cleanup. Populate every other physical slot with a live subnet so
-        // the benchmark includes the complete bounded delegation scan.
-        MinSubnetDelegateStakeBalance::<T>::put(1);
-        MinSubnetDelegateStakeFactor::<T>::put(DefaultMinSubnetDelegateStakeFactor::get());
-        let live_peer_ids = seed_live_delegation_peers_for_activation::<T>(subnet_id);
-
         #[extrinsic_call]
         activate_subnet(RawOrigin::Signed(owner_coldkey.clone()), subnet_id);
 
         assert_eq!(SubnetsData::<T>::try_get(subnet_id), Err(()));
-        assert!(live_peer_ids
-            .iter()
-            .all(|peer_id| SubnetsData::<T>::contains_key(peer_id)));
     }
 
     #[benchmark]
@@ -8413,19 +8370,6 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_min_subnet_delegate_stake_factor() {
-        let new_value = Network::<T>::percentage_factor_as_u128();
-
-        let origin = T::MajorityCollectiveOrigin::try_successful_origin()
-            .expect("try_successful_origin failed");
-
-        #[extrinsic_call]
-        set_min_subnet_delegate_stake_factor(origin as T::RuntimeOrigin, new_value);
-
-        assert_eq!(MinSubnetDelegateStakeFactor::<T>::get(), new_value);
-    }
-
-    #[benchmark]
     fn set_subnet_owner_percentage() {
         let value = SubnetOwnerPercentage::<T>::get();
         let new_value = value - 1;
@@ -10804,40 +10748,6 @@ mod benchmarks {
             Network::<T>::insert_node_into_election_slot(subnet_id, subnet_node_id);
         }
     }
-    #[benchmark]
-    fn get_min_subnet_delegate_stake_balance() {
-        let live_subnet_count = T::MaxPhysicalSubnetsUpperBound::get();
-        assert!(live_subnet_count > 0);
-        MinSubnetDelegateStakeBalance::<T>::put(1);
-        MinSubnetDelegateStakeFactor::<T>::put(DefaultMinSubnetDelegateStakeFactor::get());
-
-        let subnet_ids = seed_live_subnet_delegate_stake_cohort::<T>(live_subnet_count, |index| {
-            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
-                .checked_mul(index.saturating_add(1) as u128)
-                .expect("benchmark delegation fits u128")
-        });
-        let subnet_id = subnet_ids[0];
-        // The even token-denominated base makes this arithmetic-series average exact.
-        let total_delegation = DEFAULT_DELEGATE_STAKE_TO_BE_ADDED
-            .checked_mul(live_subnet_count as u128)
-            .and_then(|value| value.checked_mul(live_subnet_count.saturating_add(1) as u128))
-            .and_then(|value| value.checked_div(2))
-            .expect("benchmark delegation sum fits u128");
-        let expected_minimum = Network::<T>::percent_mul(
-            total_delegation / live_subnet_count as u128,
-            DefaultMinSubnetDelegateStakeFactor::get(),
-        )
-        .max(1);
-
-        let result;
-
-        #[block]
-        {
-            result = Network::<T>::get_min_subnet_delegate_stake_balance(subnet_id);
-        }
-
-        assert_eq!(result, expected_minimum);
-    }
 
     /// Fixed hook selectors read on every block before any early return or branch admission.
     #[benchmark]
@@ -11425,7 +11335,6 @@ mod benchmarks {
         PrevSubnetActivationEpoch::<T>::put(0);
         DelegateStakeSubnetRemovalInterval::<T>::put(1);
         MinSubnetDelegateStakeBalance::<T>::put(1);
-        MinSubnetDelegateStakeFactor::<T>::put(DefaultMinSubnetDelegateStakeFactor::get());
         LessThanMinNodesSubnetReputationFactor::<T>::put(0);
         for subnet_id in &subnet_ids {
             TotalSubnetElectableNodes::<T>::insert(subnet_id, 0);

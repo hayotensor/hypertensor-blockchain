@@ -306,9 +306,10 @@ runtime to execute a custom scoring algorithm. `Attestation` is the implemented
    can adjust initial allowances through `owner_add_or_update_initial_validators`
    and `owner_remove_initial_validators` while permitted.
 6. Fund the **subnet delegate pool** using `add_subnet_delegate_stake` to meet the
-   current activation requirement. Read `currentMinDelegateStake` from subnet
-   RPC information; do not assume a fixed token amount. Maintain sufficient
-   delegation after activation as well.
+   activation requirement, `MinSubnetDelegateStakeBalance` (initially 100 TENSOR).
+   This is one base balance for every subnet, adjustable by collective governance;
+   read its current value from `currentMinDelegateStake` in subnet RPC information.
+   Maintain sufficient delegation after activation as well.
 7. Fund **validator delegate pools** using `add_validator_delegate_stake` and
    verify each identity's node allocations. These determine consensus voting
    weight. Direct node stake and subnet delegate stake do not substitute for

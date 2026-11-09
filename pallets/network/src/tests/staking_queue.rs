@@ -1156,7 +1156,7 @@ fn test_total_queued_swap_principal_tracks_all_four_swap_directions() {
             setup_all_swap_sources();
         let mut expected_principal = 0u128;
         let tvl_before_swaps = Network::get_total_network_tvl();
-        let survival_minimum_before = Network::get_min_subnet_delegate_stake_balance(subnet_id);
+        let survival_minimum_before = Network::get_subnet_info(subnet_id).unwrap().current_min_delegate_stake;
 
         let queue_id = NextSwapQueueId::<Test>::get();
         assert_ok!(Network::swap_from_subnet_to_subnet(
@@ -1245,7 +1245,7 @@ fn test_total_queued_swap_principal_tracks_all_four_swap_directions() {
         assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), expected_principal);
         assert_eq!(Network::get_total_network_tvl(), tvl_before_swaps);
         assert_eq!(
-            Network::get_min_subnet_delegate_stake_balance(subnet_id),
+            Network::get_subnet_info(subnet_id).unwrap().current_min_delegate_stake,
             survival_minimum_before
         );
         assert_eq!(SwapQueueCount::<Test>::get(), 4);

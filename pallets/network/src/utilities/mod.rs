@@ -1,5 +1,4 @@
 use super::*;
-pub mod delegate_staking;
 pub mod era;
 pub mod keys;
 pub mod math;

@@ -2,6 +2,43 @@
 
 Date: 2026-08-30
 
+## Fixed subnet delegation minimum (2026-11-08)
+
+Activation, periodic survival checks, and RPC reporting now read the configured base balance
+directly. The factor setter and formula helper benchmarks and weight methods were removed.
+There are 239 surviving `WeightInfo` methods in the trait and in each implementation. The
+activation fixture no longer seeds other subnets solely to measure a delegation scan; epoch
+preliminaries still exercise the bounded subnet scan, health checks, and capacity recheck.
+
+The two affected weights, `activate_subnet` and `do_epoch_preliminaries`, were regenerated from
+the release benchmark runtime using the matching node CLI, compiled Wasm, 50 steps, 20 repeats,
+maximum timing/PoV analysis, proof recording, and verification. The current production runtime
+caps physical subnets at 16, so the explicit range is 0–16; the recorded samples include every
+integer in that range, including the empty network and maximum capacity. Both implementations
+retain their existing capacitor-removal and pending-liability safety allowances. All other
+surviving weight method bodies are unchanged.
+
+```bash
+SKIP_FRAME_STORAGE_ACCESS_TEST_RUNTIME_WASM_BUILD=1 SKIP_PALLET_REVIVE_FIXTURES=1 \
+  cargo build --release --locked -p hypertensor-node --features runtime-benchmarks
+target/release/hypertensor-node benchmark pallet \
+  --runtime target/release/wbuild/hypertensor-runtime/hypertensor_runtime.compact.compressed.wasm \
+  --genesis-builder runtime --pallets pallet_network \
+  --extrinsic activate_subnet,do_epoch_preliminaries \
+  --low 0 --high 16 --steps 50 --repeat 20 --min-duration 0 \
+  --wasm-execution compiled --output-analysis max --output-pov-analysis max \
+  --output /tmp/subnet-minimum-weights.rs \
+  --json-file /tmp/subnet-minimum-measurements.json \
+  --template .maintain/frame-weight-template.hbs
+```
+
+The skip flags bypass unrelated SDK test-runtime and Revive fixture builds; they do not skip
+the Hypertensor benchmark Wasm. The installed standalone bencher 0.11.0 uses an incompatible
+storage-key host interface, so this regeneration uses the node built against the pinned SDK.
+Validation passed: 877 network tests (one existing ignored test), 36 collective tests,
+258 benchmark/capacity tests, eight runtime tokenomics tests, and the precompile call-manifest
+test. The manifest now contains 156 calls with all surviving indices unchanged.
+
 ## Node classification follow-up (2026-10-17)
 
 The runtime now uses Queued, Probation, and Active. In the historical measurements below,
@@ -178,8 +215,8 @@ bounded owner-local repair. Validator node registration and validator self-remov
 maximum `clean_validator_subnet_nodes()` weight; Overwatch peer updates scan only that node's bounded
 17-subnet map. RPC output filters stale Overwatch forward entries until the owner next updates.
 
-Three surviving generated helper methods (`insert_node_into_election_slot`,
-`get_min_subnet_delegate_stake_balance`, and the informational `calculate_subnet_weights`) have no
+Two surviving generated helper methods (`insert_node_into_election_slot`
+and the informational `calculate_subnet_weights`) have no
 direct `WeightInfo` call site; they execute inside outer benchmarked paths. The former graduation
 weight method has been removed. `promote_probation_node_to_active` is now an extra benchmark, not
 a standalone `WeightInfo` method; its settlement coverage still requires measured regeneration.

@@ -1526,20 +1526,6 @@
     "authorization": "Council approval: at least 4/5 of members in this runtime"
   },
   {
-    "name": "set_min_subnet_delegate_stake_factor",
-    "args": [
-      [
-        "value",
-        "u128"
-      ]
-    ],
-    "origin": "supermajority",
-    "index": 84,
-    "domain": "Governance",
-    "status": "deferred",
-    "authorization": "Council approval: at least 4/5 of members in this runtime"
-  },
-  {
     "name": "set_subnet_owner_percentage",
     "args": [
       [

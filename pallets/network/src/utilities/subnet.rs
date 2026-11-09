@@ -391,8 +391,7 @@ impl<T: Config> Pallet<T> {
         }
 
         let subnet_delegate_stake_balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
-        let min_subnet_delegate_stake_balance =
-            Self::get_min_subnet_delegate_stake_balance(subnet_id);
+        let min_subnet_delegate_stake_balance = MinSubnetDelegateStakeBalance::<T>::get();
 
         if subnet_delegate_stake_balance < min_subnet_delegate_stake_balance {
             return (false, Some(SubnetRemovalReason::MinSubnetDelegateStake));

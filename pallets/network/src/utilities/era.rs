@@ -668,15 +668,11 @@ impl<T: Config> Pallet<T> {
         let initial_subnet_count: u32 = subnets.len() as u32;
         let mut current_subnet_count = initial_subnet_count;
 
-        // Capture the complete live-subnet delegation cohort before any removal. Every subnet in
-        // this pass is compared against the same balance/count snapshot and common requirement.
+        // Read the configured minimum once for this removal pass.
         // The explicit nonzero guard prevents corrupted interval storage from trapping the hook.
-        let delegate_stake_removal_snapshot =
-            (dstake_epoch_interval != 0 && epoch % dstake_epoch_interval == 0).then(|| {
-                let snapshot = Self::live_subnet_delegate_stake_snapshot(block, &subnets);
-                let minimum = Self::min_subnet_delegate_stake_balance_from_snapshot(&snapshot);
-                (snapshot, minimum)
-            });
+        let min_delegate_stake =
+            (dstake_epoch_interval != 0 && epoch % dstake_epoch_interval == 0)
+                .then(MinSubnetDelegateStakeBalance::<T>::get);
 
         // This snapshot controls only whether capacity candidates need to be collected. Whether a
         // capacity eviction is still required is recalculated after all health removals.
@@ -774,28 +770,16 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            // On funding-removal epochs the snapshot is also the canonical live cohort. On other
-            // epochs resolve liveness directly for the remaining operational health checks.
-            let is_live = delegate_stake_removal_snapshot
-                .as_ref()
-                .map(|(snapshot, _)| snapshot.balances.contains_key(subnet_id))
-                .unwrap_or_else(|| {
-                    let current_subnet_epoch =
-                        Self::get_subnet_epoch_with_block_as_u32(*subnet_id, block);
-                    Self::_is_subnet_active_and_live(data, current_subnet_epoch)
-                });
-            if !is_live {
+            let current_subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(*subnet_id, block);
+            if !Self::_is_subnet_active_and_live(data, current_subnet_epoch) {
                 continue;
             }
 
-            let subnet_delegate_stake_balance = delegate_stake_removal_snapshot
-                .as_ref()
-                .and_then(|(snapshot, _)| snapshot.balances.get(subnet_id).copied())
-                .unwrap_or_else(|| TotalSubnetDelegateStakeBalance::<T>::get(subnet_id));
+            let subnet_delegate_stake_balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
 
-            // Remove if below the requirement captured for this removal pass.
-            if let Some((_, minimum)) = &delegate_stake_removal_snapshot {
-                if subnet_delegate_stake_balance < *minimum {
+            // Equality satisfies the minimum; underfunding is checked only on removal epochs.
+            if let Some(minimum) = min_delegate_stake {
+                if subnet_delegate_stake_balance < minimum {
                     if Self::try_do_remove_subnet(
                         weight_meter,
                         *subnet_id,

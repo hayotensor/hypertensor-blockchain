@@ -195,41 +195,28 @@ fn test_on_initialize() {
                 };
 
             if runs_epoch_preliminaries {
-                // A top-up changes the live-subnet average. Recompute until every subnet satisfies
-                // the inclusive boundary before the hook snapshots the common requirement.
-                for pass in 0u32..16 {
-                    let mut all_funded = true;
-                    for subnet_id in subnet_ids.iter().copied() {
-                        let total_delegate_stake_balance =
-                            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-                        let min_subnet_delegate_stake =
-                            Network::get_min_subnet_delegate_stake_balance(subnet_id);
-                        if total_delegate_stake_balance < min_subnet_delegate_stake {
-                            all_funded = false;
-                            let amount = min_subnet_delegate_stake
-                                .saturating_sub(total_delegate_stake_balance)
-                                .max(MinDelegateStakeDeposit::<Test>::get());
-                            let delegate =
-                                account(10_000 + pass.saturating_mul(max_subnets) + subnet_id);
-                            let _ =
-                                Balances::deposit_creating(&delegate, amount.saturating_add(500));
-                            assert_ok!(Network::add_subnet_delegate_stake(
-                                RuntimeOrigin::signed(delegate),
-                                subnet_id,
-                                amount,
-                                1,
-                            ));
-                        }
-                    }
-                    if all_funded {
-                        break;
+                let minimum = crate::MinSubnetDelegateStakeBalance::<Test>::get();
+                for subnet_id in subnet_ids.iter().copied() {
+                    let balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+                    if balance < minimum {
+                        let amount = minimum
+                            .saturating_sub(balance)
+                            .max(MinDelegateStakeDeposit::<Test>::get());
+                        let delegate = account(10_000 + subnet_id);
+                        let _ = Balances::deposit_creating(&delegate, amount.saturating_add(500));
+                        assert_ok!(Network::add_subnet_delegate_stake(
+                            RuntimeOrigin::signed(delegate),
+                            subnet_id,
+                            amount,
+                            1,
+                        ));
                     }
                 }
 
                 for subnet_id in subnet_ids.iter().copied() {
                     assert!(
                         TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id)
-                            >= Network::get_min_subnet_delegate_stake_balance(subnet_id)
+                            >= crate::MinSubnetDelegateStakeBalance::<Test>::get()
                     );
                     let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
                     if get_elected_subnet_node_id(subnet_id, subnet_epoch).is_some() {

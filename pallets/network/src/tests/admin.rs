@@ -21,7 +21,7 @@ use crate::{
     MinConsensusValidatorStakeWeightPower, MinDelegateStakeDeposit, MinDelegateStakePercentage,
     MinMaxRegisteredNodes, MinMinSubnetNodeReputation, MinNodeBurnRate, MinNodeReputationFactor,
     MinProbationRounds, MinQueueEpochs, MinRegistrationCost, MinSubnetDelegateStakeBalance,
-    MinSubnetDelegateStakeFactor, MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs,
+    MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs,
     MinSubnetReputation, NetworkMaxStakeBalance, NewRegistrationCostMultiplier,
     NodeDelegateStakeCooldownEpochs, NodeRewardRateUpdatePeriod,
     NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
@@ -547,26 +547,6 @@ fn test_set_overwatch_commit_cutoff_percent() {
                 Error::<Test>::InvalidPercent
             );
         }
-    });
-}
-
-#[test]
-fn test_set_min_subnet_delegate_stake_factor() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let new_value: u128 = test_percent(1, 2); // 50%
-
-        assert_ok!(Network::set_min_subnet_delegate_stake_factor(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-            new_value
-        ));
-
-        assert_eq!(MinSubnetDelegateStakeFactor::<Test>::get(), new_value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetMinSubnetDelegateStakeFactor(new_value)
-        );
     });
 }
 

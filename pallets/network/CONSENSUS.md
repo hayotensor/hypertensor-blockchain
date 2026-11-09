@@ -94,25 +94,19 @@ minimum-node, and stake checks skip an active subnet whose phase-aware local epo
 cannot penalize the preparing subnet; those checks resume at the following global boundary, after
 the subnet has reached its first live slot.
 
-The minimum subnet delegation needed for activation and continued survival is shared across the
-consensus-live subnet cohort. A subnet enters that cohort only after it is Active and its phase-aware
-local epoch reaches `consensus_eligible_from_subnet_epoch`; Registered, Paused, and preparation-period
-subnets are excluded. The common requirement is:
+The minimum subnet delegation needed for activation and continued survival is
+`MinSubnetDelegateStakeBalance`. This is one governance-configured balance shared by all subnets,
+initially 100 tokens under the launch economics. The collective can update it through
+`set_min_subnet_delegate_stake_balance`. Other subnets' balances, their counts and states, and
+validator delegate stake do not affect this requirement. Equality satisfies the requirement;
+only a balance below it is underfunded. The subnet RPC field `currentMinDelegateStake` reports
+this configured balance.
 
-```text
-max(
-    MinSubnetDelegateStakeBalance,
-    MinSubnetDelegateStakeFactor * total live subnet delegation / live subnet count,
-)
-```
-
-There is no node-count weighting. The initial absolute floor is 100 tokens and the default factor is
-50%. If no subnet is live, the absolute floor applies. Activation compares a candidate with the
-current live-cohort requirement; the candidate begins contributing to the average once it becomes
-consensus-live. On a delegate-stake removal epoch, preliminary processing snapshots every live
-subnet's delegation before iterating, so all subnets are evaluated against the same total, count,
-and boundary even if an earlier subnet is removed. Equality satisfies the requirement; only a
-balance below it is underfunded.
+Activation checks the base balance under the existing registration/enactment rules. Periodic
+survival checks read the base once on `DelegateStakeSubnetRemovalInterval` epochs and apply it
+only to Active subnets whose phase-aware local epoch has reached
+`consensus_eligible_from_subnet_epoch`. Registered, Paused, and preparation-period subnets retain
+their existing exemptions. Deposits and withdrawals keep their existing rules.
 
 Pausing uses both clocks for different purposes. The phase-aware subnet epoch records skipped local
 slots for queue compensation, and the global pause-start epoch governs maximum-pause reputation

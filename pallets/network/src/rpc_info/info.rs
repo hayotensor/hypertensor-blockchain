@@ -129,7 +129,7 @@ impl<T: Config> Pallet<T> {
             total_nodes: TotalSubnetNodes::<T>::get(subnet_id),
             total_admitted_nodes: TotalAdmittedSubnetNodes::<T>::get(subnet_id),
             total_electable_nodes: TotalSubnetElectableNodes::<T>::get(subnet_id),
-            current_min_delegate_stake: Self::get_min_subnet_delegate_stake_balance(subnet_id),
+            current_min_delegate_stake: MinSubnetDelegateStakeBalance::<T>::get(),
             total_subnet_stake: TotalSubnetStake::<T>::get(subnet_id),
             total_subnet_delegate_stake_shares: TotalSubnetDelegateStakeShares::<T>::get(subnet_id),
             total_subnet_delegate_stake_balance: TotalSubnetDelegateStakeBalance::<T>::get(

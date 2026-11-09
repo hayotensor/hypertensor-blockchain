@@ -13,7 +13,7 @@ use crate::{
     MaxProbationRounds, MaxQueueEpochs, MaxRegisteredNodes, MaxSubnetMinStake, MaxSubnetNodes,
     MaxSubnetPauseEpochs, MaxSubnets, MinChurnLimit, MinDelegateStakeDeposit,
     MinDelegateStakePercentage, MinMaxRegisteredNodes, MinProbationRounds, MinQueueEpochs,
-    MinRegistrationCost, MinSubnetDelegateStakeBalance, MinSubnetDelegateStakeFactor,
+    MinRegistrationCost, MinSubnetDelegateStakeBalance,
     MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetReputation,
     MultiaddrSubnetNodeId, NetworkBytes, NetworkMaxStakeBalance, NodeBurnRateAlpha,
     NodeRegistrationInitialValidatorIds, NodeRegistrationsThisEpoch, NodeSlotIndex,
@@ -1649,7 +1649,7 @@ fn test_activate_subnet() {
         }
 
         let min_subnet_delegate_stake =
-            Network::get_min_subnet_delegate_stake_balance(subnet_id) + 100e+18 as u128;
+            MinSubnetDelegateStakeBalance::<Test>::get() + 100e+18 as u128;
         let _ = Balances::deposit_creating(&account(1), min_subnet_delegate_stake + 500);
         // --- Add the minimum required delegate stake balance to activate the subnet
         assert_ok!(Network::add_subnet_delegate_stake(
@@ -1780,7 +1780,7 @@ fn test_activate_subnet_anytime() {
         }
 
         let min_subnet_delegate_stake =
-            Network::get_min_subnet_delegate_stake_balance(subnet_id) + 100e+18 as u128;
+            MinSubnetDelegateStakeBalance::<Test>::get() + 100e+18 as u128;
         let _ = Balances::deposit_creating(&account(1), min_subnet_delegate_stake + 500);
         // --- Add the minimum required delegate stake balance to activate the subnet
         assert_ok!(Network::add_subnet_delegate_stake(
@@ -2070,7 +2070,7 @@ fn test_activate_subnet_already_activated_err() {
         }
 
         let min_subnet_delegate_stake =
-            Network::get_min_subnet_delegate_stake_balance(subnet_id) + 100e+18 as u128;
+            MinSubnetDelegateStakeBalance::<Test>::get() + 100e+18 as u128;
         let _ = Balances::deposit_creating(&account(1), min_subnet_delegate_stake + 500);
         // --- Add the minimum required delegate stake balance to activate the subnet
         assert_ok!(Network::add_subnet_delegate_stake(
@@ -2203,7 +2203,7 @@ fn test_activate_subnet_min_subnet_registration_epochs_not_met_error() {
         //
 
         let min_subnet_delegate_stake =
-            Network::get_min_subnet_delegate_stake_balance(subnet_id) + 100e+18 as u128;
+            MinSubnetDelegateStakeBalance::<Test>::get() + 100e+18 as u128;
         let _ = Balances::deposit_creating(&account(1), min_subnet_delegate_stake + 500);
         // --- Add the minimum required delegate stake balance to activate the subnet
         assert_ok!(Network::add_subnet_delegate_stake(
@@ -2316,7 +2316,7 @@ fn test_activate_subnet_enactment_period_remove_subnet() {
         let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
 
         let min_subnet_delegate_stake =
-            Network::get_min_subnet_delegate_stake_balance(subnet_id) + 100e+18 as u128;
+            MinSubnetDelegateStakeBalance::<Test>::get() + 100e+18 as u128;
         let _ = Balances::deposit_creating(&account(1), min_subnet_delegate_stake + 500);
         // --- Add the minimum required delegate stake balance to activate the subnet
         assert_ok!(Network::add_subnet_delegate_stake(
@@ -3055,7 +3055,7 @@ fn test_paused_subnet_reputation_and_removal() {
 fn test_activated_subnet_delegate_stake_removal() {
     new_test_ext().execute_with(|| {
         insert_subnet(5, SubnetState::Active, 0);
-        let min_dstake = Network::get_min_subnet_delegate_stake_balance(5);
+        let min_dstake = MinSubnetDelegateStakeBalance::<Test>::get();
         assert!(min_dstake > 0);
         set_delegate_stake(5, min_dstake - 1); // below min delegate stake
 
@@ -3215,7 +3215,7 @@ fn test_excess_subnet_removal_lowest_delegate_stake_fail2() {
 //         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
 //         let min_subnet_delegate_stake_balance =
-//             Network::get_min_subnet_delegate_stake_balance(subnet_id);
+//             MinSubnetDelegateStakeBalance::<Test>::get();
 
 //         let subnet_delegate_stake_balance = TotalSubnetDelegateStakeBalance::<Test>::insert(
 //             subnet_id,
@@ -3288,9 +3288,9 @@ fn test_excess_subnet_removal_lowest_delegate_stake_fail2() {
 //         let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
 
 //         let delegate_staker_account = 1;
-//         // Add 100e18 to account for block increase on activation
+//         // Fund above the configured base for the fixture
 //         let mut min_subnet_delegate_stake =
-//             Network::get_min_subnet_delegate_stake_balance(subnet_id);
+//             MinSubnetDelegateStakeBalance::<Test>::get();
 //         min_subnet_delegate_stake = min_subnet_delegate_stake
 //             + Network::percent_mul(min_subnet_delegate_stake, 10000000000000000);
 //         assert_ok!(Balances::transfer(
@@ -3551,172 +3551,6 @@ fn test_do_epoch_preliminaries_remove_subnet_min_stake_balance() {
 //     });
 // }
 
-fn insert_min_delegate_stake_formula_subnet(
-    subnet_id: u32,
-    state: SubnetState,
-    consensus_eligible_from_subnet_epoch: u32,
-    delegate_stake_balance: u128,
-) {
-    insert_subnet(subnet_id, state, consensus_eligible_from_subnet_epoch);
-    SubnetSlot::<Test>::insert(
-        subnet_id,
-        DesignatedEpochSlots::get().saturating_add(subnet_id),
-    );
-    TotalSubnetDelegateStakeBalance::<Test>::insert(subnet_id, delegate_stake_balance);
-}
-
-#[test]
-fn test_min_subnet_delegate_stake_uses_configurable_floor_and_live_average() {
-    new_test_ext().execute_with(|| {
-        set_epoch(10, EpochLength::get().saturating_sub(1));
-        MinSubnetDelegateStakeFactor::<Test>::set(
-            Network::percentage_factor_as_u128().saturating_div(2),
-        );
-        insert_min_delegate_stake_formula_subnet(1, SubnetState::Active, 10, 400);
-        insert_min_delegate_stake_formula_subnet(2, SubnetState::Active, 10, 600);
-
-        // The proportional minimum is 50% of the common live average: (400 + 600) / 2 / 2.
-        // A larger configured floor wins without changing the fact that every subnet receives the
-        // same requirement.
-        MinSubnetDelegateStakeBalance::<Test>::set(300);
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(1), 300);
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(2), 300);
-
-        MinSubnetDelegateStakeBalance::<Test>::set(10);
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(1), 250);
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(2), 250);
-
-        // Heavy delegation to one live subnet raises the common requirement for both subnets.
-        TotalSubnetDelegateStakeBalance::<Test>::insert(2, 1_600);
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(1), 500);
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(2), 500);
-    });
-}
-
-#[test]
-fn test_min_subnet_delegate_stake_equality_passes_and_one_below_fails() {
-    new_test_ext().execute_with(|| {
-        set_epoch(10, EpochLength::get().saturating_sub(1));
-        MinSubnetDelegateStakeBalance::<Test>::set(1);
-        MinSubnetDelegateStakeFactor::<Test>::set(
-            Network::percentage_factor_as_u128().saturating_div(2),
-        );
-        insert_min_delegate_stake_formula_subnet(1, SubnetState::Active, 10, 100);
-        insert_min_delegate_stake_formula_subnet(2, SubnetState::Active, 10, 300);
-        SubnetReputation::<Test>::insert(1, Network::percentage_factor_as_u128());
-        TotalAdmittedSubnetNodes::<Test>::insert(1, MinSubnetNodes::<Test>::get());
-
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(1), 100);
-        assert_eq!(Network::can_subnet_be_active(1), (true, None));
-
-        // Keep total live delegation fixed while moving one unit away from subnet 1. The shared
-        // requirement therefore remains 100 and subnet 1 is exactly one unit below it.
-        TotalSubnetDelegateStakeBalance::<Test>::insert(1, 99);
-        TotalSubnetDelegateStakeBalance::<Test>::insert(2, 301);
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(1), 100);
-        assert_eq!(
-            Network::can_subnet_be_active(1),
-            (false, Some(SubnetRemovalReason::MinSubnetDelegateStake))
-        );
-    });
-}
-
-#[test]
-fn test_min_subnet_delegate_stake_only_counts_active_phase_live_subnets() {
-    new_test_ext().execute_with(|| {
-        set_epoch(10, EpochLength::get().saturating_sub(1));
-        MinSubnetDelegateStakeBalance::<Test>::set(1);
-        MinSubnetDelegateStakeFactor::<Test>::set(
-            Network::percentage_factor_as_u128().saturating_div(2),
-        );
-
-        insert_min_delegate_stake_formula_subnet(1, SubnetState::Active, 10, 200);
-        insert_min_delegate_stake_formula_subnet(2, SubnetState::Active, 10, 600);
-        insert_min_delegate_stake_formula_subnet(3, SubnetState::Registered, 0, 10_000);
-        insert_min_delegate_stake_formula_subnet(4, SubnetState::Paused, 0, 10_000);
-        insert_min_delegate_stake_formula_subnet(5, SubnetState::Active, 11, 10_000);
-        // A retained delegate pool without live SubnetsData represents removed-subnet exit state.
-        TotalSubnetDelegateStakeBalance::<Test>::insert(6, 10_000);
-
-        // Only subnets 1 and 2 are Active and phase-live: (200 + 600) / 2 / 2 = 200.
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(1), 200);
-
-        // Once subnet 5 reaches its phase-aware eligibility epoch it joins the cohort. Registered,
-        // Paused, and removed subnet balances remain excluded.
-        set_epoch(11, EpochLength::get().saturating_sub(1));
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(1), 1_800);
-    });
-}
-
-#[test]
-fn test_min_subnet_delegate_stake_zero_cohort_returns_floor() {
-    new_test_ext().execute_with(|| {
-        MinSubnetDelegateStakeFactor::<Test>::set(
-            Network::percentage_factor_as_u128().saturating_div(2),
-        );
-        MinSubnetDelegateStakeBalance::<Test>::set(123);
-        insert_min_delegate_stake_formula_subnet(1, SubnetState::Registered, 0, 0);
-
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(1), 123);
-
-        MinSubnetDelegateStakeBalance::<Test>::set(456);
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(1), 456);
-    });
-}
-
-#[test]
-fn test_min_subnet_delegate_stake_sums_max_balances_without_u128_overflow() {
-    new_test_ext().execute_with(|| {
-        set_epoch(10, EpochLength::get().saturating_sub(1));
-        MinSubnetDelegateStakeBalance::<Test>::set(1);
-        MinSubnetDelegateStakeFactor::<Test>::set(
-            Network::percentage_factor_as_u128().saturating_div(2),
-        );
-        insert_min_delegate_stake_formula_subnet(1, SubnetState::Active, 10, u128::MAX);
-        insert_min_delegate_stake_formula_subnet(2, SubnetState::Active, 10, u128::MAX);
-
-        assert_eq!(
-            Network::get_min_subnet_delegate_stake_balance(1),
-            u128::MAX / 2
-        );
-        assert_eq!(
-            Network::get_min_subnet_delegate_stake_balance(2),
-            u128::MAX / 2
-        );
-
-        // The setter prevents this factor, but corrupt storage must fail closed rather than
-        // wrapping to a low survival requirement.
-        MinSubnetDelegateStakeFactor::<Test>::set(u128::MAX);
-        assert_eq!(Network::get_min_subnet_delegate_stake_balance(1), u128::MAX);
-    });
-}
-
-#[test]
-fn test_delegate_stake_removal_pass_uses_one_locked_live_average() {
-    new_test_ext().execute_with(|| {
-        MinSubnetDelegateStakeBalance::<Test>::set(1);
-        MinSubnetDelegateStakeFactor::<Test>::set(
-            Network::percentage_factor_as_u128().saturating_div(2),
-        );
-
-        for (subnet_id, balance) in [(1, 0), (2, 200), (3, 1_000)] {
-            insert_subnet(subnet_id, SubnetState::Active, 0);
-            TotalSubnetDelegateStakeBalance::<Test>::insert(subnet_id, balance);
-            TotalSubnetElectableNodes::<Test>::insert(subnet_id, MinSubnetNodes::<Test>::get());
-            SubnetReputation::<Test>::insert(subnet_id, Network::percentage_factor_as_u128());
-        }
-
-        // The locked requirement is 50% of the initial 400 average: 200. Subnet 1 is removed,
-        // subnet 2 passes at equality, and removing subnet 1 must not raise subnet 2's requirement
-        // to 300 midway through the same pass.
-        Network::do_epoch_preliminaries(&mut WeightMeter::new(), 0, 10);
-
-        assert!(!SubnetsData::<Test>::contains_key(1));
-        assert!(SubnetsData::<Test>::contains_key(2));
-        assert!(SubnetsData::<Test>::contains_key(3));
-    });
-}
-
 #[test]
 fn test_get_total_network_tvl_counts_each_network_pool_and_excludes_overwatch_and_currency() {
     new_test_ext().execute_with(|| {
@@ -3742,8 +3576,7 @@ fn test_get_total_network_tvl_counts_each_network_pool_and_excludes_overwatch_an
             11 + 22 + 33 + 44 + 55 + 66
         );
 
-        // Overflow must fail closed so corrupt aggregate accounting cannot reduce the survival
-        // threshold.
+        // Aggregate TVL saturates rather than wrapping on overflow.
         TotalStake::<Test>::set(u128::MAX);
         assert_eq!(Network::get_total_network_tvl(), u128::MAX);
     });
