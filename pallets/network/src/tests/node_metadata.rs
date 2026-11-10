@@ -549,6 +549,230 @@ fn whole_subnet_removal_clears_active_and_queued_metadata_and_indexes() {
 }
 
 #[test]
+fn metadata_updates_reject_removed_nodes_with_retained_ownership() {
+    for queued in [false, true] {
+        for remove_whole_subnet in [false, true] {
+            new_test_ext().execute_with(|| {
+                let (subnet, node, coldkey) = fixture(queued);
+                let metadata = maximum(42);
+                set(subnet, node, &coldkey, metadata.clone());
+                if remove_whole_subnet {
+                    Network::do_remove_subnet(subnet, SubnetRemovalReason::MinReputation);
+                } else {
+                    assert_ok!(Network::remove_subnet_node(
+                        RuntimeOrigin::signed(coldkey.clone()),
+                        subnet,
+                        node
+                    ));
+                }
+                assert_eq!(
+                    Network::get_subnet_node_associated_coldkey(subnet, node).unwrap(),
+                    coldkey
+                );
+                assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
+                assert_indexes(subnet, node, &metadata, false);
+
+                // Both setting and clearing metadata must reject historical node IDs,
+                // without recreating metadata/reverse indexes or emitting update events.
+                for m in [metadata, NodeMetadata::<Test>::default()] {
+                    assert_noop!(
+                        Network::update_node_peer_info(
+                            RuntimeOrigin::signed(coldkey.clone()),
+                            subnet,
+                            node,
+                            m.peer_info
+                        ),
+                        Error::<Test>::InvalidSubnetNodeId
+                    );
+                    assert_noop!(
+                        Network::update_node_bootnode_peer_info(
+                            RuntimeOrigin::signed(coldkey.clone()),
+                            subnet,
+                            node,
+                            m.bootnode_peer_info
+                        ),
+                        Error::<Test>::InvalidSubnetNodeId
+                    );
+                    assert_noop!(
+                        Network::update_node_client_peer_info(
+                            RuntimeOrigin::signed(coldkey.clone()),
+                            subnet,
+                            node,
+                            m.client_peer_info
+                        ),
+                        Error::<Test>::InvalidSubnetNodeId
+                    );
+                    assert_noop!(
+                        Network::update_node_unique(
+                            RuntimeOrigin::signed(coldkey.clone()),
+                            subnet,
+                            node,
+                            m.unique
+                        ),
+                        Error::<Test>::InvalidSubnetNodeId
+                    );
+                    assert_noop!(
+                        Network::update_node_non_unique(
+                            RuntimeOrigin::signed(coldkey.clone()),
+                            subnet,
+                            node,
+                            m.non_unique
+                        ),
+                        Error::<Test>::InvalidSubnetNodeId
+                    );
+                }
+            });
+        }
+    }
+}
+
+#[test]
+fn hotkey_updates_reject_removed_nodes_but_preserve_stake_withdrawals() {
+    for queued in [false, true] {
+        new_test_ext().execute_with(|| {
+            let (subnet, node, coldkey) = fixture(queued);
+            let validator = SubnetNodeValidatorId::<Test>::get(subnet, node);
+            let stake = NodeSubnetStake::<Test>::get(node, subnet);
+            assert_ok!(Network::update_node_hotkey(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet,
+                node,
+                Some(account(900_002))
+            ));
+            assert_ok!(Network::remove_subnet_node(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet,
+                node
+            ));
+            assert!(!SubnetNodesData::<Test>::contains_key(subnet, node));
+            assert!(!QueuedSubnetNodesData::<Test>::contains_key(subnet, node));
+            assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
+            assert_eq!(SubnetNodeValidatorId::<Test>::get(subnet, node), validator);
+
+            for new_hotkey in [Some(account(900_003)), None] {
+                assert_noop!(
+                    Network::update_node_hotkey(
+                        RuntimeOrigin::signed(coldkey.clone()),
+                        subnet,
+                        node,
+                        new_hotkey
+                    ),
+                    Error::<Test>::InvalidSubnetNodeId
+                );
+            }
+            assert_ok!(Network::remove_node_stake(
+                RuntimeOrigin::signed(coldkey),
+                subnet,
+                node,
+                stake
+            ));
+            assert_eq!(NodeSubnetStake::<Test>::get(node, subnet), 0);
+        });
+    }
+}
+
+#[test]
+fn hotkey_updates_cannot_grow_cleanup_prefix_through_queued_node_churn() {
+    new_test_ext().execute_with(|| {
+        let (subnet, _, _) = fixture(false);
+        let live_nodes = TotalSubnetNodes::<Test>::get(subnet);
+        let hotkeys = SubnetNodeIdHotkey::<Test>::iter_prefix(subnet).count();
+        for start in 4..12 {
+            build_queued_subnet_nodes(
+                subnet,
+                start,
+                start + 1,
+                DEPOSIT,
+                MinSubnetMinStake::<Test>::get(),
+            );
+            let node = TotalSubnetNodeUids::<Test>::get(subnet);
+            let coldkey = Network::get_subnet_node_associated_coldkey(subnet, node).unwrap();
+            assert_ok!(Network::remove_subnet_node(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet,
+                node
+            ));
+            assert_eq!(TotalSubnetNodes::<Test>::get(subnet), live_nodes);
+            assert_noop!(
+                Network::update_node_hotkey(
+                    RuntimeOrigin::signed(coldkey),
+                    subnet,
+                    node,
+                    Some(account(900_002))
+                ),
+                Error::<Test>::InvalidSubnetNodeId
+            );
+            assert_eq!(
+                SubnetNodeIdHotkey::<Test>::iter_prefix(subnet).count(),
+                hotkeys
+            );
+        }
+        assert!(matches!(
+            Network::try_do_remove_subnet(
+                &mut WeightMeter::new(),
+                subnet,
+                SubnetRemovalReason::MinReputation
+            ),
+            SubnetRemovalOutcome::Removed
+        ));
+        assert_eq!(SubnetNodeIdHotkey::<Test>::iter_prefix(subnet).count(), 0);
+    });
+}
+
+#[test]
+fn hotkey_updates_cannot_recreate_entries_after_pending_cleanup() {
+    for queued in [false, true] {
+        new_test_ext().execute_with(|| {
+            let (subnet, node, coldkey) = fixture(queued);
+            if queued {
+                PendingQueuedNodeRemovals::<Test>::mutate(subnet, |ids| {
+                    ids.try_insert(node).unwrap();
+                });
+            } else {
+                PendingAdmittedNodeRemovals::<Test>::mutate(subnet, |ids| {
+                    ids.try_insert(node).unwrap();
+                });
+            }
+            assert_ok!(Network::update_node_hotkey(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet,
+                node,
+                Some(account(900_002))
+            ));
+            assert!(!Network::has_pending_subnet_node_removal(subnet, node));
+            assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
+            assert_noop!(
+                Network::update_node_hotkey(
+                    RuntimeOrigin::signed(coldkey),
+                    subnet,
+                    node,
+                    Some(account(900_002))
+                ),
+                Error::<Test>::InvalidSubnetNodeId
+            );
+        });
+    }
+}
+
+#[test]
+fn hotkey_updates_cannot_recreate_entries_after_subnet_removal() {
+    new_test_ext().execute_with(|| {
+        let (subnet, node, coldkey) = fixture(true);
+        Network::do_remove_subnet(subnet, SubnetRemovalReason::MinReputation);
+        assert_eq!(SubnetNodeIdHotkey::<Test>::iter_prefix(subnet).count(), 0);
+        assert_noop!(
+            Network::update_node_hotkey(
+                RuntimeOrigin::signed(coldkey),
+                subnet,
+                node,
+                Some(account(900_002))
+            ),
+            Error::<Test>::InvalidSubnetNodeId
+        );
+    });
+}
+
+#[test]
 fn composed_readers_include_metadata_and_missing_metadata_does_not_hide_core() {
     new_test_ext().execute_with(|| {
         let (subnet, node, coldkey) = fixture(false);

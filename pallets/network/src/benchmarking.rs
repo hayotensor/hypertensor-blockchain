@@ -5100,7 +5100,16 @@ mod benchmarks {
             DEFAULT_SUBNET_NODE_STAKE,
         );
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
-        let subnet_node_id = end;
+        // A queued node exercises both liveness reads (the admitted lookup misses).
+        build_queued_subnet_nodes::<T>(
+            subnet_id,
+            end,
+            end + 1,
+            DEFAULT_DEPOSIT_AMOUNT,
+            DEFAULT_SUBNET_NODE_STAKE,
+            false,
+        );
+        let subnet_node_id = end + 1;
         let coldkey =
             Network::<T>::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id).unwrap();
         let new_hotkey = get_account::<T>("updated_node_hotkey", 0);
@@ -8142,7 +8151,7 @@ mod benchmarks {
 
     #[benchmark]
     fn pause() {
-        assert!(!TxPause::<T>::get());
+        assert!(!NetworkPaused::<T>::get());
 
         let origin = T::MajorityCollectiveOrigin::try_successful_origin()
             .expect("try_successful_origin failed");
@@ -8151,7 +8160,7 @@ mod benchmarks {
         pause(origin as T::RuntimeOrigin);
 
         // Verify the network is now paused
-        assert!(TxPause::<T>::get());
+        assert!(NetworkPaused::<T>::get());
         assert_eq!(
             OverwatchTxPauseStartBlock::<T>::get(),
             Some(get_current_block_as_u32::<T>())
@@ -8161,10 +8170,10 @@ mod benchmarks {
     #[benchmark]
     fn unpause() {
         // sanity check
-        assert!(!TxPause::<T>::get());
+        assert!(!NetworkPaused::<T>::get());
 
         assert_ok!(Network::<T>::do_pause());
-        assert!(TxPause::<T>::get());
+        assert!(NetworkPaused::<T>::get());
 
         let origin = T::MajorityCollectiveOrigin::try_successful_origin()
             .expect("try_successful_origin failed");
@@ -8172,8 +8181,111 @@ mod benchmarks {
         #[extrinsic_call]
         unpause(origin as T::RuntimeOrigin);
 
-        assert!(!TxPause::<T>::get());
+        assert!(!NetworkPaused::<T>::get());
         assert!(OverwatchTxPauseStartBlock::<T>::get().is_none());
+        assert_eq!(
+            LastNetworkUnpauseBlock::<T>::get(),
+            Some(get_current_block_as_u32::<T>())
+        );
+    }
+
+    /// The resume selector must measure the nonempty cutoff and assigned-slot reads.
+    #[benchmark(extra)]
+    fn consensus_resume_check() {
+        let subnet_id = 1;
+        SubnetSlot::<T>::insert(subnet_id, T::DesignatedEpochSlots::get());
+        LastNetworkUnpauseBlock::<T>::put(T::EpochLength::get() * 10);
+        #[block]
+        {
+            assert!(Network::<T>::consensus_round_precedes_network_resume(
+                subnet_id, 1
+            ));
+        }
+    }
+
+    /// Cancellation never scans proposal/attestation rows, but must decode the largest elected
+    /// snapshot to release both stake liabilities. Include an emergency snapshot and allocation.
+    #[benchmark]
+    fn precheck_subnet_consensus_submission_cancelled() {
+        let context = prepare_alternate_emission_step::<T>(
+            T::MaxSubnetNodesUpperBound::get(),
+            AlternateEmissionMode::Emergency,
+        );
+        LastNetworkUnpauseBlock::<T>::put(get_current_block_as_u32::<T>());
+        let stake = TotalSubnetStake::<T>::get(context.subnet_id);
+        #[block]
+        {
+            let (result, _) = Network::<T>::precheck_subnet_consensus_submission(
+                context.subnet_id,
+                context.previous_subnet_epoch,
+                context.current_epoch,
+            );
+            assert!(result.is_none());
+        }
+        assert_eq!(TotalSubnetStake::<T>::get(context.subnet_id), stake);
+        assert_eq!(
+            ValidatorDelegateStakeBalance::<T>::get(context.validator_id),
+            context.initial_delegate_pool
+        );
+        assert_eq!(
+            SubnetRewardCapacitor::<T>::get(context.subnet_id),
+            2 * DEFAULT_SCORE
+        );
+        assert!(!PendingConsensusRoundSettlementEpoch::<T>::contains_key(
+            context.subnet_id
+        ));
+        assert!(!Network::<T>::is_validator_delegate_stake_slash_locked(
+            context.validator_id
+        ));
+        assert_eq!(
+            ConsensusRoundSettlementStatus::<T>::get(
+                context.subnet_id,
+                context.previous_subnet_epoch
+            ),
+            Some(true)
+        );
+    }
+
+    #[benchmark]
+    fn emission_step_cancelled() {
+        let context = prepare_alternate_emission_step::<T>(
+            T::MaxSubnetNodesUpperBound::get(),
+            AlternateEmissionMode::Emergency,
+        );
+        LastNetworkUnpauseBlock::<T>::put(get_current_block_as_u32::<T>());
+        let stake = TotalSubnetStake::<T>::get(context.subnet_id);
+        #[block]
+        {
+            Network::<T>::emission_settlement_step(
+                &mut WeightMeter::new(),
+                get_current_block_as_u32::<T>(),
+                context.current_epoch,
+                context.current_subnet_epoch,
+                context.subnet_id,
+            );
+        }
+        assert_eq!(TotalSubnetStake::<T>::get(context.subnet_id), stake);
+        assert_eq!(
+            ValidatorDelegateStakeBalance::<T>::get(context.validator_id),
+            context.initial_delegate_pool
+        );
+        assert_eq!(
+            SubnetRewardCapacitor::<T>::get(context.subnet_id),
+            2 * DEFAULT_SCORE
+        );
+        assert!(!PendingConsensusRoundSettlementEpoch::<T>::contains_key(
+            context.subnet_id
+        ));
+        assert!(!Network::<T>::is_validator_delegate_stake_slash_locked(
+            context.validator_id
+        ));
+        assert_eq!(
+            ConsensusRoundSettlementStatus::<T>::get(
+                context.subnet_id,
+                context.previous_subnet_epoch
+            ),
+            Some(true)
+        );
     }
 
     #[benchmark]
@@ -10752,7 +10864,7 @@ mod benchmarks {
     /// Fixed hook selectors read on every block before any early return or branch admission.
     #[benchmark]
     fn on_initialize_base() {
-        TxPause::<T>::put(false);
+        NetworkPaused::<T>::put(false);
         PendingOverwatchSettlement::<T>::put(PendingOverwatchSettlementData {
             epoch: u32::MAX,
             reveal_records: 1_088,
@@ -10762,7 +10874,7 @@ mod benchmarks {
 
         #[block]
         {
-            let _ = TxPause::<T>::get();
+            let _ = NetworkPaused::<T>::get();
             let _ = PendingOverwatchSettlement::<T>::get();
             let _ = OverwatchEpochStartBlock::<T>::get();
             let _ = ActiveOverwatchEpochLengthMultiplier::<T>::get();

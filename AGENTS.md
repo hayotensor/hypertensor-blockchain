@@ -394,6 +394,18 @@ their normal allocation by up to 10%, drawn from that balance and distributed
 using the round's reward split. Zero-score/zero-allocation rounds leave it stored;
 permanent subnet removal clears it. See [REWARDS.md](pallets/network/REWARDS.md).
 
+Global `Network.unpause` starts fresh consensus: all unsettled rounds elected
+before or in the resume block are cancelled, including submitted proposals and
+older deferred settlements. Old proposals and attestations are rejected immediately.
+At each subnet's next assigned slot, cancellation retains any recorded allocation
+in its capacitor, releases that round's stake liabilities, and applies no rewards,
+penalties, or probation progression before the next eligible election. Missing
+allocations for skipped epochs are not recreated. Historical round records remain
+queryable; `ConsensusRoundCancelled` reports cancellation. Epoch-status RPC hides
+cancelled work. Owner subnet pauses still preserve the already-elected round.
+Global resume does not extend registration, enactment, owner-pause, or emergency-set
+deadlines; those lifecycle limits remain separate from consensus cancellation.
+
 Election candidates/policy freeze at election; attestor weights freeze when the
 proposal is submitted. Changes before proposal submission can still affect its
 weight snapshot. Later changes do not rewrite already-recorded snapshots.

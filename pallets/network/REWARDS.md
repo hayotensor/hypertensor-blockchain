@@ -31,6 +31,21 @@ The annual schedule reserves 5% for the foundation and 95% for subnets. Each ann
 
 ## 2. The epoch subnet budget is divided across subnets
 
+Global network unpause cancels every unsettled consensus round elected before or
+in the resume block, including submitted proposals and older deferred settlements.
+At the subnet's next assigned slot, its recorded allocation is retained in the
+reward capacitor exactly once and its slash liabilities are released. Cancellation
+does not pay round rewards or apply slashes, reputation changes, queue votes, or
+probation progression. A fresh round can then be elected at that same slot.
+Allocations skipped during the pause are not recreated. Already settled outcomes
+remain unchanged. The historical election/proposal stays queryable and
+`ConsensusRoundCancelled` identifies the discarded round.
+
+`bash .maintain/benchmark-global-pause.sh` measures global unpause, the resume
+selector, and cancellation with maximum-sized election and emergency snapshots.
+Build the matching runtime with `runtime-benchmarks` first. Its partial weight
+output must be merged into the existing table rather than replacing that table.
+
 Only subnets with an exact elected consensus round for the epoch being settled participate. Preparing subnets without that election do not dilute the denominators. A subnet paused after its election can still receive the allocation for that historical round. In the normal schedule, global epoch `G` allocates rewards for subnet round `G - 1`, which settles at the subnet's slot.
 
 For each eligible subnet `s`, the inputs are:

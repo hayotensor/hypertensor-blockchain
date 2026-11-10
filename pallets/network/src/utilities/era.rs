@@ -52,6 +52,23 @@ impl<T: Config> Pallet<T> {
         ConsensusRoundSettlementStatus::<T>::get(subnet_id, subnet_epoch) == Some(true)
     }
 
+    /// Whether this round predates the latest global resume. Elections run at the assigned
+    /// slot in on_initialize, before an unpause extrinsic in the same block. Comparing local
+    /// slot start blocks therefore also invalidates same-block and short-pause elections. This
+    /// predicate does not undo settled history; settlement checks its exact-once fence first.
+    pub(crate) fn consensus_round_precedes_network_resume(
+        subnet_id: u32,
+        subnet_epoch: u32,
+    ) -> bool {
+        LastNetworkUnpauseBlock::<T>::get().is_some_and(|block| {
+            SubnetSlot::<T>::get(subnet_id).is_some_and(|slot| {
+                let round_start = u64::from(slot)
+                    + u64::from(subnet_epoch) * u64::from(T::EpochLength::get());
+                round_start <= u64::from(block)
+            })
+        })
+    }
+
     /// Mark one round settled and release exactly the liabilities that election registered.
     ///
     /// This is intentionally called only after the round's economic slash decision. A missing or

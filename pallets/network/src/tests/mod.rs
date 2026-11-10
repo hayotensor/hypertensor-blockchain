@@ -4,6 +4,7 @@ mod capacity;
 mod delegate_account;
 mod delegate_staking;
 mod era;
+mod global_pause;
 mod incentives_protocol;
 mod inflation;
 mod keys;

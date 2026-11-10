@@ -142,6 +142,14 @@ proposal-time eligible-attestor snapshot is also fixed, but the recorded attesta
 accumulate while that round remains open. After the round closes, the result is historical. It does
 not reconstruct old rounds from current node metadata.
 
+Global `Network.unpause` cancels all unsettled rounds from before or in its block.
+`network_getSubnetEpochStatus` hides the cancelled election/proposal and reports
+`withinProposalAttestationWindow: false` until the next local round; it also hides
+work while `NetworkPaused` is true. `network_getConsensusRound` retains historical
+elections and proposals. Its `Elected`/`Proposed` status describes the recorded
+submission stage, not a payout outcome; `ConsensusRoundCancelled` events identify
+cancelled settlement. New elections resume at each eligible subnet's next slot.
+
 ## Errors
 
 | Code | Meaning |

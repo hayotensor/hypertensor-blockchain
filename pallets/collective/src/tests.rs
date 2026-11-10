@@ -1960,7 +1960,7 @@ fn proposal_network_min_subnet_delegate_stake_balance_vote_1_5() {
 #[test]
 fn test_network_pause() {
     ExtBuilder::default().build_and_execute(|| {
-        let value = pallet_network::TxPause::<Test>::get();
+        let value = pallet_network::NetworkPaused::<Test>::get();
         let proposal = RuntimeCall::Network(pallet_network::Call::pause {});
         let proposal_len: u32 = proposal.using_encoded(|p| p.len() as u32);
         let proposal_weight = proposal.get_dispatch_info().call_weight;
@@ -1984,7 +1984,7 @@ fn test_network_pause() {
             proposal_weight,
             proposal_len
         ));
-        let value_call = pallet_network::TxPause::<Test>::get();
+        let value_call = pallet_network::NetworkPaused::<Test>::get();
         assert_eq!(true, value_call);
     })
 }

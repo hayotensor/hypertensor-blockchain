@@ -297,6 +297,10 @@ impl<T: Config> Pallet<T> {
         // --- Ensure validator was elected
         let elected_round = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
             .ok_or(Error::<T>::NoElectedValidator)?;
+        ensure!(
+            !Self::consensus_round_precedes_network_resume(subnet_id, subnet_epoch),
+            Error::<T>::ConsensusRoundCancelled
+        );
         let validator_subnet_node_id = elected_round.validator_subnet_node_id;
         let policy = elected_round.policy;
 
@@ -572,6 +576,10 @@ impl<T: Config> Pallet<T> {
         let policy = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
             .ok_or(Error::<T>::NoElectedValidator)?
             .policy;
+        ensure!(
+            !Self::consensus_round_precedes_network_resume(subnet_id, subnet_epoch),
+            Error::<T>::ConsensusRoundCancelled
+        );
 
         let block: u32 = Self::get_current_block_as_u32();
 

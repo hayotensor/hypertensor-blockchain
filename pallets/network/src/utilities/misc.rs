@@ -128,7 +128,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn is_paused() -> DispatchResult {
-        ensure!(!TxPause::<T>::get(), Error::<T>::Paused);
+        ensure!(!NetworkPaused::<T>::get(), Error::<T>::Paused);
         Ok(())
     }
 

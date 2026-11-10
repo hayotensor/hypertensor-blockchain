@@ -661,6 +661,11 @@ pub mod pallet {
             subnet_node_id: u32,
             epoch: u32,
         },
+        /// A global pause discarded this unsettled round without rewards or penalties.
+        ConsensusRoundCancelled {
+            subnet_id: u32,
+            subnet_epoch: u32,
+        },
         ValidatorSlashApplied {
             subnet_id: u32,
             validator_id: u32,
@@ -1114,6 +1119,8 @@ pub mod pallet {
         EmergencyValidatorsActive,
         EmergencyValidatorCooldownActive,
         EmergencyQueueMutationNotAllowed,
+        /// Global unpause discarded this round; wait for the next assigned-slot election.
+        ConsensusRoundCancelled,
         InvalidEmergencyValidatorDuration,
         InvalidMinNodeBurnRate,
         InvalidMaxNodeBurnRate,
@@ -3030,7 +3037,7 @@ pub mod pallet {
         true
     }
     /// This type value is referenced in:
-    /// - TxPause
+    /// - NetworkPaused
     #[pallet::type_value]
     pub fn DefaultBoolFalse() -> bool {
         false
@@ -4873,7 +4880,13 @@ pub mod pallet {
 
     /// Pause the network
     #[pallet::storage]
-    pub type TxPause<T> = StorageValue<_, bool, ValueQuery, DefaultBoolFalse>;
+    pub type NetworkPaused<T> = StorageValue<_, bool, ValueQuery, DefaultBoolFalse>;
+
+    /// Latest real global unpause. Rounds elected at or before this block cannot accept new
+    /// proposals/attestations, and any unsettled ones are cancelled at their next subnet slot.
+    /// Keeping one cutoff makes unpause O(1), independently of subnet and node counts.
+    #[pallet::storage]
+    pub type LastNetworkUnpauseBlock<T> = StorageValue<_, u32, OptionQuery>;
 
     //
     // Validate / Attestation
@@ -6571,9 +6584,9 @@ pub mod pallet {
         ///
         /// # Requirements
         ///
-        /// * Coldkey caller only
-        /// * New hotkey must be already exist
-        ///		- No merging logic
+        /// * The owning validator's coldkey must sign.
+        /// * The node must still be admitted or queued. Retained stake ownership alone is
+        ///   insufficient. A pending removal is finalized without setting a hotkey.
         ///
         /// # Note
         ///
@@ -6581,8 +6594,9 @@ pub mod pallet {
         ///
         /// # Arguments
         ///
-        /// * `old_hotkey` - Old hotkey to be replaced.
-        /// * `new_hotkey` - New hotkey to replace the old hotkey.
+        /// * `subnet_id` - The node's subnet.
+        /// * `subnet_node_id` - The admitted or queued node to update.
+        /// * `new_hotkey` - Override hotkey, or `None` to use the validator's hotkey.
         ///
         /// Make an update to a validator subnet node's hotkey
         /// By updating this hotkey, this will supersede all hotkey based logic
@@ -6616,6 +6630,14 @@ pub mod pallet {
                 return Ok(());
             }
 
+            // Ownership survives removal for stake withdrawals; hotkey entries must stay
+            // bounded by the admitted/queued node counts used to reserve subnet cleanup weight.
+            ensure!(
+                SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id)
+                    || QueuedSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id),
+                Error::<T>::InvalidSubnetNodeId
+            );
+
             if let Some(new_hotkey) = new_hotkey {
                 SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, new_hotkey);
             } else {
@@ -6646,10 +6668,10 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            let validator_coldkey =
+            let node_coldkey =
                 Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
 
-            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+            ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
             if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
                 return Ok(());
@@ -6679,10 +6701,10 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            let validator_coldkey =
+            let node_coldkey =
                 Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
 
-            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+            ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
             if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
                 return Ok(());
@@ -6712,10 +6734,10 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            let validator_coldkey =
+            let node_coldkey =
                 Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
 
-            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+            ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
             if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
                 return Ok(());
@@ -6745,10 +6767,10 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            let validator_coldkey =
+            let node_coldkey =
                 Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
 
-            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+            ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
             if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
                 return Ok(());
@@ -6778,10 +6800,10 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            let validator_coldkey =
+            let node_coldkey =
                 Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
 
-            ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
+            ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
             if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
                 return Ok(());
@@ -10133,6 +10155,7 @@ pub mod pallet {
                 .max(T::WeightInfo::emission_step_rejected(max_h))
                 .max(T::WeightInfo::emission_step_emergency(max_h))
                 .max(T::WeightInfo::emission_step_missing())
+                .max(T::WeightInfo::emission_step_cancelled())
                 .saturating_add(
                     T::DbWeight::get()
                         .reads_writes(3, 3)
@@ -10445,8 +10468,9 @@ pub mod pallet {
                     let pending_marker_weight = db_weight
                         .reads_writes(3, 3)
                         .saturating_add(Self::pending_subnet_node_removal_proof_weight());
-                    let settlement_weight =
-                        settlement_branch_weight.saturating_add(pending_marker_weight);
+                    let settlement_weight = settlement_branch_weight
+                        .max(T::WeightInfo::emission_step_cancelled())
+                        .saturating_add(pending_marker_weight);
 
                     // Settlement is mandatory for an assigned subnet slot. If its complete core
                     // cannot fit, do not let lower-priority election or maintenance consume the

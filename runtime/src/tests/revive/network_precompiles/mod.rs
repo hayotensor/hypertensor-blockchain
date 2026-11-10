@@ -323,9 +323,9 @@ fn static_delegate_nonpayable_malformed_and_unknown_calls_cannot_mutate() {
 fn both_pause_mechanisms_and_low_gas_block_network_dispatch() {
     crate::tests::npos::ext().execute_with(|| {
         let who = setup();
-        n::TxPause::<Runtime>::put(true);
+        n::NetworkPaused::<Runtime>::put(true);
         assert!(invoke(addresses::VALIDATORS, registration(45)).is_err());
-        n::TxPause::<Runtime>::put(false);
+        n::NetworkPaused::<Runtime>::put(false);
         assert_ok!(TxPause::pause(
             RuntimeOrigin::root(),
             (

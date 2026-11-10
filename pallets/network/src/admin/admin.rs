@@ -18,15 +18,18 @@ use frame_support::pallet_prelude::DispatchResultWithPostInfo;
 
 impl<T: Config> Pallet<T> {
     pub fn do_pause() -> DispatchResult {
-        if !TxPause::<T>::get() {
+        if !NetworkPaused::<T>::get() {
             OverwatchTxPauseStartBlock::<T>::put(Self::get_current_block_as_u32());
         }
-        TxPause::<T>::put(true);
+        NetworkPaused::<T>::put(true);
         Self::deposit_event(Event::SetTxPause());
         Ok(())
     }
     pub fn do_unpause() -> DispatchResult {
-        if TxPause::<T>::get() {
+        if NetworkPaused::<T>::get() {
+            // Hooks ran before this extrinsic. Every election at or before this block belongs
+            // to the old network session, even if the pause lasted less than one subnet epoch.
+            LastNetworkUnpauseBlock::<T>::put(Self::get_current_block_as_u32());
             if let Some(pause_start_block) = OverwatchTxPauseStartBlock::<T>::take() {
                 let pause_duration =
                     Self::get_current_block_as_u32().saturating_sub(pause_start_block);
@@ -40,7 +43,7 @@ impl<T: Config> Pallet<T> {
                 });
             }
         }
-        TxPause::<T>::put(false);
+        NetworkPaused::<T>::put(false);
         Self::deposit_event(Event::SetTxUnpause());
         Ok(())
     }

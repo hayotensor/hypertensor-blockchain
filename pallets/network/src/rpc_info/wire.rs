@@ -674,11 +674,17 @@ impl<T: Config> Pallet<T> {
                 .zip(subnet.consensus_eligible_from_subnet_epoch)
                 .map(|(current, eligible_from)| current >= eligible_from)
                 .unwrap_or(false);
-        let elected_validator_subnet_node_id = current_epoch.and_then(|epoch| {
+        // A short global pause may resume in the same local epoch. Its historical election and
+        // proposal remain queryable, but must no longer advertise actionable consensus work.
+        let actionable_epoch = current_epoch.filter(|epoch| {
+            !NetworkPaused::<T>::get()
+                && !Self::consensus_round_precedes_network_resume(subnet_id, *epoch)
+        });
+        let elected_validator_subnet_node_id = actionable_epoch.and_then(|epoch| {
             SubnetElectedValidator::<T>::get(subnet_id, epoch)
                 .map(|round| round.validator_subnet_node_id)
         });
-        let proposal_submitted = current_epoch
+        let proposal_submitted = actionable_epoch
             .map(|epoch| SubnetConsensusSubmission::<T>::contains_key(subnet_id, epoch))
             .unwrap_or(false);
         let emergency_data = EmergencySubnetNodeElectionData::<T>::get(subnet_id);
@@ -694,7 +700,8 @@ impl<T: Config> Pallet<T> {
             state: rpc_subnet_state(subnet.state),
             timing,
             consensus_eligible,
-            within_proposal_attestation_window: Self::can_propose_or_attest_attestation(subnet_id),
+            within_proposal_attestation_window: actionable_epoch.is_some()
+                && Self::can_propose_or_attest_attestation(subnet_id),
             elected_validator_subnet_node_id,
             proposal_submitted,
             validator_set_source: if emergency_active {
