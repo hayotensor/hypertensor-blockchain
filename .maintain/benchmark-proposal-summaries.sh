@@ -32,7 +32,7 @@ if [[ "$mode" == capacity ]]; then
   methods=capacity_precheck,capacity_settlement,capacity_on_initialize,capacity_settlement_reputation,capacity_on_initialize_reputation,capacity_proposal,capacity_attest_last,capacity_attest_all
   settings=(--low 64 --high 512 --steps 8)
 elif [[ "$mode" == weights ]]; then
-  methods=propose_attestation,propose_attestation_emergency,attest,emission_step,emission_step_rejected,emission_step_emergency,precheck_subnet_consensus_submission
+  methods=propose_attestation,attest,emission_step,emission_step_rejected,precheck_subnet_consensus_submission
   settings=(--steps 20)
 else
   echo "Expected capacity or weights" >&2

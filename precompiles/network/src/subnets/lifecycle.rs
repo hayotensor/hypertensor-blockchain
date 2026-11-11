@@ -9,12 +9,6 @@ pub(super) fn convert<T: Config>(input: &Calls) -> Result<Option<pallet_network:
         Calls::activateSubnet(args) => pallet_network::Call::activate_subnet {
             subnet_id: args.subnetId,
         },
-        Calls::ownerPauseSubnet(args) => pallet_network::Call::owner_pause_subnet {
-            subnet_id: args.subnetId,
-        },
-        Calls::ownerUnpauseSubnet(args) => pallet_network::Call::owner_unpause_subnet {
-            subnet_id: args.subnetId,
-        },
         Calls::ownerDeactivateSubnet(args) => pallet_network::Call::owner_deactivate_subnet {
             subnet_id: args.subnetId,
         },

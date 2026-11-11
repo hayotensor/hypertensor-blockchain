@@ -164,13 +164,6 @@ impl<T: Config> Pallet<T> {
                 .is_some_and(|eligible_from_epoch| eligible_from_epoch <= subnet_epoch)
     }
 
-    pub fn is_subnet_paused(subnet_id: u32) -> Option<bool> {
-        match SubnetsData::<T>::try_get(subnet_id) {
-            Ok(subnet) => Some(subnet.state == SubnetState::Paused),
-            Err(()) => None,
-        }
-    }
-
     pub fn is_subnet_owner(account_id: &T::AccountId, subnet_id: u32) -> Option<bool> {
         match SubnetOwner::<T>::try_get(subnet_id) {
             Ok(owner) => Some(&owner == account_id),

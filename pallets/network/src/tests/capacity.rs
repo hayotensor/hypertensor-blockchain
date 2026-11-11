@@ -20,13 +20,10 @@ fn mandatory_slot(h: u32) -> Weight {
         });
     let settlement = accepted
         .max(W::emission_step_rejected(h))
-        .max(W::emission_step_emergency(h.max(64)))
         .max(W::emission_step_missing())
         .saturating_add(db.reads_writes(3, 3))
         .saturating_add(Weight::from_parts(0, 8192 + 4 * (512 + 64)));
-    let election = W::elect_validator(h)
-        .max(W::elect_validator_emergency(64))
-        .max(W::elect_validator_expired(h, 64));
+    let election = W::elect_validator(h);
     W::on_initialize_base()
         .saturating_add(W::advance_overwatch_epoch_noop())
         .saturating_add(W::emission_slot_selector())
@@ -42,18 +39,34 @@ fn proposal_summary_weight_report() {
     for n in (64..=512).step_by(64) {
         let slot = mandatory_slot(n);
         assert!(slot.all_lte(limit));
-        println!("proposal_summary_weight,mandatory_slot,{n},{},{}", slot.ref_time(), slot.proof_size());
+        println!(
+            "proposal_summary_weight,mandatory_slot,{n},{},{}",
+            slot.ref_time(),
+            slot.proof_size()
+        );
     }
-    let scans = W::pending_admitted_removal_scan(512).saturating_add(W::pending_queued_removal_scan(64));
+    let scans =
+        W::pending_admitted_removal_scan(512).saturating_add(W::pending_queued_removal_scan(64));
     let cleanup = W::remove_admitted_subnet_node_dispatch_small(512, 64)
         .max(W::remove_admitted_subnet_node_dispatch_large(512, 512));
     for (name, weight) in [
-        ("proposal_dispatch", W::propose_attestation().max(W::propose_attestation_emergency())
-            .saturating_add(scans.saturating_mul(3)).saturating_add(cleanup)
-            .saturating_add(RocksDbWeight::get().writes(2))),
-        ("attest_dispatch", W::attest().saturating_add(scans.saturating_mul(2))),
+        (
+            "proposal_dispatch",
+            W::propose_attestation()
+                .saturating_add(scans.saturating_mul(3))
+                .saturating_add(cleanup)
+                .saturating_add(RocksDbWeight::get().writes(2)),
+        ),
+        (
+            "attest_dispatch",
+            W::attest().saturating_add(scans.saturating_mul(2)),
+        ),
     ] {
-        println!("proposal_summary_weight,{name},512,{},{}", weight.ref_time(), weight.proof_size());
+        println!(
+            "proposal_summary_weight,{name},512,{},{}",
+            weight.ref_time(),
+            weight.proof_size()
+        );
     }
 }
 
@@ -88,7 +101,6 @@ fn capacity_weight_report() {
     let active_cleanup = W::remove_admitted_subnet_node_dispatch_small(512, 64)
         .max(W::remove_admitted_subnet_node_dispatch_large(512, 512));
     let proposal = W::propose_attestation()
-        .max(W::propose_attestation_emergency())
         .saturating_add(scans.saturating_mul(3))
         .saturating_add(active_cleanup)
         .saturating_add(RocksDbWeight::get().writes(2));

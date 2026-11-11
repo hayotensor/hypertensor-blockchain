@@ -237,9 +237,7 @@ impl<T: Config> Pallet<T> {
 
         // A missing opening snapshot cannot be treated as an empty round. Leave every input in
         // place so finalization can be retried after repair.
-        let Some(settlement_snapshot) =
-            OverwatchEpochSnapshots::<T>::get(settlement.epoch)
-        else {
+        let Some(settlement_snapshot) = OverwatchEpochSnapshots::<T>::get(settlement.epoch) else {
             return weight.saturating_add(db_weight.reads(1));
         };
         weight = weight.saturating_add(db_weight.reads(1));
@@ -521,20 +519,12 @@ impl<T: Config> Pallet<T> {
             if subnet.state == SubnetState::Active
                 && Self::_is_subnet_active_and_live(&subnet, current_subnet_epoch)
             {
-                // Read the regular candidate cardinality before mutating election state. The
-                // selector uses the configured emergency maximum rather than decoding the
-                // variable-sized emergency vector before weight has been reserved.
+                // Read the candidate cardinality before reserving election weight.
                 let cardinality_read_weight = db_weight.reads(1);
                 if weight_meter.can_consume(cardinality_read_weight) {
                     weight_meter.consume(cardinality_read_weight);
                     let candidate_count = Self::elect_validator_weight_component(subnet_id);
-                    let max_emergency = T::MaxEmergencySubnetNodesUpperBound::get();
-                    let election_weight = T::WeightInfo::elect_validator(candidate_count)
-                        .max(T::WeightInfo::elect_validator_emergency(max_emergency))
-                        .max(T::WeightInfo::elect_validator_expired(
-                            candidate_count,
-                            max_emergency,
-                        ));
+                    let election_weight = T::WeightInfo::elect_validator(candidate_count);
 
                     if weight_meter.can_consume(election_weight) {
                         weight_meter.consume(election_weight);
@@ -926,9 +916,8 @@ impl<T: Config> Pallet<T> {
             // SubnetSlot
             eligibility_reads = eligibility_reads.saturating_add(1);
 
-            // Lifecycle changes after an election must not erase that historical round. An exact
-            // election is the allocation authority: newly activated/preparing subnets still have
-            // no exact election, while a subnet paused after electing remains eligible to settle.
+            // An exact election is the allocation authority: newly activated/preparing subnets
+            // have no exact election, and node lifecycle changes must preserve historical rounds.
             // SubnetElectedValidator. The immutable round already excludes quarantined candidates,
             // so its eligible-node cardinality is the reward-allocation authority. The live
             // physical counter intentionally remains reserved for election/removal weight selection.
@@ -950,11 +939,12 @@ impl<T: Config> Pallet<T> {
         let reward_eligible_subnets: BTreeSet<u32> =
             eligible_subnet_totals.keys().copied().collect();
 
-        let (balance_time_weights, balance_time_calc_weight) = Self::get_time_weighted_stake_weights_for_eligible(
-            subnet_ids.clone(),
-            epoch,
-            &reward_eligible_subnets,
-        );
+        let (balance_time_weights, balance_time_calc_weight) =
+            Self::get_time_weighted_stake_weights_for_eligible(
+                subnet_ids.clone(),
+                epoch,
+                &reward_eligible_subnets,
+            );
         weight = weight.saturating_add(balance_time_calc_weight);
 
         for subnet_id in subnet_ids {
@@ -996,8 +986,9 @@ impl<T: Config> Pallet<T> {
 
             // - Get combined weight (stake + node count + retained balance-time) * Overwatch weight
 
-            let subnet_balance_time_weight =
-                Self::get_percent_as_f64(balance_time_weights.get(&subnet_id).cloned().unwrap_or(0));
+            let subnet_balance_time_weight = Self::get_percent_as_f64(
+                balance_time_weights.get(&subnet_id).cloned().unwrap_or(0),
+            );
             let subnet_weight = ((subnet_dstake_weight * delegate_stake_factor
                 + subnet_nodes_weight * node_count_factor
                 + subnet_balance_time_weight * time_weighted_stake_factor)
@@ -1346,11 +1337,7 @@ impl<T: Config> Pallet<T> {
                             new_reputation,
                         ));
 
-                        let min_node_reputation = round
-                            .emergency
-                            .as_ref()
-                            .map(|snapshot| snapshot.min_subnet_node_reputation)
-                            .unwrap_or(round.policy.min_subnet_node_reputation);
+                        let min_node_reputation = round.policy.min_subnet_node_reputation;
                         if new_reputation < min_node_reputation {
                             let (pending_weight, inserted) =
                                 Self::persist_pending_admitted_node_removal(
@@ -1461,7 +1448,6 @@ impl<T: Config> Pallet<T> {
             subnet_nodes: submission.subnet_nodes,
             prioritize_queue_node_id: submission.prioritize_queue_node_id,
             remove_queue_node_id: submission.remove_queue_node_id,
-            emergency: submission.emergency,
         };
 
         (Some(consensus_data), weight)

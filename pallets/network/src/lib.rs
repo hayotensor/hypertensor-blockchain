@@ -134,9 +134,6 @@ pub const MAX_NON_ATTESTING_VALIDATORS_BENCHMARK_DOMAIN: u32 =
 /// Largest queued-node cardinality covered by the generated benchmark weights.
 pub const MAX_REGISTERED_NODES_BENCHMARK_DOMAIN: u32 = 64;
 
-/// Largest emergency-validator cardinality covered by the generated benchmark weights.
-pub const MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN: u32 = 64;
-
 /// Largest Overwatch committee cardinality covered by the generated benchmark weights.
 pub const MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN: u32 = 64;
 
@@ -144,7 +141,7 @@ pub const MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN: u32 = 64;
 ///
 /// This is a fitted-model boundary, not a runtime policy setting. Changing it requires
 /// regenerating both admitted-node-removal models.
-pub const ADMITTED_REMOVAL_ELECTION_MODEL_SPLIT: u32 = MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN;
+pub const ADMITTED_REMOVAL_ELECTION_MODEL_SPLIT: u32 = 64;
 
 /// Largest swap queue/call cardinality covered by the generated benchmark weights.
 pub const MAX_SWAP_QUEUE_BENCHMARK_DOMAIN: u32 = 1_000;
@@ -309,10 +306,6 @@ pub mod pallet {
         /// Runtime ceiling for governance-configurable swap executions per block.
         #[pallet::constant]
         type MaxSwapCallsPerBlockUpperBound: Get<u32>;
-
-        /// Runtime ceiling for the governance-configurable emergency subnet node count.
-        #[pallet::constant]
-        type MaxEmergencySubnetNodesUpperBound: Get<u32>;
 
         /// Runtime ceiling for the governance-configurable maximum admitted nodes in each subnet.
         #[pallet::constant]
@@ -559,7 +552,6 @@ pub mod pallet {
         SetMaxBootnodes(u32),
         SetMaxSubnetBootnodeAccess(u32),
         SetSubnetEnactmentEpochs(u32),
-        SetMaxSubnetPauseEpochs(u32),
         SetMinSubnetRegistrationFee(u128),
         SetMaxSubnetRegistrationFee(u128),
         SetMinRegistrationCost(u128),
@@ -605,7 +597,6 @@ pub mod pallet {
         /// Excess-subnet removal schedule updated as
         /// `(activation_cooldown_epochs, check_interval_epochs)`.
         SetSubnetRemovalIntervals(u32, u32),
-        SetSubnetPauseCooldownEpochs(u32),
         SetMaxSwapQueueCallsPerBlock(u32),
         SetMaxSubnetNodeMinWeightDecreaseReputationThreshold(u128),
         SetValidatorRewardK(u64),
@@ -615,13 +606,10 @@ pub mod pallet {
         SetNodeReputationFactors(u128, u128),
         SetMinSubnetReputation(u128),
         SetNotInConsensusSubnetReputationFactor(u128),
-        SetMaxPauseEpochsSubnetReputationFactor(u128),
         SetLessThanMinNodesSubnetReputationFactor(u128),
         SetValidatorAbsentSubnetReputationFactor(u128),
         SetInConsensusSubnetReputationFactor(u128),
         SetOverwatchWeightFactor(u128),
-        SetMaxEmergencyValidatorEpochsMultiplier(u128),
-        SetMaxEmergencySubnetNodes(u32),
         SetOverwatchStakeWeightFactor(u128),
         SetSubnetWeightFactors(SubnetWeightFactorsData),
         SetDefaultOverwatchSubnetWeight(u128),
@@ -780,23 +768,6 @@ pub mod pallet {
             added: BTreeMap<PeerId, NetworkBytes<T>>,
             removed: BTreeSet<PeerId>,
         },
-        SubnetPaused {
-            subnet_id: u32,
-            owner: T::AccountId,
-        },
-        SubnetUnpaused {
-            subnet_id: u32,
-            owner: T::AccountId,
-        },
-        SubnetForked {
-            subnet_id: u32,
-            owner: T::AccountId,
-            subnet_node_ids: Vec<u32>,
-        },
-        SubnetForkRevert {
-            subnet_id: u32,
-            owner: T::AccountId,
-        },
         AddSubnetRegistrationInitialValidators {
             subnet_id: u32,
             owner: T::AccountId,
@@ -942,10 +913,6 @@ pub mod pallet {
             balance: u128,
             reason: SwapRefundReason,
         },
-        EmergencyValidatorSetExpired {
-            subnet_id: u32,
-        },
-        SetEmergencyValidatorCooldownEpochs(u32),
     }
 
     /// Errors that can be returned by this pallet.
@@ -979,7 +946,6 @@ pub mod pallet {
         InvalidValidatorId,
         InvalidElectedSubnetNode,
         InvalidSubnetNodeClassification,
-        InvalidEmergencySubnetNodeId,
         /// Not subnet owner
         NotSubnetOwner,
         /// Not pending subnet owner
@@ -988,10 +954,6 @@ pub mod pallet {
         NoPendingSubnetOwner,
         /// Pending subnet owner cannot be the zero account
         InvalidPendingSubnetOwner,
-        /// Cannot pause again until pause cooldown epochs is reached
-        SubnetPauseCooldownActive,
-        /// Pause cooldown must allow at least one complete subnet consensus round.
-        InvalidSubnetPauseCooldownEpochs,
         /// Must be less than maximum registrations per epoch
         InvalidTargetNodeRegistrationsPerEpoch,
         /// Peer ID already in use in subnet, peer, client, and bootnode peer ID must be unique
@@ -1016,12 +978,6 @@ pub mod pallet {
         InvalidSubnetId,
         /// Subnet state must be active to perform this action
         SubnetMustBeActive,
-        /// Subnet state must be paused to perform this action
-        SubnetMustBePaused,
-        InvalidMinEmergencySubnetNodes,
-        InvalidMaxEmergencySubnetNodes,
-        /// Subnet is paused, cannot perform this action
-        SubnetIsPaused,
         /// Transaction rate limiter exceeded
         TxRateLimitExceeded,
         /// PeerId format invalid
@@ -1089,7 +1045,6 @@ pub mod pallet {
         InvalidMinDelegateStakeDeposit,
         InvalidMaxBootnodes,
         InvalidMaxSubnetBootnodeAccess,
-        InvalidMaxSubnetPauseEpochs,
         NoAvailableSlots,
         /// The monotonically increasing subnet identifier space has been exhausted.
         SubnetIdExhausted,
@@ -1101,8 +1056,6 @@ pub mod pallet {
         InvalidMaxSubnetNodes,
         /// Invalid percent number, must be in 1e18 format. Used for elements that only require correct format
         InvalidPercent,
-        /// Emergency validators are set, can't update this value
-        EmergencyValidatorsSet,
         MinSubnetNodeReputation,
         InvalidAbsentDecreaseReputationFactor,
         InvalidIncludedIncreaseReputationFactor,
@@ -1116,12 +1069,8 @@ pub mod pallet {
         InvalidValidatorDelegateStakeSlashConfig,
         /// Invalid values
         InvalidValues,
-        EmergencyValidatorsActive,
-        EmergencyValidatorCooldownActive,
-        EmergencyQueueMutationNotAllowed,
         /// Global unpause discarded this round; wait for the next assigned-slot election.
         ConsensusRoundCancelled,
-        InvalidEmergencyValidatorDuration,
         InvalidMinNodeBurnRate,
         InvalidMaxNodeBurnRate,
         InvalidDelegateStakeSubnetRemovalInterval,
@@ -1306,41 +1255,6 @@ pub mod pallet {
         MultiaddrTruncated,
     }
 
-    /// Subnet data
-    ///
-    /// # Fields
-    ///
-    /// * `id` - Unique identifier.
-    /// * `friendly_id` - Friendly ID always between 1-max subnets.
-    /// * `name` - Unique name of the subnet.
-    /// * `repo` - Unique repository of the subnet.
-    /// * `description` - Description of what the subnet does and use cases.
-    /// * `misc` - Misc data.
-    /// * `consensus_mechanism` - Consensus mechanism assigned to the subnet.
-    /// * `state` - Registered, Active, or Paused.
-    /// * `consensus_eligible_from_subnet_epoch` - First subnet epoch in which an active subnet may
-    ///   elect a validator. `None` while registered or paused.
-    /// * `pause` - Global and subnet epoch markers for the current pause. Present only while
-    ///   the subnet is paused.
-    #[derive(
-        Default,
-        Encode,
-        Decode,
-        codec::DecodeWithMemTracking,
-        Copy,
-        Clone,
-        PartialEq,
-        Eq,
-        DebugNoBound,
-        scale_info::TypeInfo,
-    )]
-    pub struct SubnetPauseData {
-        /// General blockchain epoch in which the current pause began.
-        pub started_global_epoch: u32,
-        /// Phase-aware subnet epoch observed when the current pause began.
-        pub started_subnet_epoch: u32,
-    }
-
     /// Consensus mechanism used by a subnet.
     ///
     /// New variants must be appended with an explicit, previously unused SCALE codec index.
@@ -1368,6 +1282,8 @@ pub mod pallet {
         }
     }
 
+    /// Subnet identity, metadata, and lifecycle state. Activation sets the first local
+    /// consensus epoch; registered subnets have no consensus eligibility yet.
     #[derive(
         Default,
         Encode,
@@ -1389,14 +1305,12 @@ pub mod pallet {
         pub consensus_mechanism: ConsensusMechanism,
         pub state: SubnetState,
         pub consensus_eligible_from_subnet_epoch: Option<u32>,
-        pub pause: Option<SubnetPauseData>,
     }
 
     /// Operational states of a subnet in its lifecycle.
     ///
-    /// This enum tracks the current state of a subnet from registration through activation
-    /// and potential pausing. Subnets progress through these states based on time, owner
-    /// actions, and network conditions.
+    /// This enum tracks a subnet from registration through activation. Subnets progress through
+    /// these states based on time, owner actions, and network conditions.
     ///
     /// # Variants
     ///
@@ -1408,19 +1322,13 @@ pub mod pallet {
     /// * `Active` - The subnet can perform preparation maintenance. It participates in
     ///   consensus once its `consensus_eligible_from_subnet_epoch` has been reached.
     ///
-    /// * `Paused` - The subnet has been temporarily suspended by the owner. While paused,
-    ///   no new election or operational maintenance occurs and no new nodes can register,
-    ///   but an already-elected historical round may still be submitted, attested, allocated,
-    ///   and settled. Existing nodes and stake remain in place. The owner can resume the subnet
-    ///   to return it to `Active`, or it may be removed after maximum-pause enforcement.
-    ///
     /// # State Transitions
     ///
     /// The typical lifecycle is:
     /// ```text
-    /// Registered → Active ⇄ Paused
-    ///            ↓        ↓       ↓
-    ///          Removed (terminal state, not in enum)
+    /// Registered → Active
+    ///     ↓           ↓
+    /// Removed (terminal state, not in enum)
     /// ```
     #[derive(
         Default,
@@ -1442,7 +1350,6 @@ pub mod pallet {
         #[default]
         Registered,
         Active,
-        Paused,
     }
 
     /// Configuration data for a subnet during its registration phase before activation.
@@ -1515,14 +1422,10 @@ pub mod pallet {
     /// * `description` - A text description explaining the subnet's purpose and functionality.
     /// * `misc` - Miscellaneous metadata that doesn't fit other categories.
     /// * `consensus_mechanism` - Consensus mechanism assigned to the subnet.
-    /// * `state` - The current operational state of the subnet (e.g., active, paused, removed).
+    /// * `state` - The current operational state of the subnet (registered or active).
     ///   See `SubnetState` for possible values.
     /// * `consensus_eligible_from_subnet_epoch` - First subnet-local epoch in which an active subnet
-    ///   may elect a validator. This is absent for registered and paused subnets.
-    /// * `pause_started_global_epoch` - General blockchain epoch in which the current pause
-    ///   episode began. This is present only while the subnet is paused.
-    /// * `pause_started_subnet_epoch` - Phase-aware subnet-local epoch in which the current
-    ///   pause episode began. This is present only while the subnet is paused.
+    ///   may elect a validator. This is absent for registered subnets.
     /// * `churn_limit` - Maximum Queued nodes admitted as Probation per eligible subnet epoch.
     ///   This does not limit Probation-to-Active promotions or node removals.
     /// * `churn_limit_multiplier` - The multiplier for the ChurnLimit
@@ -1678,26 +1581,6 @@ pub mod pallet {
         Encode,
         Decode,
         codec::DecodeWithMemTracking,
-        Clone,
-        PartialEq,
-        Eq,
-        DebugNoBound,
-        PartialOrd,
-        Ord,
-        scale_info::TypeInfo,
-    )]
-    pub struct EmergencyConsensusSnapshot {
-        pub subnet_node_ids: Vec<u32>,
-        pub reputation_factors: SubnetReputationFactors,
-        pub min_subnet_node_reputation: u128,
-        pub min_weight_decrease_reputation_threshold: u128,
-    }
-
-    #[derive(
-        Default,
-        Encode,
-        Decode,
-        codec::DecodeWithMemTracking,
         Copy,
         Clone,
         PartialOrd,
@@ -1721,15 +1604,6 @@ pub mod pallet {
         pub fn has_update(&self) -> bool {
             self.absent_decrease.is_some()
                 || self.included_increase.is_some()
-                || self.below_min_weight_decrease.is_some()
-                || self.non_attestor_decrease.is_some()
-                || self.non_consensus_attestor_decrease.is_some()
-                || self.validator_absent_decrease.is_some()
-                || self.validator_non_consensus_decrease.is_some()
-        }
-
-        pub fn requires_no_emergency_validators(&self) -> bool {
-            self.absent_decrease.is_some()
                 || self.below_min_weight_decrease.is_some()
                 || self.non_attestor_decrease.is_some()
                 || self.non_consensus_attestor_decrease.is_some()
@@ -1761,8 +1635,6 @@ pub mod pallet {
         pub consensus_mechanism: ConsensusMechanism,
         pub state: SubnetState,
         pub consensus_eligible_from_subnet_epoch: Option<u32>,
-        pub pause_started_global_epoch: Option<u32>,
-        pub pause_started_subnet_epoch: Option<u32>,
         pub churn_limit: u32,
         pub churn_limit_multiplier: u32,
         pub min_stake: u128,
@@ -1892,8 +1764,17 @@ pub mod pallet {
     /// Live operational state shared by admitted storage, queued storage, and the queue.
     /// Networking/descriptive payloads belong to `SubnetNodeMetadata`.
     #[derive(
-        Default, Encode, Decode, codec::DecodeWithMemTracking, Clone, PartialEq, Eq,
-        Debug, PartialOrd, Ord, scale_info::TypeInfo,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        Debug,
+        PartialOrd,
+        Ord,
+        scale_info::TypeInfo,
     )]
     pub struct SubnetNode {
         pub id: u32,
@@ -1903,8 +1784,15 @@ pub mod pallet {
 
     /// Optional live metadata, keyed by (subnet ID, node ID) across queue admission.
     #[derive(
-        frame_support::DefaultNoBound, Encode, Decode, codec::DecodeWithMemTracking,
-        Clone, PartialEq, Eq, DebugNoBound, scale_info::TypeInfo,
+        frame_support::DefaultNoBound,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
     pub struct NodeMetadata<T: Config> {
@@ -2283,7 +2171,6 @@ pub mod pallet {
     pub struct ElectedConsensusRound {
         pub validator_subnet_node_id: u32,
         pub validator_id: u32,
-        pub emergency: Option<EmergencyConsensusSnapshot>,
         pub eligible_subnet_node_ids: Vec<u32>,
         pub eligible_validator_identity_ids: BTreeMap<u32, u32>,
         /// Direct node principal exposed to penalties for this round. Later stake additions must
@@ -2364,7 +2251,6 @@ pub mod pallet {
         pub subnet_nodes: Vec<ConsensusSubnetNode>,
         pub prioritize_queue_node_id: Option<u32>,
         pub remove_queue_node_id: Option<u32>,
-        pub emergency: Option<EmergencyConsensusSnapshot>,
     }
 
     /// Reasons for a subnet's removal from the network.
@@ -2388,8 +2274,6 @@ pub mod pallet {
     /// * `MaxSubnets` - The network has reached maximum subnet capacity, and this subnet
     ///   was removed as the lowest-rated subnet to make room for new registrations.
     /// * `Owner` - The subnet owner voluntarily removed their own subnet.
-    /// * `PauseExpired` - The subnet was paused and the pause period expired without
-    ///   being resumed, resulting in automatic removal.
     #[derive(
         Encode,
         Decode,
@@ -2408,7 +2292,6 @@ pub mod pallet {
         EnactmentPeriod,
         MaxSubnets,
         Owner,
-        PauseExpired,
     }
 
     /// Internal result of a weight-guarded preliminary subnet-removal attempt.
@@ -2485,7 +2368,6 @@ pub mod pallet {
         pub remove_queue_node_id: Option<u32>,
         pub data: Vec<SubnetNodeConsensusData>, // Data submitted by chosen validator
         pub args: Option<ValidatorArgs<T>>, // Optional arguements to pass for subnet to validate
-        pub emergency: Option<EmergencyConsensusSnapshot>,
         /// Checked total of the canonical proposal scores; immutable after proposal creation.
         pub weight_sum: u128,
         /// Distinct identities in `validator_identity_ids`, after proposal-time quarantine filtering.
@@ -2667,8 +2549,7 @@ pub mod pallet {
     pub struct OverwatchEpochSnapshot<T: Config> {
         pub stake_weight_factor: u128,
         pub reward_budget: u128,
-        pub nodes:
-            BoundedBTreeMap<u32, OverwatchNodeStakeSnapshot, T::MaxOverwatchNodesUpperBound>,
+        pub nodes: BoundedBTreeMap<u32, OverwatchNodeStakeSnapshot, T::MaxOverwatchNodesUpperBound>,
     }
 
     impl<T: Config> Default for OverwatchEpochSnapshot<T> {
@@ -3284,13 +3165,6 @@ pub mod pallet {
         T::EpochsPerYear::get() / 52
     }
     /// This type value is referenced in:
-    /// - MaxSubnetPauseEpochs
-    #[pallet::type_value]
-    pub fn DefaultMaxSubnetPauseEpochs<T: Config>() -> u32 {
-        // 3 months
-        T::EpochsPerYear::get() / 4
-    }
-    /// This type value is referenced in:
     /// - MinQueueEpochs
     /// - SubnetNodeQueueEpochs
     /// - QueueImmunityEpochs
@@ -3508,11 +3382,6 @@ pub mod pallet {
         125000000000000000
     }
     #[pallet::type_value]
-    pub fn DefaultMaxPauseEpochsSubnetReputationFactor() -> u128 {
-        // 12.5%
-        125000000000000000
-    }
-    #[pallet::type_value]
     pub fn DefaultLessThanMinNodesSubnetReputationFactor() -> u128 {
         // 12.5%
         125000000000000000
@@ -3636,13 +3505,6 @@ pub mod pallet {
         500_000_000_000_000_000
     }
     /// This type value is referenced in:
-    /// - SubnetPauseCooldownEpochs
-    #[pallet::type_value]
-    pub fn DefaultSubnetPauseCooldownEpochs<T: Config>() -> u32 {
-        // A subnet must complete at least one local consensus round before it can pause again.
-        1
-    }
-    /// This type value is referenced in:
     /// - LastRegistrationCost
     #[pallet::type_value]
     pub fn DefaultLastRegistrationCost<T: Config>() -> u128 {
@@ -3690,19 +3552,6 @@ pub mod pallet {
         100000000000000000
     }
     #[pallet::type_value]
-    pub fn DefaultMaxEmergencyValidatorEpochsMultiplier() -> u128 {
-        // 200%, doubles the target seudo fork epochs
-        2000000000000000000
-    }
-    #[pallet::type_value]
-    pub fn DefaultMaxEmergencySubnetNodes() -> u32 {
-        64
-    }
-    #[pallet::type_value]
-    pub fn DefaultEmergencyValidatorCooldownEpochs<T: Config>() -> u32 {
-        T::EpochsPerYear::get() / 12
-    }
-    #[pallet::type_value]
     pub fn DefaultSubnetWeightFactors() -> SubnetWeightFactorsData {
         return SubnetWeightFactorsData {
             delegate_stake: 400000000000000000,
@@ -3726,8 +3575,17 @@ pub mod pallet {
 
     /// Lazy balance-time accounting. The epoch is derived from `last_updated_block`.
     #[derive(
-        Default, Encode, Decode, codec::DecodeWithMemTracking, Clone, Copy, PartialEq, Eq,
-        DebugNoBound, scale_info::TypeInfo, MaxEncodedLen,
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
+        MaxEncodedLen,
     )]
     pub struct SubnetBalanceTime {
         pub last_updated_block: u32,
@@ -3749,11 +3607,11 @@ pub mod pallet {
     #[pallet::storage] // subnet_id => count
     pub type FriendlyUidSubnetId<T> = StorageMap<_, Identity, u32, u32, OptionQuery>;
 
-    /// Count of all registered, active, and paused subnets.
+    /// Count of all registered and active subnets.
     #[pallet::storage]
     pub type TotalSubnets<T> = StorageValue<_, u32, ValueQuery>;
 
-    /// Count of non-registered subnets, including both active and paused subnets.
+    /// Count of active subnets.
     #[pallet::storage]
     pub type TotalActiveSubnets<T> = StorageValue<_, u32, ValueQuery>;
 
@@ -3769,12 +3627,6 @@ pub mod pallet {
     /// Owner of subnet (defaulted to registerer of subnet)
     #[pallet::storage] // subnet_id => AccountId
     pub type SubnetOwner<T: Config> = StorageMap<_, Identity, u32, T::AccountId>;
-
-    /// Minimum completed subnet consensus rounds between activation/unpause and the next pause.
-    /// Governance may update this immediately, but the value must be at least one.
-    #[pallet::storage]
-    pub type SubnetPauseCooldownEpochs<T> =
-        StorageValue<_, u32, ValueQuery, DefaultSubnetPauseCooldownEpochs<T>>;
 
     /// Most recent epoch a subnet was activated on
     /// Used to calculate subnet removal intervals
@@ -3793,7 +3645,8 @@ pub mod pallet {
 
     /// The minimum subnet registration fee
     #[pallet::storage]
-    pub type MinRegistrationCost<T> = StorageValue<_, u128, ValueQuery, DefaultMinRegistrationCost<T>>;
+    pub type MinRegistrationCost<T> =
+        StorageValue<_, u128, ValueQuery, DefaultMinRegistrationCost<T>>;
 
     /// Last block the price was updated
     #[pallet::storage]
@@ -3846,60 +3699,6 @@ pub mod pallet {
     /// All Active subnet nodes are in this list, and all in this list are Active subnet nodes
     #[pallet::storage]
     pub type SubnetNodeElectionSlots<T> = StorageMap<_, Identity, u32, Vec<u32>, ValueQuery>;
-
-    /// Data for emergency subnet validator election
-    ///
-    /// This is used to track the emergency validator election data for a subnet
-    ///
-    /// subnet_node_ids: List of subnet node ids that are eligible for emergency validator election
-    /// target_emergency_validators_epochs: The number of epochs to elect emergency validators for
-    /// max_emergency_validators_epoch: The epoch at which the emergency validator election will end
-    /// total_epochs: (mutable) The total number of epochs to elect emergency validators for
-    #[derive(
-        Default,
-        Encode,
-        Decode,
-        codec::DecodeWithMemTracking,
-        Clone,
-        PartialEq,
-        Eq,
-        DebugNoBound,
-        PartialOrd,
-        Ord,
-        scale_info::TypeInfo,
-    )]
-    pub struct EmergencySubnetValidatorData {
-        pub subnet_node_ids: Vec<u32>,
-        pub target_emergency_validators_epochs: u32,
-        pub max_emergency_validators_epoch: u32,
-        pub total_epochs: u32,
-        pub activated: bool,
-        pub started_subnet_epoch: u32,
-        pub reputation_factors: SubnetReputationFactors,
-        pub min_subnet_node_reputation: u128,
-        pub min_weight_decrease_reputation_threshold: u128,
-    }
-
-    #[pallet::storage]
-    pub type EmergencySubnetNodeElectionData<T> =
-        StorageMap<_, Identity, u32, EmergencySubnetValidatorData, OptionQuery>;
-
-    #[pallet::storage]
-    pub type MaxEmergencySubnetNodes<T> =
-        StorageValue<_, u32, ValueQuery, DefaultMaxEmergencySubnetNodes>;
-
-    /// The multiplier used to get the EmergencySubnetValidatorData.max_emergency_validators_epoch
-    /// Example: `current subnet epoch + target_emergency_validators_epochs * MaxEmergencyValidatorEpochsMultiplier`
-    #[pallet::storage]
-    pub type MaxEmergencyValidatorEpochsMultiplier<T> =
-        StorageValue<_, u128, ValueQuery, DefaultMaxEmergencyValidatorEpochsMultiplier>;
-
-    #[pallet::storage]
-    pub type LastEmergencyValidatorEndEpoch<T> = StorageMap<_, Identity, u32, u32, ValueQuery>;
-
-    #[pallet::storage]
-    pub type EmergencyValidatorCooldownEpochs<T: Config> =
-        StorageValue<_, u32, ValueQuery, DefaultEmergencyValidatorCooldownEpochs<T>>;
 
     /// Physical Active election-slot count in a subnet; pending removals are filtered at election.
     #[pallet::storage]
@@ -3955,11 +3754,6 @@ pub mod pallet {
     #[pallet::storage]
     pub type NewRegistrationCostMultiplier<T> =
         StorageValue<_, u128, ValueQuery, DefaultNewRegistrationCostMultiplier>;
-
-    /// Max epochs a subnet can be in the pause state for
-    #[pallet::storage]
-    pub type MaxSubnetPauseEpochs<T> =
-        StorageValue<_, u32, ValueQuery, DefaultMaxSubnetPauseEpochs<T>>;
 
     /// Number of epochs after `PrevSubnetActivationEpoch` before excess-subnet removal is allowed.
     /// Allows newly activated subnets time to increase delegate stake. Zero disables the cooldown.
@@ -4143,7 +3937,8 @@ pub mod pallet {
     /// Base reward per epoch for validators
     /// This is the base reward to subnet validators on successful attestation
     #[pallet::storage]
-    pub type BaseValidatorReward<T> = StorageValue<_, u128, ValueQuery, DefaultBaseValidatorReward<T>>;
+    pub type BaseValidatorReward<T> =
+        StorageValue<_, u128, ValueQuery, DefaultBaseValidatorReward<T>>;
 
     /// Sigmoid steepness for getting factor of what percentage of the base reward a validator receives
     /// Used in `get_validator_reward_multiplier`
@@ -5050,11 +4845,6 @@ pub mod pallet {
     #[pallet::storage]
     pub type NotInConsensusSubnetReputationFactor<T> =
         StorageValue<_, u128, ValueQuery, DefaultNotInConsensusSubnetReputationFactor>;
-
-    /// Subnet reputation factor when a paused subnet is passed the max pause epochs (set by collective)
-    #[pallet::storage]
-    pub type MaxPauseEpochsSubnetReputationFactor<T> =
-        StorageValue<_, u128, ValueQuery, DefaultMaxPauseEpochsSubnetReputationFactor>;
 
     /// Subnet reputation factor when a subnet has less than the required minimum electable nodes (set by collective)
     #[pallet::storage]
@@ -6193,21 +5983,6 @@ pub mod pallet {
             Self::do_activate_subnet(subnet_id)
         }
 
-        #[pallet::call_index(8)]
-        #[pallet::weight(T::WeightInfo::owner_pause_subnet())]
-        pub fn owner_pause_subnet(origin: OriginFor<T>, subnet_id: u32) -> DispatchResult {
-            Self::is_paused()?;
-            Self::do_owner_pause_subnet(origin, subnet_id)
-        }
-
-        #[pallet::call_index(9)]
-        #[pallet::weight(T::WeightInfo::owner_unpause_subnet())]
-        #[frame_support::transactional]
-        pub fn owner_unpause_subnet(origin: OriginFor<T>, subnet_id: u32) -> DispatchResult {
-            Self::is_paused()?;
-            Self::do_owner_unpause_subnet(origin, subnet_id)
-        }
-
         #[pallet::call_index(10)]
         #[pallet::weight(
             T::WeightInfo::owner_deactivate_subnet().saturating_add(
@@ -6353,27 +6128,6 @@ pub mod pallet {
         ) -> DispatchResult {
             Self::is_paused()?;
             Self::do_owner_remove_initial_validators(origin, subnet_id, validators)
-        }
-
-        #[pallet::call_index(31)]
-        #[pallet::weight(T::WeightInfo::owner_set_emergency_validator_set())]
-        pub fn owner_set_emergency_validator_set(
-            origin: OriginFor<T>,
-            subnet_id: u32,
-            subnet_node_ids: Vec<u32>,
-        ) -> DispatchResult {
-            Self::is_paused()?;
-            Self::do_owner_set_emergency_validator_set(origin, subnet_id, subnet_node_ids)
-        }
-
-        #[pallet::call_index(32)]
-        #[pallet::weight(T::WeightInfo::owner_revert_emergency_validator_set())]
-        pub fn owner_revert_emergency_validator_set(
-            origin: OriginFor<T>,
-            subnet_id: u32,
-        ) -> DispatchResult {
-            Self::is_paused()?;
-            Self::do_owner_revert_emergency_validator_set(origin, subnet_id)
         }
 
         #[pallet::call_index(33)]
@@ -6668,8 +6422,7 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            let node_coldkey =
-                Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+            let node_coldkey = Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
 
             ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
@@ -6701,8 +6454,7 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            let node_coldkey =
-                Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+            let node_coldkey = Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
 
             ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
@@ -6734,8 +6486,7 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            let node_coldkey =
-                Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+            let node_coldkey = Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
 
             ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
@@ -6767,8 +6518,7 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            let node_coldkey =
-                Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+            let node_coldkey = Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
 
             ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
@@ -6800,8 +6550,7 @@ pub mod pallet {
 
             Self::is_paused()?;
 
-            let node_coldkey =
-                Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
+            let node_coldkey = Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
 
             ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
@@ -7294,7 +7043,6 @@ pub mod pallet {
         #[pallet::call_index(69)]
         #[pallet::weight(
             T::WeightInfo::propose_attestation()
-                .max(T::WeightInfo::propose_attestation_emergency())
                 .saturating_add(Pallet::<T>::maximum_pending_admitted_cleanup_dispatch_weight())
         )]
         pub fn propose_attestation(
@@ -7621,13 +7369,6 @@ pub mod pallet {
             Self::do_set_max_subnet_bootnodes_access(value)
         }
 
-        #[pallet::call_index(89)]
-        #[pallet::weight(T::WeightInfo::set_max_pause_epochs())]
-        pub fn set_max_pause_epochs(origin: OriginFor<T>, value: u32) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_max_pause_epochs(value)
-        }
-
         #[pallet::call_index(90)]
         #[pallet::weight(T::WeightInfo::set_delegate_stake_subnet_removal_interval())]
         pub fn set_delegate_stake_subnet_removal_interval(
@@ -7648,16 +7389,6 @@ pub mod pallet {
         ) -> DispatchResult {
             T::MajorityCollectiveOrigin::ensure_origin(origin)?;
             Self::do_set_subnet_removal_intervals(activation_cooldown_epochs, check_interval_epochs)
-        }
-
-        #[pallet::call_index(92)]
-        #[pallet::weight(T::WeightInfo::set_subnet_pause_cooldown_epochs())]
-        pub fn set_subnet_pause_cooldown_epochs(
-            origin: OriginFor<T>,
-            value: u32,
-        ) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_subnet_pause_cooldown_epochs(value)
         }
 
         #[pallet::call_index(93)]
@@ -8073,16 +7804,6 @@ pub mod pallet {
             Self::do_set_not_in_consensus_subnet_reputation_factor(value)
         }
 
-        #[pallet::call_index(155)]
-        #[pallet::weight(T::WeightInfo::set_max_pause_epochs_subnet_reputation_factor())]
-        pub fn set_max_pause_epochs_subnet_reputation_factor(
-            origin: OriginFor<T>,
-            value: u128,
-        ) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_max_pause_epochs_subnet_reputation_factor(value)
-        }
-
         #[pallet::call_index(156)]
         #[pallet::weight(T::WeightInfo::set_less_than_min_nodes_subnet_reputation_factor())]
         pub fn set_less_than_min_nodes_subnet_reputation_factor(
@@ -8118,23 +7839,6 @@ pub mod pallet {
         pub fn set_overwatch_weight_factor(origin: OriginFor<T>, value: u128) -> DispatchResult {
             T::MajorityCollectiveOrigin::ensure_origin(origin)?;
             Self::do_set_overwatch_weight_factor(value)
-        }
-
-        #[pallet::call_index(160)]
-        #[pallet::weight(T::WeightInfo::set_max_emergency_validator_epochs_multiplier())]
-        pub fn set_max_emergency_validator_epochs_multiplier(
-            origin: OriginFor<T>,
-            value: u128,
-        ) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_max_emergency_validator_epochs_multiplier(value)
-        }
-
-        #[pallet::call_index(161)]
-        #[pallet::weight(T::WeightInfo::set_max_emergency_subnet_nodes())]
-        pub fn set_max_emergency_subnet_nodes(origin: OriginFor<T>, value: u32) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_max_emergency_subnet_nodes(value)
         }
 
         #[pallet::call_index(162)]
@@ -8233,16 +7937,6 @@ pub mod pallet {
         ) -> DispatchResult {
             Self::is_paused()?;
             Self::do_owner_update_consensus_validator_node_count_decay(origin, subnet_id, value)
-        }
-
-        #[pallet::call_index(171)]
-        #[pallet::weight(T::WeightInfo::set_emergency_validator_cooldown_epochs())]
-        pub fn set_emergency_validator_cooldown_epochs(
-            origin: OriginFor<T>,
-            value: u32,
-        ) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_emergency_validator_cooldown_epochs(value)
         }
 
         #[pallet::call_index(172)]
@@ -8634,15 +8328,17 @@ pub mod pallet {
                 consensus_mechanism: ConsensusMechanism::default(),
                 state: SubnetState::Registered,
                 consensus_eligible_from_subnet_epoch: None,
-                pause: None,
             };
 
             // Store subnet data
             SubnetsData::<T>::insert(subnet_id, &subnet_data);
-            SubnetBalanceTimes::<T>::insert(subnet_id, SubnetBalanceTime {
-                last_updated_block: Self::get_current_block_as_u32(),
-                ..Default::default()
-            });
+            SubnetBalanceTimes::<T>::insert(
+                subnet_id,
+                SubnetBalanceTime {
+                    last_updated_block: Self::get_current_block_as_u32(),
+                    ..Default::default()
+                },
+            );
 
             // Store owner
             SubnetOwner::<T>::insert(subnet_id, &owner);
@@ -8756,10 +8452,15 @@ pub mod pallet {
                 return Err(Error::<T>::SubnetActivationConditionsNotMetYet.into());
             }
 
-            // Case 3: Remove subnet if in enactment period and can't activate
+            // Case 3: During enactment, only a delegate-stake shortfall is retryable.
             if let (true, Some(removal_reason)) =
                 (!can_subnet_be_active && in_enactment_period, reason.clone())
             {
+                // Reputation and node count are checked before delegation, so this reason
+                // means only funding is missing. Delegators can still fund the subnet here.
+                if removal_reason == SubnetRemovalReason::MinSubnetDelegateStake {
+                    return Err(Error::<T>::SubnetActivationConditionsNotMetYet.into());
+                }
                 weight = weight.saturating_add(Self::do_remove_subnet(subnet_id, removal_reason));
                 return Ok(None.into());
             }
@@ -8777,7 +8478,6 @@ pub mod pallet {
                 // Preserve the activation policy of starting at the subnet slot in the next
                 // general epoch. At that assigned slot the phase-aware subnet label is identical.
                 params.consensus_eligible_from_subnet_epoch = Some(epoch.saturating_add(1));
-                params.pause = None;
                 Ok(())
             })?;
 
@@ -8859,7 +8559,6 @@ pub mod pallet {
                 .saturating_add(
                     T::WeightInfo::do_remove_registered_subnet_initial_validator_cleanup(),
                 )
-                .saturating_add(T::WeightInfo::do_remove_subnet_emergency_cleanup())
                 .saturating_add(Self::pending_node_removal_marker_clear_weight());
 
             if !weight_meter.can_consume(step_weight) {
@@ -8892,11 +8591,11 @@ pub mod pallet {
         /// - **`EnactmentPeriod`**: Subnet owner missed the activation deadline (passed enactment period end)
         /// - **`MinReputation`**: Subnet failed to maintain minimum reputation requirement
         /// - **`MinSubnetNodes`**: Subnet failed to meet minimum node count (typically 3)
-        /// - **`MinSubnetDelegateStake`**: Insufficient delegate stake balance
+        ///
+        /// Delegate-stake shortfalls alone are retryable until the enactment deadline.
         ///
         /// ## Operational Removals
         ///
-        /// - **`MaxPauseEpochs`**: Subnet was paused for too long (exceeded maximum pause duration)
         /// - **`NotInConsensus`**: Subnet consistently failed to achieve consensus
         /// - **`LessThanMinNodes`**: Admitted node count dropped below minimum threshold
         /// - **`ValidatorProposalAbsent`**: Validator failed to submit proposals consistently
@@ -8954,10 +8653,6 @@ pub mod pallet {
         /// - `MinSubnetNodeReputation` - Minimum required node reputation
         /// - `SubnetNodeMinWeightDecreaseReputationThreshold` - Weight threshold for penalties
         /// - `SubnetReputationFactorSchedules` - Current and pending node reputation factors
-        ///
-        /// ### State Tracking
-        /// - `SubnetsData::pause` - Atomic global/subnet pause timestamps
-        /// - `EmergencySubnetNodeElectionData` - Emergency validator election state
         ///
         /// ## 3. Subnet Identifiers (2 items)
         ///
@@ -9048,7 +8743,7 @@ pub mod pallet {
         /// - **Node Cleanup**: Variable (see `clean_subnet_nodes` - scales with node count)
         ///
         /// Fixed storage weight before event and node cleanup is 5 reads and 54 writes, plus the
-        /// conditional friendly-ID write and, for active/paused subnets, 1 read and 1 write.
+        /// conditional friendly-ID write and, for active subnets, 1 read and 1 write.
         ///
         /// # Events
         ///
@@ -9087,8 +8782,10 @@ pub mod pallet {
         /// ### 3. Activation Failure During Enactment
         /// - **Path**: `activate_subnet` extrinsic → `do_activate_subnet` → `do_remove_subnet`
         /// - **Who**: Called by owner attempting to activate
-        /// - **Reason**: `SubnetRemovalReason::MinReputation`, `MinSubnetNodes`, or `MinSubnetDelegateStake`
-        /// - **When**: Owner attempts activation during enactment period but requirements not met
+        /// - **Reason**: `SubnetRemovalReason::MinReputation` or `MinSubnetNodes`
+        /// - **When**: Owner attempts activation during enactment but reputation or node count is insufficient
+        /// - **Exception**: A delegate-stake shortfall alone returns `SubnetActivationConditionsNotMetYet`
+        ///   and preserves the subnet for funding and retry before expiry.
         ///
         /// ### 4. Missed Activation Deadline
         /// - **Path**: `activate_subnet` extrinsic → `do_activate_subnet` → `do_remove_subnet`
@@ -9115,17 +8812,7 @@ pub mod pallet {
         /// - **Reason**: `SubnetRemovalReason::EnactmentPeriod`
         /// - **Rationale**: Owner failed to activate subnet within allowed time window
         ///
-        /// ### 7. Paused Too Long with Low Reputation
-        /// - **State**: Subnet in `Paused` state
-        /// - **Condition**:
-        ///   1. `pause.started_global_epoch + MaxSubnetPauseEpochs < current_epoch`
-        ///   2. Reputation decreased by `MaxPauseEpochsSubnetReputationFactor`
-        ///   3. Resulting reputation < `MinSubnetReputation`
-        /// - **Reason**: `SubnetRemovalReason::PauseExpired`
-        /// - **Rationale**: Subnet paused too long and reputation dropped too low
-        /// - **Note**: Reputation is decreased first, then checked; subnet may survive if reputation stays above minimum
-        ///
-        /// ### 8. Insufficient Delegate Stake (Active Subnets)
+        /// ### 7. Insufficient Delegate Stake (Active Subnets)
         /// - **State**: Subnet in `Active` state
         /// - **Condition**:
         ///   1. `TotalSubnetDelegateStakeBalance` is below `MinSubnetDelegateStakeBalance`
@@ -9134,7 +8821,7 @@ pub mod pallet {
         /// - **Rationale**: Insufficient community stake support, checked periodically to give time to recover
         /// - **Note**: Not checked every epoch - only on interval epochs to allow recovery time
         ///
-        /// ### 9. Low Reputation (Active Subnets)
+        /// ### 8. Low Reputation (Active Subnets)
         /// - **State**: Subnet in `Active` state
         /// - **Condition**: `SubnetReputation < MinSubnetReputation`
         /// - **Reason**: `SubnetRemovalReason::MinReputation`
@@ -9145,15 +8832,15 @@ pub mod pallet {
         ///   - Validator absence
         ///   - Other runtime logic
         ///
-        /// ### 10. Excess Subnets (Lowest Stake Removal)
-        /// - **State**: Subnet in `Active` or `Paused` state
+        /// ### 9. Excess Subnets (Lowest Stake Removal)
+        /// - **State**: Subnet in `Active` state
         /// - **Condition**:
         ///   1. The immutable pass snapshot initially contains more than `MaxSubnets`, so
         ///      capacity candidates are collected
         ///   2. `epoch % SubnetRemovalCheckInterval == 0` (designated removal epochs)
         ///   3. `epoch >= PrevSubnetActivationEpoch + SubnetRemovalActivationCooldown` (cooldown period)
         ///   4. Successful health removals still leave more than `MaxSubnets`
-        ///   5. Subnet has lowest `TotalSubnetDelegateStakeBalance` among all active and paused subnets
+        ///   5. Subnet has lowest `TotalSubnetDelegateStakeBalance` among all eligible active subnets
         /// - **Reason**: `SubnetRemovalReason::MaxSubnets`
         /// - **Rationale**: Network at capacity, least-supported subnet removed
         /// - **Note**: At most one capacity subnet is removed per eligible pass. A successful
@@ -9168,12 +8855,6 @@ pub mod pallet {
         ///     IF in enactment period:
         ///       IF admitted_nodes < min → Remove (MinSubnetNodes)
         ///     IF past enactment period → Remove (EnactmentPeriod)
-        ///   
-        ///   IF state == Paused:
-        ///     IF paused_too_long:
-        ///       Decrease reputation
-        ///       IF reputation < min → Remove (PauseExpired)
-        ///     IF initially_over_capacity AND is_removal_epoch AND can_remove → Track candidate
         ///   
         ///   IF state == Active:
         ///     IF delegate_stake < min AND is_dstake_epoch → Remove (MinSubnetDelegateStake)
@@ -9199,7 +8880,7 @@ pub mod pallet {
         /// - Removed subnet IDs are not reused
         /// - Epoch slot is freed for assignment to new subnets
         /// - Historical consensus data is preserved for analysis
-        /// - Total subnet count is decremented; active/paused removals also decrement the active count
+        /// - Total subnet count is decremented; active removals also decrement the active count
         /// - Removal during registration period returns all registration costs (governance decision)
         ///
         pub fn do_remove_subnet(subnet_id: u32, reason: SubnetRemovalReason) -> Weight {
@@ -9261,8 +8942,6 @@ pub mod pallet {
             LastConsensusValidatorStakeWeightPowerUpdate::<T>::remove(subnet_id);
             SubnetBootnodeAccess::<T>::remove(subnet_id);
             SubnetBootnodes::<T>::remove(subnet_id);
-            EmergencySubnetNodeElectionData::<T>::remove(subnet_id);
-            LastEmergencyValidatorEndEpoch::<T>::remove(subnet_id);
             SubnetReputation::<T>::remove(subnet_id);
             MinSubnetNodeReputation::<T>::remove(subnet_id);
             PendingMinSubnetNodeReputation::<T>::remove(subnet_id);
@@ -9292,9 +8971,7 @@ pub mod pallet {
             weight = weight.saturating_add(T::DbWeight::get().reads_writes(2, 3));
 
             if subnet.state != SubnetState::Registered {
-                // A subnet is counted in `TotalActiveSubnets` as long as it isn't registered
-                // i.e., it can be paused and still be in `TotalActiveSubnets`
-                // Dec total active subnets, if active
+                // Decrement the active count when removing an activated subnet.
                 TotalActiveSubnets::<T>::mutate(|n: &mut u32| n.saturating_dec());
                 weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
             }
@@ -9527,12 +9204,6 @@ pub mod pallet {
                 Ok(subnet) => subnet,
                 Err(()) => return Err(Error::<T>::InvalidSubnetId.into()),
             };
-
-            // Ensure subnet is not paused
-            ensure!(
-                subnet.state != SubnetState::Paused,
-                Error::<T>::SubnetIsPaused
-            );
 
             // - Get standard epoch to check if subnet can accept registrations
             let epoch: u32 = Self::get_current_epoch_as_u32();
@@ -9923,7 +9594,6 @@ pub mod pallet {
             // or queue processing in an Active subnet.
             if subnet_state == SubnetState::Registered && queue
                 || subnet_state == SubnetState::Active && !queue
-                || subnet_state == SubnetState::Paused
             {
                 return false;
             }
@@ -10006,7 +9676,8 @@ pub mod pallet {
             let percentage_factor = DefaultPercentageFactorU128::<T>::get();
             let weight_factors = DefaultSubnetWeightFactors::get();
             assert_eq!(
-                weight_factors.delegate_stake
+                weight_factors
+                    .delegate_stake
                     .saturating_add(weight_factors.node_count)
                     .saturating_add(weight_factors.time_weighted_stake),
                 percentage_factor,
@@ -10100,15 +9771,8 @@ pub mod pallet {
                 "max swap calls per block upper bound must not exceed the swap queue capacity"
             );
             assert!(
-                DefaultMaxEmergencySubnetNodes::get()
-                    <= T::MaxEmergencySubnetNodesUpperBound::get(),
-                "default max emergency subnet nodes must not exceed the runtime upper bound"
-            );
-            assert!(
                 T::MaxChurnLimitUpperBound::get() <= T::MaxSubnetNodesUpperBound::get()
-                    && T::MaxRegisteredNodesUpperBound::get() <= T::MaxSubnetNodesUpperBound::get()
-                    && T::MaxEmergencySubnetNodesUpperBound::get()
-                        <= T::MaxSubnetNodesUpperBound::get(),
+                    && T::MaxRegisteredNodesUpperBound::get() <= T::MaxSubnetNodesUpperBound::get(),
                 "node-count upper bounds must not exceed the subnet-node upper bound"
             );
             assert!(
@@ -10120,8 +9784,6 @@ pub mod pallet {
                         <= MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN
                     && T::MaxRegisteredNodesUpperBound::get()
                         <= MAX_REGISTERED_NODES_BENCHMARK_DOMAIN
-                    && T::MaxEmergencySubnetNodesUpperBound::get()
-                        <= MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN
                     && T::MaxOverwatchNodesUpperBound::get()
                         <= MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN,
                 "runtime node-count bounds must be non-zero where required and remain inside the generated benchmark domains"
@@ -10153,7 +9815,6 @@ pub mod pallet {
                 );
             let max_settlement_weight = accepted_settlement_weight
                 .max(T::WeightInfo::emission_step_rejected(max_h))
-                .max(T::WeightInfo::emission_step_emergency(max_h))
                 .max(T::WeightInfo::emission_step_missing())
                 .max(T::WeightInfo::emission_step_cancelled())
                 .saturating_add(
@@ -10161,10 +9822,7 @@ pub mod pallet {
                         .reads_writes(3, 3)
                         .saturating_add(Self::pending_subnet_node_removal_proof_weight()),
                 );
-            let max_e = T::MaxEmergencySubnetNodesUpperBound::get();
-            let max_election_weight = T::WeightInfo::elect_validator(max_h)
-                .max(T::WeightInfo::elect_validator_emergency(max_e))
-                .max(T::WeightInfo::elect_validator_expired(max_h, max_e));
+            let max_election_weight = T::WeightInfo::elect_validator(max_h);
             let mandatory_slot_weight = T::WeightInfo::on_initialize_base()
                 .saturating_add(T::WeightInfo::advance_overwatch_epoch_noop())
                 .saturating_add(T::WeightInfo::emission_slot_selector())
@@ -10455,12 +10113,7 @@ pub mod pallet {
                     let settlement_branch_weight = if historical_items == 0 {
                         T::WeightInfo::emission_step_missing()
                     } else {
-                        accepted_weight
-                            .max(T::WeightInfo::emission_step_rejected(accepted_h))
-                            .max(T::WeightInfo::emission_step_emergency(accepted_h.clamp(
-                                MAX_EMERGENCY_SUBNET_NODES_BENCHMARK_DOMAIN,
-                                T::MaxSubnetNodesUpperBound::get(),
-                            )))
+                        accepted_weight.max(T::WeightInfo::emission_step_rejected(accepted_h))
                     };
                     // The accepted payout maximum and the full threshold-crossing marker maximum
                     // are mutually exclusive. Reserve the bounded marker writes and event proof

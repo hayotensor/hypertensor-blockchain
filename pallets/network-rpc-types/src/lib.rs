@@ -204,7 +204,6 @@ pub enum SubnetState {
     #[default]
     Registered,
     Active,
-    Paused,
 }
 
 /// Ordered subnet-node lifecycle, distinct from the subnet's own registration state.
@@ -335,8 +334,6 @@ pub struct SubnetInfo<AccountId> {
     pub consensus_mechanism: ConsensusMechanism,
     pub state: SubnetState,
     pub consensus_eligible_from_subnet_epoch: Option<u32>,
-    pub pause_started_global_epoch: Option<u32>,
-    pub pause_started_subnet_epoch: Option<u32>,
     pub churn_limit: u32,
     pub churn_limit_multiplier: u32,
     pub min_stake: RpcU128,
@@ -553,16 +550,6 @@ pub struct EffectiveOverwatchSubnetWeight {
     Default, Copy, Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo, Serialize, Deserialize,
 )]
 #[serde(rename_all = "camelCase")]
-pub enum ConsensusElectionSource {
-    #[default]
-    Regular,
-    Emergency,
-}
-
-#[derive(
-    Default, Copy, Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo, Serialize, Deserialize,
-)]
-#[serde(rename_all = "camelCase")]
 pub enum ConsensusRoundStatus {
     #[default]
     Elected,
@@ -600,17 +587,6 @@ pub struct ConsensusPolicyInfo {
     pub probation_rounds: u32,
     pub queue_immunity_epochs: u32,
     pub reputation_factors: SubnetReputationFactors,
-}
-
-#[derive(
-    Default, Clone, Debug, PartialEq, Eq, Encode, Decode, TypeInfo, Serialize, Deserialize,
-)]
-#[serde(rename_all = "camelCase")]
-pub struct EmergencyConsensusInfo {
-    pub subnet_node_ids: Vec<u32>,
-    pub reputation_factors: SubnetReputationFactors,
-    pub min_subnet_node_reputation: RpcU128,
-    pub min_weight_decrease_reputation_threshold: RpcU128,
 }
 
 #[derive(
@@ -667,7 +643,6 @@ pub struct ConsensusProposalInfo {
     pub remove_queue_node_id: Option<u32>,
     pub scores: Vec<ConsensusNodeScore>,
     pub args: Option<RpcBytes>,
-    pub emergency: Option<EmergencyConsensusInfo>,
 }
 
 /// Historical election and proposal snapshots. It never fetches mutable current node data, so a
@@ -680,7 +655,6 @@ pub struct ConsensusRoundInfo {
     pub subnet_id: u32,
     pub subnet_epoch: u32,
     pub status: ConsensusRoundStatus,
-    pub election_source: ConsensusElectionSource,
     pub elected_subnet_node_id: u32,
     pub elected_validator_id: u32,
     pub validator_delegate_balance_at_election: RpcU128,
@@ -715,8 +689,6 @@ pub struct SubnetEpochStatus {
     pub within_proposal_attestation_window: bool,
     pub elected_validator_subnet_node_id: Option<u32>,
     pub proposal_submitted: bool,
-    pub validator_set_source: ConsensusElectionSource,
-    pub pending_emergency_set: bool,
 }
 
 // Convenient concrete page aliases used by the runtime API trait and RPC surface.

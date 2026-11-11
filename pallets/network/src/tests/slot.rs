@@ -602,7 +602,7 @@ fn test_empty_finalized_overwatch_epoch_replaces_stale_signal_with_default() {
     assert_ne!(fallback_weights, stale_weights);
 }
 
-// Only subnets that are active and live get weights (no registering or paused subnets)
+// Only subnets that are active and live get weights (no registering subnets)
 #[test]
 fn test_calculate_subnet_weights_active_live_only() {
     new_test_ext().execute_with(|| {
@@ -724,11 +724,14 @@ fn test_ineligible_subnet_totals_do_not_dilute_eligible_weights() {
         TotalElectableNodes::<Test>::set(4);
 
         for subnet_id in subnet_ids.iter().copied() {
-            SubnetBalanceTimes::<Test>::insert(subnet_id, SubnetBalanceTime {
-                last_updated_block: System::block_number(),
-                current_epoch_area: Default::default(),
-                previous_epoch_area: Default::default(),
-            });
+            SubnetBalanceTimes::<Test>::insert(
+                subnet_id,
+                SubnetBalanceTime {
+                    last_updated_block: System::block_number(),
+                    current_epoch_area: Default::default(),
+                    previous_epoch_area: Default::default(),
+                },
+            );
         }
 
         let (baseline_weights, _) = Network::calculate_subnet_weights(current_epoch);
@@ -836,8 +839,7 @@ fn test_precheck_subnet_consensus_submission() {
             let hotkey = get_hotkey(subnet_id, max_subnet_nodes, max_subnets, _n);
             let hotkey_subnet_node_id = _n;
             let subnet_node_data =
-                QueuedSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id)
-                    .unwrap();
+                QueuedSubnetNodesData::<Test>::try_get(subnet_id, hotkey_subnet_node_id).unwrap();
             queued_nodes_data.insert(
                 hotkey_subnet_node_id,
                 subnet_node_data.classification.start_epoch,

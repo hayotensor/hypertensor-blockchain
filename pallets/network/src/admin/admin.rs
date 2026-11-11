@@ -100,15 +100,6 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_max_pause_epochs(value: u32) -> DispatchResult {
-        ensure!(value > 0, Error::<T>::InvalidMaxSubnetPauseEpochs);
-
-        MaxSubnetPauseEpochs::<T>::set(value);
-
-        Self::deposit_event(Event::SetMaxSubnetPauseEpochs(value));
-
-        Ok(())
-    }
     pub fn do_set_min_registration_cost(value: u128) -> DispatchResult {
         MinRegistrationCost::<T>::set(value);
 
@@ -654,14 +645,6 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_subnet_pause_cooldown_epochs(value: u32) -> DispatchResult {
-        ensure!(value > 0, Error::<T>::InvalidSubnetPauseCooldownEpochs);
-        SubnetPauseCooldownEpochs::<T>::put(value);
-
-        Self::deposit_event(Event::SetSubnetPauseCooldownEpochs(value));
-
-        Ok(())
-    }
     pub fn do_set_max_swap_queue_calls_per_block(value: u32) -> DispatchResult {
         ensure!(
             value <= T::MaxSwapCallsPerBlockUpperBound::get(),
@@ -793,19 +776,6 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    pub fn do_set_max_pause_epochs_subnet_reputation_factor(value: u128) -> DispatchResult {
-        ensure!(
-            value <= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
-        );
-
-        MaxPauseEpochsSubnetReputationFactor::<T>::put(value);
-
-        Self::deposit_event(Event::SetMaxPauseEpochsSubnetReputationFactor(value));
-
-        Ok(())
-    }
-
     pub fn do_set_less_than_min_nodes_subnet_reputation_factor(value: u128) -> DispatchResult {
         ensure!(
             value <= Self::percentage_factor_as_u128(),
@@ -856,42 +826,6 @@ impl<T: Config> Pallet<T> {
         OverwatchWeightFactor::<T>::put(value);
 
         Self::deposit_event(Event::SetOverwatchWeightFactor(value));
-
-        Ok(())
-    }
-
-    pub fn do_set_max_emergency_validator_epochs_multiplier(value: u128) -> DispatchResult {
-        // Must be greater than or equal to 1.0
-        ensure!(
-            value >= Self::percentage_factor_as_u128(),
-            Error::<T>::InvalidPercent
-        );
-
-        MaxEmergencyValidatorEpochsMultiplier::<T>::put(value);
-
-        Self::deposit_event(Event::SetMaxEmergencyValidatorEpochsMultiplier(value));
-
-        Ok(())
-    }
-
-    pub fn do_set_max_emergency_subnet_nodes(value: u32) -> DispatchResult {
-        ensure!(
-            value >= MinSubnetNodes::<T>::get()
-                && value <= T::MaxEmergencySubnetNodesUpperBound::get(),
-            Error::<T>::InvalidMaxEmergencySubnetNodes
-        );
-
-        MaxEmergencySubnetNodes::<T>::put(value);
-
-        Self::deposit_event(Event::SetMaxEmergencySubnetNodes(value));
-
-        Ok(())
-    }
-
-    pub fn do_set_emergency_validator_cooldown_epochs(value: u32) -> DispatchResult {
-        EmergencyValidatorCooldownEpochs::<T>::put(value);
-
-        Self::deposit_event(Event::SetEmergencyValidatorCooldownEpochs(value));
 
         Ok(())
     }

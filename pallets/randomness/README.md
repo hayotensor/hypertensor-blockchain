@@ -119,7 +119,7 @@ or publicly predictable input selection. Existing election eligibility and
 settlement checks can still prevent an election.
 
 **Candidate-pool timing is not yet implemented.** Network still chooses from its
-current regular or emergency candidate list and uses the raw FRAME trait API.
+current eligible candidate list and uses the raw FRAME trait API.
 The source replacement does not enforce the commitment requirements above, gate
 bootstrap output, or pin a retry across BABE epochs. It must not be described as
 completing the application's randomness security design.

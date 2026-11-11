@@ -397,7 +397,7 @@ fn balance_time_normalization_handles_large_balances_and_rounds_down() {
 }
 
 #[test]
-fn balance_time_skipped_allocations_and_paused_subnets_keep_exact_previous_window() {
+fn balance_time_skipped_allocations_keep_exact_previous_window() {
     new_test_ext().execute_with(|| {
         let length = EpochLength::get();
         seed_subnet(1, 0);
@@ -414,7 +414,6 @@ fn balance_time_skipped_allocations_and_paused_subnets_keep_exact_previous_windo
         ));
         System::set_block_number(length / 2);
         assert_ok!(Network::do_increase_delegate_stake(1, 1000));
-        SubnetsData::<Test>::mutate(1, |data| data.as_mut().unwrap().state = SubnetState::Paused);
         // No allocation hooks run during this gap. Eligibility still comes from the exact round.
         for id in [1, 2] {
             eligible_for(id, 9);
@@ -719,11 +718,13 @@ fn balance_time_factor_changes_final_emissions_without_changing_other_inputs() {
         assert!(weighted[&1].abs_diff(percentage_factor * 55 / 100) <= 128);
         assert!(weighted[&2].abs_diff(percentage_factor * 45 / 100) <= 128);
 
-        assert_ok!(Network::do_set_subnet_weight_factors(crate::SubnetWeightFactorsData {
-            delegate_stake: percentage_factor / 2,
-            node_count: percentage_factor / 2,
-            time_weighted_stake: 0,
-        }));
+        assert_ok!(Network::do_set_subnet_weight_factors(
+            crate::SubnetWeightFactorsData {
+                delegate_stake: percentage_factor / 2,
+                node_count: percentage_factor / 2,
+                time_weighted_stake: 0,
+            }
+        ));
         let (without_retention, _) = Network::calculate_subnet_weights(1);
         assert_eq!(without_retention[&1], percentage_factor / 2);
         assert_eq!(without_retention[&2], percentage_factor / 2);

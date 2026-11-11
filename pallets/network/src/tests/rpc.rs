@@ -2,7 +2,6 @@ use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
     ConsensusMechanism, ConsensusValidatorNodeCountDecay, ConsensusValidatorStakeWeightPower,
-    EmergencySubnetNodeElectionData, EmergencySubnetValidatorData,
     LastConsensusValidatorNodeCountDecayUpdate, LastConsensusValidatorStakeWeightPowerUpdate,
     LastSubnetDelegateStakeRewardsUpdate, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     MinSubnetNodeReputation, OverwatchNodeValidatorId, PeerInfo,
@@ -14,8 +13,8 @@ use crate::{
     ProbationRounds, QueueImmunityEpochs, QueuedSubnetNodesData, SlotAssignment,
     SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName,
     SubnetNodeElectionSlots, SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeQueueEpochs,
-    SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetPauseData, SubnetSlot, SubnetState,
-    SubnetsData, TotalActiveSubnets, ValidatorNodeDelegateStakeWeights,
+    SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetSlot, SubnetState, SubnetsData,
+    TotalActiveSubnets, ValidatorNodeDelegateStakeWeights,
 };
 use crate::{NodeMetadata, SubnetNodeMetadata};
 use frame_support::assert_ok;
@@ -66,7 +65,6 @@ fn test_get_subnet_info() {
         let pending_queue_immunity_epochs = 12;
         let subnet_node_queue_epochs = 13;
         let pending_subnet_node_queue_epochs = 14;
-
 
         let probation_rounds = 31;
         let pending_probation_rounds = 32;
@@ -192,8 +190,6 @@ fn test_get_subnet_info() {
                 .unwrap()
                 .consensus_eligible_from_subnet_epoch
         );
-        assert!(info.pause_started_global_epoch.is_none());
-        assert!(info.pause_started_subnet_epoch.is_none());
         assert_eq!(info.queue_immunity_epochs, queue_immunity_epochs);
         assert_eq!(info.pending_queue_immunity_epochs, Some(pending_queue));
         assert_eq!(info.subnet_node_queue_epochs, subnet_node_queue_epochs);
@@ -202,15 +198,8 @@ fn test_get_subnet_info() {
             Some(pending_subnet_node_queue)
         );
 
-
-        assert_eq!(
-            info.probation_rounds,
-            probation_rounds
-        );
-        assert_eq!(
-            info.pending_probation_rounds,
-            Some(pending_probation)
-        );
+        assert_eq!(info.probation_rounds, probation_rounds);
+        assert_eq!(info.pending_probation_rounds, Some(pending_probation));
         assert_eq!(info.delegate_stake_percentage, delegate_stake_percentage);
         assert_eq!(
             info.pending_delegate_stake_percentage,
@@ -296,11 +285,7 @@ fn test_get_subnet_info() {
         );
         assert!(info.pending_subnet_node_queue_epochs.is_none());
 
-
-        assert_eq!(
-            info.probation_rounds,
-            pending_probation_rounds
-        );
+        assert_eq!(info.probation_rounds, pending_probation_rounds);
         assert!(info.pending_probation_rounds.is_none());
         assert_eq!(
             info.delegate_stake_percentage,
@@ -333,30 +318,13 @@ fn test_get_subnet_info() {
         assert!(info.pending_min_subnet_node_reputation.is_none());
         SubnetsData::<Test>::mutate(subnet_id, |subnet| {
             let subnet = subnet.as_mut().unwrap();
-            subnet.state = SubnetState::Paused;
-            subnet.consensus_eligible_from_subnet_epoch = None;
-            subnet.pause = Some(SubnetPauseData {
-                started_global_epoch: 111,
-                started_subnet_epoch: 109,
-            });
-        });
-        let paused_info = Network::get_subnet_info(subnet_id).unwrap();
-        assert!(paused_info.consensus_eligible_from_subnet_epoch.is_none());
-        assert_eq!(paused_info.pause_started_global_epoch, Some(111));
-        assert_eq!(paused_info.pause_started_subnet_epoch, Some(109));
-
-        SubnetsData::<Test>::mutate(subnet_id, |subnet| {
-            let subnet = subnet.as_mut().unwrap();
             subnet.state = SubnetState::Registered;
             subnet.consensus_eligible_from_subnet_epoch = None;
-            subnet.pause = None;
         });
         let registered_info = Network::get_subnet_info(subnet_id).unwrap();
         assert!(registered_info
             .consensus_eligible_from_subnet_epoch
             .is_none());
-        assert!(registered_info.pause_started_global_epoch.is_none());
-        assert!(registered_info.pause_started_subnet_epoch.is_none());
 
         assert!(Network::get_subnet_info(u32::MAX).is_none());
     })
@@ -609,103 +577,6 @@ fn subnet_node_rpc_lookup_is_panic_free_for_missing_validator_links() {
 }
 
 #[test]
-fn effective_validator_rpc_ignores_pending_emergency_set() {
-    new_test_ext().execute_with(|| {
-        let subnet_name = b"rpc-validator-set".to_vec();
-        build_activated_subnet(
-            subnet_name.clone(),
-            0,
-            12,
-            10_000_000_000_000_000_000_000,
-            MinSubnetMinStake::<Test>::get(),
-        );
-        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
-        assert_eq!(SubnetNodeElectionSlots::<Test>::get(subnet_id).len(), 12);
-
-        EmergencySubnetNodeElectionData::<Test>::insert(
-            subnet_id,
-            EmergencySubnetValidatorData {
-                subnet_node_ids: vec![1, 2, 3],
-                target_emergency_validators_epochs: 10,
-                max_emergency_validators_epoch: u32::MAX,
-                activated: false,
-                ..Default::default()
-            },
-        );
-        assert_eq!(Network::get_validators_and_attestors(subnet_id).len(), 12);
-        let pending_page = Network::rpc_get_subnet_validator_nodes(
-            subnet_id,
-            PageRequest {
-                cursor: None,
-                limit: 100,
-            },
-        )
-        .unwrap();
-        assert_eq!(pending_page.items.len(), 12);
-        let pending_status = Network::rpc_get_subnet_epoch_status(subnet_id).unwrap();
-        assert_eq!(
-            pending_status.validator_set_source,
-            network_rpc_types::ConsensusElectionSource::Regular
-        );
-        assert!(pending_status.pending_emergency_set);
-
-        EmergencySubnetNodeElectionData::<Test>::mutate(subnet_id, |data| {
-            data.as_mut().unwrap().activated = true;
-        });
-        let active = Network::get_validators_and_attestors(subnet_id);
-        assert_eq!(active.len(), 3);
-        assert_eq!(
-            active
-                .into_iter()
-                .map(|node| node.subnet_node_id)
-                .collect::<Vec<_>>(),
-            vec![1, 2, 3]
-        );
-        let active_page = Network::rpc_get_subnet_validator_nodes(
-            subnet_id,
-            PageRequest {
-                cursor: None,
-                limit: 100,
-            },
-        )
-        .unwrap();
-        assert_eq!(active_page.items.len(), 3);
-        let active_status = Network::rpc_get_subnet_epoch_status(subnet_id).unwrap();
-        assert_eq!(
-            active_status.validator_set_source,
-            network_rpc_types::ConsensusElectionSource::Emergency
-        );
-        assert!(!active_status.pending_emergency_set);
-
-        EmergencySubnetNodeElectionData::<Test>::mutate(subnet_id, |data| {
-            let data = data.as_mut().unwrap();
-            data.total_epochs = data.target_emergency_validators_epochs;
-        });
-        let expired_page = Network::rpc_get_subnet_validator_nodes(
-            subnet_id,
-            PageRequest {
-                cursor: None,
-                limit: 100,
-            },
-        )
-        .unwrap();
-        assert_eq!(expired_page.items.len(), 12);
-        assert!(EmergencySubnetNodeElectionData::<Test>::contains_key(
-            subnet_id
-        ));
-
-        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        SubnetElectedValidator::<Test>::remove(subnet_id, subnet_epoch);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
-        let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
-        assert!(round.emergency.is_none());
-        assert!(!EmergencySubnetNodeElectionData::<Test>::contains_key(
-            subnet_id
-        ));
-    });
-}
-
-#[test]
 fn consensus_round_rpc_uses_immutable_election_identity() {
     new_test_ext().execute_with(|| {
         let subnet_name = b"rpc-consensus-round".to_vec();
@@ -884,5 +755,54 @@ fn effective_overwatch_rpc_views_preserve_zero_and_default_semantics() {
         assert!(invalid.raw_weight_exists);
         assert_eq!(invalid.raw_weight.0, 0);
         assert_eq!(invalid.resolved_weight.0, default_weight);
+    });
+}
+
+#[test]
+fn validator_rpc_and_election_use_all_healthy_consensus_candidates() {
+    new_test_ext().execute_with(|| {
+        let name = b"rpc-validator-candidates".to_vec();
+        build_activated_subnet(
+            name.clone(),
+            0,
+            12,
+            10_000_000_000_000_000_000_000,
+            MinSubnetMinStake::<Test>::get(),
+        );
+        let subnet = SubnetName::<Test>::get(name).unwrap();
+        let all_candidates = (1..=12).collect::<Vec<_>>();
+        assert_eq!(SubnetNodeElectionSlots::<Test>::get(subnet), all_candidates);
+        assert_eq!(Network::get_validators_and_attestors(subnet).len(), 12);
+
+        crate::PendingAdmittedNodeRemovals::<Test>::mutate(subnet, |pending| {
+            pending.try_insert(2).unwrap();
+        });
+        let healthy_candidates = all_candidates
+            .into_iter()
+            .filter(|node| *node != 2)
+            .collect::<Vec<_>>();
+        let page = Network::rpc_get_subnet_validator_nodes(
+            subnet,
+            PageRequest {
+                cursor: None,
+                limit: 100,
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            page.items
+                .iter()
+                .map(|node| node.subnet_node_id)
+                .collect::<Vec<_>>(),
+            healthy_candidates,
+        );
+        assert!(page.next_cursor.is_none());
+
+        let epoch = Network::get_current_subnet_epoch_as_u32(subnet);
+        SubnetElectedValidator::<Test>::remove(subnet, epoch);
+        Network::elect_validator(subnet, epoch, System::block_number());
+        let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
+        assert_eq!(round.eligible_subnet_node_ids, healthy_candidates);
+        assert!(healthy_candidates.contains(&round.validator_subnet_node_id));
     });
 }

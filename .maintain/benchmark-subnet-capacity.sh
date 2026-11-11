@@ -18,7 +18,7 @@ lscpu > "$output_dir/cpu.txt"
 
 target/release/hypertensor-node benchmark pallet \
   --runtime "$runtime" --genesis-builder runtime --pallets pallet_network \
-  --extrinsic emission_step,emission_step_accepted_queue_mutations,emission_step_accepted_queue_mutations_front,emission_step_accepted_below_min_weight_reputation,emission_step_accepted_non_attestor_reputation,emission_step_rejected,emission_step_emergency,emission_step_missing,elect_validator,elect_validator_emergency,elect_validator_expired,propose_attestation,propose_attestation_emergency,attest \
+  --extrinsic emission_step,emission_step_accepted_queue_mutations,emission_step_accepted_queue_mutations_front,emission_step_accepted_below_min_weight_reputation,emission_step_accepted_non_attestor_reputation,emission_step_rejected,emission_step_missing,elect_validator,propose_attestation,attest \
   --extra --steps "${CAPACITY_STEPS:-20}" --repeat "${CAPACITY_REPEAT:-10}" \
   --min-duration 0 --output-analysis max \
   --template .maintain/frame-weight-template.hbs \

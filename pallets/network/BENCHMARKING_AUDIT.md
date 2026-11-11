@@ -108,7 +108,7 @@ therefore been retired.
 
 The benchmark fixtures now assert logical quarantine rather than inline deletion:
 
-- rejected and emergency settlements stop after marker persistence and retain all physical nodes;
+- rejected settlements stop after marker persistence and retain all physical nodes;
 - accepted queue removal retains the queued record, removes it from `SubnetNodeQueue`, and
   writes `PendingQueuedNodeRemovals`;
 - regular election uses the physical candidate count for selection while persisted eligibility is
@@ -116,12 +116,10 @@ The benchmark fixtures now assert logical quarantine rather than inline deletion
 - proposal fixtures exercise the frozen elected-round source and the two pending-set reads.
 
 The focused compiled-Wasm regeneration was run at 50 steps and 20 repeats. The two pending-set scan
-selectors, regular/emergency/fallback election, regular/emergency proposal, and every affected
+selectors, election, proposal, and every affected
 node-addressed dispatch now use measured storage metadata and timing constants. Election and
 proposal still compose the scan selectors at their reachable maximums because their normal
 fixtures cannot simultaneously maximize pending-set decoding and successful output persistence.
-`elect_validator_expired(x, e)` likewise keeps the complete emergency-election envelope, safely
-covering an active emergency scan that falls back to the regular set.
 
 Settlement keeps one small conservative marker envelope in addition to its generated branch. This
 represents the independent maximum admitted-node marker insertion case, which is mutually exclusive with
@@ -157,7 +155,6 @@ The following limits are now protocol invariants rather than assumptions made on
 | Admitted/electable nodes per subnet | 512 | `TotalAdmittedSubnetNodes`, `TotalSubnetElectableNodes` |
 | Nodes owned by one validator | 512 | `TotalValidatorNodes` |
 | Queued entries and initial-validator identities | 64 | `TotalSubnetNodes - TotalAdmittedSubnetNodes`; bounded registration inputs |
-| Emergency validator snapshot | 64 | fixed maximum branch / emergency branch envelope |
 | Overwatch nodes | 64 | `TotalOverwatchNodes` |
 | Overwatch reveal subnets | 17 | `ActiveOverwatchRevealStats` |
 | Overwatch reveal records | 1,088 (`64 * 17`) | `PendingOverwatchSettlement.reveal_records` |
@@ -179,17 +176,17 @@ whitelist rotation from growing a removal proof outside the generated domain.
 | `commit_overwatch_subnet_weights` | `x = 1..17` distinct live subnets | `SubnetsData` is max-filled for each per-item existence read. The node's bounded commit row starts with `17 - x` disjoint entries, so every sample decodes and rewrites a cumulatively full 17-entry row. Duplicate/invalid subnet filtering cannot increase work beyond `x`. | Correct after update. Repeated-call subnet churn cannot exceed the row bound, and validation completes before the single row write. |
 | `reveal_overwatch_subnet_weights` | `x = 1..17` new reveal records | Reads `x` maximum-length committed hashes/salts and rewrites one bounded reveal row. `ActiveOverwatchRevealStats` and all other reveal rows start at the largest reachable subnet/record pre-state while leaving exactly the measured entries absent. | Correct after update. The salt, row, and aggregate proof sizes are bounded and maximized, and validation completes before either aggregate or row storage is written. |
 | `set_validator_node_delegate_stake_weights` | `x = 1..512` validator-owned nodes and exact update entries | `TotalValidatorNodes` selects `x`; `ValidatorSubnetNodes` is populated across the largest reachable outer-map domain, and both the old and replacement `ValidatorNodeDelegateStakeWeights` maps contain `x` normalized entries. | Correct after update. Runtime requires a complete, duplicate-free, exact allocation, matching the benchmark. |
-| `elect_validator` | Regular `x = 3..512`; emergency `e = 3..64`; expired/fallback `x,e` | Regular election maxes the physical election-slot vector. Both bounded pending sets are loaded once; candidate filtering and the circular successor scan are then in memory. Emergency election decodes `e` complete node records. | Regenerated. Hook admission takes the maximum reachable branch; the expired model additionally composes a complete emergency scan before regular fallback. |
-| `do_remove_subnet` | `a = 1..512` admitted nodes, `r = 1..64` queued nodes, `o = 1..64` subnet-local Overwatch peer entries; two fixed cleanup components | Measures all subnet-keyed `clear_prefix` operations and scalar/index updates. It does not scan validator-wide ownership/allocation maps or the global Overwatch forward index. Maximum bootnodes, bootnode access, paused metadata, slot assignments, initial-validator maps, and emergency snapshots are represented. | Correct after update. Validator indexes are repaired by a separately benchmarked owner-local cleaner using a fixed 512-node worst case; Overwatch forward entries are repaired by the affected node's peer update (bounded by 17 physical subnets). `NodeRegistrationInitialValidatorIds`/`InitialValidatorData` and emergency cleanup remain fixed maximum components because those lifecycle values are not independent of `a/r`. |
-| `remove_admitted_subnet_node` | `n = 1..512` total nodes owned by the validator; small and large `e` election-state regions plus dispatch wrappers | Max-fills `ValidatorSubnetNodes`, `ValidatorNodeDelegateStakeWeights`, node/index records, election slots, and emergency data. A separate `SubnetNodeValidatorId` selector is charged before the branch model. | Correct after update. Models no longer use outer-subnet count and same-subnet count as incomplete proxies for total encoded ownership. |
+| `elect_validator` | `x = 3..512` physical candidates | Max-fills the physical election-slot vector. Both bounded pending sets are loaded once; candidate filtering and the circular successor scan are then in memory. | Hook admission reserves the election model with the maximum pending-set scans. |
+| `do_remove_subnet` | `a = 1..512` admitted nodes, `r = 1..64` queued nodes, `o = 1..64` subnet-local Overwatch peer entries; fixed initial-validator cleanup component | Measures all subnet-keyed `clear_prefix` operations and scalar/index updates. It does not scan validator-wide ownership/allocation maps or the global Overwatch forward index. Maximum bootnodes, bootnode access, slot assignments, and initial-validator maps are represented. | Correct after update. Validator indexes are repaired by a separately benchmarked owner-local cleaner using a fixed 512-node worst case; Overwatch forward entries are repaired by the affected node's peer update (bounded by 17 physical subnets). `NodeRegistrationInitialValidatorIds`/`InitialValidatorData` cleanup remains a fixed maximum component because those lifecycle values are not independent of `a/r`. |
+| `remove_admitted_subnet_node` | `n = 1..512` total nodes owned by the validator; small and large `e` election-state regions plus dispatch wrappers | Max-fills `ValidatorSubnetNodes`, `ValidatorNodeDelegateStakeWeights`, node/index records, and election slots. A separate `SubnetNodeValidatorId` selector is charged before the branch model. | Correct after update. Models no longer use outer-subnet count and same-subnet count as incomplete proxies for total encoded ownership. |
 | `remove_queued_subnet_node` | `n = 1..512` total validator ownership and `r = 1..64` queued entries; dispatch wrapper included | Covers queue decode/rewrite, queued node value, ownership and allocation maps, scalar counters, and indexes. | Correct after update. Runtime selector values are maintained on registration and all removal paths. |
 | `handle_subnet_emission_weights` | `x = 1..17` eligible subnet rounds plus an empty branch | Iterates subnet keys, reads every elected round, and uses maximum 512-entry eligible node/identity collections so `contains_key` proofs are measured at the reachable encoded maximum. Both branches independently seed a valid 17-key effective Overwatch cache, including raw keys for subnets no longer live. | Correct after update. Empty live state has its own fixed benchmark without assuming an empty latest-only cache. |
 | `execute_ready_swap_calls` | Queue `q = 1..1000`; homogeneous ready prefixes `x = 1..1000`; three mixed vertices `x = 3..1000` | Separates `SwapQueueOrder` decode/rewrite from per-call work. Validator and subnet destinations use max-filled metadata; refunds use maximum unbonding ledgers. Mixed validator-, subnet-, and refund-dominant fixtures include the union of all branch proofs. Public swap benchmarks enqueue into a queue at `MaxSwapQueueLength - 1`. | Correct after update. Hook binary search and final consumption use the same homogeneous/mixed envelope, including the 1,000-call boundary. Existing-destination credit rejection followed by an exact refund is covered by adding one complete refund model per admitted call. |
 | `do_epoch_preliminaries` | `x = 0..17` physical subnet records | Uses maximum `SubnetsData` values, captures the six-component locked-TVL base once on delegate-stake removal epochs, and includes the compact removal selectors read for each subnet before any variable cleanup is admitted. Actual removal is composed through `try_do_remove_subnet`. | Correct and conservative. Every subnet in one pass uses the same funding base. Selector reads are also reserved by the removal helper, producing safe double reservation when removal occurs. |
 | `advance_overwatch_epoch` | Fixed maximum close with 64 revealing nodes; separate no-op branch | The close fixture seeds 64 canonical validator-to-Overwatch-node relationships with unequal 18-decimal stakes, then verifies the complete bounded settlement snapshot. | Correct after snapshot update. The fixed weight covers every membership and stake read needed to build the close-time snapshot; later node removal may purge an entry before settlement. |
 | `calculate_overwatch_rewards` | Empty; `r = 1..17`; `r = 17..64`; `r = 64..1088` | The three regions reflect the correlation between at most 64 revealing nodes and 17 revealed subnets. Fixtures seed an exact reveal matrix, compact pending header, matching close-time stakes with exponent `0.9`, and the maximum prior 64-node by 17-subnet latest-only input/cache that finalization replaces. | Correct after snapshot update. Boundary values use the component-wise maximum of adjacent regressions, and even an empty new epoch measures replacement of maximum prior latest-only state. |
-| `emission_step` | Accepted/rejected `h = 3..512`; emergency `h = 64..512`; accepted queue `q = 1..64`; below-min reputation `h = 3..512`; non-attestors `a = 1..509`; missing and selector branches | Settlement fixtures include bounded marker writes and no physical deletion. Election, cleanup, queue admission, and burn maintenance are independently admitted after the complete settlement envelope. | Regenerated. The accepted path composes both reputation loops and the settlement-only marker reserve; physical-removal weights are consumed only by deferred cleanup. |
-| `propose_attestation` | Regular 512-node and emergency 64-validator frozen rounds | Loads both pending sets once, filters scores before canonical duplicate/overflow handling, and filters reward/quorum/attestor snapshots from the frozen elected round. | Regenerated. Both generated proposal weights retain measured maximum pending-set scan compositions. |
+| `emission_step` | Accepted/rejected `h = 3..512`; accepted queue `q = 1..64`; below-min reputation `h = 3..512`; non-attestors `a = 1..509`; missing and selector branches | Settlement fixtures include bounded marker writes and no physical deletion. Election, cleanup, queue admission, and burn maintenance are independently admitted after the complete settlement envelope. | Regenerated. The accepted path composes both reputation loops and the settlement-only marker reserve; physical-removal weights are consumed only by deferred cleanup. |
+| `propose_attestation` | 512-node frozen rounds | Loads both pending sets once, filters scores before canonical duplicate/overflow handling, and filters reward/quorum/attestor snapshots from the frozen elected round. | Regenerated. The generated proposal weight retains measured maximum pending-set scan compositions. |
 | pending cleanup and node calls | Admitted scan `a = 1..512`; queued scan `r = 1..64`; physical admitted `n,e`; physical queued `n,r`; normal and pending dispatch branches | `pending_admitted_removal_scan(a)` and `pending_queued_removal_scan(r)` cover bounded-set decode/materialization plus a full deterministic membership scan. Slot cleanup then uses the existing complete generated physical removal branch per admitted ID. Node-addressed dispatches select the pending branch dynamically after authentication and reserve maximum admitted/queued cleanup plus marker proof. | Correct after focused regeneration and conservative maximum-branch composition. |
 | `precheck_subnet_consensus_submission` | `x = 3..512` snapshot entries plus a missing branch | Uses the elected round and consensus snapshot at `x`, with proposal args and attestation payloads stored separately from the compact main submission. `SubnetConsensusSubmissionMaxItems` lets the hook reserve `x` without decoding the large value first. | Correct after update. All caller-controlled consensus vectors are capped at 512 before iteration. |
 | `calculate_subnet_weights` | `x = 0..17` eligible subnets | Uses maximum-size elected rounds for each historical subnet-election membership check and exact latest-effective Overwatch/default inputs. | Correct after update. Zero-subnet state remains explicitly sampled, and historical Overwatch outputs are not an allocation fallback. |
@@ -205,7 +202,7 @@ and queue-consumption updates.
 
 Some storage values remain encoded as ordinary `Vec`/`BTreeMap` types, but their growth paths now
 enforce the same compile-time limits used by their benchmark. This applies in particular to the
-initial-validator whitelist/history, validator ownership/allocation maps, emergency snapshots, and
+initial-validator whitelist/history, validator ownership/allocation maps, and
 consensus submissions. Maximum-value fixtures are used where a value contributes proof size but
 does not provide an independent runtime selector.
 
@@ -227,10 +224,9 @@ that retained state rather than assuming the mapping is deleted with live node d
 
 ## Intentional conservative reservations
 
-- Subnet removal always composes the fixed Registered-initial-map and emergency cleanup weights,
-  although those maximum values belong to mutually exclusive lifecycle states.
-- Election and emission admission take the maximum complete regular, emergency, expired/fallback,
-  accepted, rejected, and missing branch envelopes when compact state cannot identify the branch
+- Subnet removal always composes the fixed Registered-initial-map cleanup weight.
+- Emission admission takes the maximum complete accepted, rejected, and missing branch
+  envelopes when compact state cannot identify the branch
   cheaply. Independent pending-set or marker envelopes remain composed where maxima are mutually
   exclusive in a single benchmark fixture.
 - Ready-swap admission uses the maximum homogeneous/mixed affine vertex, adds the one-item
@@ -281,7 +277,7 @@ cargo build --release -p hypertensor-node --features runtime-benchmarks
 /home/bob/.cargo/bin/frame-omni-bencher v1 benchmark pallet \
   --runtime target/release/wbuild/hypertensor-runtime/hypertensor_runtime.compact.compressed.wasm \
   --pallet pallet_network \
-  --extrinsic elect_validator,elect_validator_emergency,elect_validator_expired,pending_admitted_removal_scan,pending_queued_removal_scan,propose_attestation,propose_attestation_emergency,attest,remove_subnet_node,update_node_hotkey,add_node_stake,remove_node_stake,update_node_unique,update_node_non_unique,update_node_peer_info,update_node_bootnode_peer_info,update_node_client_peer_info,emission_step,emission_step_accepted_queue_mutations,emission_step_accepted_queue_mutations_front,emission_step_accepted_below_min_weight_reputation,emission_step_accepted_non_attestor_reputation,emission_step_missing,emission_step_rejected,emission_step_emergency \
+  --extrinsic elect_validator,pending_admitted_removal_scan,pending_queued_removal_scan,propose_attestation,attest,remove_subnet_node,update_node_hotkey,add_node_stake,remove_node_stake,update_node_unique,update_node_non_unique,update_node_peer_info,update_node_bootnode_peer_info,update_node_client_peer_info,emission_step,emission_step_accepted_queue_mutations,emission_step_accepted_queue_mutations_front,emission_step_accepted_below_min_weight_reputation,emission_step_accepted_non_attestor_reputation,emission_step_missing,emission_step_rejected \
   --steps 50 \
   --repeat 20 \
   --wasm-execution compiled \
@@ -293,8 +289,7 @@ cargo build --release -p hypertensor-node --features runtime-benchmarks
 
 Only the selected generated regions were merged. The pending-set scan selectors remain composed
 into election/proposal and cleanup because maximum pending-set decoding and maximum successful
-output persistence cannot be reached in one fixture. The emergency election composition likewise
-retains the complete fallback branch. Settlement retains its explicit marker reserve because its
+output persistence cannot be reached in one fixture. Settlement retains its explicit marker reserve because its
 maximum healthy payout fixture and maximum threshold-crossing marker writes are mutually exclusive.
 
 A post-generation structural audit also confirmed that all 225 active `#[benchmark]` functions

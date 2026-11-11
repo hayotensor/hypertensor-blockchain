@@ -11,12 +11,11 @@ use crate::{
     SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueue,
     SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData,
-    SubnetOwner, SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState, SubnetsData,
-    TotalActiveSubnets, TotalAdmittedNodes, TotalAdmittedSubnetNodes, TotalElectableNodes,
-    TotalNodes, TotalStake, TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes,
-    TotalSubnetStake, TotalSubnetUids, TotalValidatorIds, TotalValidatorNodes,
-    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorIdHotkey,
-    ValidatorNodeDelegateStakeWeights, ValidatorSubnetNodes,
+    SubnetOwner, SubnetRegistrationEpochs, SubnetState, SubnetsData, TotalActiveSubnets,
+    TotalAdmittedNodes, TotalAdmittedSubnetNodes, TotalElectableNodes, TotalNodes, TotalStake,
+    TotalSubnetElectableNodes, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
+    TotalSubnetUids, TotalValidatorIds, TotalValidatorNodes, UniqueParamSubnetNodeId,
+    ValidatorColdkey, ValidatorIdHotkey, ValidatorNodeDelegateStakeWeights, ValidatorSubnetNodes,
 };
 use crate::{NodeMetadata, SubnetNodeMetadata};
 use frame_support::traits::{Currency, ExistenceRequirement};
@@ -135,7 +134,10 @@ fn test_register_node_on_active_subnet_then_admit_to_probation() {
         );
 
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Probation);
+        assert_eq!(
+            subnet_node.classification.node_class,
+            SubnetNodeClass::Probation
+        );
         // assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
         assert_eq!(subnet_node.classification.start_epoch, subnet_epoch);
 
@@ -447,7 +449,11 @@ fn test_register_subnet_node_rejects_occupied_candidate_indexes() {
         NodeSubnetStake::<Test>::remove(candidate_id, subnet_id);
 
         // Even metadata alone reserves a prospective ID, before any funds are accepted.
-        SubnetNodeMetadata::<Test>::insert(subnet_id, candidate_id, NodeMetadata::<Test>::default());
+        SubnetNodeMetadata::<Test>::insert(
+            subnet_id,
+            candidate_id,
+            NodeMetadata::<Test>::default(),
+        );
         frame_support::assert_noop!(register(), Error::<Test>::SubnetNodeIdOccupied);
         SubnetNodeMetadata::<Test>::remove(subnet_id, candidate_id);
 
@@ -575,79 +581,6 @@ fn test_register_subnet_node_prunes_removed_subnet_ownership_before_cap_check() 
         assert_eq!(
             PeerIdSubnetNodeId::<Test>::get(subnet_id, peer_id),
             next_subnet_node_id
-        );
-    });
-}
-
-#[test]
-fn test_register_subnet_subnet_is_paused_error() {
-    new_test_ext().execute_with(|| {
-        let subnet_name: Vec<u8> = "subnet-name".into();
-        let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
-        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
-
-        let max_subnets = MaxSubnets::<Test>::get();
-        let subnets = TotalActiveSubnets::<Test>::get() + 1;
-        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let end = 4;
-
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
-        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-
-        run_to_first_pause_eligible_subnet_slot(subnet_id);
-
-        let original_owner = account(1);
-
-        // Set initial owner
-        SubnetOwner::<Test>::insert(subnet_id, &original_owner);
-        let epoch = Network::get_current_epoch_as_u32();
-
-        // Transfer to new owner
-        assert_ok!(Network::owner_pause_subnet(
-            RuntimeOrigin::signed(original_owner.clone()),
-            subnet_id,
-        ));
-
-        let coldkey = get_coldkey(subnets, max_subnet_nodes, end + 1);
-        let hotkey = get_hotkey(subnets, max_subnet_nodes, max_subnets, end + 1);
-        let peer_id = get_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
-        let bootnode_peer_id =
-            get_bootnode_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
-        let client_peer_id = get_client_peer_id(subnets, max_subnet_nodes, max_subnets, end + 1);
-
-        let _ = Balances::deposit_creating(&coldkey.clone(), deposit_amount);
-        let starting_balance = Balances::free_balance(&coldkey.clone());
-
-        fund_validator_registration(&coldkey);
-        assert_ok!(Network::register_validator(
-            RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
-            50000000000,
-            None,
-            None,
-        ));
-
-        let validator_id = TotalValidatorIds::<Test>::get();
-
-        assert_err!(
-            Network::register_subnet_node(
-                RuntimeOrigin::signed(coldkey.clone()),
-                validator_id,
-                subnet_id,
-                None,
-                Some(PeerInfo::<Test> {
-                    peer_id: peer_id.clone(),
-                    multiaddr: None,
-                }),
-                None,
-                None,
-                stake_amount,
-                None,
-                None,
-                u128::MAX,
-            ),
-            Error::<Test>::SubnetIsPaused
         );
     });
 }
@@ -1393,7 +1326,10 @@ fn test_admit_subnet_node_post_subnet_activation_v2() {
         );
 
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Probation);
+        assert_eq!(
+            subnet_node.classification.node_class,
+            SubnetNodeClass::Probation
+        );
         // assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
         // assert_eq!(subnet_node.classification.start_epoch, subnet_epoch);
 
@@ -1401,7 +1337,10 @@ fn test_admit_subnet_node_post_subnet_activation_v2() {
             prev_total_active_subnet_nodes + 1,
             TotalAdmittedSubnetNodes::<Test>::get(subnet_id)
         );
-        assert_eq!(prev_total_admitted_nodes + 1, TotalAdmittedNodes::<Test>::get());
+        assert_eq!(
+            prev_total_admitted_nodes + 1,
+            TotalAdmittedNodes::<Test>::get()
+        );
     })
 }
 
@@ -1664,7 +1603,10 @@ fn test_remove_queued_subnet_node() {
             prev_total_active_subnet_nodes - 1,
             TotalAdmittedSubnetNodes::<Test>::get(subnet_id)
         );
-        assert_eq!(prev_total_admitted_nodes - 1, TotalAdmittedNodes::<Test>::get());
+        assert_eq!(
+            prev_total_admitted_nodes - 1,
+            TotalAdmittedNodes::<Test>::get()
+        );
         // Node not Validator yet, this should not change
         assert_eq!(
             prev_slot_list_len,
@@ -1805,7 +1747,10 @@ fn test_remove_queued_subnet_node() {
             prev_total_active_subnet_nodes - 1,
             TotalAdmittedSubnetNodes::<Test>::get(subnet_id)
         );
-        assert_eq!(prev_total_admitted_nodes - 1, TotalAdmittedNodes::<Test>::get());
+        assert_eq!(
+            prev_total_admitted_nodes - 1,
+            TotalAdmittedNodes::<Test>::get()
+        );
 
         assert_eq!(
             prev_slot_list_len,
@@ -1949,7 +1894,10 @@ fn test_remove_queued_subnet_node() {
             prev_total_active_subnet_nodes - 1,
             TotalAdmittedSubnetNodes::<Test>::get(subnet_id)
         );
-        assert_eq!(prev_total_admitted_nodes - 1, TotalAdmittedNodes::<Test>::get());
+        assert_eq!(
+            prev_total_admitted_nodes - 1,
+            TotalAdmittedNodes::<Test>::get()
+        );
 
         assert_eq!(
             prev_total_subnet_electable_nodes - 1,
@@ -4611,15 +4559,7 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
         let subnet_id = 1;
         let validator_id = 1;
         insert_subnet(subnet_id, SubnetState::Active, 0);
-        insert_subnet_node(
-            validator_id,
-            subnet_id,
-            1,
-            1,
-            1,
-            SubnetNodeClass::Queued,
-            0,
-        );
+        insert_subnet_node(validator_id, subnet_id, 1, 1, 1, SubnetNodeClass::Queued, 0);
 
         let queued_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
         let missing_queue_node_id = queued_node_id + 1;
@@ -4643,7 +4583,6 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             subnet_nodes: Vec::new(),
             prioritize_queue_node_id: None,
             remove_queue_node_id: Some(missing_queue_node_id),
-            emergency: None,
         };
 
         assert_eq!(SubnetNodeQueue::<Test>::get(subnet_id).len(), 1);
@@ -4687,7 +4626,6 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             subnet_nodes: Vec::new(),
             prioritize_queue_node_id: None,
             remove_queue_node_id: Some(queued_node_id),
-            emergency: None,
         };
 
         // Consensus removal quarantines and dequeues the node. Physical data remains until a
@@ -4786,7 +4724,10 @@ fn test_do_admit_subnet_node_subnet_active_node_queued() {
             initial_active_subnet_nodes + 1,
             TotalAdmittedSubnetNodes::<Test>::get(subnet_id)
         );
-        assert_eq!(initial_admitted_nodes + 1, TotalAdmittedNodes::<Test>::get());
+        assert_eq!(
+            initial_admitted_nodes + 1,
+            TotalAdmittedNodes::<Test>::get()
+        );
     });
 }
 
@@ -4848,24 +4789,6 @@ fn test_do_admit_subnet_node_failures() {
             &mut WeightMeter::new(),
             subnet_id,
             SubnetState::Active,
-            subnet_node.clone(),
-            Network::get_current_subnet_epoch_as_u32(subnet_id),
-            false,
-        ));
-
-        assert!(!Network::do_admit_subnet_node(
-            &mut WeightMeter::new(),
-            subnet_id,
-            SubnetState::Paused,
-            subnet_node.clone(),
-            Network::get_current_subnet_epoch_as_u32(subnet_id),
-            true,
-        ));
-
-        assert!(!Network::do_admit_subnet_node(
-            &mut WeightMeter::new(),
-            subnet_id,
-            SubnetState::Paused,
             subnet_node.clone(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             false,
@@ -4955,7 +4878,10 @@ fn test_do_admit_subnet_node_registered_subnet() {
             initial_active_subnet_nodes + 1,
             TotalAdmittedSubnetNodes::<Test>::get(subnet_id)
         );
-        assert_eq!(initial_admitted_nodes + 1, TotalAdmittedNodes::<Test>::get());
+        assert_eq!(
+            initial_admitted_nodes + 1,
+            TotalAdmittedNodes::<Test>::get()
+        );
     });
 }
 

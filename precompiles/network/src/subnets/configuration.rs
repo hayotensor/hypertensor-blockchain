@@ -14,8 +14,6 @@ pub(super) fn convert<T: Config>(input: &Calls) -> Result<Option<pallet_network:
         Calls::ownerUpdateMinSubnetNodeReputation(args) => pallet_network::Call::owner_update_min_subnet_node_reputation { subnet_id: args.subnetId, value: args.value },
         Calls::ownerAddOrUpdateInitialValidators(args) => pallet_network::Call::owner_add_or_update_initial_validators { subnet_id: args.subnetId, validators: convert::validators::<T>(&args.validators)? },
         Calls::ownerRemoveInitialValidators(args) => pallet_network::Call::owner_remove_initial_validators { subnet_id: args.subnetId, validators: convert::validator_set::<T>(&args.validators)? },
-        Calls::ownerSetEmergencyValidatorSet(args) => pallet_network::Call::owner_set_emergency_validator_set { subnet_id: args.subnetId, subnet_node_ids: convert::emergency_set::<T>(&args.subnetNodeIds)? },
-        Calls::ownerRevertEmergencyValidatorSet(args) => pallet_network::Call::owner_revert_emergency_validator_set { subnet_id: args.subnetId },
         Calls::ownerUpdateMinMaxStake(args) => pallet_network::Call::owner_update_min_max_stake { subnet_id: args.subnetId, min: args.min, max: args.max },
         Calls::ownerUpdateDelegateStakePercentage(args) => pallet_network::Call::owner_update_delegate_stake_percentage { subnet_id: args.subnetId, value: args.value },
         Calls::ownerUpdateMaxRegisteredNodes(args) => pallet_network::Call::owner_update_max_registered_nodes { subnet_id: args.subnetId, value: args.value },

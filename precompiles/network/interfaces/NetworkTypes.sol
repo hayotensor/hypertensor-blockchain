@@ -196,15 +196,12 @@ struct EpochStatus {
     bool withinAttestationWindow;
     OptionalU32 electedNodeId;
     bool proposalSubmitted;
-    uint8 validatorSetSource;
-    bool pendingEmergencySet;
 }
 
 struct ConsensusRound {
     uint32 subnetId;
     uint32 subnetEpoch;
     uint8 status;
-    uint8 electionSource;
     uint32 electedNodeId;
     uint32 electedValidatorId;
     uint128 delegateBalanceAtElection;

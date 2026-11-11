@@ -82,7 +82,6 @@ fn test_do_commit_and_reveal_weights_success() {
             consensus_mechanism: Default::default(),
             state: SubnetState::Active,
             consensus_eligible_from_subnet_epoch: Some(0),
-            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -569,7 +568,6 @@ fn test_do_commit_and_reveal_weights_not_key_owner_error() {
             consensus_mechanism: Default::default(),
             state: SubnetState::Active,
             consensus_eligible_from_subnet_epoch: Some(0),
-            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -656,7 +654,6 @@ fn test_do_commit_and_reveal_weights_commits_empty_error() {
             consensus_mechanism: Default::default(),
             state: SubnetState::Active,
             consensus_eligible_from_subnet_epoch: Some(0),
-            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -735,7 +732,6 @@ fn test_do_commit_and_reveal_weights_already_committed_error() {
             consensus_mechanism: Default::default(),
             state: SubnetState::Active,
             consensus_eligible_from_subnet_epoch: Some(0),
-            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -853,7 +849,6 @@ fn test_commit_and_reveal_extrinsics() {
             consensus_mechanism: Default::default(),
             state: SubnetState::Active,
             consensus_eligible_from_subnet_epoch: Some(0),
-            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -948,7 +943,6 @@ fn test_reveal_overwatch_subnet_weights_not_key_owner_error() {
             consensus_mechanism: Default::default(),
             state: SubnetState::Active,
             consensus_eligible_from_subnet_epoch: Some(0),
-            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -1053,7 +1047,6 @@ fn test_reveal_overwatch_subnet_weights_no_commit_found_error() {
             consensus_mechanism: Default::default(),
             state: SubnetState::Active,
             consensus_eligible_from_subnet_epoch: Some(0),
-            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -1129,7 +1122,6 @@ fn test_reveal_overwatch_subnet_weights_reveal_mismatch_error() {
             consensus_mechanism: Default::default(),
             state: SubnetState::Active,
             consensus_eligible_from_subnet_epoch: Some(0),
-            pause: None,
         };
 
         SubnetsData::<Test>::insert(subnet_id, subnet_data);
@@ -1210,7 +1202,6 @@ fn test_commit_reveal_multiple_times_in_same_epoch() {
             consensus_mechanism: Default::default(),
             state: SubnetState::Active,
             consensus_eligible_from_subnet_epoch: Some(0),
-            pause: None,
         };
         SubnetsData::<Test>::insert(subnet_id_1, subnet_data);
         // Subnet 2
@@ -1225,7 +1216,6 @@ fn test_commit_reveal_multiple_times_in_same_epoch() {
             consensus_mechanism: Default::default(),
             state: SubnetState::Active,
             consensus_eligible_from_subnet_epoch: Some(0),
-            pause: None,
         };
         SubnetsData::<Test>::insert(subnet_id_2, subnet_data);
 

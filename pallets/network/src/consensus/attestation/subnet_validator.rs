@@ -384,7 +384,7 @@ impl<T: Config> Pallet<T> {
         //
         // The elected round is the immutable source of membership and validator identity. Proposal
         // may only subtract nodes that are currently quarantined; it must not re-resolve a live
-        // regular or emergency set and silently change the round being attested.
+        // candidate set and silently change the round being attested.
         let validator_ids: Vec<u32> = elected_round
             .eligible_subnet_node_ids
             .iter()
@@ -407,14 +407,6 @@ impl<T: Config> Pallet<T> {
             .copied()
             .collect::<BTreeSet<_>>()
             .len() as u32;
-        let emergency_snapshot = elected_round.emergency.as_ref().map(|snapshot| {
-            let mut filtered_snapshot = snapshot.clone();
-            filtered_snapshot
-                .subnet_node_ids
-                .retain(|subnet_node_id| validator_identity_ids.contains_key(subnet_node_id));
-            filtered_snapshot
-        });
-
         // Quarantined registrations are logically absent from the queue. Ignore stale requests
         // naming them even if an inconsistent queue copy still contains the physical record.
         if prioritize_queue_node_id
@@ -428,12 +420,6 @@ impl<T: Config> Pallet<T> {
             .unwrap_or(false)
         {
             remove_queue_node_id = None;
-        }
-
-        if emergency_snapshot.is_some()
-            && (prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some())
-        {
-            return Err(Error::<T>::EmergencyQueueMutationNotAllowed.into());
         }
 
         let attestor_weight_snapshot =
@@ -504,7 +490,6 @@ impl<T: Config> Pallet<T> {
             remove_queue_node_id: remove_queue_node_id,
             data: data,
             args: None,
-            emergency: emergency_snapshot,
             weight_sum,
             eligible_validator_identity_count,
         };

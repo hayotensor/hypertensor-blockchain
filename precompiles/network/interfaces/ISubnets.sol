@@ -9,10 +9,6 @@ interface ISubnets {
     function registerSubnet(uint128 maxCost, SubnetRegistration calldata subnetData) external;
     /// Network::activate_subnet (call index 7).
     function activateSubnet(uint32 subnetId) external;
-    /// Network::owner_pause_subnet (call index 8).
-    function ownerPauseSubnet(uint32 subnetId) external;
-    /// Network::owner_unpause_subnet (call index 9).
-    function ownerUnpauseSubnet(uint32 subnetId) external;
     /// Network::owner_deactivate_subnet (call index 10).
     function ownerDeactivateSubnet(uint32 subnetId) external;
     /// Network::owner_update_name (call index 11).
@@ -39,10 +35,6 @@ interface ISubnets {
     function ownerAddOrUpdateInitialValidators(uint32 subnetId, U32Entry[] calldata validators) external;
     /// Network::owner_remove_initial_validators (call index 30).
     function ownerRemoveInitialValidators(uint32 subnetId, uint32[] calldata validators) external;
-    /// Network::owner_set_emergency_validator_set (call index 31).
-    function ownerSetEmergencyValidatorSet(uint32 subnetId, uint32[] calldata subnetNodeIds) external;
-    /// Network::owner_revert_emergency_validator_set (call index 32).
-    function ownerRevertEmergencyValidatorSet(uint32 subnetId) external;
     /// Network::owner_update_min_max_stake (call index 33).
     function ownerUpdateMinMaxStake(uint32 subnetId, uint128 min, uint128 max) external;
     /// Network::owner_update_delegate_stake_percentage (call index 34).

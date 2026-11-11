@@ -189,7 +189,7 @@ fn elected_fixture_with_reputation<T: Config>(
     set_block_to_subnet_slot_epoch::<T>(Network::<T>::get_current_epoch_as_u32(), subnet_id);
     if combined {
         let epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
-        let (candidates, _, _) = Network::<T>::resolve_consensus_validator_ids(subnet_id, epoch);
+        let candidates = Network::<T>::resolve_consensus_validator_ids(subnet_id);
         let proposer = candidates
             [Network::<T>::get_bounded_random_index((subnet_id, epoch), nodes).unwrap() as usize];
         let mut attestors = [1, 2, 3];
@@ -430,27 +430,62 @@ fn proposal_summary_capacity_outcomes() {
         new_test_ext().execute_with(|| {
             let fixture = settlement_fixture_with_reputation::<Test>(512, true, combined);
             frame_system::Pallet::<Test>::reset_events();
-            let charged = Network::<Test>::on_initialize(frame_system::Pallet::<Test>::block_number());
+            let charged =
+                Network::<Test>::on_initialize(frame_system::Pallet::<Test>::block_number());
             assert!(charged.all_lte(<Test as Config>::MaximumHooksWeight::get()));
             verify_settlement::<Test>(&fixture);
-            if combined { verify_combined_reputation::<Test>(&fixture); }
+            if combined {
+                verify_combined_reputation::<Test>(&fixture);
+            }
             let next = Network::<Test>::get_current_subnet_epoch_as_u32(fixture.subnet_id);
-            assert!(SubnetElectedValidator::<Test>::contains_key(fixture.subnet_id, next));
+            assert!(SubnetElectedValidator::<Test>::contains_key(
+                fixture.subnet_id,
+                next
+            ));
             for (subnet, epoch, submission) in SubnetConsensusSubmission::<Test>::iter() {
                 let stored_size = submission.encoded_size();
-                assert_eq!(submission.weight_sum, submission.data.iter().map(|entry| entry.score).sum::<u128>());
-                assert_eq!(submission.eligible_validator_identity_count, submission.validator_identity_ids.values().copied().collect::<BTreeSet<_>>().len() as u32);
+                assert_eq!(
+                    submission.weight_sum,
+                    submission
+                        .data
+                        .iter()
+                        .map(|entry| entry.score)
+                        .sum::<u128>()
+                );
+                assert_eq!(
+                    submission.eligible_validator_identity_count,
+                    submission
+                        .validator_identity_ids
+                        .values()
+                        .copied()
+                        .collect::<BTreeSet<_>>()
+                        .len() as u32
+                );
                 let canonical_encoding = (
-                    submission.validator_id, submission.block, submission.validator_epoch_progress,
-                    submission.validator_reward_factor, submission.validator_ids,
-                    submission.validator_identity_ids, submission.attests, submission.subnet_nodes,
-                    submission.prioritize_queue_node_id, submission.remove_queue_node_id,
-                    submission.data, submission.args, submission.emergency,
-                ).encode();
+                    submission.validator_id,
+                    submission.block,
+                    submission.validator_epoch_progress,
+                    submission.validator_reward_factor,
+                    submission.validator_ids,
+                    submission.validator_identity_ids,
+                    submission.attests,
+                    submission.subnet_nodes,
+                    submission.prioritize_queue_node_id,
+                    submission.remove_queue_node_id,
+                    submission.data,
+                    submission.args,
+                )
+                    .encode();
                 assert_eq!(stored_size, canonical_encoding.len() + 20);
-                sp_io::storage::set(&SubnetConsensusSubmission::<Test>::hashed_key_for(subnet, epoch), &canonical_encoding);
+                sp_io::storage::set(
+                    &SubnetConsensusSubmission::<Test>::hashed_key_for(subnet, epoch),
+                    &canonical_encoding,
+                );
             }
-            println!("proposal_summary_outcome,combined={combined},nodes=512,state={:?}", sp_io::storage::root(sp_runtime::StateVersion::V1));
+            println!(
+                "proposal_summary_outcome,combined={combined},nodes=512,state={:?}",
+                sp_io::storage::root(sp_runtime::StateVersion::V1)
+            );
         });
     }
 }

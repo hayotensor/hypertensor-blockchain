@@ -36,7 +36,7 @@ links between every pair of nodes. In particular, subnet nodes are not required 
 to form a full mesh.
 
 Each subnet receives an assigned slot that defines its local epoch boundary. At that slot, the
-pallet can settle an allocated exact prior round even if the subnet has since been paused. If the
+pallet settles an allocated exact prior round from its immutable election and proposal snapshots. If the
 subnet is `Active`, it attempts a new proposer election once consensus-eligible and stores one when
 the effective candidate set is valid and nonempty, then processes its registration queue and
 updates its node burn rate. Collective-whitelisted Overwatch nodes run a separate commit-reveal

@@ -38,8 +38,6 @@ pub fn consensus<T: Config>(
                         withinAttestationWindow: v.within_proposal_attestation_window,
                         electedNodeId: convert::u32_option_out(v.elected_validator_subnet_node_id),
                         proposalSubmitted: v.proposal_submitted,
-                        validatorSetSource: v.validator_set_source as u8,
-                        pendingEmergencySet: v.pending_emergency_set,
                     }
                 })
                 .unwrap_or_default();
@@ -56,7 +54,6 @@ pub fn consensus<T: Config>(
                         subnetId: a.subnetId,
                         subnetEpoch: a.subnetEpoch,
                         status: u8::from(proposed),
-                        electionSource: u8::from(v.emergency.is_some()),
                         electedNodeId: v.validator_subnet_node_id,
                         electedValidatorId: v.validator_id,
                         delegateBalanceAtElection: v.validator_delegate_stake_balance,

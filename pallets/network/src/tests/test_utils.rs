@@ -4,27 +4,27 @@ pub use crate::NetworkBytes;
 use crate::{
     multiaddr::*, AccountSubnetDelegateStakeShares, ActiveOverwatchEpochLengthMultiplier,
     AttestEntry, BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ColdkeyValidatorId,
-    ConsensusData, CurrentOverwatchEpoch, DelegateAccount, EmergencySubnetNodeElectionData,
-    HotkeyValidatorId, InitialValidatorData, MaxMaxRegisteredNodes, MaxOverwatchNodes,
-    MaxSubnetNodes, MaxSubnets, MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs,
-    MultiaddrSubnetNodeId, NetworkMaxStakeBalance, NodeSubnetStake, OverwatchCommitCutoffPercent,
-    OverwatchEpochLengthMultiplier, OverwatchEpochSnapshot, OverwatchEpochSnapshots,
-    OverwatchEpochStartBlock, OverwatchMinStakeBalance, OverwatchNodeIdHotkey,
-    OverwatchNodeStakeBalance, OverwatchNodeStakeSnapshot, OverwatchNodeValidatorId,
-    OverwatchNodes, OverwatchReveals, OverwatchStakeWeightFactor, OverwatchValidatorWhitelist,
-    PeerIdSubnetNodeId, PeerInfo, PendingOverwatchSettlement, PendingOverwatchSettlementData,
-    QueuedSubnetNodesData, RegistrationSubnetData, StakeCooldownEpochs, StakeUnbondingLedger,
-    SubnetConsensusSubmission, SubnetData, SubnetElectedValidator, SubnetIdFriendlyUid,
-    SubnetMaxStakeBalance, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
-    SubnetNodeClassification, SubnetNodeConsensusData, SubnetNodeElectionSlots, SubnetNodeIdHotkey,
-    SubnetNodeQueue, SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
-    SubnetPauseCooldownEpochs, SubnetPauseData, SubnetRegistrationEpoch, SubnetRegistrationEpochs,
-    SubnetReputation, SubnetSlot, SubnetState, SubnetsData, TotalActiveSubnets, TotalAdmittedNodes,
-    TotalAdmittedSubnetNodes, TotalNodes, TotalOverwatchNodeStakeBalance, TotalOverwatchNodeUids,
-    TotalOverwatchNodes, TotalStake, TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids,
-    TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorDelegateStakeBalance,
-    TotalValidatorNodes, UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey,
-    ValidatorData, ValidatorDelegateStakeBalance, ValidatorIdHotkey, ValidatorOverwatchNodeId,
+    ConsensusData, CurrentOverwatchEpoch, DelegateAccount, HotkeyValidatorId, InitialValidatorData,
+    MaxMaxRegisteredNodes, MaxOverwatchNodes, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
+    MinSubnetNodes, MinSubnetRegistrationEpochs, MultiaddrSubnetNodeId, NetworkMaxStakeBalance,
+    NodeSubnetStake, OverwatchCommitCutoffPercent, OverwatchEpochLengthMultiplier,
+    OverwatchEpochSnapshot, OverwatchEpochSnapshots, OverwatchEpochStartBlock,
+    OverwatchMinStakeBalance, OverwatchNodeIdHotkey, OverwatchNodeStakeBalance,
+    OverwatchNodeStakeSnapshot, OverwatchNodeValidatorId, OverwatchNodes, OverwatchReveals,
+    OverwatchStakeWeightFactor, OverwatchValidatorWhitelist, PeerIdSubnetNodeId, PeerInfo,
+    PendingOverwatchSettlement, PendingOverwatchSettlementData, QueuedSubnetNodesData,
+    RegistrationSubnetData, StakeCooldownEpochs, StakeUnbondingLedger, SubnetConsensusSubmission,
+    SubnetData, SubnetElectedValidator, SubnetIdFriendlyUid, SubnetMaxStakeBalance,
+    SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification,
+    SubnetNodeConsensusData, SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueue,
+    SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
+    SubnetRegistrationEpoch, SubnetRegistrationEpochs, SubnetReputation, SubnetSlot, SubnetState,
+    SubnetsData, TotalActiveSubnets, TotalAdmittedNodes, TotalAdmittedSubnetNodes, TotalNodes,
+    TotalOverwatchNodeStakeBalance, TotalOverwatchNodeUids, TotalOverwatchNodes, TotalStake,
+    TotalSubnetDelegateStakeBalance, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake,
+    TotalSubnetUids, TotalValidatorDelegateStakeBalance, TotalValidatorNodes,
+    UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey, ValidatorData,
+    ValidatorDelegateStakeBalance, ValidatorIdHotkey, ValidatorOverwatchNodeId,
     ValidatorSubnetNodes, ValidatorsData,
 };
 use crate::{NodeMetadata, SubnetNodeMetadata};
@@ -73,7 +73,7 @@ pub fn insert_elected_subnet_node(subnet_id: u32, subnet_epoch: u32, subnet_node
         crate::ElectedConsensusRound {
             validator_subnet_node_id: subnet_node_id,
             validator_id,
-            emergency: None,
+
             eligible_subnet_node_ids: vec![subnet_node_id],
             eligible_validator_identity_ids: BTreeMap::from([(subnet_node_id, validator_id)]),
             validator_node_stake_balance: NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
@@ -1180,8 +1180,7 @@ pub fn build_registered_subnet(
     if delegate_stake_conditional {
         let delegate_staker_account = 1;
         // Fund above the configured base for the fixture
-        let mut min_subnet_delegate_stake =
-            crate::MinSubnetDelegateStakeBalance::<Test>::get();
+        let mut min_subnet_delegate_stake = crate::MinSubnetDelegateStakeBalance::<Test>::get();
         min_subnet_delegate_stake = min_subnet_delegate_stake
             + Network::percent_mul(min_subnet_delegate_stake, 10000000000000000);
         if Balances::free_balance(&alice.clone()) <= min_subnet_delegate_stake {
@@ -1963,17 +1962,6 @@ pub fn set_block_to_subnet_slot_epoch(epoch: u32, subnet_id: u32) {
     OverwatchEpochStartBlock::<Test>::put(block);
 }
 
-/// Run the subnet's assigned slot at the first local epoch where an active subnet may be paused.
-pub fn run_to_first_pause_eligible_subnet_slot(subnet_id: u32) {
-    let consensus_eligible_from_subnet_epoch = SubnetsData::<Test>::get(subnet_id)
-        .and_then(|subnet| subnet.consensus_eligible_from_subnet_epoch)
-        .expect("active subnet must have a consensus eligibility epoch");
-    let pause_epoch = consensus_eligible_from_subnet_epoch
-        .saturating_add(SubnetPauseCooldownEpochs::<Test>::get());
-    set_block_to_subnet_slot_epoch(pause_epoch, subnet_id);
-    Network::on_initialize(System::block_number());
-}
-
 /// Establish an anchored Overwatch epoch in fixtures with a static multiplier.
 /// Historical epochs with multiplier changes must seed their explicit start block instead.
 pub fn set_overwatch_epoch(epoch: u32) {
@@ -2068,19 +2056,29 @@ pub fn seed_overwatch_settlement_snapshot(epoch: u32) {
 pub fn snapshot_overwatch_epoch() {
     let snapshot = Network::capture_overwatch_epoch_snapshot(
         ActiveOverwatchEpochLengthMultiplier::<Test>::get(),
-    ).unwrap();
+    )
+    .unwrap();
     crate::OverwatchEpochSnapshots::<Test>::insert(CurrentOverwatchEpoch::<Test>::get(), snapshot);
 }
 
 /// Declare a participant in a low-level commit/reveal fixture without running registration.
 pub fn seed_overwatch_epoch_eligibility(node_id: u32) {
     let epoch = CurrentOverwatchEpoch::<Test>::get();
-    let mut snapshot = crate::OverwatchEpochSnapshots::<Test>::get(epoch).unwrap_or_else(||
-        Network::capture_overwatch_epoch_snapshot(ActiveOverwatchEpochLengthMultiplier::<Test>::get()).unwrap()
-    );
-    snapshot.nodes.try_insert(node_id, crate::OverwatchNodeStakeSnapshot {
-        stake: OverwatchNodeStakeBalance::<Test>::get(node_id),
-    }).unwrap();
+    let mut snapshot = crate::OverwatchEpochSnapshots::<Test>::get(epoch).unwrap_or_else(|| {
+        Network::capture_overwatch_epoch_snapshot(
+            ActiveOverwatchEpochLengthMultiplier::<Test>::get(),
+        )
+        .unwrap()
+    });
+    snapshot
+        .nodes
+        .try_insert(
+            node_id,
+            crate::OverwatchNodeStakeSnapshot {
+                stake: OverwatchNodeStakeBalance::<Test>::get(node_id),
+            },
+        )
+        .unwrap();
     crate::OverwatchEpochSnapshots::<Test>::insert(epoch, snapshot);
 }
 
@@ -2192,20 +2190,16 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
     }
 
     let admitted_subnet_nodes: Vec<crate::ConsensusSubnetNode> =
-        Network::get_admitted_classified_subnet_nodes(subnet_id, &SubnetNodeClass::Probation, epoch)
-            .iter()
-            .map(crate::ConsensusSubnetNode::from)
-            .collect();
+        Network::get_admitted_classified_subnet_nodes(
+            subnet_id,
+            &SubnetNodeClass::Probation,
+            epoch,
+        )
+        .iter()
+        .map(crate::ConsensusSubnetNode::from)
+        .collect();
 
-    let (validator_ids, emergency_active) =
-        Network::effective_consensus_validator_ids(subnet_id, epoch);
-    let emergency = if emergency_active {
-        EmergencySubnetNodeElectionData::<Test>::get(subnet_id).map(|emergency_validator_data| {
-            Network::emergency_consensus_snapshot(&emergency_validator_data, validator_ids.clone())
-        })
-    } else {
-        None
-    };
+    let validator_ids = Network::effective_consensus_validator_ids(subnet_id);
     let validator_identity_ids: BTreeMap<u32, u32> = validator_ids
         .iter()
         .filter_map(|subnet_node_id| {
@@ -2215,7 +2209,11 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
         .collect();
 
     let weight_sum = data.iter().map(|entry| entry.score).sum();
-    let eligible_validator_identity_count = validator_identity_ids.values().copied().collect::<BTreeSet<_>>().len() as u32;
+    let eligible_validator_identity_count = validator_identity_ids
+        .values()
+        .copied()
+        .collect::<BTreeSet<_>>()
+        .len() as u32;
 
     ConsensusData::<Test> {
         validator_id: subnet_id * max_subnet_nodes,
@@ -2230,7 +2228,6 @@ pub fn get_simulated_consensus_data(subnet_id: u32, node_count: u32) -> Consensu
         remove_queue_node_id: None,
         subnet_nodes: admitted_subnet_nodes,
         args: None,
-        emergency,
         weight_sum,
         eligible_validator_identity_count,
     }
@@ -2329,10 +2326,6 @@ pub fn submit_weight(epoch: u32, subnet_id: u32, node_id: u32, weight: u128) {
 pub fn new_subnet_data(id: u32, state: SubnetState, start_epoch: u32) -> SubnetData {
     let consensus_eligible_from_subnet_epoch =
         (state == SubnetState::Active).then_some(start_epoch);
-    let pause = (state == SubnetState::Paused).then_some(SubnetPauseData {
-        started_global_epoch: start_epoch,
-        started_subnet_epoch: start_epoch,
-    });
 
     SubnetData {
         id,
@@ -2344,7 +2337,6 @@ pub fn new_subnet_data(id: u32, state: SubnetState, start_epoch: u32) -> SubnetD
         consensus_mechanism: Default::default(),
         state,
         consensus_eligible_from_subnet_epoch,
-        pause,
     }
 }
 
@@ -2352,11 +2344,14 @@ pub fn new_subnet_data(id: u32, state: SubnetState, start_epoch: u32) -> SubnetD
 pub fn insert_subnet(id: u32, state: SubnetState, start_epoch: u32) {
     let data = new_subnet_data(id, state, start_epoch);
     SubnetsData::<Test>::insert(id, data);
-    crate::SubnetBalanceTimes::<Test>::insert(id, crate::SubnetBalanceTime {
-        last_updated_block: System::block_number(),
-        current_epoch_area: Default::default(),
-        previous_epoch_area: Default::default(),
-    });
+    crate::SubnetBalanceTimes::<Test>::insert(
+        id,
+        crate::SubnetBalanceTime {
+            last_updated_block: System::block_number(),
+            current_epoch_area: Default::default(),
+            previous_epoch_area: Default::default(),
+        },
+    );
 }
 
 pub fn insert_subnet_requirements(id: u32) {
@@ -2407,7 +2402,9 @@ pub fn manual_insert_subnet_node_v2(
             bootnode_peer_info: None,
             client_peer_info: None,
             unique: Some(BoundedVec::new()),
-            non_unique: Some(BoundedVec::new()), });
+            non_unique: Some(BoundedVec::new()),
+        },
+    );
     SubnetNodesData::<Test>::insert(
         subnet_id,
         node_id,

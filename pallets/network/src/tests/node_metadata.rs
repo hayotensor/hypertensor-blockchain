@@ -400,15 +400,16 @@ fn queued_edits_survive_admission_and_probation_promotion() {
         let epoch = start + SubnetNodeQueueEpochs::<Test>::get(subnet) + 1;
         ChurnLimitMultiplier::<Test>::insert(subnet, 1);
         Network::handle_registration_queue(&mut WeightMeter::new(), subnet, epoch);
-        assert!(!QueuedSubnetNodesData::<Test>::contains_key(
-            subnet, node
-        ));
+        assert!(!QueuedSubnetNodesData::<Test>::contains_key(subnet, node));
         assert!(SubnetNodesData::<Test>::contains_key(subnet, node));
         assert!(!SubnetNodeQueue::<Test>::get(subnet)
             .iter()
             .any(|n| n.id == node));
         assert!(Network::promote_probation_node_to_active(
-            subnet, node, epoch, &Default::default()
+            subnet,
+            node,
+            epoch,
+            &Default::default()
         ));
         assert_eq!(
             SubnetNodeMetadata::<Test>::get(subnet, node),
@@ -419,45 +420,11 @@ fn queued_edits_survive_admission_and_probation_promotion() {
 }
 
 #[test]
-fn pause_unpause_and_key_rotations_keep_metadata_attached_to_node_id() {
+fn key_rotations_keep_metadata_attached_to_node_id() {
     new_test_ext().execute_with(|| {
         let (subnet, node, coldkey) = fixture(true);
         let m = maximum(42);
         set(subnet, node, &coldkey, m.clone());
-        let epoch = SubnetsData::<Test>::get(subnet)
-            .unwrap()
-            .consensus_eligible_from_subnet_epoch
-            .unwrap()
-            + SubnetPauseCooldownEpochs::<Test>::get();
-        set_block_to_subnet_slot_epoch(epoch, subnet);
-        let owner = SubnetOwner::<Test>::get(subnet).unwrap();
-        assert_ok!(Network::owner_pause_subnet(
-            RuntimeOrigin::signed(owner.clone()),
-            subnet
-        ));
-        let start = QueuedSubnetNodesData::<Test>::get(subnet, node)
-            .classification
-            .start_epoch;
-        increase_epochs(2);
-        assert_ok!(Network::owner_unpause_subnet(
-            RuntimeOrigin::signed(owner),
-            subnet
-        ));
-        assert_eq!(
-            QueuedSubnetNodesData::<Test>::get(subnet, node)
-                .classification
-                .start_epoch,
-            start + 2
-        );
-        assert_eq!(
-            SubnetNodeQueue::<Test>::get(subnet)
-                .iter()
-                .find(|n| n.id == node)
-                .unwrap()
-                .classification
-                .start_epoch,
-            start + 2
-        );
         let validator = SubnetNodeValidatorId::<Test>::get(subnet, node).unwrap();
         assert_ok!(Network::update_validator_hotkey(
             RuntimeOrigin::signed(coldkey.clone()),
@@ -516,9 +483,7 @@ fn quarantine_retains_metadata_until_physical_cleanup_and_retains_withdrawal_sta
             assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
             assert_indexes(subnet, node, &m, false);
             assert!(!SubnetNodesData::<Test>::contains_key(subnet, node));
-            assert!(!QueuedSubnetNodesData::<Test>::contains_key(
-                subnet, node
-            ));
+            assert!(!QueuedSubnetNodesData::<Test>::contains_key(subnet, node));
             assert_eq!(NodeSubnetStake::<Test>::get(node, subnet), stake);
             assert_eq!(SubnetNodeValidatorId::<Test>::get(subnet, node), validator);
             System::assert_last_event(

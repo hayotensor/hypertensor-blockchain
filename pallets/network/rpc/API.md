@@ -30,12 +30,12 @@ Historical `ConsensusSubnetNode` snapshots retain proposal-time classification.
 All classifications use the three-state schema below, with no migration or fallback reader.
 
 Node `classification.nodeClass` is `queued`, `probation`, or `active`; SCALE and contract
-codes are 0, 1, and 2 respectively. Subnet lifecycle states are unchanged. Node information
+codes are 0, 1, and 2 respectively. Subnet lifecycle states are `registered` and `active` (codes 0 and 1). Node information
 exposes `probationProgress`; subnet configuration exposes `probationRounds` and
 `pendingProbationRounds`; consensus policy exposes its snapshotted `probationRounds`.
 Probation progress counts consecutive qualifying inclusions, not elapsed epochs. It
 advances only on ordinary accepted nonzero-total-score rounds with identity supermajority;
-endorsed omission resets it. Emergency and other non-qualifying rounds leave it unchanged.
+endorsed omission resets it. Other non-qualifying rounds leave it unchanged.
 A zero-score entry still counts in a nonzero-total-score round. Promotion additionally
 requires full reputation. Probation nodes earn no node-related rewards and cannot vote.
 
@@ -48,13 +48,12 @@ Storage uses `TotalAdmittedSubnetNodes`, `TotalAdmittedNodes`, `SubnetNodeProbat
 `PendingAdmittedNodeRemovals` and `PendingQueuedNodeRemovals`. Admission emits
 `SubnetNodeAdmitted`; promotion emits `SubnetNodePromoted`.
 
-`Network.SubnetConsensusSubmission(subnetId, subnetEpoch)` appends `weight_sum: u128`
-and `eligible_validator_identity_count: u32` to its stored `ConsensusData`, in that order
-after `emergency`. This adds 20 SCALE bytes. The runtime computes these immutable summaries
+`Network.SubnetConsensusSubmission(subnetId, subnetEpoch)` stores `weight_sum: u128`
+and `eligible_validator_identity_count: u32` at the end of its `ConsensusData`. The runtime computes these immutable summaries
 from the validated proposal scores and the final eligible-identity map after quarantine
 filtering. Attestations change only votes; settlement reuses the summaries while computing
 actual participation and checking live payment/removal state. Direct storage readers must
-use the new runtime metadata. Composed RPC responses and the Solidity ABI remain unchanged.
+use the current runtime metadata; RPC response types and Solidity interfaces define the public fields.
 This prelaunch layout has no migration, legacy reader, or malformed-storage repair fallback.
 
 ## Wire conventions
@@ -119,7 +118,7 @@ validator and admitted or queued subnet-node information remain available.
 | `network_getValidatorNodeAllocations` | `validatorId`, `page` | Page of validator-delegate-pool node allocations |
 | `network_getConsensusRound` | `subnetId`, `subnetEpoch` | Election/policy snapshot and current proposal state, or `null` |
 | `network_getSubnetValidatorNodes` | `subnetId`, `page` | Current effective validator-node page |
-| `network_getSubnetEpochStatus` | `subnetId` | Current phase, timing, election, proposal, and validator-set status |
+| `network_getSubnetEpochStatus` | `subnetId` | Current phase, timing, election, and proposal status |
 | `network_getOverwatchNodeInfo` | `overwatchNodeId` | Active Overwatch member details or `null` |
 | `network_getOverwatchNodes` | `page` | Page of active Overwatch members |
 | `network_getEffectiveOverwatchSignalMeta` | none | Latest effective signal source epoch, revision, and validity |
@@ -132,11 +131,10 @@ signal or no raw entry exists. Historical epoch weights remain available through
 and are not rewritten when active membership changes.
 
 `network_getSubnetValidatorNodes` means the current effective candidate set, not nodes that have
-attested. A pending or expired emergency set does not replace the regular set. An active emergency
-set includes only members that remain Active-class nodes. Actual proposal-time eligibility and
-attestations are exposed by `network_getConsensusRound`.
+attested. It includes eligible Active-class nodes and excludes pending removals. Actual
+proposal-time eligibility and attestations are exposed by `network_getConsensusRound`.
 
-The consensus-round result preserves the elected node and validator identity, election source,
+The consensus-round result preserves the elected node and validator identity,
 complete candidate snapshot, delegate balance, and policy at election. Once submitted, the
 proposal-time eligible-attestor snapshot is also fixed, but the recorded attestation entries can
 accumulate while that round remains open. After the round closes, the result is historical. It does

@@ -10,33 +10,30 @@ use crate::{
     DelegateStakeCooldownEpochs, DelegateStakeSubnetRemovalInterval, DelegateStakeWeightFactor,
     Error, InConsensusSubnetReputationFactor, LessThanMinNodesSubnetReputationFactor, MaxBootnodes,
     MaxChurnLimit, MaxChurnLimitMultiplier, MaxConsensusValidatorStakeWeightPower,
-    MaxDelegateStakePercentage, MaxEmergencySubnetNodes, MaxEmergencyValidatorEpochsMultiplier,
-    MaxMaxRegisteredNodes, MaxMinSubnetNodeReputation, MaxNodeBurnRate, MaxNodeReputationFactor,
-    MaxOverwatchNodes, MaxPauseEpochsSubnetReputationFactor, MaxProbationRounds, MaxQueueEpochs,
+    MaxDelegateStakePercentage, MaxMaxRegisteredNodes, MaxMinSubnetNodeReputation, MaxNodeBurnRate,
+    MaxNodeReputationFactor, MaxOverwatchNodes, MaxProbationRounds, MaxQueueEpochs,
     MaxRewardRateDecrease, MaxSlashAmount, MaxSubnetBootnodeAccess,
     MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
-    MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnetPauseEpochs,
-    MaxSubnets, MaxSwapQueueCallsPerBlock, MaxUnbondings, MaxValidatorDelegateStakeSlashAmount,
+    MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnets,
+    MaxSwapQueueCallsPerBlock, MaxUnbondings, MaxValidatorDelegateStakeSlashAmount,
     MinActiveNodeStakeEpochs, MinChurnLimit, MinChurnLimitMultiplier,
     MinConsensusValidatorStakeWeightPower, MinDelegateStakeDeposit, MinDelegateStakePercentage,
     MinMaxRegisteredNodes, MinMinSubnetNodeReputation, MinNodeBurnRate, MinNodeReputationFactor,
     MinProbationRounds, MinQueueEpochs, MinRegistrationCost, MinSubnetDelegateStakeBalance,
-    MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs,
-    MinSubnetReputation, NetworkMaxStakeBalance, NewRegistrationCostMultiplier,
-    NodeDelegateStakeCooldownEpochs, NodeRewardRateUpdatePeriod,
-    NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
+    MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetReputation,
+    NetworkMaxStakeBalance, NewRegistrationCostMultiplier, NodeDelegateStakeCooldownEpochs,
+    NodeRewardRateUpdatePeriod, NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
     OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock, OverwatchMinStakeBalance,
     OverwatchStakeWeightFactor, OverwatchTxPauseStartBlock, OverwatchValidatorWhitelist,
     OverwatchWeightFactor, RegistrationCostAlpha, RegistrationCostDecayBlocks,
     RequireSubnetRegistrationWhitelist, StakeCooldownEpochs,
     SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower, SubnetEnactmentEpochs,
-    SubnetName, SubnetNodeValidatorId, SubnetOwnerPercentage, SubnetPauseCooldownEpochs,
-    SubnetRegistrationEpochs, SubnetRegistrationWhitelist, SubnetRemovalActivationCooldown,
-    SubnetRemovalCheckInterval, SubnetWeightFactors, SubnetWeightFactorsData, SubnetsData,
-    TotalValidatorNodes, TxRateLimit, ValidatorAbsentSubnetReputationFactor,
-    ValidatorDelegateStakeSlashThreshold, ValidatorNodeDelegateStakeWeightUpdateInterval,
-    ValidatorNodeDelegateStakeWeights, ValidatorRewardK, ValidatorRewardMidpoint,
-    ValidatorSubnetNodes,
+    SubnetName, SubnetNodeValidatorId, SubnetOwnerPercentage, SubnetRegistrationEpochs,
+    SubnetRegistrationWhitelist, SubnetRemovalActivationCooldown, SubnetRemovalCheckInterval,
+    SubnetWeightFactors, SubnetWeightFactorsData, SubnetsData, TotalValidatorNodes, TxRateLimit,
+    ValidatorAbsentSubnetReputationFactor, ValidatorDelegateStakeSlashThreshold,
+    ValidatorNodeDelegateStakeWeightUpdateInterval, ValidatorNodeDelegateStakeWeights,
+    ValidatorRewardK, ValidatorRewardMidpoint, ValidatorSubnetNodes,
 };
 use frame_support::{assert_err, assert_ok};
 
@@ -87,10 +84,6 @@ fn test_network_bound_config_values() {
         assert_eq!(
             <Test as crate::Config>::MaxSwapCallsPerBlockUpperBound::get(),
             1_000
-        );
-        assert_eq!(
-            <Test as crate::Config>::MaxEmergencySubnetNodesUpperBound::get(),
-            64
         );
     });
 }
@@ -143,13 +136,6 @@ fn collective_capacity_limits_cannot_exceed_runtime_ceilings() {
                 <Test as crate::Config>::MaxSwapCallsPerBlockUpperBound::get() + 1,
             ),
             Error::<Test>::InvalidValues
-        );
-        assert_err!(
-            Network::set_max_emergency_subnet_nodes(
-                origin(),
-                <Test as crate::Config>::MaxEmergencySubnetNodesUpperBound::get() + 1,
-            ),
-            Error::<Test>::InvalidMaxEmergencySubnetNodes
         );
     });
 }
@@ -339,26 +325,6 @@ fn test_set_max_subnets_reserves_slot_for_rotation_subnet() {
             Error::<Test>::InvalidMaxSubnets
         );
         assert_eq!(MaxSubnets::<Test>::get(), largest_valid_max);
-    });
-}
-
-#[test]
-fn test_set_max_pause_epochs() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let new_value: u32 = 100;
-
-        assert_ok!(Network::set_max_pause_epochs(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-            new_value
-        ));
-
-        assert_eq!(MaxSubnetPauseEpochs::<Test>::get(), new_value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetMaxSubnetPauseEpochs(new_value)
-        );
     });
 }
 
@@ -583,11 +549,6 @@ fn test_multiple_parameter_updates() {
             new_max_subnets
         ));
 
-        assert_ok!(Network::set_max_pause_epochs(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-            120
-        ));
-
         assert_ok!(Network::set_base_validator_reward(
             RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
             60000000000000000
@@ -595,7 +556,6 @@ fn test_multiple_parameter_updates() {
 
         // Verify all updated
         assert_eq!(MaxSubnets::<Test>::get(), new_max_subnets);
-        assert_eq!(MaxSubnetPauseEpochs::<Test>::get(), 120);
         assert_eq!(BaseValidatorReward::<Test>::get(), 60000000000000000);
     });
 }
@@ -1586,35 +1546,6 @@ fn test_set_subnet_removal_intervals() {
 }
 
 #[test]
-fn test_set_subnet_pause_cooldown_epochs() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        assert_err!(
-            Network::set_subnet_pause_cooldown_epochs(
-                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-                0
-            ),
-            Error::<Test>::InvalidSubnetPauseCooldownEpochs
-        );
-        assert_eq!(SubnetPauseCooldownEpochs::<Test>::get(), 1);
-
-        let new_value: u32 = 10;
-
-        assert_ok!(Network::set_subnet_pause_cooldown_epochs(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-            new_value
-        ));
-
-        assert_eq!(SubnetPauseCooldownEpochs::<Test>::get(), new_value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetSubnetPauseCooldownEpochs(new_value)
-        );
-    });
-}
-
-#[test]
 fn test_set_delegate_stake_cooldown_epochs() {
     new_test_ext().execute_with(|| {
         System::set_block_number(System::block_number() + 1);
@@ -2317,59 +2248,6 @@ fn test_set_overwatch_weight_factor() {
 }
 
 #[test]
-fn test_set_max_emergency_validator_epochs_multiplier() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let new_value: u128 = Network::percentage_factor_as_u128();
-
-        assert_ok!(Network::set_max_emergency_validator_epochs_multiplier(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-            new_value
-        ));
-
-        assert_eq!(
-            MaxEmergencyValidatorEpochsMultiplier::<Test>::get(),
-            new_value
-        );
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetMaxEmergencyValidatorEpochsMultiplier(new_value)
-        );
-    });
-}
-
-#[test]
-fn test_set_max_emergency_subnet_nodes() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let new_value = MinSubnetNodes::<Test>::get() + 1;
-
-        assert_ok!(Network::set_max_emergency_subnet_nodes(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-            new_value
-        ));
-
-        assert_eq!(MaxEmergencySubnetNodes::<Test>::get(), new_value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetMaxEmergencySubnetNodes(new_value)
-        );
-
-        let new_value = MinSubnetNodes::<Test>::get() - 1;
-
-        assert_err!(
-            Network::set_max_emergency_subnet_nodes(
-                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-                new_value
-            ),
-            Error::<Test>::InvalidMaxEmergencySubnetNodes
-        );
-    });
-}
-
-#[test]
 fn test_set_overwatch_stake_weight_factor() {
     new_test_ext().execute_with(|| {
         System::set_block_number(System::block_number() + 1);
@@ -2449,7 +2327,11 @@ fn test_subnet_weight_factors_require_exactly_one_hundred_percent() {
             frame_support::assert_noop!(
                 Network::set_subnet_weight_factors(
                     RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-                    SubnetWeightFactorsData { delegate_stake, node_count, time_weighted_stake },
+                    SubnetWeightFactorsData {
+                        delegate_stake,
+                        node_count,
+                        time_weighted_stake
+                    },
                 ),
                 Error::<Test>::InvalidPercent
             );
@@ -2457,9 +2339,16 @@ fn test_subnet_weight_factors_require_exactly_one_hundred_percent() {
         }
         // Individual factors may be zero; only the combined total must equal 100%.
         for (delegate_stake, node_count, time_weighted_stake) in [
-            (full, 0, 0), (0, full, 0), (0, 0, full), (full / 2, full / 2, 0),
+            (full, 0, 0),
+            (0, full, 0),
+            (0, 0, full),
+            (full / 2, full / 2, 0),
         ] {
-            let value = SubnetWeightFactorsData { delegate_stake, node_count, time_weighted_stake };
+            let value = SubnetWeightFactorsData {
+                delegate_stake,
+                node_count,
+                time_weighted_stake,
+            };
             assert_ok!(Network::set_subnet_weight_factors(
                 RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
                 value.clone(),
@@ -2541,26 +2430,6 @@ fn test_set_overwatch_validator_whitelist() {
         assert_eq!(
             *network_events().last().unwrap(),
             Event::SetOverwatchValidatorWhitelist(validator_id, false)
-        );
-    });
-}
-
-#[test]
-fn test_set_max_pause_epochs_subnet_reputation_factor() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        let value: u128 = 5;
-
-        assert_ok!(Network::set_max_pause_epochs_subnet_reputation_factor(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
-            value.clone()
-        ));
-
-        assert_eq!(MaxPauseEpochsSubnetReputationFactor::<Test>::get(), value);
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetMaxPauseEpochsSubnetReputationFactor(value)
         );
     });
 }

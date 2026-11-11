@@ -28,12 +28,6 @@ fn scalar_account_and_byte_arguments_preserve_the_native_call_payload() {
     case!(subnets, ISubnets, ISubnetsCalls, activateSubnetCall => activate_subnet;
         subnetId => subnet_id: 101u32,
     );
-    case!(subnets, ISubnets, ISubnetsCalls, ownerPauseSubnetCall => owner_pause_subnet;
-        subnetId => subnet_id: 101u32,
-    );
-    case!(subnets, ISubnets, ISubnetsCalls, ownerUnpauseSubnetCall => owner_unpause_subnet;
-        subnetId => subnet_id: 101u32,
-    );
     case!(subnets, ISubnets, ISubnetsCalls, ownerDeactivateSubnetCall => owner_deactivate_subnet;
         subnetId => subnet_id: 101u32,
     );
@@ -77,9 +71,6 @@ fn scalar_account_and_byte_arguments_preserve_the_native_call_payload() {
     case!(subnets, ISubnets, ISubnetsCalls, ownerUpdateMinSubnetNodeReputationCall => owner_update_min_subnet_node_reputation;
         subnetId => subnet_id: 101u32,
         value => value: ((1u128 << 100) + 102),
-    );
-    case!(subnets, ISubnets, ISubnetsCalls, ownerRevertEmergencyValidatorSetCall => owner_revert_emergency_validator_set;
-        subnetId => subnet_id: 101u32,
     );
     case!(subnets, ISubnets, ISubnetsCalls, ownerUpdateMinMaxStakeCall => owner_update_min_max_stake;
         subnetId => subnet_id: 101u32,

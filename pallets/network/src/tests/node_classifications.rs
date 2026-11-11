@@ -325,37 +325,12 @@ fn promotion_requires_full_reputation_and_endorsed_omission_resets_progress() {
 }
 
 #[test]
-fn nonqualifying_rounds_freeze_progress_including_emergency_omissions() {
-    for case in [
-        "rejected",
-        "zero_total",
-        "below_identity",
-        "emergency_scored",
-        "emergency_omitted",
-        "missing",
-    ] {
+fn nonqualifying_rounds_freeze_progress() {
+    for case in ["rejected", "zero_total", "below_identity", "missing"] {
         new_test_ext().execute_with(|| {
             let (subnet, epoch) = probation_fixture();
             SubnetNodeProbationProgress::<Test>::insert(subnet, NEW_NODE, 1);
             let stake_before = NodeSubnetStake::<Test>::get(NEW_NODE, subnet);
-            if case.starts_with("emergency") {
-                EmergencySubnetNodeElectionData::<Test>::insert(
-                    subnet,
-                    EmergencySubnetValidatorData {
-                        subnet_node_ids: (1..=BOOTSTRAP_NODES).collect(),
-                        target_emergency_validators_epochs: 10,
-                        max_emergency_validators_epoch: epoch + 20,
-                        total_epochs: 0,
-                        activated: true,
-                        started_subnet_epoch: epoch,
-                        reputation_factors: Network::get_reputation_factors_for_epoch(
-                            subnet, epoch,
-                        ),
-                        min_subnet_node_reputation: MinSubnetNodeReputation::<Test>::get(subnet),
-                        min_weight_decrease_reputation_threshold: 0,
-                    },
-                );
-            }
             if case == "missing" {
                 elect(subnet, epoch);
                 set_block_to_subnet_slot_epoch(epoch + 1, subnet);
@@ -368,7 +343,7 @@ fn nonqualifying_rounds_freeze_progress_including_emergency_omissions() {
                 );
             } else {
                 let score = match case {
-                    "emergency_omitted" | "below_identity" => None,
+                    "below_identity" => None,
                     "zero_total" => Some(0),
                     _ => Some(100),
                 };

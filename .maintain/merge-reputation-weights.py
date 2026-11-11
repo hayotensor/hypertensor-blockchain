@@ -12,7 +12,7 @@ from pathlib import Path
 METHODS = {
     'emission_step', 'emission_step_accepted_below_min_weight_reputation',
     'emission_step_accepted_non_attestor_reputation', 'emission_step_rejected',
-    'emission_step_emergency', 'emission_step_missing', 'precheck_subnet_consensus_submission',
+    'emission_step_missing', 'precheck_subnet_consensus_submission',
     'precheck_subnet_consensus_submission_missing',
 }
 METHOD = re.compile(r'(?:\t///[^\n]*\n)*\tfn (\w+)\([^\n]*\) -> Weight \{.*?\n\t\}', re.S)

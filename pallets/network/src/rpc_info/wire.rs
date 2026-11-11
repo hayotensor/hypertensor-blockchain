@@ -21,7 +21,6 @@ fn rpc_subnet_state(value: SubnetState) -> rpc::SubnetState {
     match value {
         SubnetState::Registered => rpc::SubnetState::Registered,
         SubnetState::Active => rpc::SubnetState::Active,
-        SubnetState::Paused => rpc::SubnetState::Paused,
     }
 }
 
@@ -193,8 +192,6 @@ impl<T: Config> Pallet<T> {
             consensus_mechanism: rpc_consensus_mechanism(value.consensus_mechanism),
             state: rpc_subnet_state(value.state),
             consensus_eligible_from_subnet_epoch: value.consensus_eligible_from_subnet_epoch,
-            pause_started_global_epoch: value.pause_started_global_epoch,
-            pause_started_subnet_epoch: value.pause_started_subnet_epoch,
             churn_limit: value.churn_limit,
             churn_limit_multiplier: value.churn_limit_multiplier,
             min_stake: value.min_stake.into(),
@@ -577,16 +574,6 @@ impl<T: Config> Pallet<T> {
                         })
                     })
                     .collect::<Result<Vec<_>, rpc::NetworkQueryError>>()?;
-                let emergency = submission
-                    .emergency
-                    .map(|emergency| rpc::EmergencyConsensusInfo {
-                        subnet_node_ids: emergency.subnet_node_ids,
-                        reputation_factors: rpc_reputation_factors(emergency.reputation_factors),
-                        min_subnet_node_reputation: emergency.min_subnet_node_reputation.into(),
-                        min_weight_decrease_reputation_threshold: emergency
-                            .min_weight_decrease_reputation_threshold
-                            .into(),
-                    });
 
                 Ok(rpc::ConsensusProposalInfo {
                     block: submission.block,
@@ -611,7 +598,6 @@ impl<T: Config> Pallet<T> {
                     args: proposal_args
                         .clone()
                         .map(|args| rpc_bytes(args.into_inner())),
-                    emergency,
                 })
             })
             .transpose()?;
@@ -623,11 +609,6 @@ impl<T: Config> Pallet<T> {
                 rpc::ConsensusRoundStatus::Proposed
             } else {
                 rpc::ConsensusRoundStatus::Elected
-            },
-            election_source: if round.emergency.is_some() {
-                rpc::ConsensusElectionSource::Emergency
-            } else {
-                rpc::ConsensusElectionSource::Regular
             },
             elected_subnet_node_id: round.validator_subnet_node_id,
             elected_validator_id: round.validator_id,
@@ -687,13 +668,6 @@ impl<T: Config> Pallet<T> {
         let proposal_submitted = actionable_epoch
             .map(|epoch| SubnetConsensusSubmission::<T>::contains_key(subnet_id, epoch))
             .unwrap_or(false);
-        let emergency_data = EmergencySubnetNodeElectionData::<T>::get(subnet_id);
-        let emergency_active = current_epoch
-            .zip(emergency_data.as_ref())
-            .map(|(epoch, data)| {
-                data.activated && !Self::is_emergency_validator_set_expired(data, subnet_id, epoch)
-            })
-            .unwrap_or(false);
 
         Ok(rpc::SubnetEpochStatus {
             subnet_id,
@@ -704,12 +678,6 @@ impl<T: Config> Pallet<T> {
                 && Self::can_propose_or_attest_attestation(subnet_id),
             elected_validator_subnet_node_id,
             proposal_submitted,
-            validator_set_source: if emergency_active {
-                rpc::ConsensusElectionSource::Emergency
-            } else {
-                rpc::ConsensusElectionSource::Regular
-            },
-            pending_emergency_set: emergency_data.map(|data| !data.activated).unwrap_or(false),
         })
     }
 

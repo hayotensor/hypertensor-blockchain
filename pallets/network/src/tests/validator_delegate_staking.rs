@@ -87,7 +87,6 @@ fn rejected_round_submission(
         subnet_nodes: Vec::new(),
         prioritize_queue_node_id: None,
         remove_queue_node_id: None,
-        emergency: round.emergency.clone(),
     }
 }
 
@@ -1165,7 +1164,6 @@ fn submitted_round_slash_and_liability_release_are_exact_once_after_nominal_unlo
             subnet_nodes: Vec::new(),
             prioritize_queue_node_id: None,
             remove_queue_node_id: None,
-            emergency: round.emergency,
         };
 
         Network::distribute_rewards(

@@ -455,13 +455,6 @@ fn collection_limits_and_duplicate_maps_fail_before_dispatch() {
     assert!(
         convert::metadata::<Runtime>(&vec![0; NetworkMaxVectorLength::get() as usize + 1]).is_err()
     );
-    assert!(convert::emergency_set::<Runtime>(&vec![
-        1;
-        NetworkMaxEmergencySubnetNodesUpperBound::get()
-            as usize
-            + 1
-    ])
-    .is_err());
     assert!(convert::validator_args::<Runtime>(&abi::OptionalBytes {
         present: true,
         value: vec![0; NetworkValidatorArgsLimit::get() as usize + 1].into()
@@ -560,8 +553,6 @@ fn every_mutation_selector_routes_to_its_declared_native_call_index() {
     routes!(subnets, ISubnets, ISubnetsCalls;
         registerSubnetCall => 6,
         activateSubnetCall => 7,
-        ownerPauseSubnetCall => 8,
-        ownerUnpauseSubnetCall => 9,
         ownerDeactivateSubnetCall => 10,
         ownerUpdateNameCall => 11,
         ownerUpdateRepoCall => 12,
@@ -575,8 +566,6 @@ fn every_mutation_selector_routes_to_its_declared_native_call_index() {
         ownerUpdateMinSubnetNodeReputationCall => 28,
         ownerAddOrUpdateInitialValidatorsCall => 29,
         ownerRemoveInitialValidatorsCall => 30,
-        ownerSetEmergencyValidatorSetCall => 31,
-        ownerRevertEmergencyValidatorSetCall => 32,
         ownerUpdateMinMaxStakeCall => 33,
         ownerUpdateDelegateStakePercentageCall => 34,
         ownerUpdateMaxRegisteredNodesCall => 35,

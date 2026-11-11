@@ -39,7 +39,7 @@ fn assert_requirement(id: u32, minimum: u128, eligible: bool) {
 
 #[test]
 fn activation_uses_base_boundary_in_registration_and_enactment() {
-    for epoch in [1, 3] {
+    for epoch in [1, 2, 3, 4] {
         for balance in [99, 100, 101] {
             new_test_ext().execute_with(|| {
                 MinSubnetDelegateStakeBalance::<Test>::put(100);
@@ -51,7 +51,8 @@ fn activation_uses_base_boundary_in_registration_and_enactment() {
                 SubnetOwner::<Test>::insert(1, account(0));
                 set_epoch(epoch, 0);
 
-                if balance < 100 && epoch == 1 {
+                if balance < 100 {
+                    let events_before = network_events();
                     assert_noop!(
                         Network::activate_subnet(RuntimeOrigin::signed(account(0)), 1),
                         Error::<Test>::SubnetActivationConditionsNotMetYet
@@ -60,33 +61,113 @@ fn activation_uses_base_boundary_in_registration_and_enactment() {
                         SubnetsData::<Test>::get(1).unwrap().state,
                         SubnetState::Registered
                     );
+                    assert_eq!(network_events(), events_before);
                 } else {
                     assert_ok!(Network::activate_subnet(
                         RuntimeOrigin::signed(account(0)),
                         1
                     ));
-                    if balance < 100 {
-                        assert!(!SubnetsData::<Test>::contains_key(1));
-                        assert_eq!(
-                            network_events().last(),
-                            Some(&Event::SubnetDeactivated {
-                                subnet_id: 1,
-                                reason: SubnetRemovalReason::MinSubnetDelegateStake,
-                            })
-                        );
-                    } else {
-                        assert_eq!(
-                            SubnetsData::<Test>::get(1).unwrap().state,
-                            SubnetState::Active
-                        );
-                        assert_eq!(
-                            network_events().last(),
-                            Some(&Event::SubnetActivated { subnet_id: 1 })
-                        );
-                    }
+                    assert_eq!(
+                        SubnetsData::<Test>::get(1).unwrap().state,
+                        SubnetState::Active
+                    );
+                    assert_eq!(
+                        network_events().last(),
+                        Some(&Event::SubnetActivated { subnet_id: 1 })
+                    );
                 }
             });
         }
+    }
+}
+
+#[test]
+fn enactment_removes_subnets_with_other_failed_conditions() {
+    for reason in [
+        SubnetRemovalReason::MinSubnetNodes,
+        SubnetRemovalReason::MinReputation,
+    ] {
+        for balance in [99, 100] {
+            new_test_ext().execute_with(|| {
+                MinSubnetDelegateStakeBalance::<Test>::put(100);
+                MinSubnetRegistrationEpochs::<Test>::put(1);
+                SubnetRegistrationEpochs::<Test>::put(2);
+                SubnetEnactmentEpochs::<Test>::put(2);
+                healthy_subnet(1, SubnetState::Registered, 0, balance);
+                SubnetRegistrationEpoch::<Test>::insert(1, 0);
+                SubnetOwner::<Test>::insert(1, account(0));
+                if reason == SubnetRemovalReason::MinSubnetNodes {
+                    TotalAdmittedSubnetNodes::<Test>::insert(1, MinSubnetNodes::<Test>::get() - 1);
+                } else {
+                    SubnetReputation::<Test>::insert(1, 0);
+                }
+                set_epoch(3, 0);
+
+                assert_ok!(Network::activate_subnet(
+                    RuntimeOrigin::signed(account(0)),
+                    1
+                ));
+                assert!(!SubnetsData::<Test>::contains_key(1));
+                assert_eq!(
+                    network_events().last(),
+                    Some(&Event::SubnetDeactivated {
+                        subnet_id: 1,
+                        reason: reason.clone(),
+                    })
+                );
+            });
+        }
+    }
+}
+
+#[test]
+fn delegate_shortfall_does_not_extend_enactment_deadline() {
+    for remove_via_activation in [false, true] {
+        new_test_ext().execute_with(|| {
+            MinSubnetDelegateStakeBalance::<Test>::put(100);
+            MinSubnetRegistrationEpochs::<Test>::put(1);
+            SubnetRegistrationEpochs::<Test>::put(2);
+            SubnetEnactmentEpochs::<Test>::put(2);
+            DelegateStakeSubnetRemovalInterval::<Test>::put(1);
+            healthy_subnet(1, SubnetState::Registered, 0, 99);
+            SubnetRegistrationEpoch::<Test>::insert(1, 0);
+            SubnetOwner::<Test>::insert(1, account(0));
+
+            for epoch in [3, 4] {
+                set_epoch(epoch, 0);
+                Network::do_epoch_preliminaries(
+                    &mut WeightMeter::new(),
+                    System::block_number(),
+                    epoch,
+                );
+                assert_noop!(
+                    Network::activate_subnet(RuntimeOrigin::signed(account(0)), 1),
+                    Error::<Test>::SubnetActivationConditionsNotMetYet
+                );
+                assert_eq!(
+                    SubnetsData::<Test>::get(1).unwrap().state,
+                    SubnetState::Registered
+                );
+            }
+
+            set_epoch(5, 0);
+            if remove_via_activation {
+                assert_ok!(Network::activate_subnet(
+                    RuntimeOrigin::signed(account(0)),
+                    1
+                ));
+            } else {
+                Network::do_epoch_preliminaries(&mut WeightMeter::new(), System::block_number(), 5);
+            }
+            assert!(!SubnetsData::<Test>::contains_key(1));
+            assert_eq!(
+                network_events().last(),
+                Some(&Event::SubnetDeactivated {
+                    subnet_id: 1,
+                    reason: SubnetRemovalReason::EnactmentPeriod,
+                })
+            );
+        });
     }
 }
 
@@ -98,11 +179,7 @@ fn requirement_is_independent_of_other_subnets_and_validator_delegation() {
         healthy_subnet(1, SubnetState::Active, 0, 100);
         assert_requirement(1, 100, true);
 
-        for state in [
-            SubnetState::Registered,
-            SubnetState::Paused,
-            SubnetState::Active,
-        ] {
+        for state in [SubnetState::Registered, SubnetState::Active] {
             for start_epoch in [0, 100] {
                 for balance in [0, 1, u128::MAX] {
                     healthy_subnet(2, state, start_epoch, balance);
@@ -206,7 +283,7 @@ fn removal_preserves_exemptions_cadence_and_inclusive_boundary() {
         }
         healthy_subnet(5, SubnetState::Registered, 0, 0);
         SubnetRegistrationEpoch::<Test>::insert(5, 10);
-        healthy_subnet(6, SubnetState::Paused, 10, 0);
+        healthy_subnet(6, SubnetState::Active, 100, 0);
         healthy_subnet(7, SubnetState::Active, 100, 0);
         // Corrupt zero interval must not trap the hook or trigger funding removal.
         DelegateStakeSubnetRemovalInterval::<Test>::put(0);

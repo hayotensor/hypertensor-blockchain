@@ -465,12 +465,6 @@ impl<T: Config> Pallet<T> {
         // Subtract from admitted node counts
         TotalAdmittedSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| n.saturating_dec());
         TotalAdmittedNodes::<T>::mutate(|n: &mut u32| n.saturating_dec());
-        // If emergency validators set, remove node ID
-        EmergencySubnetNodeElectionData::<T>::mutate_exists(subnet_id, |maybe_data| {
-            if let Some(data) = maybe_data {
-                data.subnet_node_ids.retain(|&id| id != subnet_node_id);
-            }
-        });
         true
     }
 
@@ -489,11 +483,7 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    pub fn common_remove_subnet_node(
-        subnet_id: u32,
-        subnet_node_id: u32,
-        subnet_node: SubnetNode,
-    ) {
+    pub fn common_remove_subnet_node(subnet_id: u32, subnet_node_id: u32, subnet_node: SubnetNode) {
         // Physical removal is the terminal state for either quarantine class. Clear both markers
         // defensively so a stale/mismatched marker cannot survive a node lifecycle transition.
         Self::clear_pending_subnet_node_removal(subnet_id, subnet_node_id);
@@ -711,8 +701,7 @@ impl<T: Config> Pallet<T> {
             .saturating_add(Self::pending_node_removal_marker_clear_weight())
     }
 
-    /// Select a reachable worst-case active-removal model. A live emergency set contains only
-    /// existing electable Validator nodes, so its cardinality is at most e. Small and large
+    /// Select the generated active-removal model for the election cardinality. Small and large
     /// elections meet at the generated [`ADMITTED_REMOVAL_ELECTION_MODEL_SPLIT`] endpoint.
     pub fn admitted_subnet_node_removal_weight(
         validator_nodes: u32,
@@ -780,7 +769,7 @@ impl<T: Config> Pallet<T> {
             .clamp(1, T::MaxValidatorNodesUpperBound::get());
 
         let branch_weight = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
-            // Avoid decoding variable-sized election/emergency vectors in the weight selector.
+            // Avoid decoding variable-sized election vectors in the weight selector.
             let election_nodes = TotalSubnetElectableNodes::<T>::get(subnet_id);
             Self::admitted_subnet_node_dispatch_weight(validator_nodes, election_nodes)
         } else {

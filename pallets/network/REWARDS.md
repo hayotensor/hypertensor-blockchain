@@ -42,11 +42,11 @@ remain unchanged. The historical election/proposal stays queryable and
 `ConsensusRoundCancelled` identifies the discarded round.
 
 `bash .maintain/benchmark-global-pause.sh` measures global unpause, the resume
-selector, and cancellation with maximum-sized election and emergency snapshots.
+selector, and cancellation with maximum-sized election snapshots.
 Build the matching runtime with `runtime-benchmarks` first. Its partial weight
 output must be merged into the existing table rather than replacing that table.
 
-Only subnets with an exact elected consensus round for the epoch being settled participate. Preparing subnets without that election do not dilute the denominators. A subnet paused after its election can still receive the allocation for that historical round. In the normal schedule, global epoch `G` allocates rewards for subnet round `G - 1`, which settles at the subnet's slot.
+Only subnets with an exact elected consensus round for the epoch being settled participate. Preparing subnets without that election do not dilute the denominators. In the normal schedule, global epoch `G` allocates rewards for subnet round `G - 1`, which settles at the subnet's slot.
 
 For each eligible subnet `s`, the inputs are:
 
@@ -138,13 +138,13 @@ The implementation represents shares and factors at `1e18` precision and rounds 
 
 Only nodes captured as Active in the proposal snapshot can earn node-related rewards. Queued
 nodes cannot be scored; Probation nodes can be scored but receive no node reward or associated
-validator-pool/delegate-account allocation, including during emergency consensus or the round
+validator-pool/delegate-account allocation, including the round
 that promotes them. Their scores remain in the canonical denominator, so withheld rewards are
 not redistributed. Nodes absent from the score vector, with zero score, or quarantined for removal
 receive no node reward. Reputation checks can quarantine a node during settlement. Settlement
 can credit a departed node only for an otherwise eligible historical Active contribution.
 
-An attesting node uses its stored timing factor: later attestation can reduce its reward. The proposer's automatic attestation has a 100% factor for its score-based node reward. A node without an attestation currently defaults to a 100% factor, although identity-supermajority endorsement can cause a reputation penalty and possible removal. Emergency nodes outside the temporary validator set also use 100%. Reduced or skipped node rewards are not redistributed to other nodes, and the score denominator is not recomputed to exclude unpaid nodes.
+An attesting node uses its stored timing factor: later attestation can reduce its reward. The proposer's automatic attestation has a 100% factor for its score-based node reward. A node without an attestation currently defaults to a 100% factor, although identity-supermajority endorsement can cause a reputation penalty and possible removal. Reduced or skipped node rewards are not redistributed to other nodes, and the score denominator is not recomputed to exclude unpaid nodes.
 
 ## 5. A node reward can be shared again
 

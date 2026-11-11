@@ -1,6 +1,6 @@
 # Subnet Owners
 
-A subnet owner is the account that creates and controls a subnet. The owner is responsible for the subnet's lifecycle, public metadata, operational settings, and recovery actions. When an allocated consensus round is accepted with a nonzero score sum, the current owner receives the protocol-defined subnet owner share of that round's subnet rewards.
+A subnet owner is the account that creates and controls a subnet. The owner is responsible for the subnet's lifecycle, public metadata, and operational settings. When an allocated consensus round is accepted with a nonzero score sum, the current owner receives the protocol-defined subnet owner share of that round's subnet rewards.
 
 Subnet ownership is an on-chain role. Every owner-only extrinsic requires the current owner account. Bootnode updates are a separate operation that also accepts accounts on the owner's bounded bootnode-access list; those accounts do not gain any other owner control.
 
@@ -8,13 +8,13 @@ Subnet ownership is an on-chain role. Every owner-only extrinsic requires the cu
 
 A user becomes a subnet owner by registering a subnet. During registration, the registering account becomes the owner of the new subnet and defines the subnet's initial configuration, including its name, repository, description, bootnodes, stake limits, delegate reward split, and initial validator registration rules.
 
-After registration, the subnet enters its registration and enactment flow. The owner is responsible for bringing the subnet to a state where it can activate, including ensuring that enough nodes and delegate stake are available. An activation attempt is not allowed until `MinSubnetRegistrationEpochs` has elapsed. After that point, an unmet activation condition during the registration period returns an error and leaves the subnet registered; an unmet condition during the enactment period removes it, as does an activation attempt after the enactment deadline. A successful activation makes the subnet `Active` immediately and schedules its first validator-election attempt for its assigned slot in the following general epoch.
+After registration, the subnet enters its registration and enactment flow. The owner is responsible for bringing the subnet to a state where it can activate, including ensuring that enough nodes and delegate stake are available. An activation attempt is not allowed until `MinSubnetRegistrationEpochs` has elapsed. After that point, an unmet activation condition during the registration period returns an error and leaves the subnet registered. During enactment, a delegate-stake shortfall alone returns `SubnetActivationConditionsNotMetYet` and preserves the subnet for funding and retry before the deadline. Insufficient reputation or node count still removes it, even if delegation is also insufficient; new nodes cannot register during enactment. An activation attempt after the enactment deadline still removes the subnet regardless of funding. A successful activation makes the subnet `Active` immediately and schedules its first validator-election attempt for its assigned slot in the following general epoch.
 
 An account can also become a subnet owner when the current owner transfers ownership to it and the receiving account accepts the transfer.
 
 ## Owner Responsibilities
 
-Subnet owners act as operators and stewards for their subnets. They should keep subnet information accurate, maintain usable bootnodes, choose sensible node and validator parameters, and react when the subnet needs maintenance or emergency recovery.
+Subnet owners act as operators and stewards for their subnets. They should keep subnet information accurate, maintain usable bootnodes, choose sensible node and validator parameters, and react when the subnet needs maintenance.
 
 Owner settings are still bounded by network rules. Many parameters have minimums, maximums, cooldowns, or delayed activation so a subnet owner cannot arbitrarily bypass protocol-level safety limits.
 
@@ -22,49 +22,11 @@ Owner settings are still bounded by network rules. Many parameters have minimums
 
 ### Lifecycle Management
 
-Owners can activate, pause, unpause, and deactivate their subnets.
+Owners can activate and deactivate their subnets.
 
-Activation moves a registered subnet into active preparation once the subnet meets the network's requirements; it becomes consensus-live at its assigned slot in the following general epoch. Pausing stops new validator elections and operational maintenance while the subnet is paused, so the owner can handle maintenance or recovery. Unpausing starts a controlled preparation period before the subnet returns to consensus and adjusts queued-node timing so skipped subnet slots do not unfairly affect registration queues.
+Activation moves a registered subnet into active preparation once the subnet meets the network's requirements; it becomes consensus-live at its assigned slot in the following general epoch.
 
 Deactivation removes the subnet. This is the owner's final lifecycle control and should be treated as a permanent removal action.
-
-### Pausing and Unpausing
-
-Only the current subnet owner can pause or unpause a subnet. A subnet must be active before it can be paused and paused before it can be unpaused. After activation or an unpause, the owner must also wait for the configured subnet pause cooldown before pausing it again. The cooldown is measured in that subnet's own epochs, not general blockchain epochs, and must be at least one. Epochs count from the subnet's first consensus-eligible epoch, so preparation time cannot satisfy the cooldown. At the assigned slot where the cooldown expires, `on_initialize` settles the preceding round before an owner pause extrinsic can execute; consequently, a cooldown of one requires one completed live subnet round.
-
-While a subnet is paused:
-
-- No new validator is elected and no new consensus round begins.
-- Registration-queue processing and burn-rate maintenance do not run.
-- New node registration is unavailable.
-- The owner can configure, revert, or replace a pending emergency validator set, subject to the emergency-set rules.
-- An already-elected historical consensus round is preserved. Its exact election remains eligible for the following general-epoch emission allocation even if the owner pauses first, and an allocation already recorded still settles while paused.
-
-A subnet cannot remain paused indefinitely without consequences. The pause records both the global epoch in which it began and the subnet's phase-aware epoch at that block. Once the global maximum pause duration is exceeded, general-epoch preliminary processing begins reducing its subnet reputation. The subnet can be removed if its reputation falls below the network minimum; it is not automatically unpaused. A paused subnet also remains eligible for lowest-stake capacity removal when the network exceeds `MaxSubnets`, including during the maximum-pause grace period.
-
-#### Unpause Timeline
-
-Each subnet's epoch advances at its own assigned slot. If an owner unpauses while that subnet's current phase-aware epoch is `E`, the subnet becomes `Active` immediately for preparation purposes, but `consensus_eligible_from_subnet_epoch` is set to `E + 2`.
-
-| Subnet epoch | Subnet behavior |
-| --- | --- |
-| `E` | The owner unpauses. Any time remaining before the subnet's next assigned slot is additional preparation time. |
-| `E + 1` | Full local preparation epoch. Queue and burn-rate maintenance run, but there is no validator election or new consensus round. |
-| `E + 2` | At the subnet's assigned slot it becomes consensus-live and attempts its first post-unpause election. If the effective candidate set is valid and nonempty, the resulting round has not yet received an emission allocation. |
-| Following general epoch | An exact `E + 2` election can receive an emission allocation. Its round is settled at the next assigned subnet slot, where normal consensus rewards or penalties apply. |
-
-Emission allocation requires an elected validator for the exact previous subnet epoch being
-settled. Creating that election requires the subnet to be active and consensus-live at its assigned
-slot with a valid, nonempty effective candidate set. Once created, the historical election remains
-allocation-eligible even if the subnet is later paused or is preparing after an unpause.
-
-This prevents a newly unpaused subnet from receiving an unused allocation, diluting other subnets' rewards, or being penalized before it has had a complete local epoch in which to prepare.
-
-Global subnet-health checks run at general epoch slot zero, before every subnet's assigned slot. An active subnet that has not yet reached `consensus_eligible_from_subnet_epoch` is treated as preparing, so ordinary reputation, minimum-node, and stake checks are skipped. The global boundary immediately before its first post-unpause consensus slot therefore cannot penalize it. These checks resume at the next global boundary, after the subnet has reached its first live slot. Maximum-pause reputation processing remains global because it applies only while the subnet is paused.
-
-Queued-node classification times are shifted by exactly the subnet slots missed while paused. Whether the pause occurs before or after the subnet's assigned slot is taken into account. The full `E + 1` preparation epoch is not treated as missed time, so it counts normally toward queue maturity.
-
-If a pending emergency validator set exists when the subnet is unpaused, it is validated and activated as part of the unpause. Its duration starts at the first consensus-eligible epoch, `E + 2`, so the preparation epoch does not consume emergency-validator time. An invalid pending set causes the unpause to fail and leaves the subnet paused.
 
 ### Metadata Management
 
@@ -109,23 +71,17 @@ Owners manage the subnet's official bootnodes. Bootnodes are network entry point
 
 The owner can update bootnodes directly and can also grant or remove bootnode management access for other accounts. This lets an operator team maintain networking details without handing over full subnet ownership.
 
-### Emergency Validator Sets
-
-Owners can set an emergency validator set while the subnet is paused. This feature is intended for recovery situations where the normal validator set is unhealthy, unavailable, or needs temporary replacement.
-
-Emergency validators are selected from valid Active subnet nodes and operate under protocol limits, including size limits, duration limits, and cooldowns. When the emergency period expires, or when the owner reverts the emergency set while the subnet is paused, the subnet returns to normal validator behavior.
-
 ### Node Reputation and Classification Policy
 
 Owners can tune several reputation and classification parameters that affect how subnet nodes progress and are evaluated. These include the required qualifying probation rounds, the minimum reputation required for subnet nodes, and reputation thresholds related to node weight decreases.
 
-These controls allow subnet owners to define how strict or permissive their subnet is toward node performance. `owner_update_probation_rounds` schedules `ProbationRounds` (default 2) for the next subnet epoch; each elected round snapshots its own value. Minimum node reputation and the minimum-weight decrease threshold are also scheduled for the next subnet epoch. Probation counts qualifying inclusions rather than elapsed epochs, and promotion additionally requires full reputation. Minimum reputation and the minimum-weight threshold cannot be changed while an emergency validator set is active.
+These controls allow subnet owners to define how strict or permissive their subnet is toward node performance. `owner_update_probation_rounds` schedules `ProbationRounds` (default 2) for the next subnet epoch; each elected round snapshots its own value. Minimum node reputation and the minimum-weight decrease threshold are also scheduled for the next subnet epoch. Probation counts qualifying inclusions rather than elapsed epochs, and promotion additionally requires full reputation.
 
 ### Reputation Factors
 
 Owners can update subnet reputation factors. These factors determine how node reputation changes in response to behavior such as being absent, being included, falling below weight expectations, failing to attest, or participating outside consensus.
 
-Reputation factors are a core part of subnet quality control. They define the incentives and penalties that shape long-term node behavior. Updates are bounded and scheduled after at least one subnet epoch through `SubnetOwnerFactorCooldownEpochs`. While an emergency validator set is active, a call may schedule only `included_increase`; calls that include any other factor are rejected. Emergency rounds continue to use the complete factor policy captured when the set was configured, so an `included_increase` update does not rewrite the active emergency snapshot.
+Reputation factors are a core part of subnet quality control. They define the incentives and penalties that shape long-term node behavior. Updates are bounded and scheduled after at least one subnet epoch through `SubnetOwnerFactorCooldownEpochs`.
 
 The proposal-derived factors `included_increase`, `absent_decrease`,
 `below_min_weight_decrease`, and `non_attestor_decrease` take effect only for an accepted proposal
@@ -142,9 +98,7 @@ present in the score vector; `absent_decrease` applies to a Probation or Active 
 omitted from it; and `below_min_weight_decrease` applies when a scored Active-class node's score
 share is below the owner's configured threshold. In ordinary accepted nonzero-total-score rounds
 with identity supermajority, score-vector presence advances probation progress and omission resets
-it; a zero individual score still counts. Other rounds freeze progress. During an emergency round,
-the snapshotted emergency factor policy still governs reputation, but Probation nodes neither
-progress nor earn node-related rewards. The proposal snapshot contains admitted Probation and
+it; a zero individual score still counts. Other rounds freeze progress. The proposal snapshot contains admitted Probation and
 Active nodes; only historical Active nodes can earn node-related rewards. Identity deduplication
 does not merge sibling-node duties or outcomes. Reward eligibility, queue admission,
 minimum-reputation removal, and objective lifecycle penalties are not controlled by this gate.
@@ -183,7 +137,7 @@ do not apply it. Queue mutations remain separately gated by stake-weighted super
 `validator_absent_decrease` remains an objective missing-proposal penalty for the elected proposer
 node when an allocated round reaches settlement. That missing proposal also uses the separate
 network `ValidatorAbsentSubnetReputationFactor` and does not run the submitted-proposal reputation
-curves. Pause, minimum-node, and other subnet lifecycle reputation losses likewise remain
+curves. Minimum-node and other subnet lifecycle reputation losses likewise remain
 independent of validator-identity support because they are not claims derived from proposal
 contents.
 
@@ -218,6 +172,6 @@ At a high level, this gives owners a way to tune the subnet's registration press
 
 ## Boundaries
 
-Subnet owners have broad control over their own subnet, but they do not control the whole network. Network governance and runtime configuration still define global limits such as allowed parameter ranges, pause limits, cooldowns, registration cost behavior, and reward percentages.
+Subnet owners have broad control over their own subnet, but they do not control the whole network. Network governance and runtime configuration still define global limits such as allowed parameter ranges, cooldowns, registration cost behavior, and reward percentages.
 
 Owner privileges are meant to let a subnet operate independently while keeping its behavior compatible with the wider network.

@@ -1,3 +1,10 @@
+//! Tracks subnet delegate-pool balance multiplied by blocks held for time-weighted emissions.
+//!
+//! Checkpoints retain the current and previous general epochs; emission allocation uses the
+//! completed epoch's balance-time to reward sustained delegation. Callers checkpoint before
+//! each balance change and persist the returned record. Deleted subnets skip this accounting
+//! so remaining funds can be withdrawn without recreating emission state.
+
 use super::*;
 use frame_support::pallet_prelude::DispatchError;
 use sp_core::U256;

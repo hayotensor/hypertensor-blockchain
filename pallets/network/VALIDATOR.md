@@ -102,10 +102,8 @@ Its score vector is simply neutral for reputation scores and Probation-to-Active
 Queue decisions use their separate stake-weighted supermajority check during settlement.
 Queue admission, minimum-reputation removal, and other objective lifecycle
 processing do not depend on that identity gate. Accepted zero-score proposals retain their early-return behavior,
-including skipping the per-node distribution loop. In an emergency round, only the snapshotted
-emergency identities establish the identity gate, non-attestor accountability is limited to
-emergency validators, and probation progress is frozen. Probation never earns node rewards
-or the associated validator-pool/delegate-account allocations, including in emergency rounds or
+including skipping the per-node distribution loop. Probation never earns node rewards
+or the associated validator-pool/delegate-account allocations, including
 after promotion during settlement. The round's proposal-time classification governs its rewards.
 
 Queue decisions use a separate stake-weighted supermajority check. Reaching the identity

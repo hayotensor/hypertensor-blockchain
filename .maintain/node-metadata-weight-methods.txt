@@ -1,12 +1,9 @@
 activate_subnet
-owner_unpause_subnet
 owner_deactivate_subnet
-owner_set_emergency_validator_set
 register_subnet_node
 remove_subnet_node
 add_node_stake
 propose_attestation
-propose_attestation_emergency
 attest
 update_node_unique
 update_node_non_unique
@@ -15,7 +12,6 @@ update_node_bootnode_peer_info
 update_node_client_peer_info
 collective_remove_subnet
 collective_remove_subnet_node
-elect_validator_emergency
 do_remove_subnet
 clean_validator_subnet_nodes
 remove_admitted_subnet_node_small
@@ -28,7 +24,6 @@ emission_step
 emission_step_accepted_queue_mutations
 emission_step_accepted_queue_mutations_front
 emission_step_queue
-emission_step_emergency
 update_node_peer_info_create
 update_node_peer_info_clear
 update_node_peer_info_queued

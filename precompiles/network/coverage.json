@@ -160,36 +160,6 @@
     "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
   },
   {
-    "name": "owner_pause_subnet",
-    "args": [
-      [
-        "subnet_id",
-        "u32"
-      ]
-    ],
-    "origin": "signed",
-    "index": 8,
-    "domain": "Subnets",
-    "signature": "ownerPauseSubnet(uint32)",
-    "status": "implemented",
-    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
-  },
-  {
-    "name": "owner_unpause_subnet",
-    "args": [
-      [
-        "subnet_id",
-        "u32"
-      ]
-    ],
-    "origin": "signed",
-    "index": 9,
-    "domain": "Subnets",
-    "signature": "ownerUnpauseSubnet(uint32)",
-    "status": "implemented",
-    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
-  },
-  {
     "name": "owner_deactivate_subnet",
     "args": [
       [
@@ -429,40 +399,6 @@
     "index": 30,
     "domain": "Subnets",
     "signature": "ownerRemoveInitialValidators(uint32,uint32[])",
-    "status": "implemented",
-    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
-  },
-  {
-    "name": "owner_set_emergency_validator_set",
-    "args": [
-      [
-        "subnet_id",
-        "u32"
-      ],
-      [
-        "subnet_node_ids",
-        "Vec<u32>"
-      ]
-    ],
-    "origin": "signed",
-    "index": 31,
-    "domain": "Subnets",
-    "signature": "ownerSetEmergencyValidatorSet(uint32,uint32[])",
-    "status": "implemented",
-    "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
-  },
-  {
-    "name": "owner_revert_emergency_validator_set",
-    "args": [
-      [
-        "subnet_id",
-        "u32"
-      ]
-    ],
-    "origin": "signed",
-    "index": 32,
-    "domain": "Subnets",
-    "signature": "ownerRevertEmergencyValidatorSet(uint32)",
     "status": "implemented",
     "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
   },
@@ -1582,20 +1518,6 @@
     "authorization": "Council approval: at least 2/3 of members in this runtime"
   },
   {
-    "name": "set_max_pause_epochs",
-    "args": [
-      [
-        "value",
-        "u32"
-      ]
-    ],
-    "origin": "majority",
-    "index": 89,
-    "domain": "Governance",
-    "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
-  },
-  {
     "name": "set_delegate_stake_subnet_removal_interval",
     "args": [
       [
@@ -1623,20 +1545,6 @@
     ],
     "origin": "majority",
     "index": 91,
-    "domain": "Governance",
-    "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
-  },
-  {
-    "name": "set_subnet_pause_cooldown_epochs",
-    "args": [
-      [
-        "value",
-        "u32"
-      ]
-    ],
-    "origin": "majority",
-    "index": 92,
     "domain": "Governance",
     "status": "deferred",
     "authorization": "Council approval: at least 2/3 of members in this runtime"
@@ -2354,20 +2262,6 @@
     "authorization": "Council approval: at least 2/3 of members in this runtime"
   },
   {
-    "name": "set_max_pause_epochs_subnet_reputation_factor",
-    "args": [
-      [
-        "value",
-        "u128"
-      ]
-    ],
-    "origin": "majority",
-    "index": 155,
-    "domain": "Governance",
-    "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
-  },
-  {
     "name": "set_less_than_min_nodes_subnet_reputation_factor",
     "args": [
       [
@@ -2419,34 +2313,6 @@
     ],
     "origin": "majority",
     "index": 159,
-    "domain": "Governance",
-    "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
-  },
-  {
-    "name": "set_max_emergency_validator_epochs_multiplier",
-    "args": [
-      [
-        "value",
-        "u128"
-      ]
-    ],
-    "origin": "majority",
-    "index": 160,
-    "domain": "Governance",
-    "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
-  },
-  {
-    "name": "set_max_emergency_subnet_nodes",
-    "args": [
-      [
-        "value",
-        "u32"
-      ]
-    ],
-    "origin": "majority",
-    "index": 161,
     "domain": "Governance",
     "status": "deferred",
     "authorization": "Council approval: at least 2/3 of members in this runtime"
@@ -2602,20 +2468,6 @@
     "signature": "ownerUpdateConsensusValidatorNodeCountDecay(uint32,uint128)",
     "status": "implemented",
     "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
-  },
-  {
-    "name": "set_emergency_validator_cooldown_epochs",
-    "args": [
-      [
-        "value",
-        "u32"
-      ]
-    ],
-    "origin": "majority",
-    "index": 171,
-    "domain": "Governance",
-    "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
   },
   {
     "name": "set_validator_node_delegate_stake_weights",

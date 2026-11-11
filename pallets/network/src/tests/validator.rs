@@ -10,10 +10,10 @@ use crate::{
     QueuedSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNode,
     SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeIdHotkey,
     SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData,
-    SubnetOwner, SubnetPauseCooldownEpochs, SubnetRegistrationEpochs, SubnetState,
-    TotalActiveSubnets, TotalAdmittedNodes, TotalAdmittedSubnetNodes, TotalElectableNodes,
-    TotalNodes, TotalOverwatchNodeUids, TotalOverwatchNodes, TotalStake, TotalSubnetElectableNodes,
-    TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorIds,
+    SubnetOwner, SubnetRegistrationEpochs, SubnetState, TotalActiveSubnets, TotalAdmittedNodes,
+    TotalAdmittedSubnetNodes, TotalElectableNodes, TotalNodes, TotalOverwatchNodeUids,
+    TotalOverwatchNodes, TotalStake, TotalSubnetElectableNodes, TotalSubnetNodeUids,
+    TotalSubnetNodes, TotalSubnetStake, TotalSubnetUids, TotalValidatorIds,
     UniqueParamSubnetNodeId, ValidatorColdkey, ValidatorColdkeyHotkey, ValidatorData,
     ValidatorIdHotkey, ValidatorMetadata, ValidatorsData,
 };
@@ -1007,7 +1007,9 @@ fn test_get_hotkey_associated_subnet_node_prefers_subnet_node_hotkey_override() 
                 bootnode_peer_info: None,
                 client_peer_info: None,
                 unique: None,
-                non_unique: None, });
+                non_unique: None,
+            },
+        );
         SubnetNodesData::<Test>::insert(
             subnet_id,
             subnet_node_id,
@@ -1061,7 +1063,9 @@ fn test_get_hotkey_associated_subnet_node_uses_validator_hotkey_without_override
                 bootnode_peer_info: None,
                 client_peer_info: None,
                 unique: None,
-                non_unique: None, });
+                non_unique: None,
+            },
+        );
         SubnetNodesData::<Test>::insert(
             subnet_id,
             subnet_node_id,

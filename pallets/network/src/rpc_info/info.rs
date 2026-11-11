@@ -34,8 +34,6 @@ impl<T: Config> Pallet<T> {
             consensus_mechanism: subnet_data.consensus_mechanism,
             state: subnet_data.state,
             consensus_eligible_from_subnet_epoch: subnet_data.consensus_eligible_from_subnet_epoch,
-            pause_started_global_epoch: subnet_data.pause.map(|pause| pause.started_global_epoch),
-            pause_started_subnet_epoch: subnet_data.pause.map(|pause| pause.started_subnet_epoch),
             churn_limit: ChurnLimit::<T>::get(subnet_id),
             churn_limit_multiplier: ChurnLimitMultiplier::<T>::get(subnet_id),
             min_stake: SubnetMinStakeBalance::<T>::get(subnet_id),
@@ -225,8 +223,7 @@ impl<T: Config> Pallet<T> {
 
     pub fn get_validators_and_attestors(subnet_id: u32) -> Vec<SubnetNodeInfo<T>> {
         let mut infos: Vec<SubnetNodeInfo<T>> = Vec::new();
-        let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
-        let (subnet_node_ids, _) = Self::effective_consensus_validator_ids(subnet_id, subnet_epoch);
+        let subnet_node_ids = Self::effective_consensus_validator_ids(subnet_id);
 
         for subnet_node_id in subnet_node_ids {
             if let Some(subnet_node_info) = Self::get_subnet_node_info(subnet_id, subnet_node_id) {

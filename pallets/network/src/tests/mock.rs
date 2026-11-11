@@ -246,7 +246,7 @@ parameter_types! {
     pub const NetworkMaxRegisteredNodesUpperBound: u32 = 64;
     pub const NetworkMaxUnbondingsUpperBound: u32 = 256;
     pub const NetworkMaxSwapCallsPerBlockUpperBound: u32 = 1_000;
-    pub const NetworkMaxEmergencySubnetNodesUpperBound: u32 = 64;
+
     pub const DesignatedEpochSlots: u32 = crate::NETWORK_DESIGNATED_EPOCH_SLOTS;
     pub const NetworkMaxVectorLength: u32 = 1024;
     pub const NetworkMaxUrlLength: u32 = 1024;
@@ -287,7 +287,7 @@ impl Config for Test {
     type MaxRegisteredNodesUpperBound = NetworkMaxRegisteredNodesUpperBound;
     type MaxUnbondingsUpperBound = NetworkMaxUnbondingsUpperBound;
     type MaxSwapCallsPerBlockUpperBound = NetworkMaxSwapCallsPerBlockUpperBound;
-    type MaxEmergencySubnetNodesUpperBound = NetworkMaxEmergencySubnetNodesUpperBound;
+
     type DesignatedEpochSlots = DesignatedEpochSlots;
     type MaxVectorLength = NetworkMaxVectorLength;
     type MaxUrlLength = NetworkMaxUrlLength;
@@ -301,7 +301,9 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     let mut storage = frame_system::GenesisConfig::<Test>::default()
         .build_storage()
         .unwrap();
-    crate::GenesisConfig::<Test>::default().assimilate_storage(&mut storage).unwrap();
+    crate::GenesisConfig::<Test>::default()
+        .assimilate_storage(&mut storage)
+        .unwrap();
     storage.into()
 }
 

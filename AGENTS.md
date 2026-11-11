@@ -48,7 +48,7 @@ document.
 
 | Role | Authority and purpose |
 | --- | --- |
-| Subnet owner | Exact account in `SubnetOwner(subnet_id)`. Registers/activates the subnet, changes owner settings, pauses, transfers ownership, or deactivates. Owning a validator identity does not confer subnet ownership. |
+| Subnet owner | Exact account in `SubnetOwner(subnet_id)`. Registers/activates the subnet, changes owner settings, transfers ownership, or deactivates. Owning a validator identity does not confer subnet ownership. |
 | Network validator identity | `validator_id` registered by a coldkey. Owns nodes across subnets and a validator delegate pool. This registration alone does not produce chain blocks. |
 | Validator coldkey | Funds node stake; registers nodes; manages identity, keys, reward splits, and allocation weights. Financial operations require this signer, not merely a hotkey. |
 | Validator hotkey | Default operational signing account for the identity's nodes. Must differ from its coldkey. |
@@ -204,7 +204,7 @@ for discovery. An archive node may be necessary for older block hashes.
 2. Read the target subnet's state, stake bounds, registration whitelist/queue,
    and current node burn. During subnet registration, the identity must appear
    in `initial_validators` and stay within its node allowance. During enactment,
-   new nodes cannot register. Paused subnets reject registration.
+   new nodes cannot register.
 3. The canonical validator coldkey signs:
 
    ```text
@@ -330,11 +330,13 @@ inclusive. Enactment is `R + L < epoch <= R + L + E`. Activation also requires
 finish funding the subnet, but new node registrations are blocked.
 
 **Activation is not a harmless readiness probe.** During registration, unmet
-requirements return an error. During enactment, an activation attempt with unmet
-requirements can remove the subnet and still return dispatch success. After
-enactment expires, activation can also remove it. Periodic maintenance can remove
-expired or underqualified subnets. Read the state before calling and verify the
-result afterward.
+requirements return an error. During enactment, a delegate-stake shortfall alone
+returns `SubnetActivationConditionsNotMetYet`, preserving the subnet for funding
+and retry before the deadline. Insufficient reputation or node count still removes
+the subnet and returns dispatch success, even if delegation is also insufficient.
+After enactment expires, activation can also remove it. Periodic maintenance can
+remove expired or underqualified subnets. Read the state before calling and verify
+the result afterward.
 
 ### Consensus worker
 
@@ -402,8 +404,7 @@ in its capacitor, releases that round's stake liabilities, and applies no reward
 penalties, or probation progression before the next eligible election. Missing
 allocations for skipped epochs are not recreated. Historical round records remain
 queryable; `ConsensusRoundCancelled` reports cancellation. Epoch-status RPC hides
-cancelled work. Owner subnet pauses still preserve the already-elected round.
-Global resume does not extend registration, enactment, owner-pause, or emergency-set
+cancelled work. Global resume does not extend registration or enactment
 deadlines; those lifecycle limits remain separate from consensus cancellation.
 
 Election candidates/policy freeze at election; attestor weights freeze when the
@@ -419,7 +420,7 @@ allocations. `ProbationRounds` defaults to two qualifying inclusions and promoti
 also requires full reputation. Only ordinary accepted rounds with a nonzero total
 score and distinct-identity supermajority update `SubnetNodeProbationProgress`:
 inclusion increments it and omission resets it. A zero-score entry can count when
-the round total is nonzero. Other rounds, including emergency rounds, freeze progress.
+the round total is nonzero. Other rounds freeze progress.
 Quarantined nodes cannot progress. Promotion emits `SubnetNodePromoted`, clears the
 counter, and enables the next election, including one later in the same hook; it
 never grants rewards for the completed Probation round. Owner changes use
@@ -550,15 +551,10 @@ or cancellation mechanism. Failed/expired execution credits principal to
 the wallet. Source shares are not restored. Do not count queued or refundable
 principal as destination stake.
 
-## Owner controls and recovery
+## Owner controls
 
-- `owner_pause_subnet` requires an active subnet and completed cooldown.
-  `owner_unpause_subnet` resumes through a preparation epoch before new consensus.
-  Pausing prevents new registration/elections/operational maintenance, but an
-  already-elected historical round can still be proposed, attested, and settled.
-  Excessive pause duration and reputation rules can cause removal.
 - `owner_deactivate_subnet` permanently removes the subnet and is blocked by
-  unresolved consensus settlement. It is not a temporary pause. Inspect retained
+  unresolved consensus settlement. Inspect retained
   stake/delegation positions and their withdrawal paths after removal.
 - Ownership transfer is two steps: current owner calls
   `transfer_subnet_ownership(subnet_id, new_owner)`, then the designated account
@@ -572,11 +568,6 @@ principal as destination stake.
   consensus weighting. See the `owner_update_*` calls in the inventory. Many
   changes are scheduled for a later subnet epoch and have cooldowns; inspect
   pending values/effective epochs as well as active values.
-- Emergency validator sets are owner-controlled recovery tools via
-  `owner_set_emergency_validator_set` and `owner_revert_emergency_validator_set`.
-  They are subject to state, membership, diversity, size, duration, and cooldown
-  checks. Inspect pending versus active emergency status; do not use a set to
-  bypass ordinary bootstrap requirements.
 - Global pause, whitelist management, forced removals, and network-wide `set_*`
   policy calls generally require configured collective origins. Read each
   extrinsic's origin guard. A funded coldkey or subnet owner does not acquire

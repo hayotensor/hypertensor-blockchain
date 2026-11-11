@@ -208,17 +208,6 @@ use sp_std::collections::btree_map::BTreeMap;
 //             Error::<Test>::NotKeyOwner
 //         );
 
-//         // // `do_pause_subnet_node` allows both hotkey and coldkey
-//         // // old_coldkey shouldn't work
-//         // assert_err!(
-//         //     Network::do_pause_subnet_node(
-//         //         RuntimeOrigin::signed(fake_coldkey.clone()),
-//         //         subnet_id,
-//         //         hotkey_subnet_node_id
-//         //     ),
-//         //     Error::<Test>::NotKeyOwner
-//         // );
-
 //         assert_err!(
 //             Network::update_coldkey(
 //                 RuntimeOrigin::signed(coldkey.clone()),
@@ -259,13 +248,6 @@ use sp_std::collections::btree_map::BTreeMap;
 //             hotkey.clone(),
 //             add_stake_amount,
 //         ));
-
-//         // // `do_pause_subnet_node` allows both hotkey and coldkey
-//         // assert_ok!(Network::do_pause_subnet_node(
-//         //     RuntimeOrigin::signed(new_coldkey.clone()),
-//         //     subnet_id,
-//         //     hotkey_subnet_node_id
-//         // ));
 
 //         // assert_ok!(Network::update_hotkey(
 //         //     RuntimeOrigin::signed(new_coldkey.clone()),

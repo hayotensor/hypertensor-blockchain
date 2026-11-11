@@ -10,8 +10,8 @@ import sys
 from pathlib import Path
 
 METHODS = {
-    'propose_attestation', 'propose_attestation_emergency', 'attest',
-    'emission_step', 'emission_step_rejected', 'emission_step_emergency',
+    'propose_attestation', 'attest',
+    'emission_step', 'emission_step_rejected',
     'precheck_subnet_consensus_submission',
 }
 METHOD = re.compile(r'(?:\t///[^\n]*\n)*\tfn (\w+)\([^\n]*\) -> Weight \{.*?\n\t\}', re.S)

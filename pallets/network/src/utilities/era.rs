@@ -62,8 +62,8 @@ impl<T: Config> Pallet<T> {
     ) -> bool {
         LastNetworkUnpauseBlock::<T>::get().is_some_and(|block| {
             SubnetSlot::<T>::get(subnet_id).is_some_and(|slot| {
-                let round_start = u64::from(slot)
-                    + u64::from(subnet_epoch) * u64::from(T::EpochLength::get());
+                let round_start =
+                    u64::from(slot) + u64::from(subnet_epoch) * u64::from(T::EpochLength::get());
                 round_start <= u64::from(block)
             })
         })
@@ -318,9 +318,12 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
             nodes
-                .try_insert(node_id, OverwatchNodeStakeSnapshot {
-                    stake: OverwatchNodeStakeBalance::<T>::get(node_id),
-                })
+                .try_insert(
+                    node_id,
+                    OverwatchNodeStakeSnapshot {
+                        stake: OverwatchNodeStakeBalance::<T>::get(node_id),
+                    },
+                )
                 .map_err(|_| Error::<T>::MaxOverwatchNodes)?;
         }
         Ok(OverwatchEpochSnapshot {
@@ -391,9 +394,8 @@ impl<T: Config> Pallet<T> {
         let next_cutoff = OverwatchCommitCutoffPercent::<T>::get();
         weight = weight.saturating_add(db_weight.reads(6));
         // The generated rollover weight covers the full bounded live-cohort scan.
-        weight = weight.saturating_add(db_weight.reads(
-            1 + 5 * T::MaxOverwatchNodesUpperBound::get() as u64,
-        ));
+        weight = weight
+            .saturating_add(db_weight.reads(1 + 5 * T::MaxOverwatchNodesUpperBound::get() as u64));
         let Ok(next_snapshot) = Self::capture_overwatch_epoch_snapshot(next_multiplier) else {
             return weight;
         };
@@ -636,7 +638,6 @@ impl<T: Config> Pallet<T> {
     /// - Subnets in the **registration period** are allowed to exist without reputation decrease.
     /// - Subnets in the **enactment period** must meet minimum admitted node counts or get removed.
     /// - Subnets **out of enactment period** but not activated are removed.
-    /// - Subnets in the **paused state** are penalized if they exceed allowed pause duration, potentially leading to removal.
     /// - Activated subnets are checked to ensure they meet minimum delegate stake requirements; otherwise they are removed.
     /// - Activated subnets with insufficient admitted nodes decrease reputation.
     /// - Subnets below the minimum reputation are removed.
@@ -667,8 +668,6 @@ impl<T: Config> Pallet<T> {
         let min_subnet_nodes = MinSubnetNodes::<T>::get();
         // Max subnets allowed in the network
         let max_subnets = MaxSubnets::<T>::get();
-        // Max epochs a subnet can be paused
-        let max_pause_epochs = MaxSubnetPauseEpochs::<T>::get();
         // Epoch interval for delegate stake removal
         let dstake_epoch_interval = DelegateStakeSubnetRemovalInterval::<T>::get();
         // Epoch of the previous subnet activation which will push back the removal interval
@@ -687,9 +686,8 @@ impl<T: Config> Pallet<T> {
 
         // Read the configured minimum once for this removal pass.
         // The explicit nonzero guard prevents corrupted interval storage from trapping the hook.
-        let min_delegate_stake =
-            (dstake_epoch_interval != 0 && epoch % dstake_epoch_interval == 0)
-                .then(MinSubnetDelegateStakeBalance::<T>::get);
+        let min_delegate_stake = (dstake_epoch_interval != 0 && epoch % dstake_epoch_interval == 0)
+            .then(MinSubnetDelegateStakeBalance::<T>::get);
 
         // This snapshot controls only whether capacity candidates need to be collected. Whether a
         // capacity eviction is still required is recalculated after all health removals.
@@ -748,51 +746,13 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            // --- Pause logic
-            if data.state == SubnetState::Paused {
-                // Maximum-pause enforcement is intentionally global: it runs at general slot
-                // zero and is based on the global epoch in which this pause episode began.
-                if let Some(pause) = data.pause {
-                    if pause.started_global_epoch.saturating_add(max_pause_epochs) < epoch {
-                        let new_subnet_reputation = Self::decrease_rep(
-                            SubnetReputation::<T>::get(subnet_id),
-                            MaxPauseEpochsSubnetReputationFactor::<T>::get(),
-                            None,
-                        );
-                        SubnetReputation::<T>::insert(subnet_id, new_subnet_reputation);
-
-                        if new_subnet_reputation < min_reputation {
-                            // --- Remove
-                            if Self::try_do_remove_subnet(
-                                weight_meter,
-                                *subnet_id,
-                                SubnetRemovalReason::PauseExpired,
-                            ) == SubnetRemovalOutcome::Removed
-                            {
-                                current_subnet_count = current_subnet_count.saturating_sub(1);
-                            }
-                            continue;
-                        }
-                    }
-                }
-
-                // Pausing exempts a subnet from operational health checks, but must not shield a
-                // low-stake subnet from the network-wide excess-capacity eviction cohort.
-                if initially_over_capacity && can_remove_excess_subnet {
-                    subnet_delegate_stake.push((
-                        *subnet_id,
-                        TotalSubnetDelegateStakeBalance::<T>::get(subnet_id),
-                    ));
-                }
-                continue;
-            }
-
             let current_subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(*subnet_id, block);
             if !Self::_is_subnet_active_and_live(data, current_subnet_epoch) {
                 continue;
             }
 
-            let subnet_delegate_stake_balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
+            let subnet_delegate_stake_balance =
+                TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
 
             // Equality satisfies the minimum; underfunding is checked only on removal epochs.
             if let Some(minimum) = min_delegate_stake {
@@ -875,18 +835,7 @@ impl<T: Config> Pallet<T> {
         }
 
         let pending_ids = Self::pending_subnet_node_removal_ids(subnet_id);
-        let (physical_slot_list, emergency_active, expired_emergency) =
-            Self::resolve_consensus_validator_ids_with_pending(
-                subnet_id,
-                subnet_epoch,
-                &pending_ids,
-            );
-
-        // Runtime queries use the same resolver without mutating state. Election is a state-changing
-        // lifecycle point, so it also performs the cleanup once an emergency set has expired.
-        if expired_emergency {
-            Self::finish_emergency_validator_set(subnet_id);
-        }
+        let physical_slot_list = Self::resolve_consensus_validator_ids(subnet_id);
 
         if physical_slot_list.is_empty() {
             return;
@@ -935,22 +884,9 @@ impl<T: Config> Pallet<T> {
             let validator_node_stake_balance = NodeSubnetStake::<T>::get(node_id, subnet_id);
             let validator_delegate_stake_balance =
                 ValidatorDelegateStakeBalance::<T>::get(validator_id);
-            let emergency = if emergency_active {
-                let Some(data) = EmergencySubnetNodeElectionData::<T>::get(subnet_id) else {
-                    return;
-                };
-                Some(Self::emergency_consensus_snapshot(
-                    &data,
-                    eligible_subnet_node_ids.clone(),
-                ))
-            } else {
-                None
-            };
-
             let elected_round = ElectedConsensusRound {
                 validator_subnet_node_id: node_id,
                 validator_id,
-                emergency,
                 eligible_subnet_node_ids,
                 eligible_validator_identity_ids,
                 validator_node_stake_balance,

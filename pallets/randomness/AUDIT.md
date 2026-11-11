@@ -57,7 +57,7 @@ contributed fresh entropy merely because its seed or cutoff changed.
 
 ### Open: Network does not enforce candidate commitment timing
 
-Network uses the raw FRAME API and resolves current regular/emergency candidates
+Network uses the raw FRAME API and resolves current eligible candidates
 at election time. The delayed source is already public before it is used. Input
 changes after the seed becomes knowable can influence the selection. Network
 also does not pin a draw across epoch-changing retries or gate bootstrap output.

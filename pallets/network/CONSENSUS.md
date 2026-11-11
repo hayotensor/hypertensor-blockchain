@@ -38,7 +38,7 @@ The validator identity itself is not elected. A specific subnet node owned by th
 
 ### Subnet Owners
 
-Subnet owners configure subnet-level policy inside network bounds. For consensus, the most important owner controls are validator node-count decay, per-node validator stake-weight power, reputation factors, probation requirements, queue settings, and emergency validator sets. The admin collective separately controls the network-wide validator-identity attestation percentage.
+Subnet owners configure subnet-level policy inside network bounds. For consensus, the most important owner controls are validator node-count decay, per-node validator stake-weight power, reputation factors, probation requirements, and queue settings. The admin collective separately controls the network-wide validator-identity attestation percentage.
 
 ### Delegators
 
@@ -74,25 +74,12 @@ Consensus eligibility and reward eligibility are separate. An active, live subne
 election at its slot even when it has no emission allocation; a valid effective candidate set can
 therefore produce an election independently of allocation. Emission weights for general epoch `G`
 only include subnets with an elected validator for subnet epoch `G - 1`, the exact epoch being
-settled. This lets a new or resumed subnet complete its first consensus round before it can affect
-reward normalization. Once that exact election exists it remains eligible for its following
-allocation and settlement if the owner pauses; pausing only prevents new elections and operational
-maintenance.
-
-Each subnet's epoch changes at its own assigned slot. If an owner unpauses while that subnet's
-phase-aware epoch is `E`, `consensus_eligible_from_subnet_epoch` is set to `E + 2`. The remainder of `E`
-is extra preparation time and all of `E + 1` is a complete local preparation epoch. Queue processing
-and burn-rate maintenance continue during preparation, but no validator is elected and no new
-consensus round begins. At the assigned slot starting `E + 2`, the subnet becomes consensus-live
-and attempts its first post-unpause election. If a valid effective candidate set produces an
-election, it can first receive an emission allocation at the following general epoch and is settled
-at the next assigned subnet slot.
+settled. This lets a newly activated subnet complete its first consensus round before it can affect
+reward normalization.
 
 General-epoch preliminary processing runs at slot zero, before subnet slots. Ordinary reputation,
 minimum-node, and stake checks skip an active subnet whose phase-aware local epoch has not reached
-`consensus_eligible_from_subnet_epoch`. The global boundary immediately before the first `E + 2` subnet slot therefore
-cannot penalize the preparing subnet; those checks resume at the following global boundary, after
-the subnet has reached its first live slot.
+`consensus_eligible_from_subnet_epoch`. These checks begin after the subnet reaches its first live slot.
 
 The minimum subnet delegation needed for activation and continued survival is
 `MinSubnetDelegateStakeBalance`. This is one governance-configured balance shared by all subnets,
@@ -105,15 +92,8 @@ this configured balance.
 Activation checks the base balance under the existing registration/enactment rules. Periodic
 survival checks read the base once on `DelegateStakeSubnetRemovalInterval` epochs and apply it
 only to Active subnets whose phase-aware local epoch has reached
-`consensus_eligible_from_subnet_epoch`. Registered, Paused, and preparation-period subnets retain
+`consensus_eligible_from_subnet_epoch`. Registered and preparation-period subnets retain
 their existing exemptions. Deposits and withdrawals keep their existing rules.
-
-Pausing uses both clocks for different purposes. The phase-aware subnet epoch records skipped local
-slots for queue compensation, and the global pause-start epoch governs maximum-pause reputation
-decay and removal. Paused subnets remain eligible for lowest-stake capacity removal when the network
-exceeds `MaxSubnets`. Re-pause cooldowns are local, count only from the first consensus-eligible epoch, and
-must be at least one subnet epoch. Because subnet-slot `on_initialize` runs before extrinsics, the
-round satisfying the cooldown is settled before the owner can pause again.
 
 ### Overwatch Epochs
 
@@ -175,7 +155,7 @@ A subnet node becomes electable only when it reaches `Active` classification.
 
 During subnet bootstrap, initial validator nodes enter directly as Active-class nodes while the subnet is still in the registration phase - this is similar to how blockchains are required to be bootstrapped by multiple validators. After the subnet is active, new nodes enter as Queued and are admitted directly as Probation when queue maturity, capacity, and churn controls allow.
 
-Probation requires `ProbationRounds` qualifying inclusions (default 2) and full reputation. An ordinary accepted round qualifies only when its canonical score total is nonzero and its distinct-identity support reaches the snapshotted supermajority threshold. A scored Probation node advances even if its individual score is zero; omission in such a round resets its progress. Missing, rejected, zero-total-score, below-supermajority, and emergency rounds leave progress unchanged. Quarantined nodes cannot progress.
+Probation requires `ProbationRounds` qualifying inclusions (default 2) and full reputation. An ordinary accepted round qualifies only when its canonical score total is nonzero and its distinct-identity support reaches the snapshotted supermajority threshold. A scored Probation node advances even if its individual score is zero; omission in such a round resets its progress. Missing, rejected, zero-total-score, and below-supermajority rounds leave progress unchanged. Quarantined nodes cannot progress.
 
 Promotion atomically changes the node to Active, inserts it into `SubnetNodeElectionSlots`, updates the slot index and electable counters, clears probation progress, and emits `SubnetNodePromoted`. It takes effect for the next election, including one later in the same hook. It does not grant rewards or voting rights in the round that evaluated the node as Probation. Removing an Active node removes it from the election set.
 
@@ -185,9 +165,7 @@ At the subnet's slot, the pallet randomly selects one node from the effective el
 new subnet epoch. If that set is empty or any candidate lacks its node-to-validator attribution,
 the attempt stores no election.
 
-Election probability is per eligible subnet node, not stake-weighted. If a validator operates multiple Active-class nodes in the same subnet, each eligible node is separately present in the election list unless removed or replaced by an emergency validator set.
-
-If an emergency validator set is active, election uses the active emergency validator nodes instead of the normal election list. Emergency validator sets are owner-controlled recovery tools and are only activated through the pause and unpause flow.
+Election probability is per eligible subnet node, not stake-weighted. If a validator operates multiple Active-class nodes in the same subnet, each eligible node is separately present in the election list unless removed.
 
 ## Proposing Consensus Data
 
@@ -233,7 +211,7 @@ An attesting node must:
 
 An attestation records the attesting node ID, block, epoch progress from proposal to attestation, a reward factor, and optional attestation data. Attestation timing can affect the attesting node's reward factor if that node later receives subnet-node rewards. The optional data is not interpreted by on-chain logic; it exists for subnet-specific or off-chain coordination.
 
-The validator set used for attestation is snapshotted when the proposal is submitted. This prevents later node churn, pauses, or emergency changes from rewriting who counts as an eligible attestor for that epoch.
+The validator set used for attestation is snapshotted when the proposal is submitted. This prevents later node churn or configuration changes from rewriting who counts as an eligible attestor for that epoch.
 
 ## Stake-Weighted Attestation
 
@@ -502,9 +480,7 @@ Probation-to-Active classification.
 Queue actions remain independently stake-supermajority gated. Queue admission,
 minimum-reputation removal, and other objective lifecycle checks remain independent of
 identity verification. The existing zero-score early return also remains: it skips the per-node
-distribution loop. In an emergency-validator round, the identity gate uses only the snapshotted
-emergency identities, non-attestor accountability is limited to the emergency nodes, and normal
-classification progression remains disabled.
+distribution loop.
 
 When consensus fails:
 
@@ -658,8 +634,7 @@ The proposer can include two optional queue decisions:
 These decisions are validated when submitted. During allocated settlement they are executed only
 if the proposal's stake-weighted attestation ratio is at least the snapshotted supermajority
 threshold. This queue gate remains stake-weighted and is independent of the distinct-identity gate
-for proposal-derived reputation scores and classification. Emergency validator-set consensus
-cannot mutate the normal registration queue.
+for proposal-derived reputation scores and classification.
 
 Queue duration and immunity changes become effective at the next subnet epoch. Both periods use the same strict elapsed-period boundary:
 
@@ -668,14 +643,6 @@ period_has_elapsed = start_epoch + configured_epochs < evaluated_subnet_epoch
 ```
 
 Equality is still the final waiting or immune epoch. With equal queue-duration and immunity values, the node becomes admission-eligible by duration no later than removal becomes valid. Actual admission can still wait for subnet capacity and churn cadence. Saturating epoch arithmetic keeps an overflowed deadline from becoming prematurely eligible.
-
-## Emergency Validator Sets
-
-An emergency validator set lets a subnet owner recover a paused subnet with a temporary validator set.
-
-Emergency validator nodes must already be valid Active-class subnet nodes. When the emergency set activates, proposer election and attestor snapshots use the emergency node set instead of the normal election list. The emergency snapshot also carries the reputation factors and minimum reputation settings that should apply during the emergency period.
-
-Emergency sets are bounded by size, duration, expiration rules, and cooldowns. They end automatically when their target duration is reached, their maximum epoch expires, or too few emergency validators remain valid. The owner can also revert the set while the subnet is paused.
 
 ## Consensus Boundaries
 

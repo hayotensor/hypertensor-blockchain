@@ -457,7 +457,6 @@ parameter_types! {
     pub const NetworkMaxRegisteredNodesUpperBound: u32 = 64;
     pub const NetworkMaxUnbondingsUpperBound: u32 = 256;
     pub const NetworkMaxSwapCallsPerBlockUpperBound: u32 = 1_000;
-    pub const NetworkMaxEmergencySubnetNodesUpperBound: u32 = 64;
     pub const DesignatedEpochSlots: u32 = pallet_network::NETWORK_DESIGNATED_EPOCH_SLOTS;
     pub const NetworkMaxVectorLength: u32 = 1024;
     pub const NetworkMaxUrlLength: u32 = 1024;
@@ -498,7 +497,6 @@ impl pallet_network::Config for Runtime {
     type MaxRegisteredNodesUpperBound = NetworkMaxRegisteredNodesUpperBound;
     type MaxUnbondingsUpperBound = NetworkMaxUnbondingsUpperBound;
     type MaxSwapCallsPerBlockUpperBound = NetworkMaxSwapCallsPerBlockUpperBound;
-    type MaxEmergencySubnetNodesUpperBound = NetworkMaxEmergencySubnetNodesUpperBound;
     type DesignatedEpochSlots = DesignatedEpochSlots;
     type MaxVectorLength = NetworkMaxVectorLength;
     type MaxUrlLength = NetworkMaxUrlLength;

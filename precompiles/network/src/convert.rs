@@ -120,10 +120,6 @@ pub fn validator_set<T: Config>(v: &[u32]) -> Result<BTreeSet<u32>, Error> {
     }
     Ok(out)
 }
-pub fn emergency_set<T: Config>(v: &[u32]) -> Result<Vec<u32>, Error> {
-    limit(v.len(), T::MaxEmergencySubnetNodesUpperBound::get())?;
-    Ok(v.to_vec())
-}
 pub fn bootnodes<T: Config>(
     v: &[abi::Bootnode],
 ) -> Result<BTreeMap<OpaquePeerId, pallet_network::NetworkBytes<T>>, Error> {

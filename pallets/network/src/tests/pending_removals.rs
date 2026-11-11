@@ -2,13 +2,12 @@ use super::mock::*;
 use super::test_utils::*;
 use crate::weights::WeightInfo;
 use crate::{
-    AttestEntry, ConsensusPolicySnapshot, ConsensusSubmissionData, ConsensusSubnetNode,
-    EmergencySubnetNodeElectionData, EmergencySubnetValidatorData, Error, Event, MinSubnetMinStake,
-    MinSubnetNodes, NodeSubnetStake, PendingAdmittedNodeRemovals, PendingQueuedNodeRemovals,
-    QueuedSubnetNodesData, RewardsData, SubnetConsensusAttestorWeights, SubnetConsensusSubmission,
-    SubnetElectedValidator, SubnetName, SubnetNodeClass, SubnetNodeConsensusData,
-    SubnetNodeElectionSlots, SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData,
-    SubnetOwner, SubnetReputationFactors, SubnetState,
+    AttestEntry, ConsensusPolicySnapshot, ConsensusSubmissionData, ConsensusSubnetNode, Error,
+    Event, MinSubnetMinStake, MinSubnetNodes, NodeSubnetStake, PendingAdmittedNodeRemovals,
+    PendingQueuedNodeRemovals, QueuedSubnetNodesData, RewardsData, SubnetConsensusAttestorWeights,
+    SubnetConsensusSubmission, SubnetElectedValidator, SubnetName, SubnetNodeClass,
+    SubnetNodeConsensusData, SubnetNodeElectionSlots, SubnetNodeReputation, SubnetNodeValidatorId,
+    SubnetNodesData, SubnetOwner, SubnetReputationFactors, SubnetState,
 };
 use frame_support::pallet_prelude::Pays;
 use frame_support::traits::{Get, Hooks};
@@ -179,68 +178,6 @@ fn election_scans_to_the_next_healthy_candidate_wraps_and_handles_all_pending() 
 }
 
 #[test]
-fn election_falls_back_when_too_few_emergency_candidates_are_healthy() {
-    new_test_ext().execute_with(|| {
-        System::set_block_number(1);
-        let subnet_id = 21;
-        let subnet_epoch = 0;
-        let minimum = MinSubnetNodes::<Test>::get();
-        let candidate_count = minimum.saturating_add(2);
-
-        for offset in 0..candidate_count {
-            let ordinal = offset.saturating_add(1);
-            insert_subnet_node(
-                1_000 + ordinal,
-                subnet_id,
-                10_000 + ordinal,
-                20_000 + ordinal,
-                30_000 + ordinal,
-                SubnetNodeClass::Active,
-                subnet_epoch,
-            );
-        }
-
-        let regular_candidates = (1..=candidate_count).collect::<Vec<_>>();
-        let emergency_candidates = (1..=minimum).collect::<Vec<_>>();
-        SubnetNodeElectionSlots::<Test>::insert(subnet_id, regular_candidates.clone());
-        EmergencySubnetNodeElectionData::<Test>::insert(
-            subnet_id,
-            EmergencySubnetValidatorData {
-                subnet_node_ids: emergency_candidates.clone(),
-                target_emergency_validators_epochs: 10,
-                max_emergency_validators_epoch: u32::MAX,
-                activated: true,
-                started_subnet_epoch: subnet_epoch,
-                ..Default::default()
-            },
-        );
-
-        // Quarantining one emergency candidate takes that set below MinSubnetNodes, while the
-        // larger regular set remains viable.
-        mark_admitted_pending(subnet_id, emergency_candidates[0]);
-        Network::elect_validator(subnet_id, subnet_epoch, 0);
-
-        let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
-        assert!(round.emergency.is_none());
-        assert_eq!(
-            round.eligible_subnet_node_ids,
-            regular_candidates
-                .iter()
-                .copied()
-                .filter(|id| *id != emergency_candidates[0])
-                .collect::<Vec<_>>()
-        );
-        assert_eq!(
-            SubnetNodeElectionSlots::<Test>::get(subnet_id),
-            regular_candidates
-        );
-        assert!(!EmergencySubnetNodeElectionData::<Test>::contains_key(
-            subnet_id
-        ));
-    });
-}
-
-#[test]
 fn accepted_queue_removal_quarantines_and_dequeues_before_physical_cleanup() {
     new_test_ext().execute_with(|| {
         let subnet_id = 31;
@@ -278,7 +215,6 @@ fn accepted_queue_removal_quarantines_and_dequeues_before_physical_cleanup() {
             subnet_nodes: vec![],
             prioritize_queue_node_id: None,
             remove_queue_node_id: Some(subnet_node_id),
-            emergency: None,
         };
 
         let newly_pending = Network::handle_node_queue_consensus(
@@ -516,7 +452,15 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
             }]
         );
         assert_eq!(stored_submission.weight_sum, 1);
-        assert_eq!(stored_submission.eligible_validator_identity_count, stored_submission.validator_identity_ids.values().copied().collect::<BTreeSet<_>>().len() as u32);
+        assert_eq!(
+            stored_submission.eligible_validator_identity_count,
+            stored_submission
+                .validator_identity_ids
+                .values()
+                .copied()
+                .collect::<BTreeSet<_>>()
+                .len() as u32
+        );
         assert!(!stored_submission.validator_ids.contains(&pending_node_id));
         assert!(!stored_submission
             .validator_identity_ids
@@ -864,8 +808,9 @@ fn pending_cleanup_obeys_the_exact_meter_boundary_and_subnet_scope() {
 
         let db_weight: frame_support::weights::RuntimeDbWeight =
             <Test as frame_system::Config>::DbWeight::get();
-        let scan_weight =
-            <() as WeightInfo>::pending_admitted_removal_scan(NetworkMaxSubnetNodesUpperBound::get());
+        let scan_weight = <() as WeightInfo>::pending_admitted_removal_scan(
+            NetworkMaxSubnetNodesUpperBound::get(),
+        );
         let selector_weight = <() as WeightInfo>::subnet_node_validator_id_selector();
         let validator_nodes = Network::validator_owned_nodes_weight_param(validator_id);
         let election_nodes = crate::TotalSubnetElectableNodes::<Test>::get(subnet_id);
@@ -928,8 +873,9 @@ fn assigned_slot_cleanup_retries_on_the_next_assigned_slot_without_a_proposal() 
 
         // Run the assigned step with less than the minimum active-pending scan. Settlement still
         // gets first priority, while the durable cleanup marker must survive for a later retry.
-        let pending_scan =
-            <() as WeightInfo>::pending_admitted_removal_scan(NetworkMaxSubnetNodesUpperBound::get());
+        let pending_scan = <() as WeightInfo>::pending_admitted_removal_scan(
+            NetworkMaxSubnetNodesUpperBound::get(),
+        );
         let one_ref_time_short = Weight::from_parts(
             pending_scan.ref_time().saturating_sub(1),
             pending_scan.proof_size(),
@@ -1348,7 +1294,6 @@ fn more_than_four_threshold_crossings_withhold_without_redistribution() {
             subnet_nodes,
             prioritize_queue_node_id: None,
             remove_queue_node_id: None,
-            emergency: None,
         };
         let rewards = RewardsData {
             overall_subnet_reward: 2_900,
@@ -1530,7 +1475,6 @@ fn pending_proposer_forfeits_every_node_related_allocation_without_redistributio
             subnet_nodes,
             prioritize_queue_node_id: None,
             remove_queue_node_id: None,
-            emergency: None,
         };
         let rewards = RewardsData {
             overall_subnet_reward: 1_600,

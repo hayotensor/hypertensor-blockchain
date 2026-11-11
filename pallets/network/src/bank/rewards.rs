@@ -172,16 +172,9 @@ impl<T: Config> Pallet<T> {
         let policy = consensus_submission_data.policy;
         let has_identity_super_majority = consensus_submission_data.identity_attestation_ratio
             >= policy.super_majority_attestation_ratio;
-        let emergency_snapshot = consensus_submission_data.emergency.clone();
-        let min_subnet_node_reputation = emergency_snapshot
-            .as_ref()
-            .map(|snapshot| snapshot.min_subnet_node_reputation)
-            .unwrap_or_else(|| policy.min_subnet_node_reputation);
+        let min_subnet_node_reputation = policy.min_subnet_node_reputation;
         let subnet_reputation = SubnetReputation::<T>::get(subnet_id);
         weight_meter.consume(db_weight.reads(1));
-
-        let forked_subnet_node_ids: Option<BTreeSet<u32>> =
-            Self::maybe_get_forked_subnet_node_ids(weight_meter, subnet_id, &emergency_snapshot);
 
         let min_identity_attestation_percentage = policy.validator_identity_attestation_percentage;
         let effective_identity_attestation_threshold =
@@ -257,10 +250,7 @@ impl<T: Config> Pallet<T> {
                 penalty_attestation_ratio,
                 penalty_attestation_threshold,
                 min_subnet_node_reputation,
-                emergency_snapshot
-                    .as_ref()
-                    .map(|snapshot| snapshot.reputation_factors)
-                    .unwrap_or_else(|| policy.reputation_factors),
+                policy.reputation_factors,
                 policy.not_in_consensus_subnet_reputation_factor,
                 policy.base_slash_percentage,
                 policy.max_slash_amount,
@@ -383,14 +373,8 @@ impl<T: Config> Pallet<T> {
         //
 
         let probation_rounds = policy.probation_rounds;
-        let weight_threshold = emergency_snapshot
-            .as_ref()
-            .map(|snapshot| snapshot.min_weight_decrease_reputation_threshold)
-            .unwrap_or_else(|| policy.min_weight_decrease_reputation_threshold);
-        let reputation_factors = emergency_snapshot
-            .as_ref()
-            .map(|snapshot| snapshot.reputation_factors)
-            .unwrap_or_else(|| policy.reputation_factors);
+        let weight_threshold = policy.min_weight_decrease_reputation_threshold;
+        let reputation_factors = policy.reputation_factors;
         let absent_factor = reputation_factors.absent_decrease;
         let included_factor = reputation_factors.included_increase;
         let min_weight_factor = reputation_factors.below_min_weight_decrease;
@@ -568,11 +552,8 @@ impl<T: Config> Pallet<T> {
                     // A distinct-identity supermajority endorsed this node's omission.
                     reputation = Self::decrease_rep(reputation, absent_factor, None);
 
-                    // Only ordinary, strongly endorsed evaluations change probation progress.
-                    // Emergency rounds retain reputation handling but freeze the progress counter.
-                    if subnet_node.classification.node_class == SubnetNodeClass::Probation
-                        && forked_subnet_node_ids.is_none()
-                    {
+                    // Strongly endorsed omissions reset probation progress.
+                    if subnet_node.classification.node_class == SubnetNodeClass::Probation {
                         let progress =
                             SubnetNodeProbationProgress::<T>::get(subnet_id, subnet_node.id);
                         weight_meter.consume(db_weight.reads(1));
@@ -605,7 +586,7 @@ impl<T: Config> Pallet<T> {
             };
 
             // Historical Probation never earns node-related rewards, even after promotion,
-            // removal, or during emergency consensus. Only surviving nodes can make progress.
+            // or removal. Only surviving nodes can make progress.
             if subnet_node.classification.node_class == SubnetNodeClass::Probation {
                 if let Some(previous) = starting_reputation {
                     weight_meter.consume(Self::persist_node_reputation_change(
@@ -616,7 +597,7 @@ impl<T: Config> Pallet<T> {
                     ));
                 }
 
-                if node_exists && has_identity_super_majority && forked_subnet_node_ids.is_none() {
+                if node_exists && has_identity_super_majority {
                     Self::handle_probation_node(
                         weight_meter,
                         subnet_id,
@@ -660,40 +641,19 @@ impl<T: Config> Pallet<T> {
 
             // Eligible non-attestors retain score-based rewards at the round's timing floor.
             // This fallback is independent of the identity gate for reputation penalties.
-            let reward_factor = if let Some(forked_node_ids) = &forked_subnet_node_ids {
-                if forked_node_ids.get(&subnet_node.id).is_some() {
-                    // If one of the temporary fork nodes
-                    match consensus_submission_data.attests.get(&subnet_node.id) {
-                        Some(data) => data.reward_factor,
-                        None => {
-                            // When a supermajority of distinct eligible validator identities
-                            // participated, treat this emergency validator node as offline for
-                            // failing to attest. The `non_attestor_factor` is intended to be the
-                            // lowest decreasing factor of all node reputation factors.
-                            if node_exists && has_identity_super_majority {
-                                reputation =
-                                    Self::decrease_rep(reputation, non_attestor_factor, None);
-                            }
-                            policy.attestor_min_reward_factor
-                        }
-                    }
+            let reward_factor =
+                if let Some(data) = consensus_submission_data.attests.get(&subnet_node.id) {
+                    data.reward_factor
                 } else {
-                    // Ordinary nodes outside the emergency set cannot attest in this round.
-                    percentage_factor
-                }
-            } else if let Some(data) = consensus_submission_data.attests.get(&subnet_node.id) {
-                // Subnet is not forked and node attested
-                data.reward_factor
-            } else {
-                // A distinct-identity supermajority makes node-level non-participation
-                // attributable for reputation purposes. The reward fallback applies even below
-                // that gate and uses the elected policy rather than the current setting.
-                if node_exists && has_identity_super_majority {
-                    reputation = Self::decrease_rep(reputation, non_attestor_factor, None);
-                }
+                    // A distinct-identity supermajority makes node-level non-participation
+                    // attributable for reputation purposes. The reward fallback applies even below
+                    // that gate and uses the elected policy rather than the current setting.
+                    if node_exists && has_identity_super_majority {
+                        reputation = Self::decrease_rep(reputation, non_attestor_factor, None);
+                    }
 
-                policy.attestor_min_reward_factor
-            };
+                    policy.attestor_min_reward_factor
+                };
 
             if let Some(previous) = starting_reputation {
                 weight_meter.consume(Self::persist_node_reputation_change(
@@ -1204,37 +1164,6 @@ impl<T: Config> Pallet<T> {
             SubnetNodeProbationProgress::<T>::insert(subnet_id, subnet_node_id, progress);
             weight_meter.consume(db_weight.writes(1));
         }
-    }
-
-    pub(crate) fn maybe_get_forked_subnet_node_ids(
-        weight_meter: &mut WeightMeter,
-        subnet_id: u32,
-        emergency_snapshot: &Option<EmergencyConsensusSnapshot>,
-    ) -> Option<BTreeSet<u32>> {
-        let Some(snapshot) = emergency_snapshot else {
-            return None;
-        };
-
-        let db_weight = T::DbWeight::get();
-        let mut should_finish = false;
-
-        weight_meter.consume(db_weight.reads(1));
-        EmergencySubnetNodeElectionData::<T>::mutate_exists(subnet_id, |maybe_data| {
-            if let Some(data) = maybe_data {
-                if data.activated && data.subnet_node_ids == snapshot.subnet_node_ids {
-                    weight_meter.consume(db_weight.writes(1));
-                    data.total_epochs = data.total_epochs.saturating_add(1);
-                    should_finish = data.total_epochs >= data.target_emergency_validators_epochs;
-                }
-            }
-        });
-
-        if should_finish {
-            Self::finish_emergency_validator_set(subnet_id);
-            weight_meter.consume(db_weight.writes(2));
-        }
-
-        Some(snapshot.subnet_node_ids.iter().cloned().collect())
     }
 
     pub(crate) fn handle_validator_delegate_stake(
