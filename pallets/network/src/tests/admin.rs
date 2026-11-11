@@ -2121,8 +2121,9 @@ fn test_set_min_subnet_reputation() {
 
         let new_value: u128 = test_percent(1, 2);
 
+        // Raising the removal threshold requires the SuperMajority origin.
         assert_ok!(Network::set_min_subnet_reputation(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
             new_value
         ));
 
@@ -2131,6 +2132,37 @@ fn test_set_min_subnet_reputation() {
             *network_events().last().unwrap(),
             Event::SetMinSubnetReputation(new_value)
         );
+    });
+}
+
+#[test]
+fn test_majority_cannot_raise_min_subnet_reputation() {
+    new_test_ext().execute_with(|| {
+        let current = MinSubnetReputation::<Test>::get();
+        let raised = Network::percentage_factor_as_u128();
+        assert!(raised > current);
+
+        assert_err!(
+            Network::set_min_subnet_reputation(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+                raised
+            ),
+            sp_runtime::DispatchError::BadOrigin
+        );
+        assert_eq!(MinSubnetReputation::<Test>::get(), current);
+
+        assert_ok!(Network::set_min_subnet_reputation(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+            raised
+        ));
+        assert_eq!(MinSubnetReputation::<Test>::get(), raised);
+
+        // Lowering the threshold cannot remove subnets and stays Majority-gated.
+        assert_ok!(Network::set_min_subnet_reputation(
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+            current
+        ));
+        assert_eq!(MinSubnetReputation::<Test>::get(), current);
     });
 }
 

@@ -7798,7 +7798,14 @@ pub mod pallet {
         #[pallet::call_index(153)]
         #[pallet::weight(T::WeightInfo::set_min_subnet_reputation())]
         pub fn set_min_subnet_reputation(origin: OriginFor<T>, value: u128) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            // Raising the threshold removes every live subnet below it at the next epoch
+            // preliminaries, which is a bulk subnet removal. That effect requires the same
+            // SuperMajority as `collective_remove_subnet`; lowering it stays Majority-gated.
+            if value > MinSubnetReputation::<T>::get() {
+                T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            } else {
+                T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            }
             Self::do_set_min_subnet_reputation(value)
         }
 
