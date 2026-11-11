@@ -67,6 +67,9 @@ cargo build --release --locked -p hypertensor-node --features production
   offender who unbonded in the offence era can withdraw. A report filed 27 or 28 eras late
   is still accepted (BABE/GRANDPA only bound report age by historical sessions, which
   Staking keeps for `BondingDuration`), but its slash is never applied.
+- Network hooks may use up to 50% of the block (`MaximumHooksWeight`). A Root scheduler
+  task heavier than the weight left after them can be dropped permanently. Keep scheduled
+  Root calls small, or schedule them away from slot blocks.
 
 ### Attestation block-space
 
