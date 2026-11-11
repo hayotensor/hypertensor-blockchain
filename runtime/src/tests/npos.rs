@@ -885,3 +885,46 @@ fn oversized_registration_fails_election_instead_of_silently_dropping_votes() {
         );
     });
 }
+
+#[test]
+fn genesis_staking_caps_are_bounded_and_seats_stay_below_them() {
+    for preset in [
+        genesis::presets::development_config_genesis(),
+        genesis::presets::local_config_genesis(),
+    ] {
+        from_preset(preset.clone()).execute_with(|| {
+            // Seats far below the cap: stake competes for them.
+            assert!(Staking::validator_count() * 4 <= MAX_VALIDATORS);
+            assert_eq!(
+                pallet_staking::MaxValidatorsCount::<Runtime>::get(),
+                Some(MAX_VALIDATORS)
+            );
+        });
+        let mut value = serde_json::to_value(RuntimeGenesisConfig::default()).unwrap();
+        merge(&mut value, preset);
+        let parse = || -> RuntimeGenesisConfig { serde_json::from_value(value.clone()).unwrap() };
+        tokenomics::validate_genesis(&parse()).unwrap();
+        // A lower cap is allowed, but seats must stay below whatever cap is set.
+        let mut config = parse();
+        config.staking.max_validator_count = Some(config.staking.validator_count + 1);
+        tokenomics::validate_genesis(&config).unwrap();
+        config.staking.validator_count += 1;
+        assert!(tokenomics::validate_genesis(&config)
+            .unwrap_err()
+            .contains("validator count must stay below"));
+        // Caps cannot be removed (null) or raised past the runtime election bounds.
+        for edit in [
+            (|c: &mut RuntimeGenesisConfig| c.staking.max_validator_count = None)
+                as fn(&mut RuntimeGenesisConfig),
+            |c| c.staking.max_nominator_count = None,
+            |c| c.staking.max_validator_count = Some(MAX_VALIDATORS + 1),
+            |c| c.staking.max_nominator_count = Some(MAX_NOMINATORS + 1),
+        ] {
+            let mut config = parse();
+            edit(&mut config);
+            assert!(tokenomics::validate_genesis(&config)
+                .unwrap_err()
+                .contains("registration caps must be set"));
+        }
+    }
+}

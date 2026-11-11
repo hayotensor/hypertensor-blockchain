@@ -51,6 +51,8 @@ fn consensus_genesis(initial_authorities: &[(AccountId, BabeId, GrandpaId)]) -> 
             "minNominatorBond": npos::MIN_NOMINATOR_BOND,
             "maxValidatorCount": npos::MAX_VALIDATORS,
             "maxNominatorCount": npos::MAX_NOMINATORS,
+            // Keep seats far below the candidate cap so stake competes for them;
+            // `validate_genesis` rejects `validatorCount >= maxValidatorCount`.
             "slashRewardFraction": sp_runtime::Perbill::from_percent(10),
         },
         "babe": { "epochConfig": npos::BABE_GENESIS_EPOCH_CONFIG },
