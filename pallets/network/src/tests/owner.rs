@@ -2630,6 +2630,68 @@ fn test_non_owner_cannot_transfer() {
 }
 
 #[test]
+fn test_accept_subnet_ownership_clears_bootnode_access() {
+    new_test_ext().execute_with(|| {
+        increase_epochs(1);
+        let subnet_id = 1;
+        let name: Vec<u8> = "subnet-name".into();
+        SubnetsData::<Test>::insert(
+            subnet_id,
+            SubnetData {
+                id: subnet_id,
+                friendly_id: subnet_id,
+                name: name.clone(),
+                repo: name.clone(),
+                description: name.clone(),
+                misc: name.clone(),
+                consensus_mechanism: Default::default(),
+                state: SubnetState::Registered,
+                consensus_eligible_from_subnet_epoch: None,
+            },
+        );
+        let old_owner = account(60);
+        let agent = account(70);
+        let new_owner = account(80);
+        SubnetOwner::<Test>::insert(subnet_id, &old_owner);
+        assert_ok!(Network::owner_add_bootnode_access(
+            RuntimeOrigin::signed(old_owner.clone()),
+            subnet_id,
+            agent.clone()
+        ));
+        assert_ok!(Network::transfer_subnet_ownership(
+            RuntimeOrigin::signed(old_owner.clone()),
+            subnet_id,
+            new_owner.clone()
+        ));
+        assert_ok!(Network::accept_subnet_ownership(
+            RuntimeOrigin::signed(new_owner.clone()),
+            subnet_id
+        ));
+
+        assert!(SubnetBootnodeAccess::<Test>::get(subnet_id).is_empty());
+        let add_map = BTreeMap::from([(
+            peer(1),
+            get_multiaddr(Some(subnet_id), Some(1), None).unwrap(),
+        )]);
+        assert_err!(
+            Network::update_bootnodes(
+                RuntimeOrigin::signed(agent.clone()),
+                subnet_id,
+                add_map.clone(),
+                BTreeSet::new(),
+            ),
+            Error::<Test>::InvalidAccess
+        );
+        assert_ok!(Network::update_bootnodes(
+            RuntimeOrigin::signed(new_owner.clone()),
+            subnet_id,
+            add_map,
+            BTreeSet::new(),
+        ));
+    });
+}
+
+#[test]
 fn test_owner_add_bootnode_access() {
     new_test_ext().execute_with(|| {
         increase_epochs(1);

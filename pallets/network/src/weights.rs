@@ -1365,6 +1365,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetBootnodeAccess` (r:0 w:1)
+	/// Proof: `Network::SubnetBootnodeAccess` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn accept_subnet_ownership() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `56750`
@@ -1372,7 +1374,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Minimum execution time: 72_736_000 picoseconds.
 		Weight::from_parts(79_742_000, 60215)
 			.saturating_add(T::DbWeight::get().reads(7_u64))
-			.saturating_add(T::DbWeight::get().writes(4_u64))
+			.saturating_add(T::DbWeight::get().writes(5_u64))
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -9079,6 +9081,8 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetBootnodeAccess` (r:0 w:1)
+	/// Proof: `Network::SubnetBootnodeAccess` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn accept_subnet_ownership() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `56750`
@@ -9086,7 +9090,7 @@ impl WeightInfo for () {
 		// Minimum execution time: 72_736_000 picoseconds.
 		Weight::from_parts(79_742_000, 60215)
 			.saturating_add(RocksDbWeight::get().reads(7_u64))
-			.saturating_add(RocksDbWeight::get().writes(4_u64))
+			.saturating_add(RocksDbWeight::get().writes(5_u64))
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
