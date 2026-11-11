@@ -7488,7 +7488,13 @@ pub mod pallet {
             origin: OriginFor<T>,
             value: u32,
         ) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            // Shortening the window removes Registered subnets past the new deadline, a bulk
+            // removal that needs the same SuperMajority as `collective_remove_subnet`.
+            if value < SubnetEnactmentEpochs::<T>::get() {
+                T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            } else {
+                T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            }
             Self::do_set_subnet_activation_enactment_epochs(value)
         }
 

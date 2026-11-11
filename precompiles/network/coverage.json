@@ -1681,7 +1681,7 @@
     "index": 103,
     "domain": "Governance",
     "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
+    "authorization": "Council approval: at least 2/3 of members to lengthen, at least 4/5 to shorten in this runtime"
   },
   {
     "name": "set_probation_rounds",

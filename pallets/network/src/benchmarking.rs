@@ -8371,7 +8371,7 @@ mod benchmarks {
         let value = SubnetEnactmentEpochs::<T>::get();
         let new_value = value - 1;
 
-        let origin = T::MajorityCollectiveOrigin::try_successful_origin()
+        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
             .expect("try_successful_origin failed");
 
         #[extrinsic_call]
