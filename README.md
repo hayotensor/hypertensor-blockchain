@@ -54,3 +54,15 @@ embedded runtime and the specs it emits use the production profile:
 ```sh
 cargo build --release --locked -p hypertensor-node --features production
 ```
+
+### Attestation block-space
+
+`Network.propose_attestation` and `Network.attest` are Normal-class calls with no extra
+transaction priority. They are refunded (`Pays::No`) only on success. Filling every Normal
+block costs about 23 TENSOR a day at launch fees, so sustained filler traffic could delay
+deadline-bound attestations. The runtime does not boost them: an unconditional priority
+boost would also apply to invalid calls, which would let anyone buy priority cheaply. A
+safe boost needs a transaction extension that checks the signer is the elected proposer or
+an eligible attestor before it raises priority. Until then, validators should add a tip to
+these calls when blocks are congested, and operators should watch block fullness and
+`TargetedFeeAdjustment`.
