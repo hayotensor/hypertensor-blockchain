@@ -1,6 +1,7 @@
 mod admin;
 mod balance_time;
 mod capacity;
+mod consensus_history;
 mod delegate_account;
 mod delegate_staking;
 mod era;

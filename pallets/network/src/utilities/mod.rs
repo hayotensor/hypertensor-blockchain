@@ -1,4 +1,5 @@
 use super::*;
+pub mod consensus_history;
 pub mod era;
 pub mod keys;
 pub mod math;
