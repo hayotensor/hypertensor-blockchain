@@ -80,6 +80,46 @@ impl EthExtra for EthExtraImpl {
             frame_system::WeightReclaim::<Runtime>::new(),
         )
     }
+
+    /// Rejects unprotected (pre-EIP-155) legacy transactions, which carry no chain ID and
+    /// would otherwise be replayable on every network. Upstream pallet-revive accepts them
+    /// for Nick's-method deployments; this runtime does not. Everything else is unchanged.
+    fn try_into_checked_extrinsic(
+        payload: &[u8],
+        encoded_len: usize,
+    ) -> Result<
+        generic::CheckedExtrinsic<
+            AccountId,
+            RuntimeCall,
+            TxExtension,
+            sp_runtime::traits::InvalidVersion,
+        >,
+        sp_runtime::transaction_validity::InvalidTransaction,
+    > {
+        use pallet_revive::evm::TransactionSigned;
+        if let Ok(TransactionSigned::TransactionLegacySigned(tx)) =
+            TransactionSigned::decode(payload)
+        {
+            if tx.transaction_legacy_unsigned.chain_id.is_none() {
+                return Err(sp_runtime::transaction_validity::InvalidTransaction::Call);
+            }
+        }
+        UpstreamEthExtra::try_into_checked_extrinsic(payload, encoded_len)
+    }
+}
+
+/// Same as [`EthExtraImpl`] but with pallet-revive's default conversion, so the override above
+/// can delegate to it after its check.
+struct UpstreamEthExtra;
+
+impl EthExtra for UpstreamEthExtra {
+    type Config = Runtime;
+    type ExtensionV0 = TxExtension;
+    type ExtensionOtherVersions = sp_runtime::traits::InvalidVersion;
+
+    fn get_eth_extension(nonce: Nonce, tip: Balance) -> TxExtension {
+        EthExtraImpl::get_eth_extension(nonce, tip)
+    }
 }
 
 impl network_precompiles::Config for Runtime {

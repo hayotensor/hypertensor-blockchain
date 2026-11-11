@@ -2,7 +2,7 @@ use crate::configs::revive;
 use crate::*;
 use frame_support::{assert_ok, traits::fungible::InspectHold};
 use pallet_revive::{
-    evm::{runtime::EthExtra, Account, Transaction1559Unsigned},
+    evm::{runtime::EthExtra, Account, Transaction1559Unsigned, TransactionLegacyUnsigned},
     AddressMapper,
 };
 use sp_core::{sr25519, Pair, H160, U256};
@@ -334,6 +334,69 @@ fn ethereum_signatures_use_native_balances_and_enforce_chain_id_and_nonce() {
         assert!(validate_eth(eth_extrinsic(&signer, dest, 0, chain_id)).is_err());
         Executive::finalize_block();
         assert_eq!(Revive::eth_receipt_data().len(), 1);
+    });
+}
+
+fn eth_legacy_extrinsic(
+    signer: &Account,
+    to: H160,
+    nonce: u32,
+    chain_id: Option<u64>,
+) -> UncheckedExtrinsic {
+    let payload = signer
+        .sign_transaction(
+            TransactionLegacyUnsigned {
+                chain_id: chain_id.map(Into::into),
+                nonce: nonce.into(),
+                to: Some(to),
+                gas: (U256::from(TENSOR) / Revive::evm_base_fee()),
+                gas_price: Revive::evm_base_fee(),
+                value: TENSOR.into(),
+                ..Default::default()
+            }
+            .into(),
+        )
+        .signed_payload();
+    generic::UncheckedExtrinsic::new_bare(RuntimeCall::Revive(pallet_revive::Call::eth_transact {
+        payload,
+    }))
+    .into()
+}
+
+#[test]
+fn unprotected_legacy_ethereum_transactions_are_rejected() {
+    crate::tests::npos::ext().execute_with(|| {
+        initialize_block();
+        let signer = Account::from_secret_key([7; 32]);
+        assert_ok!(native_call(
+            pallet_balances::Call::transfer_allow_death {
+                dest: signer.substrate_account(),
+                value: 10 * TENSOR,
+            }
+            .into()
+        ));
+        let dest = H160::repeat_byte(0x42);
+        let chain_id = revive::ChainId::get();
+        // Pre-EIP-155 legacy: no chain ID, replayable on any network.
+        assert!(validate_eth(eth_legacy_extrinsic(&signer, dest, 0, None)).is_err());
+        assert!(Executive::apply_extrinsic(eth_legacy_extrinsic(&signer, dest, 0, None)).is_err());
+        assert_eq!(Revive::evm_balance(&dest), U256::zero());
+        // EIP-155 legacy and EIP-1559 still work.
+        assert_ok!(validate_eth(eth_legacy_extrinsic(
+            &signer,
+            dest,
+            0,
+            Some(chain_id)
+        )));
+        assert_ok!(Executive::apply_extrinsic(eth_legacy_extrinsic(
+            &signer,
+            dest,
+            0,
+            Some(chain_id)
+        ))
+        .unwrap());
+        assert_ok!(Executive::apply_extrinsic(eth_extrinsic(&signer, dest, 1, chain_id)).unwrap());
+        assert_eq!(Revive::evm_balance(&dest), (2 * TENSOR).into());
     });
 }
 

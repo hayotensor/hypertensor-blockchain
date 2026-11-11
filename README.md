@@ -57,6 +57,8 @@ cargo build --release --locked -p hypertensor-node --features production
 
 ### Deployment decisions
 
+- Unprotected (pre-EIP-155) legacy Ethereum transactions are rejected, so Nick's-method
+  deployments are not supported.
 - `SlashDeferDuration` is `BondingDuration - 2` (26 eras), so a slash lands before an
   offender who unbonded in the offence era can withdraw. A report filed 27 or 28 eras late
   is still accepted (BABE/GRANDPA only bound report age by historical sessions, which
