@@ -1157,12 +1157,17 @@ fn prepare_overwatch_reward_benchmark<T: Config>(
     let base_stake = OverwatchMinStakeBalance::<T>::get();
     assert_eq!(base_stake, 100u128.saturating_mul(percentage_factor));
 
-    // Settlement consumes frozen reveals and stakes, not live subnet registration state.
-    // Seed those closed-epoch inputs directly, including historical subnet IDs: registration
-    // fees, account existential deposits, and activation are unrelated to the measured work.
+    // Settlement consumes frozen reveals and stakes; it only checks that each subnet still
+    // exists. Seed bare subnet records: registration fees and activation are unrelated work.
     let subnet_ids = (1..=revealed_subnets)
         .map(|offset| T::InitialSubnetUid::get().checked_add(offset).unwrap())
         .collect::<Vec<_>>();
+    for subnet_id in subnet_ids.iter() {
+        SubnetsData::<T>::insert(
+            subnet_id,
+            new_subnet_data::<T>(*subnet_id, SubnetState::Active, 0),
+        );
+    }
 
     let mut overwatch_nodes = Vec::with_capacity(revealing_nodes as usize);
     for node_index in 0..revealing_nodes {

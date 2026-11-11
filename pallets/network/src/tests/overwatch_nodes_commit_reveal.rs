@@ -308,6 +308,8 @@ fn test_reveal_rejects_new_subnet_after_epoch_subnet_bound() {
         let new_subnet_id = max_subnets.saturating_add(1);
         let weight = 123_456;
         let salt = b"subnet-bound".to_vec();
+        // Only live subnets take a slot in the distinct-subnet index.
+        insert_subnet(new_subnet_id, SubnetState::Active, 0);
         let commit_hash = make_commit(
             overwatch_node_id,
             new_subnet_id,
@@ -1615,4 +1617,112 @@ fn overwatch_commitment_matches_client_encoding_vector() {
         Network::hash_overwatch_commitment(7, 11, 13, 123456, b"secret-salt"),
         expected,
     );
+}
+
+/// Subnet churn during the commit phase must not make an accepted commitment unrevealable,
+/// and the removed subnet's reveals must not push finalization over the subnet bound.
+#[test]
+fn test_overwatch_subnet_churn_during_commit_keeps_full_revealers_eligible() {
+    new_test_ext().execute_with(|| {
+        let pf = Network::percentage_factor_as_u128();
+        crate::OverwatchEpochLengthMultiplier::<Test>::set(1);
+        crate::ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
+        let bound = <Test as crate::Config>::MaxPhysicalSubnetsUpperBound::get();
+        let min_stake = crate::OverwatchMinStakeBalance::<Test>::get().max(1);
+        for s in 1..=bound {
+            insert_subnet(s, SubnetState::Active, 0);
+        }
+        let mut hotkeys = BTreeMap::new();
+        for v in 1..=2u32 {
+            manual_insert_validator(v, 10_000 + v, 20_000 + v);
+            OverwatchValidatorWhitelist::<Test>::insert(v, ());
+            let id = insert_overwatch_node_v2(v);
+            set_overwatch_node_stake(id, min_stake);
+            hotkeys.insert(id, account(20_000 + v));
+        }
+        let (a, b) = (1u32, 2u32);
+        set_overwatch_epoch(1);
+        let epoch = crate::CurrentOverwatchEpoch::<Test>::get();
+        let start = crate::OverwatchEpochStartBlock::<Test>::get();
+        let len = EpochLength::get() * crate::ActiveOverwatchEpochLengthMultiplier::<Test>::get();
+        let salt = |n: u32, s: u32| format!("s-{n}-{s}").into_bytes();
+        let commit = |n: u32, s: u32, w: u128| OverwatchCommit {
+            subnet_id: s,
+            weight: make_commit(n, s, epoch, w, salt(n, s)),
+        };
+        let reveal = |n: u32, s: u32, w: u128| OverwatchReveal::<Test> {
+            subnet_id: s,
+            weight: w,
+            salt: salt(n, s).try_into().unwrap(),
+        };
+
+        // A commits to subnets 1 and 2; B commits to subnets 2..=bound.
+        System::set_block_number(start + 1);
+        assert_ok!(Network::commit_overwatch_subnet_weights(
+            RuntimeOrigin::signed(hotkeys[&a].clone()),
+            a,
+            vec![commit(a, 1, pf), commit(a, 2, pf / 2)]
+        ));
+        assert_ok!(Network::commit_overwatch_subnet_weights(
+            RuntimeOrigin::signed(hotkeys[&b].clone()),
+            b,
+            (2..=bound).map(|s| commit(b, s, pf / 2)).collect()
+        ));
+
+        // Still in the commit phase: subnet 1 is removed and a new subnet takes its slot.
+        System::set_block_number(start + 10);
+        Network::do_remove_subnet(1, crate::SubnetRemovalReason::Owner);
+        let new_subnet = bound + 1;
+        insert_subnet(new_subnet, SubnetState::Active, 0);
+        assert_ok!(Network::commit_overwatch_subnet_weights(
+            RuntimeOrigin::signed(hotkeys[&b].clone()),
+            b,
+            vec![commit(b, new_subnet, pf / 2)]
+        ));
+        assert!(Network::in_overwatch_commit_period());
+
+        // Reveal phase: A reveals its removed-subnet commitment first, then B reveals everything.
+        System::set_block_number(start + len - 1);
+        assert_ok!(Network::reveal_overwatch_subnet_weights(
+            RuntimeOrigin::signed(hotkeys[&a].clone()),
+            a,
+            vec![reveal(a, 1, pf), reveal(a, 2, pf / 2)]
+        ));
+        assert_ok!(Network::reveal_overwatch_subnet_weights(
+            RuntimeOrigin::signed(hotkeys[&b].clone()),
+            b,
+            (2..=bound)
+                .chain([new_subnet])
+                .map(|s| reveal(b, s, pf / 2))
+                .collect()
+        ));
+        assert!(!ActiveOverwatchRevealStats::<Test>::get()
+            .subnet_revealer_counts
+            .contains_key(&1));
+
+        System::set_block_number(start + len);
+        Network::advance_overwatch_epoch(start + len);
+        let eligible: Vec<u32> = crate::OverwatchEpochRevealEligibility::<Test>::get(epoch)
+            .unwrap()
+            .into_iter()
+            .collect();
+        assert_eq!(eligible, vec![a, b]);
+
+        // Finalization skips the removed subnet, settles, and pays both nodes.
+        let (stake_a, stake_b) = (
+            crate::OverwatchNodeStakeBalance::<Test>::get(a),
+            crate::OverwatchNodeStakeBalance::<Test>::get(b),
+        );
+        Network::calculate_overwatch_rewards();
+        assert!(crate::PendingOverwatchSettlement::<Test>::get().is_none());
+        assert_eq!(crate::LastFinalizedOverwatchEpoch::<Test>::get(), Some(epoch));
+        assert!(crate::OverwatchNodeStakeBalance::<Test>::get(a) > stake_a);
+        assert!(crate::OverwatchNodeStakeBalance::<Test>::get(b) > stake_b);
+        assert!(!crate::OverwatchSubnetWeights::<Test>::contains_key(epoch, 1));
+
+        // The next rollover is not blocked by a stuck settlement.
+        System::set_block_number(start + 2 * len);
+        Network::advance_overwatch_epoch(start + 2 * len);
+        assert_eq!(crate::CurrentOverwatchEpoch::<Test>::get(), epoch + 2);
+    });
 }

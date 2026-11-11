@@ -261,9 +261,12 @@ impl<T: Config> Pallet<T> {
             T::MaxOverwatchNodesUpperBound,
         >::new();
         let mut reveal_row_nodes = Vec::<u32>::new();
-        for (node_id, reveals) in OverwatchReveals::<T>::iter_prefix(settlement.epoch) {
+        for (node_id, mut reveals) in OverwatchReveals::<T>::iter_prefix(settlement.epoch) {
             reveal_row_nodes.push(node_id);
             weight = weight.saturating_add(db_weight.reads(1));
+            // Reveals for subnets removed mid-round are not finalized (and can exceed the bound).
+            weight = weight.saturating_add(db_weight.reads(reveals.len() as u64));
+            reveals.retain(|subnet_id, _| SubnetsData::<T>::contains_key(subnet_id));
             if reveals.is_empty() || !eligible_nodes.contains(&node_id) {
                 continue;
             }
