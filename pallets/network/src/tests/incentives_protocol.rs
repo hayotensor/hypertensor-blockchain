@@ -10215,3 +10215,73 @@ fn local_reputation_unchanged_commit_has_no_storage_or_event_effect() {
         assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
     });
 }
+
+#[test]
+fn test_failed_owner_credit_does_not_abort_settled_round_payouts() {
+    new_test_ext().execute_with(|| {
+        let node_count = 4;
+        let (subnet_id, subnet_epoch, elected_node_id, hotkey, base_data) =
+            build_elected_subnet_for_consensus("subnet-name".into(), node_count);
+        let attestors: Vec<u32> = (1..=node_count)
+            .filter(|subnet_node_id| *subnet_node_id != elected_node_id)
+            .take(2)
+            .collect();
+        set_validator_delegate_weight_for_subnet_node(subnet_id, elected_node_id, 1_000);
+
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(hotkey),
+            subnet_id,
+            base_data,
+            None,
+            None,
+            None,
+            None,
+        ));
+        attest_subnet_nodes(subnet_id, &attestors);
+
+        let (result, _) = Network::precheck_subnet_consensus_submission(
+            subnet_id,
+            subnet_epoch,
+            Network::get_current_epoch_as_u32(),
+        );
+        let consensus_submission_data = result.unwrap();
+
+        // The owner coldkey does not exist and its share is below the existential deposit, so
+        // the exact credit fails.
+        let reaped_owner = account(987_654);
+        assert_eq!(Balances::free_balance(&reaped_owner), 0);
+        SubnetOwner::<Test>::insert(subnet_id, reaped_owner.clone());
+        let owner_reward = EXISTENTIAL_DEPOSIT - 1;
+        let rewards_data = RewardsData {
+            overall_subnet_reward: 0,
+            subnet_owner_reward: owner_reward,
+            subnet_rewards: 0,
+            delegate_stake_rewards: 0,
+            subnet_node_rewards: 1_000_000,
+        };
+        let capacitor_before = crate::SubnetRewardCapacitor::<Test>::get(subnet_id);
+        let proposer_stake_before = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
+
+        System::reset_events();
+        Network::distribute_rewards(
+            &mut WeightMeter::new(),
+            subnet_id,
+            subnet_epoch.saturating_add(1),
+            consensus_submission_data,
+            rewards_data,
+        );
+
+        assert_eq!(Balances::free_balance(&reaped_owner), 0);
+        // The undeliverable owner share is retained for a later round, not lost.
+        assert_eq!(
+            crate::SubnetRewardCapacitor::<Test>::get(subnet_id),
+            capacitor_before + owner_reward
+        );
+        // Node, proposer and delegate payouts still ran to completion.
+        assert!(NodeSubnetStake::<Test>::get(elected_node_id, subnet_id) > proposer_stake_before);
+        assert!(System::events().iter().any(|record| matches!(
+            record.event,
+            RuntimeEvent::Network(Event::SubnetRewards { subnet_id: id, .. }) if id == subnet_id
+        )));
+    });
+}
