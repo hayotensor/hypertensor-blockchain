@@ -545,9 +545,51 @@ fn rotating_keys_preserves_historical_proofs_for_both_consensus_engines() {
     });
 }
 
+/// A valid BABE equivocation by Alice at the current block, with its key-ownership proof.
+fn alice_babe_equivocation() -> (
+    sp_consensus_babe::EquivocationProof<Header>,
+    sp_session::MembershipProof,
+) {
+    use sp_consensus_babe::digests::CompatibleDigestItem;
+    let babe = authority("Alice").1;
+    let offence_block = System::block_number();
+    let pair = sp_consensus_babe::AuthorityPair::from_string("//Alice", None).unwrap();
+    let proof = Historical::prove((sp_consensus_babe::KEY_TYPE, babe.clone())).unwrap();
+    let author_index = Babe::authorities()
+        .iter()
+        .position(|(key, _)| key == &babe)
+        .unwrap() as u32;
+    let header = |root| {
+        let pre = sp_consensus_babe::digests::PreDigest::SecondaryPlain(
+            sp_consensus_babe::digests::SecondaryPlainPreDigest {
+                authority_index: author_index,
+                slot: u64::from(offence_block).into(),
+            },
+        );
+        let mut header = Header::new(
+            offence_block,
+            H256::repeat_byte(root),
+            H256::zero(),
+            H256::zero(),
+            generic::Digest {
+                logs: vec![DigestItem::babe_pre_digest(pre)],
+            },
+        );
+        let signature = pair.sign(header.hash().as_ref());
+        header.digest_mut().push(DigestItem::babe_seal(signature));
+        header
+    };
+    let equivocation = sp_consensus_babe::EquivocationProof {
+        offender: babe,
+        slot: u64::from(offence_block).into(),
+        first_header: header(1),
+        second_header: header(2),
+    };
+    (equivocation, proof)
+}
+
 #[test]
 fn babe_equivocation_reaches_offences_and_deferred_staking_slashes() {
-    use sp_consensus_babe::digests::CompatibleDigestItem;
     use sp_core::offchain::{testing::TestTransactionPoolExt, TransactionPoolExt};
     use sp_runtime::transaction_validity::TransactionSource;
     let mut externalities = ext();
@@ -555,7 +597,7 @@ fn babe_equivocation_reaches_offences_and_deferred_staking_slashes() {
     externalities.register_extension(TransactionPoolExt::new(pool));
     externalities.execute_with(|| {
         block(1);
-        let (alice, babe, _) = authority("Alice");
+        let alice = authority("Alice").0;
         let nominator = authority("Charlie").0;
         assert_ok!(Staking::bond(
             RuntimeOrigin::signed(nominator.clone()),
@@ -568,39 +610,7 @@ fn babe_equivocation_reaches_offences_and_deferred_staking_slashes() {
         ));
         advance_to_era(1);
         let offence_era = Staking::active_era().unwrap().index;
-        let offence_block = System::block_number();
-        let pair = sp_consensus_babe::AuthorityPair::from_string("//Alice", None).unwrap();
-        let proof = Historical::prove((sp_consensus_babe::KEY_TYPE, babe.clone())).unwrap();
-        let author_index = Babe::authorities()
-            .iter()
-            .position(|(key, _)| key == &babe)
-            .unwrap() as u32;
-        let header = |root| {
-            let pre = sp_consensus_babe::digests::PreDigest::SecondaryPlain(
-                sp_consensus_babe::digests::SecondaryPlainPreDigest {
-                    authority_index: author_index,
-                    slot: u64::from(offence_block).into(),
-                },
-            );
-            let mut header = Header::new(
-                offence_block,
-                H256::repeat_byte(root),
-                H256::zero(),
-                H256::zero(),
-                generic::Digest {
-                    logs: vec![DigestItem::babe_pre_digest(pre)],
-                },
-            );
-            let signature = pair.sign(header.hash().as_ref());
-            header.digest_mut().push(DigestItem::babe_seal(signature));
-            header
-        };
-        let equivocation = sp_consensus_babe::EquivocationProof {
-            offender: babe,
-            slot: u64::from(offence_block).into(),
-            first_header: header(1),
-            second_header: header(2),
-        };
+        let (equivocation, proof) = alice_babe_equivocation();
         assert!(sp_consensus_babe::check_equivocation_proof(
             equivocation.clone()
         ));
@@ -655,6 +665,69 @@ fn babe_equivocation_reaches_offences_and_deferred_staking_slashes() {
                 .active
                 < 100 * TENSOR
         );
+    });
+}
+
+#[test]
+fn late_equivocation_reports_are_deferred_to_a_future_era() {
+    // Staking only applies the deferred slash stored under the era being started, so every
+    // report accepted within the defer window must be keyed to a future era.
+    ext().execute_with(|| {
+        block(1);
+        advance_to_era(1);
+        let offence_era = Staking::active_era().unwrap().index;
+        let (equivocation, proof) = alice_babe_equivocation();
+        // Delays 0..=26; 27-28 eras late is the edge noted on SlashDeferDuration.
+        for delay in 0..=SlashDeferDuration::get() {
+            advance_to_era(offence_era + delay);
+            let active = Staking::active_era().unwrap().index;
+            // Report in a rolled-back overlay so each delay sees a fresh offence.
+            frame_support::storage::with_transaction_unchecked(|| {
+                assert_ok!(Babe::report_equivocation(
+                    RuntimeOrigin::signed(authority("Dave").0),
+                    Box::new(equivocation.clone()),
+                    proof.clone()
+                ));
+                let keys: Vec<_> = pallet_staking::UnappliedSlashes::<Runtime>::iter()
+                    .filter(|(_, slashes)| !slashes.is_empty())
+                    .map(|(era, _)| era)
+                    .collect();
+                assert_eq!(keys.len(), 1, "delay {delay}");
+                assert!(keys[0] > active, "delay {delay}: slash keyed to past era {}", keys[0]);
+                frame_support::storage::TransactionOutcome::Rollback(())
+            });
+        }
+    });
+}
+
+#[test]
+fn offender_cannot_withdraw_unbonded_stake_before_its_slash_is_applied() {
+    ext().execute_with(|| {
+        block(1);
+        let alice = authority("Alice").0;
+        advance_to_era(1);
+        let offence_era = Staking::active_era().unwrap().index;
+        let (equivocation, proof) = alice_babe_equivocation();
+        assert_ok!(Babe::report_equivocation(
+            RuntimeOrigin::signed(authority("Dave").0),
+            Box::new(equivocation),
+            proof
+        ));
+        // Unbond in the offence era, then try to withdraw on every block until the slash lands.
+        assert_ok!(Staking::bond_extra(RuntimeOrigin::signed(alice.clone()), 100 * TENSOR));
+        assert_ok!(Staking::unbond(RuntimeOrigin::signed(alice.clone()), 100 * TENSOR));
+        let total = VALIDATOR_BOND + 100 * TENSOR;
+        while Staking::active_era().unwrap().index <= offence_era + SlashDeferDuration::get() {
+            block(System::block_number() + 1);
+            let _ = Staking::withdraw_unbonded(RuntimeOrigin::signed(alice.clone()), 0);
+            let ledger = pallet_staking::Ledger::<Runtime>::get(&alice).unwrap();
+            assert!(!ledger.unlocking.is_empty(), "withdrew before the slash");
+            if ledger.total < total {
+                break;
+            }
+        }
+        let ledger = pallet_staking::Ledger::<Runtime>::get(&alice).unwrap();
+        assert!(ledger.total < total, "slash applied");
     });
 }
 

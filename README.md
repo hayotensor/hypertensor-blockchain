@@ -55,6 +55,13 @@ embedded runtime and the specs it emits use the production profile:
 cargo build --release --locked -p hypertensor-node --features production
 ```
 
+### Deployment decisions
+
+- `SlashDeferDuration` is `BondingDuration - 2` (26 eras), so a slash lands before an
+  offender who unbonded in the offence era can withdraw. A report filed 27 or 28 eras late
+  is still accepted (BABE/GRANDPA only bound report age by historical sessions, which
+  Staking keeps for `BondingDuration`), but its slash is never applied.
+
 ### Attestation block-space
 
 `Network.propose_attestation` and `Network.attest` are Normal-class calls with no extra
