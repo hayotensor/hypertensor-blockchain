@@ -205,7 +205,7 @@ fn accepted_queue_removal_quarantines_and_dequeues_before_physical_cleanup() {
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
             attestation_ratio: 1,
-            identity_attestation_ratio: 0,
+            identity_attestation_ratio: 1,
             identity_attestation_count: 0,
             eligible_validator_identity_count: 0,
             weight_sum: 0,
@@ -1551,5 +1551,64 @@ fn pending_proposer_forfeits_every_node_related_allocation_without_redistributio
         );
         assert!(node_delegate_stake_rewards.is_empty());
         assert!(node_delegate_account_allocations.is_empty());
+    });
+}
+
+#[test]
+fn queue_mutations_require_identity_supermajority_despite_stake_supermajority() {
+    new_test_ext().execute_with(|| {
+        let subnet_id = 32;
+        let queued_node_id = 1;
+        let prioritized_node_id = 2;
+
+        insert_subnet_node(301, subnet_id, 30_001, 30_002, 30_003, SubnetNodeClass::Queued, 0);
+        insert_subnet_node(302, subnet_id, 30_011, 30_012, 30_013, SubnetNodeClass::Queued, 0);
+        let queue_before = crate::SubnetNodeQueue::<Test>::get(subnet_id);
+        assert_eq!(queue_before.len(), 2);
+
+        let super_majority = <Test as crate::Config>::SuperMajorityAttestationRatio::get();
+        let mut submission = ConsensusSubmissionData::<Test> {
+            policy: Default::default(),
+            validator_subnet_node_id: 0,
+            validator_node_stake_balance: 0,
+            validator_delegate_stake_balance: 0,
+            validator_epoch_progress: 0,
+            validator_reward_factor: 0,
+            // A stake-dominant coalition (e.g. JIT stake on 3 of 10 identities).
+            attestation_ratio: Network::percentage_factor_as_u128(),
+            identity_attestation_ratio: Network::percent_div(3, 10),
+            identity_attestation_count: 3,
+            eligible_validator_identity_count: 10,
+            weight_sum: 0,
+            data_length: 0,
+            data: vec![],
+            attests: Default::default(),
+            subnet_nodes: vec![],
+            prioritize_queue_node_id: Some(prioritized_node_id),
+            remove_queue_node_id: Some(queued_node_id),
+        };
+
+        let newly_pending = Network::handle_node_queue_consensus(
+            &mut WeightMeter::new(),
+            subnet_id,
+            &submission,
+            super_majority,
+        );
+        assert!(newly_pending.is_empty());
+        assert_eq!(crate::SubnetNodeQueue::<Test>::get(subnet_id), queue_before);
+        assert!(PendingQueuedNodeRemovals::<Test>::get(subnet_id).is_empty());
+
+        // With the distinct-identity supermajority as well, the same mutations apply.
+        submission.identity_attestation_ratio = super_majority;
+        let newly_pending = Network::handle_node_queue_consensus(
+            &mut WeightMeter::new(),
+            subnet_id,
+            &submission,
+            super_majority,
+        );
+        assert_eq!(newly_pending.as_slice(), &[queued_node_id]);
+        let queue_after = crate::SubnetNodeQueue::<Test>::get(subnet_id);
+        assert_eq!(queue_after.len(), 1);
+        assert_eq!(queue_after[0].id, prioritized_node_id);
     });
 }

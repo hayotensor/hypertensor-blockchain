@@ -1041,11 +1041,13 @@ impl<T: Config> Pallet<T> {
     /// * `weight_meter` - Weight meter for tracking weight consumption
     /// * `subnet_id` - The ID of the subnet
     /// * `consensus_submission_data` - Consensus submission data containing queue operations
-    /// * `super_majority_threshold` - The stake-weighted supermajority threshold for queue actions
+    /// * `super_majority_threshold` - The supermajority threshold for queue actions, applied to
+    ///   both the stake-weighted and the distinct-identity attestation ratios
     /// # Behavior
     ///
     /// The function performs the following steps:
-    /// 1. Checks if the consensus submission has a stake-weighted supermajority
+    /// 1. Checks if the consensus submission has both a stake-weighted and a distinct-identity
+    ///    supermajority
     /// 2. Retrieves the node queue for the subnet
     /// 3. Handles prioritize node operation if specified
     /// 4. Handles remove node operation if specified
@@ -1065,7 +1067,13 @@ impl<T: Config> Pallet<T> {
         super_majority_threshold: u128,
     ) -> BoundedVec<u32, T::MaxRegisteredNodesUpperBound> {
         let mut newly_pending_queued_removals = BoundedVec::default();
-        if consensus_submission_data.attestation_ratio >= super_majority_threshold {
+        // Reordering or evicting another validator's queued registration is a node-lifecycle
+        // change, so it needs the distinct-identity supermajority as well as the stake one
+        // (matching reputation/probation transitions). A stake-dominant identity minority must
+        // not be able to censor the queue.
+        if consensus_submission_data.attestation_ratio >= super_majority_threshold
+            && consensus_submission_data.identity_attestation_ratio >= super_majority_threshold
+        {
             let db_weight = T::DbWeight::get();
 
             let mut queue = SubnetNodeQueue::<T>::get(subnet_id);

@@ -2557,7 +2557,8 @@ fn prepare_accepted_queue_mutations<T: Config>(
         validator_epoch_progress: 0,
         validator_reward_factor: 0,
         attestation_ratio: Network::<T>::percentage_factor_as_u128(),
-        identity_attestation_ratio: 0,
+        // Queue mutations require the distinct-identity supermajority too.
+        identity_attestation_ratio: Network::<T>::percentage_factor_as_u128(),
         identity_attestation_count: 0,
         eligible_validator_identity_count: 0,
         weight_sum: 0,
