@@ -75,6 +75,9 @@ polkavm-common = { version = "0.33.0", features = ["std"] }
 [features]
 default = ["std", "with-rocksdb-weights"]
 fast-runtime = []
+# Public-network launch profile. Fails to compile until the owner sets
+# PRODUCTION_BLOCKS_PER_EPOCH and PRODUCTION_CHAIN_ID in src/lib.rs.
+production = []
 with-rocksdb-weights = []
 with-paritydb-weights = []
 std = [

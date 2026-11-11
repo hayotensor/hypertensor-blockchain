@@ -41,5 +41,16 @@ Only disposable development/local presets are supplied. `--chain hoskinson` reje
 startup because the former live preset used publicly known validator and sudo keys.
 Create a reviewed JSON specification with operator-controlled keys, allocations,
 validator counts, and the production runtime, then run with `--chain <SPEC.json>`.
-The Ethereum chain ID must also be assigned before launch. This project targets
-fresh genesis state.
+This project targets fresh genesis state.
+
+### Launch profile
+
+The default build is the development profile (20-block epoch, EVM chain ID 1337). Public
+networks must be built with `--features production`, which fails to compile until the
+owner sets `PRODUCTION_BLOCKS_PER_EPOCH` and `PRODUCTION_CHAIN_ID` in `runtime/src/lib.rs`.
+Both are fixed for the life of a chain. Build the node with the same feature so that its
+embedded runtime and the specs it emits use the production profile:
+
+```sh
+cargo build --release --locked -p hypertensor-node --features production
+```

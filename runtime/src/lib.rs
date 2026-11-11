@@ -156,10 +156,50 @@ pub const HOURS: BlockNumber = MINUTES * 60;
 pub const DAYS: BlockNumber = HOURS * 24;
 pub const YEAR: BlockNumber = DAYS * 365; // 5256000
 
-// Blocks per epoch
-// pub const BLOCKS_PER_EPOCH: u32 = 300; // Mainnet | 30 minutes/e
-// pub const BLOCKS_PER_EPOCH: u32 = 100; // Testnet | 10 minutes/e
-pub const BLOCKS_PER_EPOCH: u32 = 20; // Local | 2 minutes/e
+// Launch profile constants: Network epoch length and the Ethereum (EIP-155) chain ID.
+//
+// The default build uses the development/local profile below. Public networks must be
+// built with `--features production` after the owner fills in PRODUCTION_* values; until
+// then a production build fails to compile instead of silently shipping development values.
+// Both values are fixed for the life of a chain: choose them before generating genesis.
+
+/// Development/local Network epoch: 20 blocks, 2 minutes at 6-second blocks.
+pub const DEV_BLOCKS_PER_EPOCH: u32 = 20;
+/// Development Ethereum chain ID. 1337 is shared with Hardhat/Ganache/geth-dev, so
+/// transactions signed for those networks replay here; never use it on a public chain.
+pub const DEV_CHAIN_ID: u64 = 1337;
+
+/// OWNER: production Network epoch length in blocks (for example 300 = 30 minutes,
+/// 100 = 10 minutes). `None` makes `--features production` fail to compile.
+pub const PRODUCTION_BLOCKS_PER_EPOCH: Option<u32> = None;
+/// OWNER: production Ethereum chain ID; must be unique (check chainlist.org) and must
+/// not be the development ID. `None` makes `--features production` fail to compile.
+pub const PRODUCTION_CHAIN_ID: Option<u64> = None;
+
+#[cfg(all(feature = "production", feature = "fast-runtime"))]
+compile_error!("`production` and `fast-runtime` are mutually exclusive runtime profiles");
+
+const fn profile_value<V: Copy>(production: Option<V>, development: V) -> V {
+    match (cfg!(feature = "production"), production) {
+        (true, Some(value)) => value,
+        (true, None) => panic!(
+            "the `production` runtime profile requires PRODUCTION_BLOCKS_PER_EPOCH and \
+             PRODUCTION_CHAIN_ID to be set in runtime/src/lib.rs"
+        ),
+        (false, _) => development,
+    }
+}
+
+/// Network epoch length in blocks for the selected runtime profile.
+pub const BLOCKS_PER_EPOCH: u32 = profile_value(PRODUCTION_BLOCKS_PER_EPOCH, DEV_BLOCKS_PER_EPOCH);
+/// Ethereum (EIP-155) chain ID for the selected runtime profile.
+pub const CHAIN_ID: u64 = profile_value(PRODUCTION_CHAIN_ID, DEV_CHAIN_ID);
+
+const _: () = assert!(
+    !cfg!(feature = "production") || CHAIN_ID != DEV_CHAIN_ID,
+    "the production chain ID must not be the development chain ID"
+);
+
 pub const EPOCHS_PER_YEAR: u32 = (YEAR as u32) / BLOCKS_PER_EPOCH;
 
 pub const TENSOR: u128 = 1_000_000_000_000_000_000; // 1e18

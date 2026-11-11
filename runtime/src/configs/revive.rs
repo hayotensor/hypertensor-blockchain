@@ -7,8 +7,9 @@ use pallet_revive::evm::runtime::EthExtra;
 use sp_runtime::FixedU128;
 
 parameter_types! {
-    /// Development chain ID. Assign a network-specific ID before launching a public network.
-    pub const ChainId: u64 = 1337;
+    /// EIP-155 chain ID of the selected runtime profile (see `CHAIN_ID` in lib.rs):
+    /// the development ID by default, the owner-assigned ID with `--features production`.
+    pub const ChainId: u64 = CHAIN_ID;
     pub const DepositPerItem: Balance = deposit(1, 0);
     pub const DepositPerByte: Balance = deposit(0, 1);
     pub const DepositPerChildTrieItem: Balance = tokenomics::POLICY.storage_child_item_deposit;
