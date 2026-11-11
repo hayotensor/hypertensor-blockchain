@@ -60,8 +60,9 @@ cargo build --release --locked -p hypertensor-node --features production
 - A `production` runtime rejects genesis that gives sudo, session keys, staking slots,
   balances or council seats to public development keys (`//Alice`..`//Ferdie` and their `//stash`), so replace all of them
   in the `--chain local` template.
-- Unprotected (pre-EIP-155) legacy Ethereum transactions are rejected, so Nick's-method
-  deployments are not supported.
+- The ETH replay domain is only the compile-time `ChainId`. Every production network
+  needs its own `PRODUCTION_CHAIN_ID`. Unprotected (pre-EIP-155) legacy transactions are
+  rejected, so Nick's-method deployments are not supported.
 - `SlashDeferDuration` is `BondingDuration - 2` (26 eras), so a slash lands before an
   offender who unbonded in the offence era can withdraw. A report filed 27 or 28 eras late
   is still accepted (BABE/GRANDPA only bound report age by historical sessions, which
