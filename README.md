@@ -57,6 +57,9 @@ cargo build --release --locked -p hypertensor-node --features production
 
 ### Deployment decisions
 
+- A `production` runtime rejects genesis that gives sudo, session keys, staking slots,
+  balances or council seats to public development keys (`//Alice`..`//Ferdie` and their `//stash`), so replace all of them
+  in the `--chain local` template.
 - Unprotected (pre-EIP-155) legacy Ethereum transactions are rejected, so Nick's-method
   deployments are not supported.
 - `SlashDeferDuration` is `BondingDuration - 2` (26 eras), so a slash lands before an

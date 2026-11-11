@@ -188,6 +188,9 @@ pub fn validate_genesis(config: &crate::RuntimeGenesisConfig) -> Result<(), allo
             "genesis staking validator count must stay below the maximum validator count",
         ));
     }
+    if cfg!(feature = "production") {
+        crate::genesis::presets::reject_development_keys(config)?;
+    }
     Ok(())
 }
 
