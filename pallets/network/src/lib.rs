@@ -1253,6 +1253,8 @@ pub mod pallet {
         MultiaddrInvalidProtocol,
         MultiaddrInvalidAddress,
         MultiaddrTruncated,
+        /// Queued swap principal is below the minimum queued swap balance.
+        SwapBalanceBelowMinimum,
     }
 
     /// Consensus mechanism used by a subnet.
@@ -5421,6 +5423,18 @@ pub mod pallet {
     /// Exact non-Overwatch principal escrowed by `SwapCallQueue`.
     #[pallet::storage]
     pub type TotalQueuedSwapPrincipal<T> = StorageValue<_, u128, ValueQuery>;
+
+    /// Default minimum queued swap principal: the economics minimum subnet delegate stake.
+    #[pallet::type_value]
+    pub fn DefaultMinQueuedSwapBalance<T: Config>() -> u128 {
+        T::Economics::get().min_subnet_delegate_stake
+    }
+
+    /// Minimum principal one `SwapCallQueue` item must escrow, so that holding queue slots
+    /// costs capital that scales with the denial. Root can change it with `System::set_storage`.
+    #[pallet::storage]
+    pub type MinQueuedSwapBalance<T: Config> =
+        StorageValue<_, u128, ValueQuery, DefaultMinQueuedSwapBalance<T>>;
 
     /// Immediately claimable principal from queued swaps that expired or could not satisfy their
     /// destination constraints. A scalar per account makes settlement independent of the bounded

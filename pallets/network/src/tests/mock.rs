@@ -304,6 +304,11 @@ pub fn new_test_ext() -> sp_io::TestExternalities {
     crate::GenesisConfig::<Test>::default()
         .assimilate_storage(&mut storage)
         .unwrap();
+    // Tests queue small swap principals; the runtime floor is tested in staking_queue.
+    storage.top.insert(
+        crate::MinQueuedSwapBalance::<Test>::hashed_key().to_vec(),
+        1u128.encode(),
+    );
     storage.into()
 }
 

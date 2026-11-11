@@ -5472,6 +5472,8 @@ mod benchmarks {
 
     #[benchmark]
     fn swap_from_validator_to_validator() {
+        // The queue minimum is an anti-spam floor; benchmark the queue path itself.
+        MinQueuedSwapBalance::<T>::put(0);
         let from_validator_id = 1;
         let to_validator_id = 2;
         ensure_validator::<T>(from_validator_id);
@@ -5653,6 +5655,8 @@ mod benchmarks {
 
     #[benchmark]
     fn swap_from_validator_to_subnet() {
+        // The queue minimum is an anti-spam floor; benchmark the queue path itself.
+        MinQueuedSwapBalance::<T>::put(0);
         let end = 4;
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),

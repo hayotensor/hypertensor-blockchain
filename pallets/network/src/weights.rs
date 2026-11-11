@@ -2158,13 +2158,16 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SwapQueueCount` (r:0 w:1)
 	/// Proof: `Network::SwapQueueCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::MinQueuedSwapBalance` (r:1 w:0)
+	/// Proof: `Network::MinQueuedSwapBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// (Hand-added for the swap queue admission checks; regenerate with the benchmarks.)
 	fn swap_from_subnet_to_subnet() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `8995`
-		//  Estimated: `14935`
+		//  Estimated: `16435`
 		// Minimum execution time: 202_429_000 picoseconds.
-		Weight::from_parts(239_771_000, 14935)
-			.saturating_add(T::DbWeight::get().reads(22_u64))
+		Weight::from_parts(239_771_000, 16435)
+			.saturating_add(T::DbWeight::get().reads(23_u64))
 			.saturating_add(T::DbWeight::get().writes(15_u64))
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
@@ -2327,13 +2330,16 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SwapQueueCount` (r:0 w:1)
 	/// Proof: `Network::SwapQueueCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::MinQueuedSwapBalance` (r:1 w:0)
+	/// Proof: `Network::MinQueuedSwapBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// (Hand-added for the swap queue admission checks; regenerate with the benchmarks.)
 	fn swap_from_validator_to_validator() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `5795`
-		//  Estimated: `9260`
+		//  Estimated: `10760`
 		// Minimum execution time: 96_460_000 picoseconds.
-		Weight::from_parts(113_157_000, 9260)
-			.saturating_add(T::DbWeight::get().reads(22_u64))
+		Weight::from_parts(113_157_000, 10760)
+			.saturating_add(T::DbWeight::get().reads(23_u64))
 			.saturating_add(T::DbWeight::get().writes(14_u64))
 			.saturating_add(pending_liability_key_proof())
 	}
@@ -2438,13 +2444,16 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SwapQueueCount` (r:0 w:1)
 	/// Proof: `Network::SwapQueueCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::MinQueuedSwapBalance` (r:1 w:0)
+	/// Proof: `Network::MinQueuedSwapBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// (Hand-added for the swap queue admission checks; regenerate with the benchmarks.)
 	fn swap_from_validator_to_subnet() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `7197`
-		//  Estimated: `10662`
+		//  Estimated: `12162`
 		// Minimum execution time: 130_930_000 picoseconds.
-		Weight::from_parts(159_978_000, 10662)
-			.saturating_add(T::DbWeight::get().reads(23_u64))
+		Weight::from_parts(159_978_000, 12162)
+			.saturating_add(T::DbWeight::get().reads(24_u64))
 			.saturating_add(T::DbWeight::get().writes(14_u64))
 			.saturating_add(pending_liability_key_proof())
 	}
@@ -2494,13 +2503,16 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SwapQueueCount` (r:0 w:1)
 	/// Proof: `Network::SwapQueueCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::MinQueuedSwapBalance` (r:1 w:0)
+	/// Proof: `Network::MinQueuedSwapBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// (Hand-added for the swap queue admission checks; regenerate with the benchmarks.)
 	fn swap_from_subnet_to_validator() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `7401`
-		//  Estimated: `10866`
+		//  Estimated: `12366`
 		// Minimum execution time: 195_256_000 picoseconds.
-		Weight::from_parts(232_057_000, 10866)
-			.saturating_add(T::DbWeight::get().reads(22_u64))
+		Weight::from_parts(232_057_000, 12366)
+			.saturating_add(T::DbWeight::get().reads(23_u64))
 			.saturating_add(T::DbWeight::get().writes(15_u64))
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
@@ -9860,13 +9872,16 @@ impl WeightInfo for () {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SwapQueueCount` (r:0 w:1)
 	/// Proof: `Network::SwapQueueCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::MinQueuedSwapBalance` (r:1 w:0)
+	/// Proof: `Network::MinQueuedSwapBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// (Hand-added for the swap queue admission checks; regenerate with the benchmarks.)
 	fn swap_from_subnet_to_subnet() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `8995`
-		//  Estimated: `14935`
+		//  Estimated: `16435`
 		// Minimum execution time: 202_429_000 picoseconds.
-		Weight::from_parts(239_771_000, 14935)
-			.saturating_add(RocksDbWeight::get().reads(22_u64))
+		Weight::from_parts(239_771_000, 16435)
+			.saturating_add(RocksDbWeight::get().reads(23_u64))
 			.saturating_add(RocksDbWeight::get().writes(15_u64))
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
@@ -10029,13 +10044,16 @@ impl WeightInfo for () {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SwapQueueCount` (r:0 w:1)
 	/// Proof: `Network::SwapQueueCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::MinQueuedSwapBalance` (r:1 w:0)
+	/// Proof: `Network::MinQueuedSwapBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// (Hand-added for the swap queue admission checks; regenerate with the benchmarks.)
 	fn swap_from_validator_to_validator() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `5795`
-		//  Estimated: `9260`
+		//  Estimated: `10760`
 		// Minimum execution time: 96_460_000 picoseconds.
-		Weight::from_parts(113_157_000, 9260)
-			.saturating_add(RocksDbWeight::get().reads(22_u64))
+		Weight::from_parts(113_157_000, 10760)
+			.saturating_add(RocksDbWeight::get().reads(23_u64))
 			.saturating_add(RocksDbWeight::get().writes(14_u64))
 			.saturating_add(pending_liability_key_proof())
 	}
@@ -10140,13 +10158,16 @@ impl WeightInfo for () {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SwapQueueCount` (r:0 w:1)
 	/// Proof: `Network::SwapQueueCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::MinQueuedSwapBalance` (r:1 w:0)
+	/// Proof: `Network::MinQueuedSwapBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// (Hand-added for the swap queue admission checks; regenerate with the benchmarks.)
 	fn swap_from_validator_to_subnet() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `7197`
-		//  Estimated: `10662`
+		//  Estimated: `12162`
 		// Minimum execution time: 130_930_000 picoseconds.
-		Weight::from_parts(159_978_000, 10662)
-			.saturating_add(RocksDbWeight::get().reads(23_u64))
+		Weight::from_parts(159_978_000, 12162)
+			.saturating_add(RocksDbWeight::get().reads(24_u64))
 			.saturating_add(RocksDbWeight::get().writes(14_u64))
 			.saturating_add(pending_liability_key_proof())
 	}
@@ -10196,13 +10217,16 @@ impl WeightInfo for () {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SwapQueueCount` (r:0 w:1)
 	/// Proof: `Network::SwapQueueCount` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::MinQueuedSwapBalance` (r:1 w:0)
+	/// Proof: `Network::MinQueuedSwapBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// (Hand-added for the swap queue admission checks; regenerate with the benchmarks.)
 	fn swap_from_subnet_to_validator() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `7401`
-		//  Estimated: `10866`
+		//  Estimated: `12366`
 		// Minimum execution time: 195_256_000 picoseconds.
-		Weight::from_parts(232_057_000, 10866)
-			.saturating_add(RocksDbWeight::get().reads(22_u64))
+		Weight::from_parts(232_057_000, 12366)
+			.saturating_add(RocksDbWeight::get().reads(23_u64))
 			.saturating_add(RocksDbWeight::get().writes(15_u64))
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
