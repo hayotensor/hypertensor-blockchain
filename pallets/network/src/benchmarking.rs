@@ -1157,12 +1157,17 @@ fn prepare_overwatch_reward_benchmark<T: Config>(
     let base_stake = OverwatchMinStakeBalance::<T>::get();
     assert_eq!(base_stake, 100u128.saturating_mul(percentage_factor));
 
-    // Settlement consumes frozen reveals and stakes, not live subnet registration state.
-    // Seed those closed-epoch inputs directly, including historical subnet IDs: registration
-    // fees, account existential deposits, and activation are unrelated to the measured work.
+    // Settlement consumes frozen reveals and stakes; it only checks that each subnet still
+    // exists. Seed bare subnet records: registration fees and activation are unrelated work.
     let subnet_ids = (1..=revealed_subnets)
         .map(|offset| T::InitialSubnetUid::get().checked_add(offset).unwrap())
         .collect::<Vec<_>>();
+    for subnet_id in subnet_ids.iter() {
+        SubnetsData::<T>::insert(
+            subnet_id,
+            new_subnet_data::<T>(*subnet_id, SubnetState::Active, 0),
+        );
+    }
 
     let mut overwatch_nodes = Vec::with_capacity(revealing_nodes as usize);
     for node_index in 0..revealing_nodes {
@@ -2557,7 +2562,8 @@ fn prepare_accepted_queue_mutations<T: Config>(
         validator_epoch_progress: 0,
         validator_reward_factor: 0,
         attestation_ratio: Network::<T>::percentage_factor_as_u128(),
-        identity_attestation_ratio: 0,
+        // Queue mutations require the distinct-identity supermajority too.
+        identity_attestation_ratio: Network::<T>::percentage_factor_as_u128(),
         identity_attestation_count: 0,
         eligible_validator_identity_count: 0,
         weight_sum: 0,
@@ -5471,6 +5477,8 @@ mod benchmarks {
 
     #[benchmark]
     fn swap_from_validator_to_validator() {
+        // The queue minimum is an anti-spam floor; benchmark the queue path itself.
+        MinQueuedSwapBalance::<T>::put(0);
         let from_validator_id = 1;
         let to_validator_id = 2;
         ensure_validator::<T>(from_validator_id);
@@ -5652,6 +5660,8 @@ mod benchmarks {
 
     #[benchmark]
     fn swap_from_validator_to_subnet() {
+        // The queue minimum is an anti-spam floor; benchmark the queue path itself.
+        MinQueuedSwapBalance::<T>::put(0);
         let end = 4;
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
@@ -8361,7 +8371,7 @@ mod benchmarks {
         let value = SubnetEnactmentEpochs::<T>::get();
         let new_value = value - 1;
 
-        let origin = T::MajorityCollectiveOrigin::try_successful_origin()
+        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
             .expect("try_successful_origin failed");
 
         #[extrinsic_call]

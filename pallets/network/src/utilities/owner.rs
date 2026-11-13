@@ -933,6 +933,8 @@ impl<T: Config> Pallet<T> {
         })?;
 
         PendingSubnetOwner::<T>::remove(subnet_id);
+        // Bootnode access was delegated by the previous owner and must not outlive its ownership.
+        SubnetBootnodeAccess::<T>::remove(subnet_id);
 
         Self::deposit_event(Event::AcceptPendingSubnetOwner {
             subnet_id: subnet_id,

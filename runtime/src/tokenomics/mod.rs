@@ -172,6 +172,25 @@ pub fn validate_genesis(config: &crate::RuntimeGenesisConfig) -> Result<(), allo
             "genesis staking minimum bonds must match tokenomics policy",
         ));
     }
+    // The registration caps are also the runtime's tested election bounds, and chill_other
+    // needs them to evict squatters. A spec must not remove or raise them.
+    if !matches!(config.staking.max_validator_count, Some(n) if n <= crate::MAX_VALIDATORS)
+        || !matches!(config.staking.max_nominator_count, Some(n) if n <= crate::MAX_NOMINATORS)
+    {
+        return Err(alloc::string::String::from(
+            "genesis staking registration caps must be set and at most MAX_VALIDATORS and MAX_NOMINATORS",
+        ));
+    }
+    // If elected seats reach the candidate cap, every candidate is elected and stake
+    // stops competing: min-bond Sybils win seats regardless of honest stake.
+    if Some(config.staking.validator_count) >= config.staking.max_validator_count {
+        return Err(alloc::string::String::from(
+            "genesis staking validator count must stay below the maximum validator count",
+        ));
+    }
+    if cfg!(feature = "production") {
+        crate::genesis::presets::reject_development_keys(config)?;
+    }
     Ok(())
 }
 

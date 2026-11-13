@@ -36,6 +36,8 @@ fn setup() -> (u32, u32, u32) {
     tick(2 * length);
     tick(2 * length + 1);
     insert_subnet(1, SubnetState::Active, 0);
+    // Keep subnet 1 live: finalization only counts reveals for live subnets.
+    DelegateStakeSubnetRemovalInterval::<Test>::put(u32::MAX);
     assert_eq!(CurrentOverwatchEpoch::<Test>::get(), 2);
     (a, b, length)
 }
@@ -535,9 +537,12 @@ fn multiple_commit_and_reveal_batches_require_completion_even_if_subnet_is_remov
             OverwatchSubnetWeights::<Test>::get(2, 1),
             Some(PERCENTAGE_FACTOR_U128 / 2)
         );
-        assert_eq!(OverwatchSubnetWeights::<Test>::get(2, 2), Some(0));
-        assert!(
-            OverwatchNodeStakeBalance::<Test>::get(a) > OverwatchNodeStakeBalance::<Test>::get(b)
+        // The removed subnet's reveals complete the round but are not finalized.
+        assert_eq!(OverwatchSubnetWeights::<Test>::get(2, 2), None);
+        // Equal agreement on subnet 1 only, so equal rewards.
+        assert_eq!(
+            OverwatchNodeStakeBalance::<Test>::get(a),
+            OverwatchNodeStakeBalance::<Test>::get(b)
         );
         assert!(OverwatchNodeStakeBalance::<Test>::get(b) > 1_000);
     });

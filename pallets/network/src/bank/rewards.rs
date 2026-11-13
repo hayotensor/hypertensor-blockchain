@@ -439,15 +439,11 @@ impl<T: Config> Pallet<T> {
             }
 
             // Zero node score does not invalidate rewards unrelated to a node or proposer.
-            if Self::handle_subnet_owner_reward(
+            Self::settle_subnet_owner_reward(
                 weight_meter,
                 subnet_id,
                 rewards_data.subnet_owner_reward,
-            )
-            .is_err()
-            {
-                return;
-            }
+            );
             let credited_delegate_stake_reward = match Self::handle_subnet_delegate_stake_reward(
                 weight_meter,
                 subnet_id,
@@ -467,15 +463,11 @@ impl<T: Config> Pallet<T> {
         }
 
         // --- Reward owner
-        if Self::handle_subnet_owner_reward(
+        Self::settle_subnet_owner_reward(
             weight_meter,
             subnet_id,
             rewards_data.subnet_owner_reward,
-        )
-        .is_err()
-        {
-            return;
-        }
+        );
 
         // CPU cost for this bounded loop is covered by the generated `emission_step(h)` model;
         // only branch-specific storage work is tracked by this internal admission meter.
@@ -1032,6 +1024,27 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    /// Pay the subnet owner's share of an already-settled round without ever aborting the rest
+    /// of settlement. If the credit cannot be applied (e.g. a sub-ED amount to a reaped owner
+    /// account, which `deposit_balance_exact` rejects), the share is retained in
+    /// `SubnetRewardCapacitor` so it is released to a later round instead of being lost, and the
+    /// caller continues paying nodes, the proposer and delegators.
+    pub(crate) fn settle_subnet_owner_reward(
+        weight_meter: &mut WeightMeter,
+        subnet_id: u32,
+        amount: u128,
+    ) {
+        if amount == 0 {
+            return;
+        }
+        if Self::handle_subnet_owner_reward(weight_meter, subnet_id, amount).is_err() {
+            weight_meter.consume(T::DbWeight::get().reads_writes(1, 1));
+            SubnetRewardCapacitor::<T>::mutate(subnet_id, |capacitor| {
+                *capacitor = capacitor.saturating_add(amount)
+            });
+        }
+    }
+
     /// Handles node queue operations based on stake-weighted consensus data.
     ///
     /// This function allows the validator to prioritize or remove nodes from the registration queue.
@@ -1041,11 +1054,13 @@ impl<T: Config> Pallet<T> {
     /// * `weight_meter` - Weight meter for tracking weight consumption
     /// * `subnet_id` - The ID of the subnet
     /// * `consensus_submission_data` - Consensus submission data containing queue operations
-    /// * `super_majority_threshold` - The stake-weighted supermajority threshold for queue actions
+    /// * `super_majority_threshold` - The supermajority threshold for queue actions, applied to
+    ///   both the stake-weighted and the distinct-identity attestation ratios
     /// # Behavior
     ///
     /// The function performs the following steps:
-    /// 1. Checks if the consensus submission has a stake-weighted supermajority
+    /// 1. Checks if the consensus submission has both a stake-weighted and a distinct-identity
+    ///    supermajority
     /// 2. Retrieves the node queue for the subnet
     /// 3. Handles prioritize node operation if specified
     /// 4. Handles remove node operation if specified
@@ -1065,7 +1080,13 @@ impl<T: Config> Pallet<T> {
         super_majority_threshold: u128,
     ) -> BoundedVec<u32, T::MaxRegisteredNodesUpperBound> {
         let mut newly_pending_queued_removals = BoundedVec::default();
-        if consensus_submission_data.attestation_ratio >= super_majority_threshold {
+        // Reordering or evicting another validator's queued registration is a node-lifecycle
+        // change, so it needs the distinct-identity supermajority as well as the stake one
+        // (matching reputation/probation transitions). A stake-dominant identity minority must
+        // not be able to censor the queue.
+        if consensus_submission_data.attestation_ratio >= super_majority_threshold
+            && consensus_submission_data.identity_attestation_ratio >= super_majority_threshold
+        {
             let db_weight = T::DbWeight::get();
 
             let mut queue = SubnetNodeQueue::<T>::get(subnet_id);

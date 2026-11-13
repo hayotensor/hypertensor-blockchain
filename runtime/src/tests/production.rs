@@ -363,3 +363,71 @@ fn treasury_retains_funds_and_allows_payouts_beyond_the_development_window() {
         assert_eq!(Balances::free_balance(&treasury), funded - 10 * TENSOR);
     });
 }
+
+#[test]
+fn production_genesis_rejects_public_development_keys() {
+    use genesis::presets::{authority_keys_from_seed, reject_development_keys};
+    let mut base = serde_json::to_value(RuntimeGenesisConfig::default()).unwrap();
+    for (key, value) in genesis::presets::local_config_genesis()
+        .as_object()
+        .unwrap()
+    {
+        base[key]
+            .as_object_mut()
+            .unwrap()
+            .extend(value.as_object().unwrap().clone());
+    }
+    let mut config: RuntimeGenesisConfig = serde_json::from_value(base).unwrap();
+    assert!(reject_development_keys(&config).is_err());
+
+    // Operator-controlled replacements pass.
+    let operators = [
+        authority_keys_from_seed("Operator1"),
+        authority_keys_from_seed("Operator2"),
+    ];
+    config.sudo.key = Some(account("Governance"));
+    config.session.keys = operators
+        .iter()
+        .map(|(who, babe, grandpa)| {
+            (
+                who.clone(),
+                who.clone(),
+                opaque::SessionKeys {
+                    babe: babe.clone(),
+                    grandpa: grandpa.clone(),
+                },
+            )
+        })
+        .collect();
+    for ((stash, controller, _, _), (who, _, _)) in
+        config.staking.stakers.iter_mut().zip(&operators)
+    {
+        *stash = who.clone();
+        *controller = who.clone();
+    }
+    for (i, (who, _)) in config.balances.balances.iter_mut().enumerate() {
+        *who = account(&format!("Holder{i}"));
+    }
+    config.collective.members = vec![account("Councillor")];
+    assert_ok!(reject_development_keys(&config));
+
+    // Any single leftover development key is rejected.
+    config.sudo.key = Some(account("Alice"));
+    assert!(reject_development_keys(&config).is_err());
+    config.sudo.key = Some(account("Governance"));
+    let grandpa = core::mem::replace(
+        &mut config.session.keys[0].2.grandpa,
+        authority_keys_from_seed("Bob").2,
+    );
+    assert!(reject_development_keys(&config).is_err());
+    config.session.keys[0].2.grandpa = grandpa;
+    config.staking.stakers[1].0 = account("Charlie//stash");
+    assert!(reject_development_keys(&config).is_err());
+    config.staking.stakers[1].0 = operators[1].0.clone();
+    assert_ok!(reject_development_keys(&config));
+    config.balances.balances[0].0 = account("Alice");
+    assert!(reject_development_keys(&config).is_err());
+    config.balances.balances[0].0 = account("Holder0");
+    config.collective.members.push(account("Bob"));
+    assert!(reject_development_keys(&config).is_err());
+}

@@ -1294,6 +1294,8 @@ fn test_collective_removal_purges_pending_reward_and_requires_fresh_whitelist_vo
 #[test]
 fn test_delayed_slot_one_settlement_uses_opening_snapshot_after_stake_mutation() {
     new_test_ext().execute_with(|| {
+        // Keep the fixture subnet live through the hooks; only live subnets are finalized.
+        crate::DelegateStakeSubnetRemovalInterval::<Test>::put(u32::MAX);
         let percentage_factor = Network::percentage_factor_as_u128();
         OverwatchEpochLengthMultiplier::<Test>::set(1);
         ActiveOverwatchEpochLengthMultiplier::<Test>::set(1);
@@ -2479,6 +2481,8 @@ fn test_overwatch_stake_normalization_is_scale_invariant_and_handles_edges() {
 #[test]
 fn test_overwatch_stake_normalization_linear_runs_through_on_initialize() {
     new_test_ext().execute_with(|| {
+        // Keep the fixture subnet live through the hooks; only live subnets are finalized.
+        crate::DelegateStakeSubnetRemovalInterval::<Test>::put(u32::MAX);
         let percentage_factor = Network::percentage_factor_as_u128();
         OverwatchStakeWeightFactor::<Test>::set(percentage_factor);
         OverwatchEpochLengthMultiplier::<Test>::set(1);

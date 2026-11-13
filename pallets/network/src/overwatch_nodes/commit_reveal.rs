@@ -162,13 +162,16 @@ impl<T: Config> Pallet<T> {
         for (subnet_id, weight) in staged_reveals {
             if !reveal_row.contains_key(&subnet_id) {
                 new_records = new_records.saturating_add(1);
-                match stats.subnet_revealer_counts.get_mut(&subnet_id) {
-                    Some(count) => *count = count.saturating_add(1),
-                    None => {
-                        stats
-                            .subnet_revealer_counts
-                            .try_insert(subnet_id, 1)
-                            .map_err(|_| Error::<T>::MaxOverwatchRevealSubnets)?;
+                // Removed subnets still complete the reveal but take no distinct-subnet slot.
+                if SubnetsData::<T>::contains_key(subnet_id) {
+                    match stats.subnet_revealer_counts.get_mut(&subnet_id) {
+                        Some(count) => *count = count.saturating_add(1),
+                        None => {
+                            stats
+                                .subnet_revealer_counts
+                                .try_insert(subnet_id, 1)
+                                .map_err(|_| Error::<T>::MaxOverwatchRevealSubnets)?;
+                        }
                     }
                 }
             }

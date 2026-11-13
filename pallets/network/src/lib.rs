@@ -1253,6 +1253,8 @@ pub mod pallet {
         MultiaddrInvalidProtocol,
         MultiaddrInvalidAddress,
         MultiaddrTruncated,
+        /// Queued swap principal is below the minimum queued swap balance.
+        SwapBalanceBelowMinimum,
     }
 
     /// Consensus mechanism used by a subnet.
@@ -4760,6 +4762,14 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    /// Next subnet epoch whose consensus history is to be pruned.
+    #[pallet::storage]
+    pub type ConsensusHistoryPruneCursor<T> = StorageMap<_, Identity, u32, u32, OptionQuery>;
+
+    /// Removed subnets whose per-epoch consensus history is still being cleared.
+    #[pallet::storage]
+    pub type ConsensusHistoryCleanupQueue<T> = StorageValue<_, Vec<u32>, ValueQuery>;
+
     /// Epoch -> {total_issuance, (subnet_id, weight)}
     /// Set each epoch
     #[pallet::storage]
@@ -5413,6 +5423,18 @@ pub mod pallet {
     /// Exact non-Overwatch principal escrowed by `SwapCallQueue`.
     #[pallet::storage]
     pub type TotalQueuedSwapPrincipal<T> = StorageValue<_, u128, ValueQuery>;
+
+    /// Default minimum queued swap principal: the economics minimum subnet delegate stake.
+    #[pallet::type_value]
+    pub fn DefaultMinQueuedSwapBalance<T: Config>() -> u128 {
+        T::Economics::get().min_subnet_delegate_stake
+    }
+
+    /// Minimum principal one `SwapCallQueue` item must escrow, so that holding queue slots
+    /// costs capital that scales with the denial. Root can change it with `System::set_storage`.
+    #[pallet::storage]
+    pub type MinQueuedSwapBalance<T: Config> =
+        StorageValue<_, u128, ValueQuery, DefaultMinQueuedSwapBalance<T>>;
 
     /// Immediately claimable principal from queued swaps that expired or could not satisfy their
     /// destination constraints. A scalar per account makes settlement independent of the bounded
@@ -7466,7 +7488,13 @@ pub mod pallet {
             origin: OriginFor<T>,
             value: u32,
         ) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            // Shortening the window removes Registered subnets past the new deadline, a bulk
+            // removal that needs the same SuperMajority as `collective_remove_subnet`.
+            if value < SubnetEnactmentEpochs::<T>::get() {
+                T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            } else {
+                T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            }
             Self::do_set_subnet_activation_enactment_epochs(value)
         }
 
@@ -7790,7 +7818,14 @@ pub mod pallet {
         #[pallet::call_index(153)]
         #[pallet::weight(T::WeightInfo::set_min_subnet_reputation())]
         pub fn set_min_subnet_reputation(origin: OriginFor<T>, value: u128) -> DispatchResult {
-            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            // Raising the threshold removes every live subnet below it at the next epoch
+            // preliminaries, which is a bulk subnet removal. That effect requires the same
+            // SuperMajority as `collective_remove_subnet`; lowering it stays Majority-gated.
+            if value > MinSubnetReputation::<T>::get() {
+                T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            } else {
+                T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            }
             Self::do_set_min_subnet_reputation(value)
         }
 
@@ -8981,6 +9016,9 @@ pub mod pallet {
 
             // Clear the remaining subnet-keyed node and reverse-index state.
             weight = weight.saturating_add(Self::clean_subnet_nodes(subnet_id));
+
+            // Per-epoch consensus history is cleared incrementally with leftover block weight.
+            weight = weight.saturating_add(Self::queue_removed_subnet_consensus_history(subnet_id));
 
             Self::deposit_event(Event::SubnetDeactivated {
                 subnet_id: subnet_id,
@@ -10240,7 +10278,9 @@ pub mod pallet {
         fn on_finalize(block_number: BlockNumberFor<T>) {}
 
         fn on_idle(block_number: BlockNumberFor<T>, remaining_weight: Weight) -> Weight {
-            Weight::zero()
+            let mut weight_meter = WeightMeter::with_limit(remaining_weight);
+            Self::cleanup_removed_subnet_consensus_history(&mut weight_meter);
+            weight_meter.consumed()
         }
     }
 

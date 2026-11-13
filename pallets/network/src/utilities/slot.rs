@@ -261,9 +261,12 @@ impl<T: Config> Pallet<T> {
             T::MaxOverwatchNodesUpperBound,
         >::new();
         let mut reveal_row_nodes = Vec::<u32>::new();
-        for (node_id, reveals) in OverwatchReveals::<T>::iter_prefix(settlement.epoch) {
+        for (node_id, mut reveals) in OverwatchReveals::<T>::iter_prefix(settlement.epoch) {
             reveal_row_nodes.push(node_id);
             weight = weight.saturating_add(db_weight.reads(1));
+            // Reveals for subnets removed mid-round are not finalized (and can exceed the bound).
+            weight = weight.saturating_add(db_weight.reads(reveals.len() as u64));
+            reveals.retain(|subnet_id, _| SubnetsData::<T>::contains_key(subnet_id));
             if reveals.is_empty() || !eligible_nodes.contains(&node_id) {
                 continue;
             }
@@ -536,6 +539,9 @@ impl<T: Config> Pallet<T> {
             // Drain quarantined physical state only after the conditional election. This preserves
             // reward/election priority while retrying every marker for any still-existing subnet.
             Self::cleanup_pending_node_removals(weight_meter, subnet_id);
+
+            // Bounded retention for feeless per-epoch consensus history.
+            Self::prune_consensus_history(weight_meter, subnet_id, current_subnet_epoch);
 
             if subnet.state == SubnetState::Active {
                 // Registration and burn maintenance are the final slot priority. Select one

@@ -1681,7 +1681,7 @@
     "index": 103,
     "domain": "Governance",
     "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
+    "authorization": "Council approval: at least 2/3 of members to lengthen, at least 4/5 to shorten in this runtime"
   },
   {
     "name": "set_probation_rounds",
@@ -2245,7 +2245,7 @@
     "index": 153,
     "domain": "Governance",
     "status": "deferred",
-    "authorization": "Council approval: at least 2/3 of members in this runtime"
+    "authorization": "Council approval: at least 2/3 of members to lower, at least 4/5 to raise in this runtime"
   },
   {
     "name": "set_not_in_consensus_subnet_reputation_factor",

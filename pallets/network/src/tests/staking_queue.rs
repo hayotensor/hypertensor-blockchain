@@ -4,8 +4,9 @@ use crate::Event;
 use crate::{
     AccountSubnetDelegateStakeShares, AccountValidatorDelegateStakeShares,
     DelegateStakeCooldownEpochs, Error, MaxSubnetNodes, MaxSubnets, MaxUnbondings,
-    MinDelegateStakeDeposit, MinSubnetMinStake, NextSwapQueueId, NodeDelegateStakeCooldownEpochs,
-    QueuedSwapCall, QueuedSwapItem, QueuedSwapRefundBalance, QueuedSwapSource,
+    MinDelegateStakeDeposit, MinQueuedSwapBalance, MinSubnetMinStake, NextSwapQueueId,
+    NodeDelegateStakeCooldownEpochs, QueuedSwapCall, QueuedSwapItem, QueuedSwapRefundBalance,
+    QueuedSwapSource,
     StakeUnbondingLedger, SubnetName, SubnetRemovalReason, SubnetsData, SwapCallQueue,
     SwapQueueCount, SwapQueueOrder, SwapRefundReason, TotalDelegateStake,
     TotalNetworkUnbondingBalance, TotalQueuedSwapPrincipal, TotalQueuedSwapRefundBalance,
@@ -281,6 +282,48 @@ fn test_swap_queue_order_accepts_configured_capacity_and_rejects_overflow() {
         assert_eq!(NextSwapQueueId::<Test>::get(), next_id);
         assert!(SwapCallQueue::<Test>::get(next_id).is_none());
         assert_eq!(SwapCallQueue::<Test>::iter().count(), 0);
+        assert_queued_swap_principal_invariant();
+    });
+}
+
+#[test]
+fn test_queue_swap_enforces_minimum_balance() {
+    new_test_ext().execute_with(|| {
+        // The runtime default is the economics minimum subnet delegate stake; the mock lowers it.
+        let min = <crate::DefaultMinQueuedSwapBalance<Test> as frame_support::traits::Get<u128>>::get();
+        assert_eq!(
+            min,
+            <Test as crate::Config>::Economics::get().min_subnet_delegate_stake
+        );
+        assert!(min > MinDelegateStakeDeposit::<Test>::get());
+        MinQueuedSwapBalance::<Test>::put(min);
+        let attacker = account(70);
+        let swap = |account_id: AccountIdOf<Test>, balance: u128| {
+            Network::queue_swap(
+                account_id.clone(),
+                QueuedSwapSource::SubnetDelegate,
+                QueuedSwapCall::SwapToSubnetDelegateStake {
+                    account_id,
+                    // Missing destination: execution refunds the principal.
+                    to_subnet_id: u32::MAX,
+                    balance,
+                    min_shares_out: 1,
+                    execute_before_block: u32::MAX,
+                },
+            )
+        };
+
+        // Dust swaps cannot occupy queue slots.
+        let next_id = NextSwapQueueId::<Test>::get();
+        assert_err!(
+            swap(attacker.clone(), min - 1),
+            Error::<Test>::SwapBalanceBelowMinimum
+        );
+        assert_eq!(NextSwapQueueId::<Test>::get(), next_id);
+        assert!(SwapQueueOrder::<Test>::get().is_empty());
+
+        assert_ok!(swap(attacker.clone(), min));
+        assert_eq!(SwapQueueOrder::<Test>::get().len(), 1);
         assert_queued_swap_principal_invariant();
     });
 }

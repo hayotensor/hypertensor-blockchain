@@ -41,5 +41,44 @@ Only disposable development/local presets are supplied. `--chain hoskinson` reje
 startup because the former live preset used publicly known validator and sudo keys.
 Create a reviewed JSON specification with operator-controlled keys, allocations,
 validator counts, and the production runtime, then run with `--chain <SPEC.json>`.
-The Ethereum chain ID must also be assigned before launch. This project targets
-fresh genesis state.
+This project targets fresh genesis state.
+
+### Launch profile
+
+The default build is the development profile (20-block epoch, EVM chain ID 1337). Public
+networks must be built with `--features production`, which fails to compile until the
+owner sets `PRODUCTION_BLOCKS_PER_EPOCH` and `PRODUCTION_CHAIN_ID` in `runtime/src/lib.rs`.
+Both are fixed for the life of a chain. Build the node with the same feature so that its
+embedded runtime and the specs it emits use the production profile:
+
+```sh
+cargo build --release --locked -p hypertensor-node --features production
+```
+
+### Deployment decisions
+
+- A `production` runtime rejects genesis that gives sudo, session keys, staking slots,
+  balances or council seats to public development keys (`//Alice`..`//Ferdie` and their `//stash`), so replace all of them
+  in the `--chain local` template.
+- The ETH replay domain is only the compile-time `ChainId`. Every production network
+  needs its own `PRODUCTION_CHAIN_ID`. Unprotected (pre-EIP-155) legacy transactions are
+  rejected, so Nick's-method deployments are not supported.
+- `SlashDeferDuration` is `BondingDuration - 2` (26 eras), so a slash lands before an
+  offender who unbonded in the offence era can withdraw. A report filed 27 or 28 eras late
+  is still accepted (BABE/GRANDPA only bound report age by historical sessions, which
+  Staking keeps for `BondingDuration`), but its slash is never applied.
+- Network hooks may use up to 50% of the block (`MaximumHooksWeight`). A Root scheduler
+  task heavier than the weight left after them can be dropped permanently. Keep scheduled
+  Root calls small, or schedule them away from slot blocks.
+
+### Attestation block-space
+
+`Network.propose_attestation` and `Network.attest` are Normal-class calls with no extra
+transaction priority. They are refunded (`Pays::No`) only on success. Filling every Normal
+block costs about 23 TENSOR a day at launch fees, so sustained filler traffic could delay
+deadline-bound attestations. The runtime does not boost them: an unconditional priority
+boost would also apply to invalid calls, which would let anyone buy priority cheaply. A
+safe boost needs a transaction extension that checks the signer is the elected proposer or
+an eligible attestor before it raises priority. Until then, validators should add a tip to
+these calls when blocks are congested, and operators should watch block fullness and
+`TargetedFeeAdjustment`.

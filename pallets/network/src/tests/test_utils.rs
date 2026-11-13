@@ -2291,6 +2291,10 @@ pub fn set_overwatch_node_stake(overwatch_node_id: u32, amount: u128) {
 
 /// Seed a completed assessment for synthetic scoring and rollover fixtures.
 pub fn submit_weight(epoch: u32, subnet_id: u32, node_id: u32, weight: u128) {
+    // Finalization only counts reveals for live subnets.
+    if !SubnetsData::<Test>::contains_key(subnet_id) {
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+    }
     let hash = Network::hash_overwatch_commitment(node_id, subnet_id, epoch, weight, b"fixture");
     crate::OverwatchCommits::<Test>::mutate(epoch, node_id, |commits| {
         commits.try_insert(subnet_id, hash).unwrap();

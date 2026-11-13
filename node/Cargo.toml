@@ -71,6 +71,8 @@ substrate-build-script-utils = { workspace = true }
 [features]
 default = ["rocksdb"]
 fast-runtime = ["hypertensor-runtime/fast-runtime"]
+# Public-network runtime profile; see "Launch profile" in README.md.
+production = ["hypertensor-runtime/production"]
 rocksdb = [
 	"sc-cli/rocksdb",
 	"sc-service/rocksdb",

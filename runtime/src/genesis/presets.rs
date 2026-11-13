@@ -51,14 +51,66 @@ fn consensus_genesis(initial_authorities: &[(AccountId, BabeId, GrandpaId)]) -> 
             "minNominatorBond": npos::MIN_NOMINATOR_BOND,
             "maxValidatorCount": npos::MAX_VALIDATORS,
             "maxNominatorCount": npos::MAX_NOMINATORS,
+            // Keep seats far below the candidate cap so stake competes for them;
+            // `validate_genesis` rejects `validatorCount >= maxValidatorCount`.
             "slashRewardFraction": sp_runtime::Perbill::from_percent(10),
         },
         "babe": { "epochConfig": npos::BABE_GENESIS_EPOCH_CONFIG },
     })
 }
 
+/// Public development seeds funded by the dev/local presets.
+const DEV_SEEDS: [&str; 6] = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Ferdie"];
+
+/// Rejects genesis that gives sudo, a session key, a staking slot, a balance or a council seat
+/// to a key derived from a public development seed. `validate_genesis` enforces this in the
+/// `production` profile.
+pub fn reject_development_keys(
+    config: &crate::RuntimeGenesisConfig,
+) -> Result<(), alloc::string::String> {
+    let mut accounts = Vec::new();
+    let mut babe = Vec::new();
+    let mut grandpa = Vec::new();
+    for seed in DEV_SEEDS {
+        accounts.push(get_account_id_from_seed::<sr25519::Public>(seed));
+        accounts.push(get_account_id_from_seed::<sr25519::Public>(&format!(
+            "{seed}//stash"
+        )));
+        babe.push(get_from_seed::<BabeId>(seed));
+        grandpa.push(get_from_seed::<GrandpaId>(seed));
+    }
+    let dev = |account: &AccountId| accounts.contains(account);
+    let session = config
+        .session
+        .keys
+        .iter()
+        .chain(&config.session.non_authority_keys);
+    if config.sudo.key.as_ref().is_some_and(dev)
+        || session.into_iter().any(|(account, validator, keys)| {
+            dev(account)
+                || dev(validator)
+                || babe.contains(&keys.babe)
+                || grandpa.contains(&keys.grandpa)
+        })
+        || config
+            .staking
+            .stakers
+            .iter()
+            .any(|(stash, controller, _, _)| dev(stash) || dev(controller))
+        || config.staking.invulnerables.iter().any(dev)
+        || config.balances.balances.iter().any(|(who, _)| dev(who))
+        || config.balances.dev_accounts.is_some()
+        || config.collective.members.iter().any(dev)
+    {
+        return Err("genesis uses a public development key for sudo, session keys, staking, \
+            balances or council"
+            .into());
+    }
+    Ok(())
+}
+
 fn testnet_genesis(authority_seeds: &[&str]) -> Value {
-    let endowed_accounts: Vec<AccountId> = ["Alice", "Bob", "Charlie", "Dave", "Eve", "Ferdie"]
+    let endowed_accounts: Vec<AccountId> = DEV_SEEDS
         .iter()
         .flat_map(|seed| {
             [

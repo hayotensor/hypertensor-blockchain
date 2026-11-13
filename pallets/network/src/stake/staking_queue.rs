@@ -69,6 +69,10 @@ impl<T: Config> Pallet<T> {
         let next_id = id.checked_add(1).ok_or(Error::<T>::SwapQueueIdExhausted)?;
         let queued_balance = call.get_queue_balance();
         ensure!(queued_balance > 0, Error::<T>::ZeroSwapBalance);
+        ensure!(
+            queued_balance >= MinQueuedSwapBalance::<T>::get(),
+            Error::<T>::SwapBalanceBelowMinimum
+        );
         let next_queued_principal = TotalQueuedSwapPrincipal::<T>::get()
             .checked_add(queued_balance)
             .ok_or(sp_runtime::ArithmeticError::Overflow)?;

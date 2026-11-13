@@ -55,8 +55,10 @@ parameter_types! {
     };
     /// Eras to wait after unbonding before stake can be withdrawn.
     pub const BondingDuration: u32 = 28;
-    /// Delay in eras before a reported staking penalty is applied.
-    pub const SlashDeferDuration: u32 = 7;
+    /// Eras before a reported slash applies. `- 2`: Staking bumps `CurrentEra` (which gates
+    /// withdrawal) one session early, so `- 1` lets an offender withdraw first. Reports 27-28
+    /// eras late are still accepted but never applied (README, "Deployment decisions").
+    pub const SlashDeferDuration: u32 = BondingDuration::get() - 2;
     /// Past eras retained for staking records and reward claims.
     pub const HistoryDepth: u32 = 84;
     /// Validator limit shared by consensus, staking, and election configuration.
