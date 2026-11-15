@@ -615,6 +615,93 @@ fn consensus_round_rpc_uses_immutable_election_identity() {
 }
 
 #[test]
+fn consensus_round_rpc_preserves_election_weights_and_rejects_corrupt_snapshots() {
+    new_test_ext().execute_with(|| {
+        let name = b"rpc-election-weights".to_vec();
+        build_activated_subnet(
+            name.clone(),
+            0,
+            4,
+            10_000_000_000_000_000_000_000,
+            MinSubnetMinStake::<Test>::get(),
+        );
+        let subnet_id = SubnetName::<Test>::get(name).unwrap();
+        seed_equal_validator_delegate_stake_for_subnet(subnet_id);
+        let epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        Network::elect_validator(subnet_id, epoch, System::block_number());
+        let round = SubnetElectedValidator::<Test>::get(subnet_id, epoch).unwrap();
+        let snapshot =
+            crate::SubnetConsensusAttestorWeights::<Test>::get(subnet_id, epoch).unwrap();
+        let elected_rpc = Network::rpc_get_consensus_round(subnet_id, epoch)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            elected_rpc.status,
+            network_rpc_types::ConsensusRoundStatus::Elected
+        );
+        assert!(elected_rpc.proposal.is_none());
+
+        crate::SubnetConsensusAttestorWeights::<Test>::remove(subnet_id, epoch);
+        assert_eq!(
+            Network::rpc_get_consensus_round(subnet_id, epoch),
+            Err(NetworkQueryError::InconsistentState)
+        );
+        let mut corrupt = snapshot.clone();
+        corrupt.total_weight += 1;
+        crate::SubnetConsensusAttestorWeights::<Test>::insert(subnet_id, epoch, corrupt);
+        assert_eq!(
+            Network::rpc_get_consensus_round(subnet_id, epoch),
+            Err(NetworkQueryError::InconsistentState)
+        );
+        crate::SubnetConsensusAttestorWeights::<Test>::insert(subnet_id, epoch, &snapshot);
+
+        // Query rendering must ignore current pool state, both before and after a proposal.
+        crate::ValidatorDelegateStakeBalance::<Test>::insert(round.validator_id, 100);
+        let hotkey =
+            Network::get_subnet_node_associated_hotkey(subnet_id, round.validator_subnet_node_id)
+                .unwrap();
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(hotkey),
+            subnet_id,
+            vec![],
+            None,
+            None,
+            None,
+            None,
+        ));
+        let proposed_rpc = Network::rpc_get_consensus_round(subnet_id, epoch)
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            proposed_rpc.status,
+            network_rpc_types::ConsensusRoundStatus::Proposed
+        );
+        let attestors = &proposed_rpc.proposal.as_ref().unwrap().eligible_attestors;
+        assert_eq!(attestors.len(), 4);
+        assert!(attestors.iter().all(|attestor| attestor.weight.0 == 1));
+        crate::ValidatorDelegateStakeBalance::<Test>::insert(round.validator_id, 500);
+        assert_eq!(
+            Network::rpc_get_consensus_round(subnet_id, epoch)
+                .unwrap()
+                .unwrap(),
+            proposed_rpc
+        );
+        assert_eq!(
+            crate::SubnetConsensusAttestorWeights::<Test>::get(subnet_id, epoch),
+            Some(snapshot.clone())
+        );
+
+        let mut corrupt = snapshot;
+        corrupt.weights.remove(&round.validator_subnet_node_id);
+        crate::SubnetConsensusAttestorWeights::<Test>::insert(subnet_id, epoch, corrupt);
+        assert_eq!(
+            Network::rpc_get_consensus_round(subnet_id, epoch),
+            Err(NetworkQueryError::InconsistentState)
+        );
+    });
+}
+
+#[test]
 fn validator_info_and_node_allocations_are_exposed() {
     new_test_ext().execute_with(|| {
         let subnet_name = b"rpc-validator-info".to_vec();

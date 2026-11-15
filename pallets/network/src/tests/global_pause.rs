@@ -132,6 +132,7 @@ fn global_resume_cancels_missing_partial_and_quorate_rounds() {
             let (subnet, epoch) = fixture();
             submit(subnet, epoch, votes);
             let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
+            let weights = SubnetConsensusAttestorWeights::<Test>::get(subnet, epoch).unwrap();
             let submission = SubnetConsensusSubmission::<Test>::get(subnet, epoch);
             let owner = SubnetOwner::<Test>::get(subnet).unwrap();
             let owner_balance = Balances::free_balance(owner.clone());
@@ -178,6 +179,10 @@ fn global_resume_cancels_missing_partial_and_quorate_rounds() {
             assert_eq!(
                 SubnetElectedValidator::<Test>::get(subnet, epoch),
                 Some(round)
+            );
+            assert_eq!(
+                SubnetConsensusAttestorWeights::<Test>::get(subnet, epoch),
+                Some(weights)
             );
             assert_eq!(
                 SubnetConsensusSubmission::<Test>::get(subnet, epoch),

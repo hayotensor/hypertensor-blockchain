@@ -96,6 +96,13 @@ fn seed_exact_prior_election_with_eligible_nodes(subnet_id: u32, epoch: u32, eli
                     .map(|validator_id| (subnet_node_id, validator_id))
             })
             .collect();
+        let weights = Network::snapshot_consensus_attestor_weights(
+            subnet_id,
+            &round.policy,
+            &round.eligible_validator_identity_ids,
+        )
+        .expect("the complete historical election fixture must have valid weights");
+        crate::SubnetConsensusAttestorWeights::<Test>::insert(subnet_id, previous_epoch, weights);
     });
 }
 
@@ -856,6 +863,7 @@ fn test_precheck_subnet_consensus_submission() {
 
         let exists = queue.iter().any(|node| node.id == last.id);
 
+        seed_equal_validator_delegate_stake_for_subnet(subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
         let validator_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
@@ -941,6 +949,7 @@ fn test_precheck_queue_removal_uses_saturating_immunity_epoch() {
         SubnetNodeQueue::<Test>::set(subnet_id, queue);
         QueueImmunityEpochs::<Test>::insert(subnet_id, u32::MAX);
 
+        seed_equal_validator_delegate_stake_for_subnet(subnet_id);
         increase_epochs(20);
         set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);

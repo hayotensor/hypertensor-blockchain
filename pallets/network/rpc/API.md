@@ -140,6 +140,14 @@ proposal-time eligible-attestor snapshot is also fixed, but the recorded attesta
 accumulate while that round remains open. After the round closes, the result is historical. It does
 not reconstruct old rounds from current node metadata.
 
+Attestor weights are computed and stored at election, before the assigned-slot block's
+extrinsics. Proposal `eligibleAttestors[].weight` reports those frozen values even if delegation
+or allocation changes before submission. Proposal-time quarantine removes nodes from the
+eligible-attestor list and effective quorum denominator, while retaining their entries in the
+election's storage snapshot. Later quarantine does not rewrite proposal eligibility. An elected
+round with a missing or inconsistent weight snapshot returns `InconsistentState`, including
+before proposal submission.
+
 Global `Network.unpause` cancels all unsettled rounds from before or in its block.
 `network_getSubnetEpochStatus` hides the cancelled election/proposal and reports
 `withinProposalAttestationWindow: false` until the next local round; it also hides

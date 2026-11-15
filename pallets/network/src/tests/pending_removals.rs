@@ -390,6 +390,7 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
             MinSubnetMinStake::<Test>::get(),
         );
         let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
+        seed_equal_validator_delegate_stake_for_subnet(subnet_id);
         let general_epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(general_epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
@@ -472,7 +473,16 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
 
         let stored_weights =
             SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch).unwrap();
-        assert!(!stored_weights.weights.contains_key(&pending_node_id));
+        assert_eq!(stored_weights.weights[&pending_node_id], 1);
+        assert_eq!(stored_weights.total_weight, 4);
+        let (processed, _) = Network::precheck_subnet_consensus_submission(
+            subnet_id,
+            subnet_epoch,
+            Network::get_current_epoch_as_u32(),
+        );
+        let processed = processed.unwrap();
+        assert_eq!(processed.attestation_ratio, test_percent(1, 3));
+        assert_eq!(processed.eligible_validator_identity_count, 3);
 
         // Quarantine changes after proposal storage do not rewrite the historical round.
         mark_admitted_pending(subnet_id, later_pending_node_id);
@@ -483,6 +493,20 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
         assert_eq!(
             SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch).unwrap(),
             stored_weights
+        );
+        let (processed_after_quarantine, _) = Network::precheck_subnet_consensus_submission(
+            subnet_id,
+            subnet_epoch,
+            Network::get_current_epoch_as_u32(),
+        );
+        let processed_after_quarantine = processed_after_quarantine.unwrap();
+        assert_eq!(
+            processed_after_quarantine.attestation_ratio,
+            test_percent(1, 3)
+        );
+        assert_eq!(
+            processed_after_quarantine.eligible_validator_identity_count,
+            3
         );
     });
 }

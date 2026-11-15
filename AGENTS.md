@@ -407,9 +407,13 @@ queryable; `ConsensusRoundCancelled` reports cancellation. Epoch-status RPC hide
 cancelled work. Global resume does not extend registration or enactment
 deadlines; those lifecycle limits remain separate from consensus cancellation.
 
-Election candidates/policy freeze at election; attestor weights freeze when the
-proposal is submitted. Changes before proposal submission can still affect its
-weight snapshot. Later changes do not rewrite already-recorded snapshots.
+Election candidates, policy, and all attestor weights freeze together at the
+subnet's assigned-slot election, before that block's extrinsics. Delegation,
+allocation, and node-count changes after election affect voting power only in future rounds.
+Proposal submission excludes currently quarantined nodes from effective quorum,
+using the surviving nodes' original frozen weights and their sum; it does not
+recompute weights or alter the election snapshot. Later quarantine does not
+rewrite the proposal's recorded eligibility or quorum denominator.
 Missing proposals or insufficient agreement can affect
 reputation and slash the proposer's direct stake and, when enabled, its validator
 delegate pool. Use the recorded policy to calculate exposure and thresholds.

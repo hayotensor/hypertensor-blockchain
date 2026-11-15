@@ -423,17 +423,20 @@ impl<T: Config> Pallet<T> {
                     // charged by `handle_validator_reward`.
                     weight_meter.consume(db_weight.reads(1));
                 } else {
-                    if Self::handle_validator_reward(
+                    if let Err(error) = Self::handle_validator_reward(
                         weight_meter,
                         subnet_id,
                         validator_subnet_node_id,
                         &consensus_submission_data,
                         policy.min_attestation_percentage,
                         policy.base_validator_reward,
-                    )
-                    .is_err()
-                    {
-                        return;
+                    ) {
+                        // A failed stake credit leaves its counters unchanged. Continue with
+                        // the independent owner and subnet delegate rewards.
+                        log::error!(
+                            target: "runtime::network",
+                            "Failed to credit validator reward during zero-score settlement for subnet {subnet_id}, node {validator_subnet_node_id}, epoch {settled_subnet_epoch}: {error:?}",
+                        );
                     }
                 }
             }
@@ -778,17 +781,19 @@ impl<T: Config> Pallet<T> {
                 // by `handle_validator_reward`.
                 weight_meter.consume(db_weight.reads(1));
             } else {
-                if Self::handle_validator_reward(
+                if let Err(error) = Self::handle_validator_reward(
                     weight_meter,
                     subnet_id,
                     validator_subnet_node_id,
                     &consensus_submission_data,
                     policy.min_attestation_percentage,
                     policy.base_validator_reward,
-                )
-                .is_err()
-                {
-                    return;
+                ) {
+                    // Keep settling the independent subnet delegate reward if this credit fails.
+                    log::error!(
+                        target: "runtime::network",
+                        "Failed to credit validator reward during nonzero-score settlement for subnet {subnet_id}, node {validator_subnet_node_id}, epoch {settled_subnet_epoch}: {error:?}",
+                    );
                 }
             }
         }

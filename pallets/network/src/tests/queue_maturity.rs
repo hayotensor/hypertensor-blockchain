@@ -45,6 +45,7 @@ fn default_queue_immunity_covers_activation_boundary() {
         let queue_epochs = SubnetNodeQueueEpochs::<Test>::get(subnet_id);
         let immunity_epochs = QueueImmunityEpochs::<Test>::get(subnet_id);
         assert_eq!(immunity_epochs, queue_epochs);
+        seed_equal_validator_delegate_stake_for_subnet(subnet_id);
 
         let queued_node = SubnetNodeQueue::<Test>::get(subnet_id)
             .first()

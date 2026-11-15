@@ -211,7 +211,10 @@ An attesting node must:
 
 An attestation records the attesting node ID, block, epoch progress from proposal to attestation, a reward factor, and optional attestation data. Attestation timing can affect the attesting node's reward factor if that node later receives subnet-node rewards. The optional data is not interpreted by on-chain logic; it exists for subnet-specific or off-chain coordination.
 
-The validator set used for attestation is snapshotted when the proposal is submitted. This prevents later node churn or configuration changes from rewriting who counts as an eligible attestor for that epoch.
+The election freezes candidate membership and every node's voting weight. Proposal submission
+derives its eligible-attestor set by removing candidates currently quarantined for removal.
+This set then remains fixed, so later node churn or quarantine cannot rewrite the proposal's
+eligible identities or quorum denominator.
 
 ## Stake-Weighted Attestation
 
@@ -219,7 +222,8 @@ Consensus uses stake-weighted attestation to decide whether a proposal has enoug
 
 Percentages are represented as fixed-point values where `1e18` is 100%.
 
-For each eligible attestor node, the pallet snapshots an attestor weight:
+For each eligible attestor node, the pallet computes and snapshots an attestor weight during
+the assigned-slot election, before the block's extrinsics:
 
 ```text
 allocated_weight = validator_delegate_stake * node_allocation
@@ -258,7 +262,7 @@ Any value below `1e18` enables the policy, and lower values diminish a multi-nod
 
 Owner updates are rate-limited by `ConsensusValidatorNodeCountDecayUpdateInterval`, which defaults to one global epoch. A successful update is scheduled for the next subnet epoch: if it is submitted in subnet epoch `S`, the live value remains unchanged for `S` and the pending value is used beginning with subnet epoch `S + 1`. This is a next-epoch boundary, not a guaranteed full epoch of elapsed notice: depending on where the call lands in `S`, activation is between roughly one block and one epoch away. The owner may replace a future schedule before it becomes effective, but cannot replace it during its activation epoch. On a later update, the pallet materializes the already-effective value before scheduling the replacement for the following subnet epoch.
 
-The global-epoch rate limit and subnet-epoch activation delay are separate checks. Scheduling never rewrites an attestor-weight snapshot that was already stored for a proposal.
+The global-epoch rate limit and subnet-epoch activation delay are separate checks. Scheduling never rewrites an attestor-weight snapshot that was already stored at election.
 
 ### Configuring Per-Node Validator Stake-Weight Power
 
@@ -291,7 +295,7 @@ Subnet owner values must be within the inclusive `MinConsensusValidatorStakeWeig
 
 Owner updates are rate-limited by `ConsensusValidatorStakeWeightPowerUpdateInterval`, which defaults to one global epoch. A supermajority collective can change that interval with `set_consensus_validator_stake_weight_power_update_interval(value)`. A successful update is scheduled for the next subnet epoch: an update submitted in subnet epoch `S` leaves the live value unchanged in `S` and becomes the effective power in `S + 1`. As with node-count decay, this means the remainder of `S`, not a guaranteed full epoch of elapsed notice. A future schedule may be replaced before activation, is locked during its activation epoch, and is materialized before a later replacement is scheduled.
 
-The global-epoch rate limit and subnet-epoch activation delay are independent. The scheduled power is selected by the subnet epoch when a proposal's attestor weights are snapshotted, and an existing snapshot is never rewritten.
+The global-epoch rate limit and subnet-epoch activation delay are independent. The scheduled power is selected by the subnet epoch at election, and the resulting weight snapshot is never rewritten.
 
 ### Final Attestation Normalization
 
@@ -310,6 +314,11 @@ attestation_ratio = sum(effective_weight of attesting nodes)
 ```
 
 If the total snapshotted attestor weight is zero, the stake-weighted attestation ratio is zero.
+
+Deposits, withdrawals, node-allocation updates, and node-count changes after election affect
+voting power only in future rounds. Proposal-time quarantine excludes a node's frozen weight from both the
+eligible set and effective denominator without deleting it from the election snapshot. The
+remaining weights are summed as stored; decay and stake-weight power are not recomputed.
 
 ## Validator-Identity Participation
 

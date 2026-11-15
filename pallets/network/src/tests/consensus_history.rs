@@ -59,6 +59,162 @@ fn round_fully_absent(subnet_id: u32, epoch: u32) -> bool {
 }
 
 #[test]
+fn election_weights_without_a_proposal_are_retained_until_settlement_then_pruned() {
+    new_test_ext().execute_with(|| {
+        let name = b"unproposed-weight-history".to_vec();
+        build_activated_subnet(
+            name.clone(),
+            0,
+            4,
+            10_000_000_000_000_000_000_000,
+            MinSubnetMinStake::<Test>::get(),
+        );
+        let subnet_id = SubnetName::<Test>::get(name).unwrap();
+        seed_equal_validator_delegate_stake_for_subnet(subnet_id);
+        let epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+        Network::elect_validator(subnet_id, epoch, System::block_number());
+        let weights = SubnetConsensusAttestorWeights::<Test>::get(subnet_id, epoch).unwrap();
+        assert_eq!(weights.total_weight, 4);
+        assert!(!crate::SubnetConsensusSubmission::<Test>::contains_key(
+            subnet_id, epoch
+        ));
+
+        let prune_epoch = epoch + CONSENSUS_HISTORY_RETENTION_EPOCHS + 1;
+        ConsensusHistoryPruneCursor::<Test>::insert(subnet_id, epoch);
+        Network::prune_consensus_history(&mut WeightMeter::new(), subnet_id, prune_epoch);
+        assert_eq!(
+            SubnetConsensusAttestorWeights::<Test>::get(subnet_id, epoch),
+            Some(weights.clone())
+        );
+
+        set_block_to_subnet_slot_epoch(epoch + 1, subnet_id);
+        let (submission, _) = Network::precheck_subnet_consensus_submission(
+            subnet_id,
+            epoch,
+            Network::get_current_epoch_as_u32(),
+        );
+        assert!(submission.is_none());
+        assert_eq!(
+            ConsensusRoundSettlementStatus::<Test>::get(subnet_id, epoch),
+            Some(true)
+        );
+        assert_eq!(
+            SubnetConsensusAttestorWeights::<Test>::get(subnet_id, epoch),
+            Some(weights)
+        );
+
+        Network::prune_consensus_history(&mut WeightMeter::new(), subnet_id, prune_epoch);
+        assert!(round_fully_absent(subnet_id, epoch));
+    });
+}
+
+#[test]
+fn missing_proposal_with_invalid_election_weights_preserves_stake_and_liabilities() {
+    for corruption in 0..3 {
+        new_test_ext().execute_with(|| {
+            let name = b"invalid-unproposed-weights".to_vec();
+            let pool_balance = 1_000_000;
+            crate::BaseValidatorDelegateStakeSlashPercentage::<Test>::put(test_percent(1, 10));
+            crate::MaxValidatorDelegateStakeSlashAmount::<Test>::put(pool_balance);
+            build_activated_subnet(
+                name.clone(),
+                0,
+                4,
+                10_000_000_000_000_000_000_000,
+                MinSubnetMinStake::<Test>::get(),
+            );
+            let subnet_id = SubnetName::<Test>::get(name).unwrap();
+            for node_id in 1..=4 {
+                let validator_id =
+                    crate::SubnetNodeValidatorId::<Test>::get(subnet_id, node_id).unwrap();
+                Network::handle_increase_account_validator_delegate_stake(
+                    &account(9_200),
+                    validator_id,
+                    pool_balance,
+                )
+                .unwrap();
+            }
+            seed_equal_validator_delegate_stake_for_subnet(subnet_id);
+            let epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
+            Network::elect_validator(subnet_id, epoch, System::block_number());
+            let round = SubnetElectedValidator::<Test>::get(subnet_id, epoch).unwrap();
+            let mut weights =
+                SubnetConsensusAttestorWeights::<Test>::get(subnet_id, epoch).unwrap();
+            match corruption {
+                0 => SubnetConsensusAttestorWeights::<Test>::remove(subnet_id, epoch),
+                1 => {
+                    weights.total_weight += 1;
+                    SubnetConsensusAttestorWeights::<Test>::insert(subnet_id, epoch, weights);
+                }
+                _ => {
+                    weights.weights.remove(&round.validator_subnet_node_id);
+                    SubnetConsensusAttestorWeights::<Test>::insert(subnet_id, epoch, weights);
+                }
+            }
+            let node_stake =
+                crate::NodeSubnetStake::<Test>::get(round.validator_subnet_node_id, subnet_id);
+            let reputation =
+                crate::SubnetNodeReputation::<Test>::get(subnet_id, round.validator_subnet_node_id);
+            let subnet_reputation = crate::SubnetReputation::<Test>::get(subnet_id);
+            let events = System::events();
+            set_block_to_subnet_slot_epoch(epoch + 1, subnet_id);
+
+            let (submission, _) = Network::precheck_subnet_consensus_submission(
+                subnet_id,
+                epoch,
+                Network::get_current_epoch_as_u32(),
+            );
+            assert!(submission.is_none());
+            assert_eq!(
+                crate::NodeSubnetStake::<Test>::get(round.validator_subnet_node_id, subnet_id),
+                node_stake
+            );
+            assert_eq!(
+                crate::ValidatorDelegateStakeBalance::<Test>::get(round.validator_id),
+                pool_balance
+            );
+            assert_eq!(
+                crate::SubnetNodeReputation::<Test>::get(subnet_id, round.validator_subnet_node_id),
+                reputation
+            );
+            assert_eq!(
+                crate::SubnetReputation::<Test>::get(subnet_id),
+                subnet_reputation
+            );
+            assert_eq!(System::events(), events);
+            assert_eq!(
+                ConsensusRoundSettlementStatus::<Test>::get(subnet_id, epoch),
+                Some(false)
+            );
+            assert_eq!(
+                PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
+                Some(epoch)
+            );
+            assert_eq!(
+                crate::NodeStakePendingSlashLiabilityCount::<Test>::get(
+                    subnet_id,
+                    round.validator_subnet_node_id
+                ),
+                1
+            );
+            assert_eq!(
+                crate::ValidatorDelegateStakePendingSlashLiabilityCount::<Test>::get(
+                    round.validator_id
+                ),
+                1
+            );
+            assert!(Network::is_node_stake_slash_locked(
+                subnet_id,
+                round.validator_subnet_node_id
+            ));
+            assert!(Network::is_validator_delegate_stake_slash_locked(
+                round.validator_id
+            ));
+        });
+    }
+}
+
+#[test]
 fn consensus_history_is_pruned_to_the_retention_window_in_bounded_steps() {
     new_test_ext().execute_with(|| {
         let subnet_id = 7;

@@ -88,47 +88,16 @@ impl<T: Config> Pallet<T> {
         validator_ids
     }
 
+    /// Calculate final voting weights from the inputs selected by election.
     pub(crate) fn snapshot_consensus_attestor_weights(
         subnet_id: u32,
-        subnet_epoch: u32,
-        validator_ids: &[u32],
+        policy: &ConsensusPolicySnapshot,
+        validator_identity_ids: &BTreeMap<u32, u32>,
     ) -> Result<ConsensusAttestorWeightSnapshot, Error<T>> {
-        let elected_round = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch);
-        let policy = match elected_round.as_ref() {
-            Some(round) => round.policy,
-            None => {
-                #[cfg(test)]
-                {
-                    Self::consensus_policy_snapshot(subnet_id, subnet_epoch)
-                }
-                #[cfg(not(test))]
-                {
-                    return Err(Error::<T>::NoElectedValidator);
-                }
-            }
-        };
         let mut validator_nodes: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
-
-        for subnet_node_id in validator_ids {
-            let validator_id = if let Some(round) = elected_round.as_ref() {
-                round
-                    .eligible_validator_identity_ids
-                    .get(subnet_node_id)
-                    .copied()
-                    .ok_or(Error::<T>::InvalidSubnetNodeId)?
-            } else {
-                #[cfg(test)]
-                {
-                    SubnetNodeValidatorId::<T>::get(subnet_id, *subnet_node_id)
-                        .ok_or(Error::<T>::InvalidSubnetNodeId)?
-                }
-                #[cfg(not(test))]
-                {
-                    return Err(Error::<T>::NoElectedValidator);
-                }
-            };
+        for (subnet_node_id, validator_id) in validator_identity_ids {
             validator_nodes
-                .entry(validator_id)
+                .entry(*validator_id)
                 .or_default()
                 .push(*subnet_node_id);
         }
@@ -221,6 +190,32 @@ impl<T: Config> Pallet<T> {
             weights,
             total_weight: powered_total_weight,
         })
+    }
+
+    /// Validate the complete election snapshot without consulting mutable stake or membership.
+    pub(crate) fn validate_consensus_attestor_weight_snapshot(
+        round: &ElectedConsensusRound,
+        snapshot: &ConsensusAttestorWeightSnapshot,
+    ) -> Result<(), Error<T>> {
+        let invalid = || Error::<T>::InvalidConsensusAttestorWeightSnapshot;
+        ensure!(
+            snapshot.weights.len() == round.eligible_subnet_node_ids.len()
+                && snapshot.weights.len() == round.eligible_validator_identity_ids.len(),
+            invalid()
+        );
+        let mut seen = BTreeSet::new();
+        let mut total = 0u128;
+        for node_id in &round.eligible_subnet_node_ids {
+            ensure!(
+                seen.insert(*node_id)
+                    && round.eligible_validator_identity_ids.contains_key(node_id),
+                invalid()
+            );
+            let weight = snapshot.weights.get(node_id).ok_or_else(invalid)?;
+            total = total.checked_add(*weight).ok_or_else(invalid)?;
+        }
+        ensure!(total == snapshot.total_weight, invalid());
+        Ok(())
     }
 
     /// Proposes attestation and submits consensus data for a subnet epoch.
@@ -422,8 +417,15 @@ impl<T: Config> Pallet<T> {
             remove_queue_node_id = None;
         }
 
+        // Voting power is fixed before the election block's extrinsics. Quarantine only
+        // subtracts proposal members; it never recalculates the remaining nodes' weights.
         let attestor_weight_snapshot =
-            Self::snapshot_consensus_attestor_weights(subnet_id, subnet_epoch, &validator_ids)?;
+            SubnetConsensusAttestorWeights::<T>::get(subnet_id, subnet_epoch)
+                .ok_or(Error::<T>::InvalidConsensusAttestorWeightSnapshot)?;
+        Self::validate_consensus_attestor_weight_snapshot(
+            &elected_round,
+            &attestor_weight_snapshot,
+        )?;
 
         // Check if validator sent through queue priority or removal node IDs
         if prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some() {
@@ -510,11 +512,6 @@ impl<T: Config> Pallet<T> {
                 attest_data,
             );
         }
-        SubnetConsensusAttestorWeights::<T>::insert(
-            subnet_id,
-            subnet_epoch,
-            attestor_weight_snapshot,
-        );
 
         Self::deposit_event(Event::ValidatorSubmission {
             subnet_id: subnet_id,

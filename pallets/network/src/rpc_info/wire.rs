@@ -517,6 +517,10 @@ impl<T: Config> Pallet<T> {
         let Some(round) = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch) else {
             return Ok(None);
         };
+        let weight_snapshot = SubnetConsensusAttestorWeights::<T>::get(subnet_id, subnet_epoch)
+            .ok_or(rpc::NetworkQueryError::InconsistentState)?;
+        Self::validate_consensus_attestor_weight_snapshot(&round, &weight_snapshot)
+            .map_err(|_| rpc::NetworkQueryError::InconsistentState)?;
         let election_candidates = round
             .eligible_subnet_node_ids
             .iter()
@@ -536,9 +540,6 @@ impl<T: Config> Pallet<T> {
         let proposal_args = SubnetConsensusProposalArgs::<T>::get(subnet_id, subnet_epoch);
         let proposal = SubnetConsensusSubmission::<T>::get(subnet_id, subnet_epoch)
             .map(|submission| {
-                let weight_snapshot =
-                    SubnetConsensusAttestorWeights::<T>::get(subnet_id, subnet_epoch)
-                        .ok_or(rpc::NetworkQueryError::InconsistentState)?;
                 let eligible_attestors = submission
                     .validator_ids
                     .iter()

@@ -1233,145 +1233,8 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        // SubnetConsensusSubmission
-        weight = weight.saturating_add(db_weight.reads(1));
-
-        let submission = match SubnetConsensusSubmission::<T>::try_get(subnet_id, prev_subnet_epoch)
-        {
-            Ok(submission) => submission,
-            Err(()) => {
-                // Check if a validator was elected
-                // - Make sure they did their job and submitted consensus data
-                // - If not, penalize the subnet and validator
-                weight = weight.saturating_add(db_weight.reads(1));
-                if let Some(round) = SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch)
-                {
-                    // Missing proposals retain the allocation belonging to this exact round,
-                    // including when settlement is retried in a later global epoch.
-                    let emission_epoch = ConsensusRoundSettlementEmissionEpoch::<T>::get(
-                        subnet_id,
-                        prev_subnet_epoch,
-                    )
-                    .unwrap_or(current_epoch);
-                    let allocation = FinalSubnetEmissionWeights::<T>::get(emission_epoch);
-                    weight = weight.saturating_add(db_weight.reads(2));
-                    let subnet_weight = allocation
-                        .subnet_weights
-                        .get(&subnet_id)
-                        .copied()
-                        .unwrap_or(0);
-                    if subnet_weight > Self::percentage_factor_as_u128() {
-                        return (None, weight);
-                    }
-                    let reward = Self::percent_mul(allocation.subnets_emissions, subnet_weight);
-                    let next_capacitor = if reward > 0 {
-                        weight = weight.saturating_add(db_weight.reads(1));
-                        let Some(balance) =
-                            SubnetRewardCapacitor::<T>::get(subnet_id).checked_add(reward)
-                        else {
-                            return (None, weight);
-                        };
-                        Some(balance)
-                    } else {
-                        None
-                    };
-
-                    let validator_subnet_node_id = round.validator_subnet_node_id;
-
-                    // Apply economic losses while leaving reputation loss to the existing
-                    // absence-specific node and subnet penalties below.
-                    let (slash_result, slash_weight) = Self::apply_validator_economic_slashes(
-                        subnet_id,
-                        validator_subnet_node_id,
-                        0,
-                        round.policy.min_attestation_percentage,
-                        round.policy.base_slash_percentage,
-                        round.policy.max_slash_amount,
-                        round.validator_node_stake_balance,
-                        0,
-                        round.validator_delegate_stake_balance,
-                        round.policy.validator_delegate_stake_slash_threshold,
-                        round.policy.base_validator_delegate_stake_slash_percentage,
-                        round.policy.max_validator_delegate_stake_slash_amount,
-                    );
-                    weight = weight.saturating_add(slash_weight);
-                    if slash_result.is_err() {
-                        // Keep the immutable round, pending marker, and both liability locks for
-                        // an exact retry. Absence reputation must not be charged until its
-                        // economic settlement commits successfully.
-                        return (None, weight);
-                    }
-                    if let Some(balance) = next_capacitor {
-                        SubnetRewardCapacitor::<T>::insert(subnet_id, balance);
-                        weight = weight.saturating_add(db_weight.writes(1));
-                    }
-                    weight = weight.saturating_add(Self::finalize_consensus_round_slash_liability(
-                        subnet_id,
-                        prev_subnet_epoch,
-                    ));
-
-                    //
-                    // Update subnet rep
-                    //
-                    Self::decrease_subnet_reputation(
-                        subnet_id,
-                        round.policy.validator_absent_subnet_reputation_factor,
-                        None,
-                    );
-                    weight = weight.saturating_add(db_weight.reads_writes(1, 1));
-
-                    // The elected validator cannot remove self if elected so we don't check if they exist
-
-                    //
-                    // Update node rep
-                    //
-                    let mut newly_pending_admitted_removals = BoundedVec::default();
-                    let reputation_factors = round.policy.reputation_factors;
-                    weight = weight.saturating_add(db_weight.reads(1));
-                    if let Some(rep) =
-                        SubnetNodeReputation::<T>::get(subnet_id, validator_subnet_node_id)
-                    {
-                        let new_reputation = Self::decrease_rep(
-                            rep,
-                            reputation_factors.validator_absent_decrease,
-                            None,
-                        );
-                        weight = weight.saturating_add(Self::persist_node_reputation_change(
-                            subnet_id,
-                            validator_subnet_node_id,
-                            rep,
-                            new_reputation,
-                        ));
-
-                        let min_node_reputation = round.policy.min_subnet_node_reputation;
-                        if new_reputation < min_node_reputation {
-                            let (pending_weight, inserted) =
-                                Self::persist_pending_admitted_node_removal(
-                                    subnet_id,
-                                    validator_subnet_node_id,
-                                );
-                            weight = weight.saturating_add(pending_weight);
-                            if inserted {
-                                newly_pending_admitted_removals
-                                    .try_push(validator_subnet_node_id)
-                                    .expect("one missing proposer fits the admitted-removal event");
-                            }
-                        }
-                    }
-
-                    if !newly_pending_admitted_removals.is_empty() {
-                        Self::deposit_event(Event::SubnetNodesPendingRemoval {
-                            subnet_id,
-                            admitted_subnet_node_ids: newly_pending_admitted_removals,
-                            queued_subnet_node_ids: BoundedVec::default(),
-                        });
-                    }
-                }
-
-                return (None, weight);
-            }
-        };
-
+        // A missing or corrupt election snapshot must not turn a rejected proposal into
+        // an absence penalty. Cancellation above can still release a cancelled round.
         let Some(round) = SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch) else {
             return (None, weight.saturating_add(db_weight.reads(1)));
         };
@@ -1384,25 +1247,169 @@ impl<T: Config> Pallet<T> {
             return (None, weight);
         };
 
-        let attestation_ratio = if attestor_weight_snapshot.total_weight > 0 {
-            let attested_weight =
-                match submission
-                    .attests
-                    .keys()
-                    .try_fold(0u128, |acc, subnet_node_id| {
-                        acc.checked_add(
-                            attestor_weight_snapshot
-                                .weights
-                                .get(subnet_node_id)
-                                .copied()
-                                .unwrap_or(0),
-                        )
-                    }) {
-                    Some(weight) => weight,
-                    None => return (None, weight),
+        if Self::validate_consensus_attestor_weight_snapshot(&round, &attestor_weight_snapshot)
+            .is_err()
+        {
+            return (None, weight);
+        }
+
+        // SubnetConsensusSubmission
+        weight = weight.saturating_add(db_weight.reads(1));
+
+        let submission = match SubnetConsensusSubmission::<T>::try_get(subnet_id, prev_subnet_epoch)
+        {
+            Ok(submission) => submission,
+            Err(()) => {
+                // Missing proposals retain the allocation belonging to this exact round,
+                // including when settlement is retried in a later global epoch.
+                let emission_epoch =
+                    ConsensusRoundSettlementEmissionEpoch::<T>::get(subnet_id, prev_subnet_epoch)
+                        .unwrap_or(current_epoch);
+                let allocation = FinalSubnetEmissionWeights::<T>::get(emission_epoch);
+                weight = weight.saturating_add(db_weight.reads(2));
+                let subnet_weight = allocation
+                    .subnet_weights
+                    .get(&subnet_id)
+                    .copied()
+                    .unwrap_or(0);
+                if subnet_weight > Self::percentage_factor_as_u128() {
+                    return (None, weight);
+                }
+                let reward = Self::percent_mul(allocation.subnets_emissions, subnet_weight);
+                let next_capacitor = if reward > 0 {
+                    weight = weight.saturating_add(db_weight.reads(1));
+                    let Some(balance) =
+                        SubnetRewardCapacitor::<T>::get(subnet_id).checked_add(reward)
+                    else {
+                        return (None, weight);
+                    };
+                    Some(balance)
+                } else {
+                    None
                 };
 
-            Self::percent_div(attested_weight, attestor_weight_snapshot.total_weight)
+                let validator_subnet_node_id = round.validator_subnet_node_id;
+
+                // Apply economic losses while leaving reputation loss to the existing
+                // absence-specific node and subnet penalties below.
+                let (slash_result, slash_weight) = Self::apply_validator_economic_slashes(
+                    subnet_id,
+                    validator_subnet_node_id,
+                    0,
+                    round.policy.min_attestation_percentage,
+                    round.policy.base_slash_percentage,
+                    round.policy.max_slash_amount,
+                    round.validator_node_stake_balance,
+                    0,
+                    round.validator_delegate_stake_balance,
+                    round.policy.validator_delegate_stake_slash_threshold,
+                    round.policy.base_validator_delegate_stake_slash_percentage,
+                    round.policy.max_validator_delegate_stake_slash_amount,
+                );
+                weight = weight.saturating_add(slash_weight);
+                if slash_result.is_err() {
+                    // Keep the immutable round, pending marker, and both liability locks for
+                    // an exact retry. Absence reputation must not be charged until its
+                    // economic settlement commits successfully.
+                    return (None, weight);
+                }
+                if let Some(balance) = next_capacitor {
+                    SubnetRewardCapacitor::<T>::insert(subnet_id, balance);
+                    weight = weight.saturating_add(db_weight.writes(1));
+                }
+                weight = weight.saturating_add(Self::finalize_consensus_round_slash_liability(
+                    subnet_id,
+                    prev_subnet_epoch,
+                ));
+
+                //
+                // Update subnet rep
+                //
+                Self::decrease_subnet_reputation(
+                    subnet_id,
+                    round.policy.validator_absent_subnet_reputation_factor,
+                    None,
+                );
+                weight = weight.saturating_add(db_weight.reads_writes(1, 1));
+
+                // The elected validator cannot remove self if elected so we don't check if they exist
+
+                //
+                // Update node rep
+                //
+                let mut newly_pending_admitted_removals = BoundedVec::default();
+                let reputation_factors = round.policy.reputation_factors;
+                weight = weight.saturating_add(db_weight.reads(1));
+                if let Some(rep) =
+                    SubnetNodeReputation::<T>::get(subnet_id, validator_subnet_node_id)
+                {
+                    let new_reputation =
+                        Self::decrease_rep(rep, reputation_factors.validator_absent_decrease, None);
+                    weight = weight.saturating_add(Self::persist_node_reputation_change(
+                        subnet_id,
+                        validator_subnet_node_id,
+                        rep,
+                        new_reputation,
+                    ));
+
+                    let min_node_reputation = round.policy.min_subnet_node_reputation;
+                    if new_reputation < min_node_reputation {
+                        let (pending_weight, inserted) =
+                            Self::persist_pending_admitted_node_removal(
+                                subnet_id,
+                                validator_subnet_node_id,
+                            );
+                        weight = weight.saturating_add(pending_weight);
+                        if inserted {
+                            newly_pending_admitted_removals
+                                .try_push(validator_subnet_node_id)
+                                .expect("one missing proposer fits the admitted-removal event");
+                        }
+                    }
+                }
+
+                if !newly_pending_admitted_removals.is_empty() {
+                    Self::deposit_event(Event::SubnetNodesPendingRemoval {
+                        subnet_id,
+                        admitted_subnet_node_ids: newly_pending_admitted_removals,
+                        queued_subnet_node_ids: BoundedVec::default(),
+                    });
+                }
+
+                return (None, weight);
+            }
+        };
+
+        // Proposal-time quarantine subtracts eligible members, but each retained weight is
+        // the original election value, including its original decay and power transform.
+        let mut eligible_ids = BTreeSet::new();
+        let mut eligible_weight = 0u128;
+        for node_id in &submission.validator_ids {
+            if !eligible_ids.insert(*node_id) {
+                return (None, weight);
+            }
+            let Some(node_weight) = attestor_weight_snapshot.weights.get(node_id) else {
+                return (None, weight);
+            };
+            let Some(next_weight) = eligible_weight.checked_add(*node_weight) else {
+                return (None, weight);
+            };
+            eligible_weight = next_weight;
+        }
+        let mut attested_weight = 0u128;
+        for node_id in submission.attests.keys() {
+            if !eligible_ids.contains(node_id) {
+                return (None, weight);
+            }
+            let Some(next_weight) =
+                attested_weight.checked_add(attestor_weight_snapshot.weights[node_id])
+            else {
+                return (None, weight);
+            };
+            attested_weight = next_weight;
+        }
+        let attestation_ratio = if eligible_weight > 0 {
+            Self::percent_div(attested_weight, eligible_weight)
                 .clamp(0, Self::percentage_factor_as_u128())
         } else {
             0

@@ -4,6 +4,7 @@ mod capacity;
 mod consensus_history;
 mod delegate_account;
 mod delegate_staking;
+mod election_weights;
 mod era;
 mod global_pause;
 mod incentives_protocol;

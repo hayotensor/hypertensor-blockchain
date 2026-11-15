@@ -921,7 +921,17 @@ impl<T: Config> Pallet<T> {
                     None
                 };
 
+            // Finish every fallible computation before publishing a round or its liabilities.
+            let Ok(attestor_weights) = Self::snapshot_consensus_attestor_weights(
+                subnet_id,
+                &elected_round.policy,
+                &elected_round.eligible_validator_identity_ids,
+            ) else {
+                return;
+            };
+
             SubnetElectedValidator::<T>::insert(subnet_id, subnet_epoch, &elected_round);
+            SubnetConsensusAttestorWeights::<T>::insert(subnet_id, subnet_epoch, attestor_weights);
             ConsensusRoundSettlementStatus::<T>::insert(subnet_id, subnet_epoch, false);
             PendingConsensusRoundSettlementEpoch::<T>::insert(subnet_id, subnet_epoch);
             ConsensusRoundSettlementEmissionEpoch::<T>::insert(

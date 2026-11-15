@@ -136,6 +136,14 @@ gross_node_reward = node_budget * node_score_share * node_reward_factor
 
 The implementation represents shares and factors at `1e18` precision and rounds down at each division or multiplication. Consensus attestation weights determine whether the proposal passes; the accepted node scores determine each node's share of rewards.
 
+Voting weights freeze at the assigned-slot election with the candidate set and policy. The
+snapshot includes each node's delegated allocation after node-count decay and stake-weight
+power. Deposits, withdrawals, allocation updates, and node-count changes after election do not
+change that round's voting power, including changes later in the election block. At proposal
+submission, quarantined nodes are excluded from eligible attestors; weighted quorum uses the
+sum of the remaining original weights. The complete election snapshot stays immutable, and
+later quarantine does not change the proposal's recorded eligible set or denominator.
+
 Only nodes captured as Active in the proposal snapshot can earn node-related rewards. Queued
 nodes cannot be scored; Probation nodes can be scored but receive no node reward or associated
 validator-pool/delegate-account allocation, including the round

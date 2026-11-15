@@ -123,6 +123,10 @@ fn test_on_initialize() {
             })
             .collect();
 
+        for subnet_id in subnet_ids.iter().copied() {
+            seed_equal_validator_delegate_stake_for_subnet(subnet_id);
+        }
+
         let overwatch_count = max_overwatch_nodes.min(min_subnet_nodes).max(1);
         let mut overwatch_node_ids = Vec::new();
         for validator_id in 1..=overwatch_count {

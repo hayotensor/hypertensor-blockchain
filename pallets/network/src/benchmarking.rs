@@ -1929,6 +1929,127 @@ fn seed_validator_owned_nodes<T: Config>(
     ValidatorNodeDelegateStakeWeights::<T>::insert(validator_id, weights);
 }
 
+/// Conservative election envelope: every accessed validator value is filled to its independent
+/// ownership bound, even though the global subnet capacity prevents all those maxima coexisting.
+/// The shared-identity variant additionally exercises node-count decay for the full candidate set.
+fn prepare_election_weight_fixture<T: Config>(x: u32, shared_identities: bool) -> (u32, u32, u32) {
+    MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
+    build_activated_subnet::<T>(
+        DEFAULT_SUBNET_NAME.into(),
+        0,
+        x,
+        DEFAULT_DEPOSIT_AMOUNT,
+        DEFAULT_SUBNET_NODE_STAKE,
+    );
+    let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
+    assert_eq!(TotalAdmittedSubnetNodes::<T>::get(subnet_id), x);
+    let identity_count = if shared_identities { (x / 2).max(3) } else { x };
+    let factor = Network::<T>::percentage_factor_as_u128();
+    let mut identity_nodes: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
+    for node_id in 1..=x {
+        let validator_id = (node_id - 1) % identity_count + 1;
+        SubnetNodeValidatorId::<T>::insert(subnet_id, node_id, validator_id);
+        SubnetNodesData::<T>::mutate(subnet_id, node_id, |node| {
+            node.validator_id = validator_id;
+        });
+        identity_nodes
+            .entry(validator_id)
+            .or_default()
+            .insert(node_id);
+        ValidatorSubnetNodes::<T>::remove(node_id);
+        ValidatorNodeDelegateStakeWeights::<T>::remove(node_id);
+        TotalValidatorNodes::<T>::remove(node_id);
+    }
+    for (validator_id, target_nodes) in identity_nodes {
+        let node_count = target_nodes.len() as u128;
+        let first_node = *target_nodes.first().unwrap();
+        let mut allocations = BTreeMap::new();
+        for node_id in &target_nodes {
+            allocations.insert(
+                (subnet_id, *node_id),
+                factor / node_count
+                    + if *node_id == first_node {
+                        factor % node_count
+                    } else {
+                        0
+                    },
+            );
+        }
+        let target_count = target_nodes.len() as u32;
+        let mut owned = BTreeMap::from([(subnet_id, target_nodes)]);
+        let external_subnets = T::MaxPhysicalSubnetsUpperBound::get()
+            .saturating_sub(1)
+            .max(1);
+        for index in 0..T::MaxValidatorNodesUpperBound::get().saturating_sub(target_count) {
+            let external_subnet = 20_000 + index % external_subnets;
+            let external_node = validator_id * T::MaxValidatorNodesUpperBound::get() + index;
+            owned
+                .entry(external_subnet)
+                .or_default()
+                .insert(external_node);
+            allocations.insert((external_subnet, external_node), 0);
+        }
+        assert_eq!(
+            allocations.len() as u32,
+            T::MaxValidatorNodesUpperBound::get()
+        );
+        assert_eq!(allocations.values().copied().sum::<u128>(), factor);
+        ValidatorSubnetNodes::<T>::insert(validator_id, owned);
+        ValidatorNodeDelegateStakeWeights::<T>::insert(validator_id, allocations);
+        TotalValidatorNodes::<T>::insert(validator_id, T::MaxValidatorNodesUpperBound::get());
+        ValidatorDelegateStakeBalance::<T>::insert(
+            validator_id,
+            DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+        );
+    }
+    // Canonicalization must sort a nontrivial insertion/removal ordering.
+    SubnetNodeElectionSlots::<T>::insert(subnet_id, (1..=x).rev().collect::<Vec<_>>());
+    ConsensusValidatorNodeCountDecay::<T>::insert(subnet_id, factor / 2);
+    ConsensusValidatorStakeWeightPower::<T>::insert(subnet_id, factor / 2);
+    BaseValidatorDelegateStakeSlashPercentage::<T>::set(factor / 10);
+    MaxValidatorDelegateStakeSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
+    BaseSlashPercentage::<T>::set(factor / 10);
+    MaxSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
+    (
+        subnet_id,
+        Network::<T>::get_current_subnet_epoch_as_u32(subnet_id),
+        get_current_block_as_u32::<T>(),
+    )
+}
+
+fn verify_election_weight_fixture<T: Config>(subnet_id: u32, epoch: u32, block: u32, x: u32) {
+    let round =
+        SubnetElectedValidator::<T>::get(subnet_id, epoch).expect("benchmark election exists");
+    let snapshot = SubnetConsensusAttestorWeights::<T>::get(subnet_id, epoch)
+        .expect("election persists its complete weight snapshot");
+    assert_eq!(snapshot.weights.len() as u32, x);
+    assert!(snapshot.weights.values().all(|weight| *weight > 0));
+    assert_eq!(
+        snapshot.weights.values().copied().sum::<u128>(),
+        snapshot.total_weight
+    );
+    assert_eq!(
+        NodeStakePendingSlashLiabilityCount::<T>::get(subnet_id, round.validator_subnet_node_id),
+        1
+    );
+    assert_eq!(
+        ValidatorDelegateStakePendingSlashLiabilityCount::<T>::get(round.validator_id),
+        1
+    );
+    assert_eq!(
+        ConsensusRoundSettlementStatus::<T>::get(subnet_id, epoch),
+        Some(false)
+    );
+    assert_eq!(
+        PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id),
+        Some(epoch)
+    );
+    assert_eq!(
+        ValidatorDelegateStakeSlashLockUntil::<T>::get(round.validator_id),
+        block.saturating_add(T::EpochLength::get())
+    );
+}
+
 fn seed_admitted_remove_subnet_node_state<T: Config>(
     n: u32,
     e: u32,
@@ -2244,15 +2365,12 @@ pub fn get_simulated_consensus_data<T: Config>(
     let mut attests = BTreeMap::new();
     let mut data = Vec::new();
 
-    let max_subnet_nodes = MaxSubnetNodes::<T>::get();
-
     let block_number = get_current_block_as_u32::<T>();
     let epoch_length = T::EpochLength::get();
     let epoch = get_current_block_as_u32::<T>() / epoch_length;
 
     for n in 0..node_count {
-        // let node_id = subnet_id*max_subnet_nodes+n+1;
-        let node_id = subnet_id * max_subnet_nodes - max_subnet_nodes + n + 1;
+        let node_id = n + 1;
 
         // Simulate some score and block number
         let score = 1e+18 as u128;
@@ -2299,7 +2417,7 @@ pub fn get_simulated_consensus_data<T: Config>(
         .len() as u32;
 
     ConsensusData::<T> {
-        validator_id: subnet_id * max_subnet_nodes,
+        validator_id: 1,
         block: block_number,
         validator_epoch_progress: 0,
         validator_reward_factor: Network::<T>::percentage_factor_as_u128(),
@@ -2683,6 +2801,14 @@ fn prepare_alternate_emission_step<T: Config>(
         },
     );
 
+    let snapshot = Network::<T>::snapshot_consensus_attestor_weights(
+        subnet_id,
+        &policy,
+        &eligible_validator_identity_ids,
+    )
+    .expect("every historical election, including a missing proposal, has a complete snapshot");
+    SubnetConsensusAttestorWeights::<T>::insert(subnet_id, previous_subnet_epoch, snapshot);
+
     if mode != AlternateEmissionMode::Missing {
         let attest_count = if mode == AlternateEmissionMode::Rejected {
             eligible_count.saturating_sub(1)
@@ -2740,21 +2866,9 @@ fn prepare_alternate_emission_step<T: Config>(
             },
         );
         SubnetConsensusSubmissionMaxItems::<T>::insert(subnet_id, previous_subnet_epoch, h);
-        SubnetConsensusAttestorWeights::<T>::insert(
-            subnet_id,
-            previous_subnet_epoch,
-            ConsensusAttestorWeightSnapshot {
-                weights: eligible_subnet_node_ids
-                    .iter()
-                    .map(|node_id| (*node_id, 1))
-                    .collect(),
-                total_weight: eligible_count as u128,
-            },
-        );
     } else {
         SubnetConsensusSubmission::<T>::remove(subnet_id, previous_subnet_epoch);
         SubnetConsensusSubmissionMaxItems::<T>::remove(subnet_id, previous_subnet_epoch);
-        SubnetConsensusAttestorWeights::<T>::remove(subnet_id, previous_subnet_epoch);
     }
 
     increase_epochs::<T>(1);
@@ -3250,6 +3364,10 @@ mod benchmarks {
             fixture.subnet_id,
             epoch
         ));
+        let snapshot = SubnetConsensusAttestorWeights::<T>::get(fixture.subnet_id, epoch)
+            .expect("the next election must persist weights inside the metered hook");
+        let round = SubnetElectedValidator::<T>::get(fixture.subnet_id, epoch).unwrap();
+        assert_eq!(snapshot.weights.len(), round.eligible_subnet_node_ids.len());
         assert_eq!(
             PendingConsensusRoundSettlementEpoch::<T>::get(fixture.subnet_id),
             Some(epoch)
@@ -3292,6 +3410,10 @@ mod benchmarks {
             fixture.subnet_id,
             epoch
         ));
+        let snapshot = SubnetConsensusAttestorWeights::<T>::get(fixture.subnet_id, epoch)
+            .expect("the next election must persist weights inside the metered hook");
+        let round = SubnetElectedValidator::<T>::get(fixture.subnet_id, epoch).unwrap();
+        assert_eq!(snapshot.weights.len(), round.eligible_subnet_node_ids.len());
         assert_eq!(
             PendingConsensusRoundSettlementEpoch::<T>::get(fixture.subnet_id),
             Some(epoch)
@@ -5891,6 +6013,14 @@ mod benchmarks {
             subnet_id,
             Network::<T>::percentage_factor_as_u128() / 2,
         );
+        for subnet_node_id in 1..=end {
+            let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
+                .expect("proposal benchmark node has a validator identity");
+            ValidatorDelegateStakeBalance::<T>::insert(
+                validator_id,
+                DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            );
+        }
 
         let epoch_length = T::EpochLength::get();
         let epoch = get_current_block_as_u32::<T>() / epoch_length as u32;
@@ -5929,15 +6059,6 @@ mod benchmarks {
 
         let subnet_node_data_vec =
             get_subnet_node_consensus_data::<T>(subnet_id, max_subnet_nodes, 0, end);
-
-        for subnet_node_id in 1..=end {
-            if let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) {
-                ValidatorDelegateStakeBalance::<T>::insert(
-                    validator_id,
-                    DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
-                );
-            }
-        }
 
         let max_args: ValidatorArgs<T> = vec![0xff; T::ValidatorArgsLimit::get() as usize]
             .try_into()
@@ -6005,6 +6126,14 @@ mod benchmarks {
             DEFAULT_SUBNET_NODE_STAKE,
         );
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
+        for subnet_node_id in 1..=end {
+            let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id)
+                .expect("attestation benchmark node has a validator identity");
+            ValidatorDelegateStakeBalance::<T>::insert(
+                validator_id,
+                DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            );
+        }
 
         let epoch_length = T::EpochLength::get();
         let epoch = get_current_block_as_u32::<T>() / epoch_length as u32;
@@ -6024,15 +6153,6 @@ mod benchmarks {
 
         let subnet_node_data_vec =
             get_subnet_node_consensus_data::<T>(subnet_id, max_subnet_nodes, 0, end);
-
-        for subnet_node_id in 1..=end {
-            if let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) {
-                ValidatorDelegateStakeBalance::<T>::insert(
-                    validator_id,
-                    DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
-                );
-            }
-        }
 
         let max_attest_data: ValidatorArgs<T> = vec![0xff; T::ValidatorArgsLimit::get() as usize]
             .try_into()
@@ -9551,70 +9671,27 @@ mod benchmarks {
     fn elect_validator(
         x: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
     ) {
-        // Election path with exactly `x` candidates.
-        MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
-        build_activated_subnet::<T>(
-            DEFAULT_SUBNET_NAME.into(),
-            0,
-            x,
-            DEFAULT_DEPOSIT_AMOUNT,
-            DEFAULT_SUBNET_NODE_STAKE,
-        );
-        let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
-
-        let admitted_nodes = TotalAdmittedSubnetNodes::<T>::get(subnet_id);
-        assert_eq!(x, admitted_nodes);
-
-        // Keep the regular list at exactly `x` and in reverse order so canonicalization measures
-        // a non-trivial sort instead of receiving the builder's already-sorted vector.
-        let regular_slot_list: Vec<u32> = (1..=x).rev().collect();
-        SubnetNodeElectionSlots::<T>::insert(subnet_id, &regular_slot_list);
-
-        let slot_list = SubnetNodeElectionSlots::<T>::get(subnet_id);
-        assert_eq!(slot_list.len(), x as usize);
-
-        let subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
-
-        BaseValidatorDelegateStakeSlashPercentage::<T>::set(
-            Network::<T>::percentage_factor_as_u128() / 10,
-        );
-        MaxValidatorDelegateStakeSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
-        BaseSlashPercentage::<T>::set(Network::<T>::percentage_factor_as_u128() / 10);
-        MaxSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
-        let election_block = get_current_block_as_u32::<T>();
-
+        let (subnet_id, epoch, block) = prepare_election_weight_fixture::<T>(x, false);
         #[block]
         {
-            // The hook reads this compact cardinality before selecting the generated branch.
-            // Include its proof in the branch model; DbWeight alone has no proof-size component.
             let _ = TotalSubnetElectableNodes::<T>::get(subnet_id);
-            Network::<T>::elect_validator(subnet_id, subnet_epoch, election_block);
+            Network::<T>::elect_validator(subnet_id, epoch, block);
         }
+        verify_election_weight_fixture::<T>(subnet_id, epoch, block, x);
+    }
 
-        let subnet_node_id = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
-            .unwrap()
-            .validator_subnet_node_id;
-        let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id).unwrap();
-        assert_eq!(
-            NodeStakePendingSlashLiabilityCount::<T>::get(subnet_id, subnet_node_id),
-            1,
-        );
-        assert_eq!(
-            ValidatorDelegateStakePendingSlashLiabilityCount::<T>::get(validator_id),
-            1,
-        );
-        assert_eq!(
-            ConsensusRoundSettlementStatus::<T>::get(subnet_id, subnet_epoch),
-            Some(false),
-        );
-        assert_eq!(
-            PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id),
-            Some(subnet_epoch),
-        );
-        assert_eq!(
-            ValidatorDelegateStakeSlashLockUntil::<T>::get(validator_id),
-            election_block.saturating_add(T::EpochLength::get()),
-        );
+    /// The production election envelope takes the componentwise maximum of both profiles.
+    #[benchmark(extra)]
+    fn elect_validator_multi_node(
+        x: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
+    ) {
+        let (subnet_id, epoch, block) = prepare_election_weight_fixture::<T>(x, true);
+        #[block]
+        {
+            let _ = TotalSubnetElectableNodes::<T>::get(subnet_id);
+            Network::<T>::elect_validator(subnet_id, epoch, block);
+        }
+        verify_election_weight_fixture::<T>(subnet_id, epoch, block, x);
     }
 
     #[benchmark]
@@ -11636,6 +11713,13 @@ mod benchmarks {
             DEFAULT_SUBNET_NODE_STAKE,
         );
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
+        for node_id in 1..=x {
+            let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, node_id).unwrap();
+            ValidatorDelegateStakeBalance::<T>::insert(
+                validator_id,
+                DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
+            );
+        }
 
         increase_epochs::<T>(1);
 
@@ -11652,7 +11736,7 @@ mod benchmarks {
                 })
                 .collect(),
             validator_node_stake_balance: NodeSubnetStake::<T>::get(1, subnet_id),
-            validator_delegate_stake_balance: 0,
+            validator_delegate_stake_balance: DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
             policy: Network::<T>::consensus_policy_snapshot(
                 subnet_id,
                 subnet_epoch.saturating_sub(1),
@@ -11672,7 +11756,7 @@ mod benchmarks {
             .saturating_add(NETWORK_SUBNET_EMISSION_SLOT);
         let allocation_subnet_epoch =
             Network::<T>::get_subnet_epoch_with_block_as_u32(subnet_id, allocation_block);
-        SubnetElectedValidator::<T>::insert(subnet_id, allocation_subnet_epoch, benchmark_round);
+        SubnetElectedValidator::<T>::insert(subnet_id, allocation_subnet_epoch, &benchmark_round);
 
         // ⸺ Generate subnet weights
         let _ = Network::<T>::handle_subnet_emission_weights(epoch);
@@ -11694,13 +11778,10 @@ mod benchmarks {
         let current_epoch = Network::<T>::get_current_epoch_as_u32();
 
         // submit data for the previous epoch
-        let validator_ids = Network::<T>::canonicalize_consensus_validator_ids(
-            consensus_data.validator_ids.clone(),
-        );
         let snapshot = Network::<T>::snapshot_consensus_attestor_weights(
             subnet_id,
-            subnet_epoch - 1,
-            &validator_ids,
+            &benchmark_round.policy,
+            &benchmark_round.eligible_validator_identity_ids,
         )
         .unwrap();
         SubnetConsensusSubmission::<T>::insert(subnet_id, subnet_epoch - 1, consensus_data);
@@ -11729,8 +11810,10 @@ mod benchmarks {
                 current_epoch,
             );
 
-            // assert SubnetConsensusSubmission exists
-            assert!(result.is_some(), "Precheck consensus failed");
+            assert_eq!(
+                result.expect("Precheck consensus failed").attestation_ratio,
+                Network::<T>::percentage_factor_as_u128(),
+            );
         }
 
         let rep = SubnetReputation::<T>::get(subnet_id);
@@ -11791,6 +11874,13 @@ mod benchmarks {
         );
         let stored_round =
             SubnetElectedValidator::<T>::get(subnet_id, previous_subnet_epoch).unwrap();
+        let snapshot = Network::<T>::snapshot_consensus_attestor_weights(
+            subnet_id,
+            &stored_round.policy,
+            &stored_round.eligible_validator_identity_ids,
+        )
+        .expect("missing-proposal benchmark has a complete election snapshot");
+        SubnetConsensusAttestorWeights::<T>::insert(subnet_id, previous_subnet_epoch, snapshot);
         assert_eq!(stored_round.eligible_subnet_node_ids.len() as u32, x);
         assert_eq!(stored_round.eligible_validator_identity_ids.len() as u32, x);
         assert_eq!(

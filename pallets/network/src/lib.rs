@@ -1160,6 +1160,8 @@ pub mod pallet {
         ScoreOverflow,
         /// Attestor weight overflow
         AttestorWeightOverflow,
+        /// Election-time voting weights are missing or inconsistent with the elected round.
+        InvalidConsensusAttestorWeightSnapshot,
         ElectionSlotInsertFail,
         /// Not the key owner
         NotKeyOwner,
@@ -4750,7 +4752,8 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// Proposal-time attestor weight snapshots used for stake-weighted consensus.
+    /// Immutable election-time weights for every eligible node. Proposal quarantine determines
+    /// the subset used for quorum, without changing this map or its full-election total.
     #[pallet::storage]
     pub type SubnetConsensusAttestorWeights<T> = StorageDoubleMap<
         _,

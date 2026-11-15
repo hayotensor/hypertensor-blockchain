@@ -379,3 +379,21 @@ annotations were updated to identify the BABE keys, while the larger existing
 envelopes remain in place. This change is not a hardware benchmark regeneration;
 regenerate these methods with the final candidate-commitment protocol and target
 validator hardware before launch.
+
+## Election-time attestor snapshots (2026-11-14)
+
+Seven production methods in both weight implementations were regenerated using
+compiled Wasm, 20 steps, 10 repeats, and `max` time/PoV analysis. Election combines
+distinct-identity and nonlinear multi-node profiles with maximum-size ownership
+and allocation records. The prior measured envelopes and all manual allowances
+remain floors; the production `WeightInfo` interface is unchanged. All 226 trait
+methods have exactly two implementations; the additional profile is measurement-only.
+
+The installed maximum mandatory subnet-slot reservation at 512 nodes is
+468.657 ms and 10,858,640 proof bytes, below the unchanged 1-second/16-MiB budget.
+All five verified capacity profiles passed from 64 through 512 nodes. The full
+healthy hook peaked at 58.229378 ms. The full pallet/benchmark suite passed 1,111
+tests (one ignored), and the actual runtime integrity test passed.
+
+See the [measurement audit](../../.maintain/election-snapshot-audit.md) for exact
+commands, artifact paths, Wasm hashes, capacity measurements, and merge safeguards.

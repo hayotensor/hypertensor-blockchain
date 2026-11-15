@@ -67,20 +67,24 @@ pub fn insert_elected_subnet_node(subnet_id: u32, subnet_epoch: u32, subnet_node
     let validator_id =
         SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id).unwrap_or_default();
 
-    SubnetElectedValidator::<Test>::insert(
-        subnet_id,
-        subnet_epoch,
-        crate::ElectedConsensusRound {
-            validator_subnet_node_id: subnet_node_id,
-            validator_id,
+    let round = crate::ElectedConsensusRound {
+        validator_subnet_node_id: subnet_node_id,
+        validator_id,
 
-            eligible_subnet_node_ids: vec![subnet_node_id],
-            eligible_validator_identity_ids: BTreeMap::from([(subnet_node_id, validator_id)]),
-            validator_node_stake_balance: NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
-            policy: Network::consensus_policy_snapshot(subnet_id, subnet_epoch),
-            validator_delegate_stake_balance,
-        },
-    );
+        eligible_subnet_node_ids: vec![subnet_node_id],
+        eligible_validator_identity_ids: BTreeMap::from([(subnet_node_id, validator_id)]),
+        validator_node_stake_balance: NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
+        policy: Network::consensus_policy_snapshot(subnet_id, subnet_epoch),
+        validator_delegate_stake_balance,
+    };
+    let weights = Network::snapshot_consensus_attestor_weights(
+        subnet_id,
+        &round.policy,
+        &round.eligible_validator_identity_ids,
+    )
+    .expect("fixture election weights must be valid");
+    crate::SubnetConsensusAttestorWeights::<Test>::insert(subnet_id, subnet_epoch, weights);
+    SubnetElectedValidator::<Test>::insert(subnet_id, subnet_epoch, round);
 }
 pub const DEFAULT_DELEGATE_REWARD_RATE: u128 = PERCENTAGE_FACTOR / 10; // 10%
 pub const ALICE_EXPECTED_BALANCE: u128 = 1000000000000000000000000; // 1,000,000
@@ -108,9 +112,9 @@ pub fn seed_equal_validator_delegate_stake_for_subnet(subnet_id: u32) {
         }
     }
 
-    // Consensus fixtures that seed electable validator stake are preparing to elect or submit.
-    // Real hooks cannot elect before this local marker, so move only preparing fixtures to their
-    // first live assigned slot. Calls made during an already-live round do not move the block.
+    // Real hooks cannot elect before this local marker, so move preparing fixtures to their
+    // first live assigned slot. This seeds balances only: it never refreshes an elected round's
+    // immutable voting weights, and calls during an already-live round do not move the block.
     if let Some(consensus_eligible_from_subnet_epoch) = SubnetsData::<Test>::get(subnet_id)
         .and_then(|subnet| subnet.consensus_eligible_from_subnet_epoch)
     {
@@ -2487,8 +2491,6 @@ pub fn run_subnet_consensus_step_v2(
 
     let subnet_node_data_vec =
         get_subnet_node_consensus_data(subnet_id, max_subnet_nodes, 0, total_subnet_nodes);
-
-    seed_equal_validator_delegate_stake_for_subnet(subnet_id);
 
     assert_ok!(Network::propose_attestation(
         RuntimeOrigin::signed(validator_hotkey.clone()),
