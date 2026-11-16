@@ -114,13 +114,17 @@ impl<T: Config> Pallet<T> {
     pub fn sigmoid_decreasing(x: f64, mid: f64, k: f64, min: f64, max: f64) -> f64 {
         let c = (x - mid).abs();
         let d = k * c;
-        let exp = exp(d);
+        // Every positive u64 steepness is a valid reward policy. Evaluating exp(d) can
+        // overflow for those policies and turn the early-reward branch into infinity /
+        // infinity. The equivalent negative exponent stays in [0, 1], including underflow
+        // to zero at the correctly rounded limiting reward.
+        let tail = exp(-d);
 
         // symmetric sigmoid around mid
         let sigmoid = if x > mid {
-            1.0 / (1.0 + exp)
+            tail / (1.0 + tail)
         } else {
-            exp / (1.0 + exp)
+            1.0 / (1.0 + tail)
         };
 
         sigmoid.clamp(min, max)

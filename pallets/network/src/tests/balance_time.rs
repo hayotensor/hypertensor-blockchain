@@ -459,40 +459,73 @@ fn balance_time_drain_and_redeposit_keeps_earned_area_across_pool_generation() {
 }
 
 #[test]
-fn balance_time_missing_record_fails_deposit_reward_and_withdrawal_without_writes() {
-    new_test_ext().execute_with(|| {
-        seed_subnet(1, 0);
-        assert_ok!(Network::handle_increase_account_delegate_stake(
-            &account(1),
-            1,
-            1000
-        ));
-        SubnetBalanceTimes::<Test>::remove(1);
-        let shares = AccountSubnetDelegateStakeShares::<Test>::get(account(1), 1);
-        let _ = Balances::deposit_creating(&account(1), 2000);
-        let wallet = Balances::free_balance(account(1));
-        System::set_block_number(10);
-        assert_err!(
-            Network::add_subnet_delegate_stake(RuntimeOrigin::signed(account(1)), 1, 1000, 1),
-            Error::<Test>::MissingSubnetBalanceTime
-        );
-        assert_eq!(Balances::free_balance(account(1)), wallet);
-        assert_err!(
-            Network::do_increase_delegate_stake(1, 1000),
-            Error::<Test>::MissingSubnetBalanceTime
-        );
-        assert_err!(
-            Network::remove_delegate_stake(RuntimeOrigin::signed(account(1)), 1, shares, 1),
-            Error::<Test>::MissingSubnetBalanceTime
-        );
-        assert_eq!(TotalSubnetDelegateStakeBalance::<Test>::get(1), 1000);
-        assert_eq!(TotalDelegateStake::<Test>::get(), 1000);
-        assert_eq!(
-            AccountSubnetDelegateStakeShares::<Test>::get(account(1), 1),
-            shares
-        );
-        assert!(!SubnetBalanceTimes::<Test>::contains_key(1));
-    });
+fn balance_time_missing_record_recovers_deposit_reward_and_withdrawal_without_backdating() {
+    for operation in ["deposit", "reward", "withdrawal"] {
+        new_test_ext().execute_with(|| {
+            seed_subnet(1, 0);
+            assert_ok!(Network::handle_increase_account_delegate_stake(
+                &account(1),
+                1,
+                1000
+            ));
+            SubnetBalanceTimes::<Test>::remove(1);
+            let shares = AccountSubnetDelegateStakeShares::<Test>::get(account(1), 1);
+            let _ = Balances::deposit_creating(&account(1), 2000);
+            let wallet = Balances::free_balance(account(1));
+            let block = EpochLength::get() + 1;
+            System::set_block_number(block);
+            let expected_balance = match operation {
+                "deposit" => {
+                    assert_ok!(Network::add_subnet_delegate_stake(
+                        RuntimeOrigin::signed(account(1)),
+                        1,
+                        1000,
+                        1
+                    ));
+                    assert_eq!(Balances::free_balance(account(1)), wallet - 1000);
+                    assert!(AccountSubnetDelegateStakeShares::<Test>::get(account(1), 1) > shares);
+                    2000
+                }
+                "reward" => {
+                    assert_ok!(Network::do_increase_delegate_stake(1, 1000));
+                    assert_eq!(Balances::free_balance(account(1)), wallet);
+                    assert_eq!(
+                        AccountSubnetDelegateStakeShares::<Test>::get(account(1), 1),
+                        shares
+                    );
+                    2000
+                }
+                "withdrawal" => {
+                    let redeemable = Network::convert_account_shares_to_balance(&account(1), 1);
+                    assert_ok!(Network::remove_delegate_stake(
+                        RuntimeOrigin::signed(account(1)),
+                        1,
+                        shares,
+                        1
+                    ));
+                    assert_eq!(Balances::free_balance(account(1)), wallet);
+                    assert_eq!(
+                        AccountSubnetDelegateStakeShares::<Test>::get(account(1), 1),
+                        0
+                    );
+                    1000 - redeemable
+                }
+                _ => unreachable!(),
+            };
+            assert_eq!(
+                TotalSubnetDelegateStakeBalance::<Test>::get(1),
+                expected_balance
+            );
+            assert_eq!(TotalDelegateStake::<Test>::get(), expected_balance);
+            assert_eq!(
+                SubnetBalanceTimes::<Test>::get(1),
+                Some(empty_record(block))
+            );
+            let next = checkpoint(1, block + 1);
+            assert_eq!(next.previous_epoch_area, U256::zero());
+            assert_eq!(next.current_epoch_area, U256::from(expected_balance));
+        });
+    }
 }
 
 #[test]
@@ -529,7 +562,7 @@ fn balance_time_failed_slippage_and_overflow_keep_checkpoint_unchanged() {
 }
 
 #[test]
-fn balance_time_empty_epoch_zero_and_missing_record_allocation_are_atomic() {
+fn balance_time_empty_epoch_and_missing_record_preserve_healthy_allocations() {
     new_test_ext().execute_with(|| {
         assert!(Network::get_time_weighted_stake_weights(vec![], 0)
             .0
@@ -551,11 +584,29 @@ fn balance_time_empty_epoch_zero_and_missing_record_allocation_are_atomic() {
         SubnetBalanceTimes::<Test>::insert(1, empty_record(0));
         SubnetBalanceTimes::<Test>::remove(2);
         TotalSubnetDelegateStakeBalance::<Test>::insert(1, 1000);
-        let before = SubnetBalanceTimes::<Test>::get(1);
-        assert!(Network::get_time_weighted_stake_weights(vec![1, 2], 1)
-            .0
-            .is_empty());
-        assert_eq!(SubnetBalanceTimes::<Test>::get(1), before);
+        // A larger present balance cannot substitute for this subnet's missing history.
+        TotalSubnetDelegateStakeBalance::<Test>::insert(2, 9000);
+        let (weights, _) = Network::get_time_weighted_stake_weights(vec![1, 2], 1);
+        assert_eq!(weights.len(), 2);
+        assert_eq!(weights.get(&1), Some(&Network::percentage_factor_as_u128()));
+        assert_eq!(weights.get(&2), Some(&0));
+        let allocation_block = EpochLength::get() + NETWORK_SUBNET_EMISSION_SLOT;
+        assert_eq!(
+            SubnetBalanceTimes::<Test>::get(1),
+            Some(SubnetBalanceTime {
+                last_updated_block: allocation_block,
+                previous_epoch_area: U256::from(1000u128 * EpochLength::get() as u128),
+                current_epoch_area: U256::from(1000u128 * NETWORK_SUBNET_EMISSION_SLOT as u128),
+            })
+        );
+        assert_eq!(
+            SubnetBalanceTimes::<Test>::get(2),
+            Some(empty_record(allocation_block))
+        );
+        assert_eq!(
+            Network::get_time_weighted_stake_weights(vec![1, 2], 1).0,
+            weights
+        );
     });
 }
 

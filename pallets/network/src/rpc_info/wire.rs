@@ -130,15 +130,7 @@ fn rpc_consensus_policy(value: ConsensusPolicySnapshot) -> rpc::ConsensusPolicyI
         attestor_min_reward_factor: value.attestor_min_reward_factor.into(),
         base_slash_percentage: value.base_slash_percentage.into(),
         max_slash_amount: value.max_slash_amount.into(),
-        validator_delegate_stake_slash_threshold: value
-            .validator_delegate_stake_slash_threshold
-            .into(),
-        base_validator_delegate_stake_slash_percentage: value
-            .base_validator_delegate_stake_slash_percentage
-            .into(),
-        max_validator_delegate_stake_slash_amount: value
-            .max_validator_delegate_stake_slash_amount
-            .into(),
+        strong_rejection_threshold: value.strong_rejection_threshold.into(),
         validator_absent_subnet_reputation_factor: value
             .validator_absent_subnet_reputation_factor
             .into(),
@@ -392,9 +384,6 @@ impl<T: Config> Pallet<T> {
             identity: ValidatorMetadata::<T>::get(validator_id).map(rpc_identity::<T>),
             delegate_pool_shares: ValidatorDelegateStakeShares::<T>::get(validator_id).into(),
             delegate_pool_balance: ValidatorDelegateStakeBalance::<T>::get(validator_id).into(),
-            delegate_pool_slash_lock_until: ValidatorDelegateStakeSlashLockUntil::<T>::get(
-                validator_id,
-            ),
             last_node_allocation_update: LastValidatorNodeDelegateStakeWeightUpdate::<T>::get(
                 validator_id,
             ),
@@ -613,7 +602,6 @@ impl<T: Config> Pallet<T> {
             },
             elected_subnet_node_id: round.validator_subnet_node_id,
             elected_validator_id: round.validator_id,
-            validator_delegate_balance_at_election: round.validator_delegate_stake_balance.into(),
             election_candidates,
             policy: rpc_consensus_policy(round.policy),
             proposal,

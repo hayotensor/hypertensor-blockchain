@@ -2008,8 +2008,6 @@ fn prepare_election_weight_fixture<T: Config>(x: u32, shared_identities: bool) -
     // for both the node-count penalty (2/3) and normalized stake power (1/3).
     ConsensusValidatorNodeCountDecay::<T>::insert(subnet_id, factor / 3);
     ConsensusValidatorStakeWeightPower::<T>::insert(subnet_id, factor / 3);
-    BaseValidatorDelegateStakeSlashPercentage::<T>::set(factor / 10);
-    MaxValidatorDelegateStakeSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
     BaseSlashPercentage::<T>::set(factor / 10);
     MaxSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
     (
@@ -2035,8 +2033,8 @@ fn verify_election_weight_fixture<T: Config>(subnet_id: u32, epoch: u32, block: 
         1
     );
     assert_eq!(
-        ValidatorDelegateStakePendingSlashLiabilityCount::<T>::get(round.validator_id),
-        1
+        NodeStakeSlashLockUntil::<T>::get(subnet_id, round.validator_subnet_node_id),
+        block.saturating_add(T::EpochLength::get())
     );
     assert_eq!(
         ConsensusRoundSettlementStatus::<T>::get(subnet_id, epoch),
@@ -2045,10 +2043,6 @@ fn verify_election_weight_fixture<T: Config>(subnet_id: u32, epoch: u32, block: 
     assert_eq!(
         PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id),
         Some(epoch)
-    );
-    assert_eq!(
-        ValidatorDelegateStakeSlashLockUntil::<T>::get(round.validator_id),
-        block.saturating_add(T::EpochLength::get())
     );
 }
 
@@ -2678,7 +2672,6 @@ fn prepare_accepted_queue_mutations<T: Config>(
         policy: ConsensusPolicySnapshot::default(),
         validator_subnet_node_id: 0,
         validator_node_stake_balance: 0,
-        validator_delegate_stake_balance: 0,
         validator_epoch_progress: 0,
         validator_reward_factor: 0,
         attestation_ratio: Network::<T>::percentage_factor_as_u128(),
@@ -2761,9 +2754,7 @@ fn prepare_alternate_emission_step<T: Config>(
     policy.validator_identity_attestation_percentage = percentage;
     policy.base_slash_percentage = percentage;
     policy.max_slash_amount = u128::MAX;
-    policy.validator_delegate_stake_slash_threshold = percentage;
-    policy.base_validator_delegate_stake_slash_percentage = percentage;
-    policy.max_validator_delegate_stake_slash_amount = u128::MAX;
+    policy.strong_rejection_threshold = percentage;
     policy.validator_absent_subnet_reputation_factor = percentage;
     policy.not_in_consensus_subnet_reputation_factor = percentage;
     policy.min_subnet_node_reputation = percentage;
@@ -2798,7 +2789,6 @@ fn prepare_alternate_emission_step<T: Config>(
                 validator_subnet_node_id,
                 subnet_id,
             ),
-            validator_delegate_stake_balance: delegate_pool,
             policy,
         },
     );
@@ -2807,8 +2797,7 @@ fn prepare_alternate_emission_step<T: Config>(
         subnet_id,
         &policy,
         &eligible_validator_identity_ids,
-    )
-    .expect("every historical election, including a missing proposal, has a complete snapshot");
+    );
     SubnetConsensusAttestorWeights::<T>::insert(subnet_id, previous_subnet_epoch, snapshot);
 
     if mode != AlternateEmissionMode::Missing {
@@ -2891,12 +2880,11 @@ fn prepare_alternate_emission_step<T: Config>(
         previous_subnet_epoch,
         current_epoch,
     );
+    PendingConsensusRoundSlashLiabilityNode::<T>::insert(subnet_id, validator_subnet_node_id);
     NodeStakePendingSlashLiabilityCount::<T>::insert(subnet_id, validator_subnet_node_id, 1);
-    ValidatorDelegateStakePendingSlashLiabilityCount::<T>::insert(validator_id, 1);
     let nominal_unlock_block =
         Network::<T>::get_current_block_as_u32().saturating_add(T::EpochLength::get());
     NodeStakeSlashLockUntil::<T>::insert(subnet_id, validator_subnet_node_id, nominal_unlock_block);
-    ValidatorDelegateStakeSlashLockUntil::<T>::insert(validator_id, nominal_unlock_block);
 
     // A validator slot vector may have any insertion/removal order. Put the rejected attestors at
     // the tail so each of the bounded removal operations scans the largest reachable prefix while
@@ -8030,9 +8018,6 @@ mod benchmarks {
         assert!(!PendingConsensusRoundSettlementEpoch::<T>::contains_key(
             context.subnet_id
         ));
-        assert!(!Network::<T>::is_validator_delegate_stake_slash_locked(
-            context.validator_id
-        ));
         assert_eq!(
             ConsensusRoundSettlementStatus::<T>::get(
                 context.subnet_id,
@@ -8071,9 +8056,6 @@ mod benchmarks {
         );
         assert!(!PendingConsensusRoundSettlementEpoch::<T>::contains_key(
             context.subnet_id
-        ));
-        assert!(!Network::<T>::is_validator_delegate_stake_slash_locked(
-            context.validator_id
         ));
         assert_eq!(
             ConsensusRoundSettlementStatus::<T>::get(
@@ -8657,28 +8639,16 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn set_validator_delegate_stake_slash_config() {
+    fn set_strong_rejection_threshold() {
         let threshold = Network::<T>::percentage_factor_as_u128() / 3;
-        let base_percentage = Network::<T>::percentage_factor_as_u128() / 10;
-        let max_amount = 1_000_000_000_000_000_000_u128;
 
         let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
             .expect("try_successful_origin failed");
 
         #[extrinsic_call]
-        set_validator_delegate_stake_slash_config(
-            origin as T::RuntimeOrigin,
-            threshold,
-            base_percentage,
-            max_amount,
-        );
+        set_strong_rejection_threshold(origin as T::RuntimeOrigin, threshold);
 
-        assert_eq!(ValidatorDelegateStakeSlashThreshold::<T>::get(), threshold);
-        assert_eq!(
-            BaseValidatorDelegateStakeSlashPercentage::<T>::get(),
-            base_percentage
-        );
-        assert_eq!(MaxValidatorDelegateStakeSlashAmount::<T>::get(), max_amount);
+        assert_eq!(StrongRejectionThreshold::<T>::get(), threshold);
     }
 
     #[benchmark]
@@ -10234,7 +10204,7 @@ mod benchmarks {
     }
 
     // #[benchmark]
-    // fn slash_validator() {
+    // fn slash_subnet_node() {
     //     let max_subnets = MaxSubnets::<T>::get();
     //     let max_subnet_nodes = MaxSubnetNodes::<T>::get();
     //     let min_subnet_nodes = MinSubnetNodes::<T>::get();
@@ -10254,7 +10224,7 @@ mod benchmarks {
 
     //     #[block]
     //     {
-    //         Network::<T>::slash_validator(
+    //         Network::<T>::slash_subnet_node(
     //             subnet_id,
     //             subnet_node_id,
     //             1, // attestation percentage
@@ -10566,7 +10536,6 @@ mod benchmarks {
                         .map(|node_id| (node_id, node_id))
                         .collect(),
                     validator_node_stake_balance: NodeSubnetStake::<T>::get(1, subnet_id),
-                    validator_delegate_stake_balance: 0,
                     policy: Network::<T>::consensus_policy_snapshot(
                         subnet_id,
                         epoch.saturating_sub(1),
@@ -11619,9 +11588,8 @@ mod benchmarks {
         assert_eq!(NodeRegistrationsThisEpoch::<T>::get(subnet_id), 0);
     }
 
-    /// Missing proposals decode the maximum elected-round snapshot and execute both validator
-    /// node-stake and delegate-pool economic slashes while the subnet retains a coherent
-    /// maximum-size live/electable set.
+    /// Missing proposals decode the maximum elected-round snapshot and slash the elected node's
+    /// direct stake while the subnet retains a coherent maximum-size live/electable set.
     #[benchmark]
     fn emission_step_missing() {
         let h = T::MaxSubnetNodesUpperBound::get();
@@ -11646,10 +11614,21 @@ mod benchmarks {
             context.subnet_id,
             context.previous_subnet_epoch,
         ));
-        assert!(
-            ValidatorDelegateStakeBalance::<T>::get(context.validator_id)
-                < context.initial_delegate_pool
+        assert_eq!(
+            ValidatorDelegateStakeBalance::<T>::get(context.validator_id),
+            context.initial_delegate_pool
         );
+        let round =
+            SubnetElectedValidator::<T>::get(context.subnet_id, context.previous_subnet_epoch)
+                .expect("the settled round retains its node-stake snapshot");
+        assert!(
+            NodeSubnetStake::<T>::get(round.validator_subnet_node_id, context.subnet_id)
+                < round.validator_node_stake_balance
+        );
+        assert!(Network::<T>::is_consensus_round_settled(
+            context.subnet_id,
+            context.previous_subnet_epoch
+        ));
         assert!(SubnetElectedValidator::<T>::contains_key(
             context.subnet_id,
             context.previous_subnet_epoch,
@@ -11755,7 +11734,6 @@ mod benchmarks {
                 })
                 .collect(),
             validator_node_stake_balance: NodeSubnetStake::<T>::get(1, subnet_id),
-            validator_delegate_stake_balance: DEFAULT_DELEGATE_STAKE_TO_BE_ADDED,
             policy: Network::<T>::consensus_policy_snapshot(
                 subnet_id,
                 subnet_epoch.saturating_sub(1),
@@ -11801,8 +11779,7 @@ mod benchmarks {
             subnet_id,
             &benchmark_round.policy,
             &benchmark_round.eligible_validator_identity_ids,
-        )
-        .unwrap();
+        );
         SubnetConsensusSubmission::<T>::insert(subnet_id, subnet_epoch - 1, consensus_data);
         SubnetConsensusSubmissionMaxItems::<T>::insert(subnet_id, subnet_epoch - 1, x);
         SubnetConsensusAttestorWeights::<T>::insert(subnet_id, subnet_epoch - 1, snapshot);
@@ -11862,9 +11839,7 @@ mod benchmarks {
             SubnetNodeValidatorId::<T>::get(subnet_id, validator_subnet_node_id).unwrap();
         let percentage_factor = Network::<T>::percentage_factor_as_u128();
         let delegate_pool_balance = DEFAULT_DEPOSIT_AMOUNT;
-        ValidatorDelegateStakeSlashThreshold::<T>::set(percentage_factor);
-        BaseValidatorDelegateStakeSlashPercentage::<T>::set(percentage_factor / 2);
-        MaxValidatorDelegateStakeSlashAmount::<T>::set(delegate_pool_balance);
+        StrongRejectionThreshold::<T>::set(percentage_factor);
         BaseSlashPercentage::<T>::set(percentage_factor / 2);
         MaxSlashAmount::<T>::set(DEFAULT_SUBNET_NODE_STAKE);
         ValidatorDelegateStakeBalance::<T>::insert(validator_id, delegate_pool_balance);
@@ -11887,7 +11862,6 @@ mod benchmarks {
                     validator_subnet_node_id,
                     subnet_id,
                 ),
-                validator_delegate_stake_balance: delegate_pool_balance,
                 policy: Network::<T>::consensus_policy_snapshot(subnet_id, previous_subnet_epoch),
             },
         );
@@ -11897,21 +11871,10 @@ mod benchmarks {
             subnet_id,
             &stored_round.policy,
             &stored_round.eligible_validator_identity_ids,
-        )
-        .expect("missing-proposal benchmark has a complete election snapshot");
+        );
         SubnetConsensusAttestorWeights::<T>::insert(subnet_id, previous_subnet_epoch, snapshot);
         assert_eq!(stored_round.eligible_subnet_node_ids.len() as u32, x);
         assert_eq!(stored_round.eligible_validator_identity_ids.len() as u32, x);
-        assert_eq!(
-            stored_round.validator_delegate_stake_balance,
-            delegate_pool_balance
-        );
-        assert!(
-            stored_round
-                .policy
-                .base_validator_delegate_stake_slash_percentage
-                > 0
-        );
         assert!(stored_round.policy.base_slash_percentage > 0);
         ConsensusRoundSettlementStatus::<T>::insert(subnet_id, previous_subnet_epoch, false);
         PendingConsensusRoundSettlementEpoch::<T>::insert(subnet_id, previous_subnet_epoch);
@@ -11920,8 +11883,8 @@ mod benchmarks {
             previous_subnet_epoch,
             current_epoch,
         );
+        PendingConsensusRoundSlashLiabilityNode::<T>::insert(subnet_id, validator_subnet_node_id);
         NodeStakePendingSlashLiabilityCount::<T>::insert(subnet_id, validator_subnet_node_id, 1);
-        ValidatorDelegateStakePendingSlashLiabilityCount::<T>::insert(validator_id, 1);
         let nominal_unlock_block =
             Network::<T>::get_current_block_as_u32().saturating_add(T::EpochLength::get());
         NodeStakeSlashLockUntil::<T>::insert(
@@ -11929,7 +11892,6 @@ mod benchmarks {
             validator_subnet_node_id,
             nominal_unlock_block,
         );
-        ValidatorDelegateStakeSlashLockUntil::<T>::insert(validator_id, nominal_unlock_block);
         SubnetConsensusSubmission::<T>::remove(subnet_id, previous_subnet_epoch);
         let mut subnet_weights = BTreeMap::from([(subnet_id, percentage_factor)]);
         for index in 0..T::MaxPhysicalSubnetsUpperBound::get().saturating_sub(1) {
@@ -11964,10 +11926,6 @@ mod benchmarks {
         );
         assert_eq!(
             NodeStakePendingSlashLiabilityCount::<T>::get(subnet_id, validator_subnet_node_id,),
-            0,
-        );
-        assert_eq!(
-            ValidatorDelegateStakePendingSlashLiabilityCount::<T>::get(validator_id),
             0,
         );
     }
@@ -12017,7 +11975,6 @@ mod benchmarks {
                         .map(|node_id| (node_id, node_id))
                         .collect(),
                     validator_node_stake_balance: NodeSubnetStake::<T>::get(1, subnet_id),
-                    validator_delegate_stake_balance: 0,
                     policy: Network::<T>::consensus_policy_snapshot(
                         subnet_id,
                         epoch.saturating_sub(1),

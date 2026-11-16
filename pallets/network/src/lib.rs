@@ -573,10 +573,8 @@ pub mod pallet {
         SetBaseValidatorReward(u128),
         SetBaseSlashPercentage(u128),
         SetMaxSlashAmount(u128),
-        SetValidatorDelegateStakeSlashConfig {
+        SetStrongRejectionThreshold {
             threshold: u128,
-            base_percentage: u128,
-            max_amount: u128,
         },
         SetNetworkMinStakeBalance(u128),
         SetNetworkMaxStakeBalance(u128),
@@ -650,21 +648,25 @@ pub mod pallet {
             subnet_node_id: u32,
             epoch: u32,
         },
-        /// A global pause discarded this unsettled round without rewards or penalties.
+        /// Resume or unusable historical evidence cancelled this round without rewards or penalties.
         ConsensusRoundCancelled {
             subnet_id: u32,
             subnet_epoch: u32,
         },
-        ValidatorSlashApplied {
+        /// A consensus penalty deducted from one subnet node's direct stake.
+        SubnetNodeSlashApplied {
             subnet_id: u32,
-            validator_id: u32,
             subnet_node_id: u32,
             attestation_percentage: u128,
             node_stake_amount: u128,
-            validator_delegate_stake_amount: u128,
         },
-        /// A delegate pool lost its final asset unit. Its old shares are permanently invalidated
-        /// and a fresh generation may be initialized after all slash liabilities settle.
+        /// The node slash was rolled back and waived. Settlement and reputation processing continue.
+        SubnetNodeSlashFailed {
+            subnet_id: u32,
+            subnet_node_id: u32,
+            error: sp_runtime::DispatchError,
+        },
+        /// A delegate pool was emptied by withdrawal. Old shares are invalidated before reuse.
         ValidatorDelegatePoolReset {
             validator_id: u32,
             old_generation: u64,
@@ -1067,7 +1069,7 @@ pub mod pallet {
         InvalidNonAttestorDecreaseReputationFactor,
         InvalidValidatorRewardK,
         InvalidAttestorRewardExponent,
-        InvalidValidatorDelegateStakeSlashConfig,
+        InvalidStrongRejectionThreshold,
         /// Invalid values
         InvalidValues,
         /// Global unpause discarded this round; wait for the next assigned-slot election.
@@ -1131,8 +1133,6 @@ pub mod pallet {
         ElectedValidatorCannotUnstake,
         /// Elected validator on current epoch cannot remove to ensure they are able to be rewarded or penalized
         ElectedValidatorCannotRemove,
-        /// Outgoing validator-pool stake is locked until every slashable elected round settles.
-        ValidatorDelegateStakeSlashLocked,
         /// A subnet cannot be removed while its last elected round still requires settlement.
         ConsensusRoundPendingSettlement,
         MinActiveNodeStakeEpochs,
@@ -2143,9 +2143,7 @@ pub mod pallet {
         pub attestor_min_reward_factor: u128,
         pub base_slash_percentage: u128,
         pub max_slash_amount: u128,
-        pub validator_delegate_stake_slash_threshold: u128,
-        pub base_validator_delegate_stake_slash_percentage: u128,
-        pub max_validator_delegate_stake_slash_amount: u128,
+        pub strong_rejection_threshold: u128,
         pub validator_absent_subnet_reputation_factor: u128,
         pub in_consensus_subnet_reputation_factor: u128,
         pub not_in_consensus_subnet_reputation_factor: u128,
@@ -2181,7 +2179,6 @@ pub mod pallet {
         /// Direct node principal exposed to penalties for this round. Later stake additions must
         /// not inherit liability for conduct that predates them.
         pub validator_node_stake_balance: u128,
-        pub validator_delegate_stake_balance: u128,
         pub policy: ConsensusPolicySnapshot,
     }
 
@@ -2195,8 +2192,6 @@ pub mod pallet {
     ///   proposed this consensus data.
     /// * `validator_node_stake_balance` - Direct node principal snapshotted at election and
     ///   therefore exposed to this round's node penalty.
-    /// * `validator_delegate_stake_balance` - The validator identity pool balance snapshotted
-    ///   when this round's validator was elected.
     /// * `validator_epoch_progress` - The percent process of the epoch when the validator submitted
     ///   consensus data, represented as 1e18.
     /// * `validator_reward_factor` - The reward factor of the validator.
@@ -2242,7 +2237,6 @@ pub mod pallet {
         pub validator_subnet_node_id: u32,
         /// Direct node principal snapshotted when this round's validator was elected.
         pub validator_node_stake_balance: u128,
-        pub validator_delegate_stake_balance: u128,
         pub validator_epoch_progress: u128,
         pub validator_reward_factor: u128,
         pub attestation_ratio: u128,
@@ -3052,23 +3046,11 @@ pub mod pallet {
         T::Economics::get().max_slash
     }
     /// This type value is referenced in:
-    /// - ValidatorDelegateStakeSlashThreshold
+    /// - StrongRejectionThreshold
     #[pallet::type_value]
-    pub fn DefaultValidatorDelegateStakeSlashThreshold() -> u128 {
+    pub fn DefaultStrongRejectionThreshold() -> u128 {
         // Fixed-point representation of one third, rounded down.
         333333333333333333
-    }
-    /// This type value is referenced in:
-    /// - BaseValidatorDelegateStakeSlashPercentage
-    #[pallet::type_value]
-    pub fn DefaultBaseValidatorDelegateStakeSlashPercentage() -> u128 {
-        0
-    }
-    /// This type value is referenced in:
-    /// - MaxValidatorDelegateStakeSlashAmount
-    #[pallet::type_value]
-    pub fn DefaultMaxValidatorDelegateStakeSlashAmount() -> u128 {
-        0
     }
     /// This type value is referenced in:
     /// - ConsensusValidatorIdentityAttestationPercentage
@@ -3977,22 +3959,10 @@ pub mod pallet {
     #[pallet::storage]
     pub type MaxSlashAmount<T> = StorageValue<_, u128, ValueQuery, DefaultMaxSlashAmount<T>>;
 
-    /// Stake-weighted attestation rate below which a validator's delegate pool may be slashed.
+    /// Distinct-identity support below which rejected proposals incur reputation penalties.
     #[pallet::storage]
-    pub type ValidatorDelegateStakeSlashThreshold<T> =
-        StorageValue<_, u128, ValueQuery, DefaultValidatorDelegateStakeSlashThreshold>;
-
-    /// Maximum percentage of the elected-round pool snapshot lost at zero attestation.
-    /// A zero value disables validator delegate-pool slashing.
-    #[pallet::storage]
-    pub type BaseValidatorDelegateStakeSlashPercentage<T> =
-        StorageValue<_, u128, ValueQuery, DefaultBaseValidatorDelegateStakeSlashPercentage>;
-
-    /// Absolute cap on one elected round's validator delegate-pool slash.
-    /// A zero value disables validator delegate-pool slashing.
-    #[pallet::storage]
-    pub type MaxValidatorDelegateStakeSlashAmount<T> =
-        StorageValue<_, u128, ValueQuery, DefaultMaxValidatorDelegateStakeSlashAmount>;
+    pub type StrongRejectionThreshold<T> =
+        StorageValue<_, u128, ValueQuery, DefaultStrongRejectionThreshold>;
 
     /// Network-wide percentage of eligible validator identities required to attest. The value is
     /// snapshotted into each elected consensus round and is controlled by the admin collective.
@@ -4538,9 +4508,8 @@ pub mod pallet {
         ValueQuery,
     >;
 
-    /// Number of elected, slash-enabled rounds that have not settled this exact node position.
-    /// A count, rather than an unlock block, keeps overlapping and delayed rounds locked until
-    /// each one has actually applied (or definitively skipped) its snapshotted economic penalty.
+    /// Outstanding slash liability for this node position (zero or one).
+    /// Each subnet has at most one pending round; liabilities on other subnets are independent.
     #[pallet::storage]
     pub type NodeStakePendingSlashLiabilityCount<T> = StorageDoubleMap<
         _,
@@ -4612,19 +4581,6 @@ pub mod pallet {
 
     #[pallet::storage]
     pub type TotalValidatorDelegateStakeBalance<T> = StorageValue<_, u128, ValueQuery>;
-
-    /// Validator identity => nominal settlement block for its latest slash-enabled election.
-    /// The pending-liability count below is authoritative if actual settlement is delayed.
-    #[pallet::storage]
-    pub type ValidatorDelegateStakeSlashLockUntil<T> =
-        StorageMap<_, Identity, u32, u32, ValueQuery>;
-
-    /// Number of slash-enabled elected rounds that still expose a validator delegate pool.
-    /// The identity-wide count covers simultaneous elections in multiple subnets without letting
-    /// one settlement unlock principal committed to another outstanding round.
-    #[pallet::storage]
-    pub type ValidatorDelegateStakePendingSlashLiabilityCount<T> =
-        StorageMap<_, Identity, u32, u32, ValueQuery>;
 
     //
     // Node burn
@@ -4717,6 +4673,12 @@ pub mod pallet {
     /// per subnet and lets later assigned slots retry it without scanning historical elections.
     #[pallet::storage]
     pub type PendingConsensusRoundSettlementEpoch<T> =
+        StorageMap<_, Identity, u32, u32, OptionQuery>;
+
+    /// Slashable node of the pending round, independent of its larger historical snapshots.
+    /// This compact record lets cancellation release stake even if a snapshot is unreadable.
+    #[pallet::storage]
+    pub type PendingConsensusRoundSlashLiabilityNode<T> =
         StorageMap<_, Identity, u32, u32, OptionQuery>;
 
     /// General emission epoch whose immutable allocation funds a pending subnet round.
@@ -8071,19 +8033,13 @@ pub mod pallet {
         }
 
         #[pallet::call_index(182)]
-        #[pallet::weight(T::WeightInfo::set_validator_delegate_stake_slash_config())]
-        pub fn set_validator_delegate_stake_slash_config(
+        #[pallet::weight(T::WeightInfo::set_strong_rejection_threshold())]
+        pub fn set_strong_rejection_threshold(
             origin: OriginFor<T>,
             threshold: u128,
-            base_percentage: u128,
-            max_amount: u128,
         ) -> DispatchResult {
             T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
-            Self::do_set_validator_delegate_stake_slash_config(
-                threshold,
-                base_percentage,
-                max_amount,
-            )
+            Self::do_set_strong_rejection_threshold(threshold)
         }
 
         /// Set the Q18 capacitor release percentage (0–100%), effective at the next settlement.
@@ -8589,7 +8545,7 @@ pub mod pallet {
             reason: SubnetRemovalReason,
         ) -> SubnetRemovalOutcome {
             // Preserve the assigned slot until the O(1) pending-round pointer has been retried.
-            // Removing it first would strand both node and shared-pool slash liabilities.
+            // Removing it first would strand the elected node's slash liability.
             let pending_settlement_weight = T::DbWeight::get().reads(1);
             if !weight_meter.can_consume(pending_settlement_weight) {
                 return SubnetRemovalOutcome::Deferred;
@@ -9853,49 +9809,10 @@ pub mod pallet {
                 "runtime node-count bounds must be non-zero where required and remain inside the generated benchmark domains"
             );
 
-            // Reward settlement and election are the two mandatory subnet-slot priorities. The
-            // configured hook budget must always admit both at their reachable maximum before
-            // optional physical cleanup or maintenance is considered.
-            let max_h = T::MaxSubnetNodesUpperBound::get();
-            let max_q = T::MaxRegisteredNodesUpperBound::get();
-            let minimum_strong_identity_attestors = Self::min_identity_attestors_for_ratio(
-                Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
-                T::SuperMajorityAttestationRatio::get(),
-            );
-            let max_non_attestors = max_h.saturating_sub(minimum_strong_identity_attestors);
-            let accepted_settlement_weight = T::WeightInfo::emission_step(max_h)
-                .saturating_add(
-                    T::WeightInfo::emission_step_accepted_queue_mutations(max_q).max(
-                        T::WeightInfo::emission_step_accepted_queue_mutations_front(max_q),
-                    ),
-                )
-                .saturating_add(
-                    T::WeightInfo::emission_step_accepted_below_min_weight_reputation(max_h),
-                )
-                .saturating_add(
-                    T::WeightInfo::emission_step_accepted_non_attestor_reputation(
-                        max_non_attestors,
-                    ),
-                );
-            let max_settlement_weight = accepted_settlement_weight
-                .max(T::WeightInfo::emission_step_rejected(max_h))
-                .max(T::WeightInfo::emission_step_missing())
-                .max(T::WeightInfo::emission_step_cancelled())
-                .saturating_add(
-                    T::DbWeight::get()
-                        .reads_writes(3, 3)
-                        .saturating_add(Self::pending_subnet_node_removal_proof_weight()),
-                );
-            let max_election_weight = T::WeightInfo::elect_validator(max_h);
-            let mandatory_slot_weight = T::WeightInfo::on_initialize_base()
-                .saturating_add(T::WeightInfo::advance_overwatch_epoch_noop())
-                .saturating_add(T::WeightInfo::emission_slot_selector())
-                .saturating_add(T::WeightInfo::emission_step_selectors())
-                .saturating_add(max_settlement_weight)
-                .saturating_add(T::DbWeight::get().reads(2))
-                .saturating_add(max_election_weight);
+            // Use the same complete mandatory envelope as the assigned-slot execution path.
+            // This includes terminal recovery and the maximum election after promotion.
             assert!(
-                mandatory_slot_weight.all_lte(T::MaximumHooksWeight::get()),
+                Self::mandatory_subnet_hook_weight().all_lte(T::MaximumHooksWeight::get()),
                 "maximum reward settlement and election must fit the configured hook budget"
             );
             assert!(
@@ -9958,8 +9875,8 @@ pub mod pallet {
         ///       1. Calculate subnet emission allocations from the latest effective Overwatch
         ///          signal, or configured defaults when that signal is missing or invalid.
         ///    4. At a subnet's assigned slot:
-        ///       1. Settle the previous subnet round and distribute its rewards. Reserve the complete
-        ///          settlement first; if it cannot fit, stop before doing lower-priority subnet work.
+        ///       1. Reserve settlement, terminal recovery, and election together before mutating
+        ///          round state. Then settle the previous subnet round and distribute its rewards.
         ///       2. Elect the validator for the new subnet round, excluding nodes pending removal.
         ///       3. Use only the remaining weight to physically remove pending admitted nodes, then
         ///          pending queued nodes. Anything that does not fit remains pending for retry.
@@ -10108,115 +10025,17 @@ pub mod pallet {
                 weight_meter.consume(slot_selector_weight);
 
                 if let Some(subnet_id) = SlotAssignment::<T>::get(epoch_slot) {
-                    // Once a slot resolves, admit every compact component selector (SubnetSlot,
-                    // historical max-items, electable, total, and active counts) as one generated
-                    // maximum-proof envelope before reading any of them.
-                    let component_selector_weight = T::WeightInfo::emission_step_selectors();
-                    if !weight_meter.can_consume(component_selector_weight) {
-                        return weight_meter.consumed();
-                    }
-                    weight_meter.consume(component_selector_weight);
-
-                    // Resolve the subnet-oriented epoch using the hook's block argument, avoiding
-                    // a redundant frame-system block-number read.
-                    let subnet_epoch = Self::get_subnet_epoch_with_block_as_u32(subnet_id, block);
-
-                    let settlement_subnet_epoch =
-                        PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id)
-                            .or_else(|| subnet_epoch.checked_sub(1));
-                    let historical_items = settlement_subnet_epoch
-                        .map(|settlement_epoch| {
-                            SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, settlement_epoch)
-                        })
-                        .unwrap_or(0)
-                        .min(T::MaxSubnetNodesUpperBound::get());
-                    let total_nodes = TotalSubnetNodes::<T>::get(subnet_id);
-                    let admitted_nodes = TotalAdmittedSubnetNodes::<T>::get(subnet_id);
-                    let queued_nodes = total_nodes
-                        .saturating_sub(admitted_nodes)
-                        .min(T::MaxRegisteredNodesUpperBound::get());
-                    // Historical settlement may combine full accepted-reward work with maximum
-                    // queue mutations. Physical removal is no longer part of settlement: the
-                    // reward envelope only reserves bounded quarantine-marker writes.
-                    let accepted_h = historical_items.max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES);
-                    // A single validator identity may own many historical nodes. The reachable
-                    // maximum non-attestor count is therefore the historical node count minus the
-                    // fewest node attestations needed to represent a strong minimum identity set,
-                    // not simply `(1 - super_majority_ratio) * h`.
-                    let minimum_strong_identity_attestors = Self::min_identity_attestors_for_ratio(
-                        Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
-                        T::SuperMajorityAttestationRatio::get(),
-                    );
-                    let maximum_non_attestors =
-                        accepted_h.saturating_sub(minimum_strong_identity_attestors);
-                    let non_attestor_reputation_weight = if maximum_non_attestors == 0 {
-                        Weight::zero()
-                    } else {
-                        T::WeightInfo::emission_step_accepted_non_attestor_reputation(
-                            maximum_non_attestors,
-                        )
-                    };
-                    let historical_queue_weight =
-                        T::WeightInfo::emission_step_accepted_queue_mutations(queued_nodes.max(1))
-                            .max(T::WeightInfo::emission_step_accepted_queue_mutations_front(
-                                queued_nodes.max(1),
-                            ));
-                    let accepted_weight = T::WeightInfo::emission_step(accepted_h)
-                        .saturating_add(historical_queue_weight)
-                        .saturating_add(
-                            T::WeightInfo::emission_step_accepted_below_min_weight_reputation(
-                                accepted_h,
-                            ),
-                        )
-                        .saturating_add(non_attestor_reputation_weight);
-
-                    // Zero historical items identifies the missing-submission branch. Pending
-                    // filtering can leave a real elected/proposed round with only one or two
-                    // eligible nodes, so every nonzero snapshot must still reserve a complete
-                    // accepted/rejected settlement at the generated minimum domain.
-                    let settlement_branch_weight = if historical_items == 0 {
-                        T::WeightInfo::emission_step_missing()
-                    } else {
-                        accepted_weight.max(T::WeightInfo::emission_step_rejected(accepted_h))
-                    };
-                    // The accepted payout maximum and the full threshold-crossing marker maximum
-                    // are mutually exclusive. Reserve the bounded marker writes and event proof
-                    // independently so either branch fits without coupling cleanup to settlement.
-                    let pending_marker_weight = db_weight
-                        .reads_writes(3, 3)
-                        .saturating_add(Self::pending_subnet_node_removal_proof_weight());
-                    let settlement_weight = settlement_branch_weight
-                        .max(T::WeightInfo::emission_step_cancelled())
-                        .saturating_add(pending_marker_weight);
-
-                    // Settlement is mandatory for an assigned subnet slot. If its complete core
-                    // cannot fit, do not let lower-priority election or maintenance consume the
-                    // remaining block budget.
-                    if !weight_meter.can_consume(settlement_weight) {
-                        return weight_meter.consumed();
-                    }
-                    // The complete bounded settlement is admitted by the generated models above.
-                    // Its internal counter includes repeated accesses to shared event and reward
-                    // keys, whereas benchmark DB charges coalesce them. Keep that counter
-                    // diagnostic so it cannot reject an already-admitted settlement or overflow
-                    // a second, incomparable limit in debug builds.
-                    Self::emission_settlement_step(
-                        &mut WeightMeter::new(),
-                        block,
-                        current_epoch,
-                        subnet_epoch,
-                        subnet_id,
-                    );
-                    weight_meter.consume(settlement_weight);
-
-                    // Election, pending cleanup, registration, and burn maintenance each admit
-                    // themselves against the genuinely remaining outer meter, in that order.
-                    Self::emission_operational_step(
+                    // One admission reserves settlement, terminal recovery, and election together.
+                    // The resolved assignment determines the epoch without a redundant timing
+                    // lookup. Optional maintenance uses only the unreserved remainder.
+                    if !Self::run_assigned_subnet_slot(
                         &mut weight_meter,
                         block,
-                        subnet_epoch,
+                        current_epoch,
                         subnet_id,
-                    );
+                    ) {
+                        return weight_meter.consumed();
+                    }
                 }
             }
 

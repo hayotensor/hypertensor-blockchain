@@ -195,11 +195,6 @@ impl<T: Config> Pallet<T> {
             Error::<T>::MinDelegateStakeDepositNotReached
         );
 
-        ensure!(
-            !Self::is_validator_delegate_stake_slash_locked(validator_id),
-            Error::<T>::ValidatorDelegateStakeSlashLocked
-        );
-
         let total_validator_delegated_stake_shares =
             ValidatorDelegateStakeShares::<T>::get(validator_id);
         let total_validator_delegated_stake_balance =
@@ -320,13 +315,6 @@ impl<T: Config> Pallet<T> {
             return (Err(Error::<T>::InvalidStakeMinimumOutput.into()), 0, 0);
         }
 
-        if Self::is_validator_delegate_stake_slash_locked(validator_id) {
-            return (
-                Err(Error::<T>::ValidatorDelegateStakeSlashLocked.into()),
-                0,
-                0,
-            );
-        }
         let block = Self::get_current_block_as_u32();
 
         let account_validator_delegate_stake_shares =

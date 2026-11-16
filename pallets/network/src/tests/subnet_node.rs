@@ -4569,7 +4569,6 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             policy: Network::consensus_policy_snapshot(subnet_id, 1),
             validator_subnet_node_id: 0,
             validator_node_stake_balance: 0,
-            validator_delegate_stake_balance: 0,
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
             attestation_ratio: super_majority_threshold,
@@ -4612,7 +4611,6 @@ fn test_handle_node_queue_consensus_only_removes_nodes_present_in_queue() {
             policy: Network::consensus_policy_snapshot(subnet_id, 1),
             validator_subnet_node_id: 0,
             validator_node_stake_balance: 0,
-            validator_delegate_stake_balance: 0,
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
             attestation_ratio: super_majority_threshold,
@@ -4886,7 +4884,7 @@ fn test_do_admit_subnet_node_registered_subnet() {
 }
 
 #[test]
-fn test_slash_validator() {
+fn test_slash_subnet_node() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -4931,7 +4929,7 @@ fn test_slash_validator() {
             validator_non_consensus_reputation_factor,
             Some(proposer_identity_reputation_shortfall),
         );
-        Network::slash_validator(
+        Network::slash_subnet_node(
             subnet_id,
             subnet_node_id,
             test_percent(1, 2),    // 50%
@@ -4961,7 +4959,7 @@ fn test_slash_validator() {
             validator_non_consensus_reputation_factor,
             Some(proposer_identity_reputation_shortfall),
         );
-        Network::slash_validator(
+        Network::slash_subnet_node(
             subnet_id,
             subnet_node_id,
             test_percent(2, 3),
@@ -5018,7 +5016,7 @@ fn test_slash_validator() {
 // //             subnet_node_id,
 // //         ));
 
-// //         Network::slash_validator(
+// //         Network::slash_subnet_node(
 // //             subnet_id,
 // //             subnet_node_id,
 // //             test_percent(1, 2), // 50%

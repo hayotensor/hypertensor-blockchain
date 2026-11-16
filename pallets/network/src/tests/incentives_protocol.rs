@@ -191,11 +191,11 @@ fn calculate_fixture_attestor_weights(
                 .ok_or(Error::<Test>::InvalidSubnetNodeId)
         })
         .collect::<Result<BTreeMap<_, _>, _>>()?;
-    Network::snapshot_consensus_attestor_weights(
+    Ok(Network::snapshot_consensus_attestor_weights(
         subnet_id,
         &Network::consensus_policy_snapshot(subnet_id, subnet_epoch),
         &identities,
-    )
+    ))
 }
 
 fn set_validator_delegate_weight_for_subnet_node(
@@ -1475,8 +1475,7 @@ fn test_consensus_snapshot_uses_supplied_identity_mapping() {
             subnet_id,
             &Network::consensus_policy_snapshot(subnet_id, 0),
             &BTreeMap::from([(1, validator_id)]),
-        )
-        .unwrap();
+        );
         assert_eq!(snapshot.weights, BTreeMap::from([(1, 9)]));
         assert_eq!(snapshot.total_weight, 9);
     });
@@ -1901,8 +1900,7 @@ fn test_strong_rejection_deduplicates_identity_but_penalizes_each_attesting_node
             Network::percent_div(1, 4)
         );
         assert!(
-            submission.identity_attestation_ratio
-                < submission.policy.validator_delegate_stake_slash_threshold
+            submission.identity_attestation_ratio < submission.policy.strong_rejection_threshold
         );
 
         let proposer_reputation_before =
@@ -1913,7 +1911,7 @@ fn test_strong_rejection_deduplicates_identity_but_penalizes_each_attesting_node
         let identity_shortfall = Network::percentage_factor_as_u128().saturating_sub(
             Network::percent_div(
                 submission.identity_attestation_ratio,
-                submission.policy.validator_delegate_stake_slash_threshold,
+                submission.policy.strong_rejection_threshold,
             )
             .min(Network::percentage_factor_as_u128()),
         );
@@ -1999,7 +1997,7 @@ fn test_exact_strong_rejection_identity_threshold_is_reputation_neutral() {
         assert_eq!(submission.eligible_validator_identity_count, 3);
         assert_eq!(
             submission.identity_attestation_ratio,
-            submission.policy.validator_delegate_stake_slash_threshold
+            submission.policy.strong_rejection_threshold
         );
         assert!(
             submission.attestation_ratio < submission.policy.min_attestation_percentage,
@@ -2063,7 +2061,7 @@ fn test_distribute_rewards_fails_when_stake_passes_but_node_count_fails() {
             consensus_submission_data.identity_attestation_ratio
                 >= consensus_submission_data
                     .policy
-                    .validator_delegate_stake_slash_threshold,
+                    .strong_rejection_threshold,
             "this fixture exercises the reputation-score-neutral zone above strong identity rejection"
         );
 
@@ -2318,9 +2316,7 @@ fn test_distribute_rewards_fails_when_node_count_passes_but_stake_fails() {
         );
         assert!(
             consensus_submission_data.identity_attestation_ratio
-                >= consensus_submission_data
-                    .policy
-                    .validator_delegate_stake_slash_threshold
+                >= consensus_submission_data.policy.strong_rejection_threshold
         );
 
         let old_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
@@ -2475,20 +2471,12 @@ fn test_precheck_uses_election_time_attestor_weight_snapshot() {
 
 #[test]
 fn test_post_election_delegation_cannot_change_round_quorum() {
-    for pool_slashing_enabled in [false, true] {
+    for delegate_to_proposer in [false, true] {
         new_test_ext().execute_with(|| {
             let stake = Network::percentage_factor_as_u128();
-            if pool_slashing_enabled {
-                assert_ok!(Network::set_validator_delegate_stake_slash_config(
-                    RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-                    test_percent(1, 3),
-                    test_percent(1, 10),
-                    stake,
-                ));
-            }
 
-            // Fund real pools before election; all subsequent balance changes also use
-            // signed deposit calls, so the reproduction exercises the slash-lock guards.
+            // Signed deposits into either the proposer's or a non-attestor's pool must preserve
+            // the election weights and the proposal's quorum denominator.
             let (subnet_id, subnet_epoch, elected_node_id, hotkey, base_data) =
                 build_elected_subnet_for_consensus_with_setup(
                     b"post-election-delegation".to_vec(),
@@ -2515,7 +2503,12 @@ fn test_post_election_delegation_cannot_change_round_quorum() {
                 .copied()
                 .find(|node_id| *node_id != elected_node_id)
                 .unwrap();
-            let non_attestor_validator = round.eligible_validator_identity_ids[&non_attestor];
+            let delegate_target_node = if delegate_to_proposer {
+                elected_node_id
+            } else {
+                non_attestor
+            };
+            let delegate_target = round.eligible_validator_identity_ids[&delegate_target_node];
             let election_weights =
                 SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch).unwrap();
             assert_eq!(election_weights.total_weight, 4 * stake);
@@ -2525,30 +2518,12 @@ fn test_post_election_delegation_cannot_change_round_quorum() {
                 .all(|weight| *weight == stake));
             assert!(test_percent(3, 4) >= round.policy.min_attestation_percentage);
             assert_eq!(election_weights.weights.len(), 4);
-            assert_eq!(
-                Network::is_validator_delegate_stake_slash_locked(round.validator_id),
-                pool_slashing_enabled
-            );
-            assert!(!Network::is_validator_delegate_stake_slash_locked(
-                non_attestor_validator
-            ));
 
             let late_delegator = account(9_100);
             let _ = Balances::deposit_creating(&late_delegator, 7 * stake + 500);
-            if pool_slashing_enabled {
-                assert_err!(
-                    Network::add_validator_delegate_stake(
-                        RuntimeOrigin::signed(late_delegator.clone()),
-                        round.validator_id,
-                        stake,
-                        1,
-                    ),
-                    Error::<Test>::ValidatorDelegateStakeSlashLocked
-                );
-            }
             assert_ok!(Network::add_validator_delegate_stake(
                 RuntimeOrigin::signed(late_delegator),
-                non_attestor_validator,
+                delegate_target,
                 6 * stake,
                 1,
             ));
@@ -2583,12 +2558,12 @@ fn test_post_election_delegation_cannot_change_round_quorum() {
             let _ = Balances::deposit_creating(&later_delegator, 6 * stake + 500);
             assert_ok!(Network::add_validator_delegate_stake(
                 RuntimeOrigin::signed(later_delegator),
-                non_attestor_validator,
+                delegate_target,
                 6 * stake,
                 1,
             ));
             assert_eq!(
-                ValidatorDelegateStakeBalance::<Test>::get(non_attestor_validator),
+                ValidatorDelegateStakeBalance::<Test>::get(delegate_target),
                 13 * stake
             );
             assert_eq!(
@@ -2629,7 +2604,7 @@ fn test_post_election_delegation_cannot_change_round_quorum() {
             Network::elect_validator(subnet_id, subnet_epoch + 1, System::block_number());
             let next =
                 SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch + 1).unwrap();
-            assert_eq!(next.weights[&non_attestor], 13 * stake);
+            assert_eq!(next.weights[&delegate_target_node], 13 * stake);
             assert_eq!(
                 SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch).unwrap(),
                 election_weights
@@ -2722,8 +2697,7 @@ fn test_post_election_withdrawal_allocation_and_node_count_apply_to_next_round()
             subnet_id,
             &round.policy,
             &round.eligible_validator_identity_ids,
-        )
-        .unwrap();
+        );
         assert_ne!(changed.weights[&1], original.weights[&1]);
         assert_eq!(
             SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch).unwrap(),
@@ -2759,8 +2733,7 @@ fn test_post_election_withdrawal_allocation_and_node_count_apply_to_next_round()
             subnet_id,
             &round.policy,
             &round.eligible_validator_identity_ids,
-        )
-        .unwrap();
+        );
         Network::elect_validator(subnet_id, subnet_epoch + 1, System::block_number());
         let next =
             SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch + 1).unwrap();
@@ -2775,8 +2748,8 @@ fn test_post_election_withdrawal_allocation_and_node_count_apply_to_next_round()
 }
 
 #[test]
-fn test_election_weight_failure_leaves_no_partial_round_or_liabilities() {
-    for failure in ["overflow", "missing-mapping", "empty", "all-quarantined"] {
+fn test_election_without_candidates_leaves_no_partial_round_or_liabilities() {
+    for failure in ["empty", "all-quarantined"] {
         new_test_ext().execute_with(|| {
             increase_epochs(50);
             let name = b"atomic-election-snapshot".to_vec();
@@ -2790,23 +2763,16 @@ fn test_election_weight_failure_leaves_no_partial_round_or_liabilities() {
             let subnet_id = SubnetName::<Test>::get(name).unwrap();
             set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
             let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-            assert_ok!(Network::set_validator_delegate_stake_slash_config(
+            assert_ok!(Network::set_strong_rejection_threshold(
                 RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-                test_percent(1, 3),
-                test_percent(1, 10),
-                u128::MAX,
+                test_percent(1, 3)
             ));
             match failure {
-                "missing-mapping" => SubnetNodeValidatorId::<Test>::remove(subnet_id, 2),
                 "empty" => SubnetNodeElectionSlots::<Test>::remove(subnet_id),
                 "all-quarantined" => {
                     for node_id in 1..=4 {
                         Network::persist_pending_admitted_node_removal(subnet_id, node_id);
                     }
-                }
-                "overflow" => {
-                    set_validator_delegate_weight_for_subnet_node(subnet_id, 1, u128::MAX);
-                    set_validator_delegate_weight_for_subnet_node(subnet_id, 2, u128::MAX);
                 }
                 _ => unreachable!(),
             }
@@ -5404,7 +5370,7 @@ fn test_distribute_rewards_non_consensus_reputation() {
             consensus_submission_data.identity_attestation_ratio
                 >= consensus_submission_data
                     .policy
-                    .validator_delegate_stake_slash_threshold,
+                    .strong_rejection_threshold,
             "this fixture exercises the reputation-score-neutral zone above strong identity rejection"
         );
 
@@ -5529,9 +5495,7 @@ fn run_strong_rejection_attestor_reputation_case(
         let reputation_factors = SubnetReputationFactors::default();
         let policy = ConsensusPolicySnapshot {
             min_attestation_percentage: test_percent(2, 3),
-            validator_delegate_stake_slash_threshold: strong_rejection_threshold,
-            base_validator_delegate_stake_slash_percentage: test_percent(1, 10),
-            max_validator_delegate_stake_slash_amount: starting_pool_balance,
+            strong_rejection_threshold: strong_rejection_threshold,
             reputation_factors,
             ..Default::default()
         };
@@ -5562,7 +5526,6 @@ fn run_strong_rejection_attestor_reputation_case(
             policy,
             validator_subnet_node_id: proposer_node_id,
             validator_node_stake_balance: starting_stake,
-            validator_delegate_stake_balance: starting_pool_balance,
             validator_epoch_progress: 0,
             validator_reward_factor: 0,
             attestation_ratio: stake_attestation_ratio,
@@ -5798,13 +5761,12 @@ fn test_strong_rejection_applies_proposer_attestor_decrease_before_removal() {
         assert_eq!(submission.identity_attestation_count, 1);
         assert_eq!(submission.eligible_validator_identity_count, node_count);
         assert!(
-            submission.identity_attestation_ratio
-                < submission.policy.validator_delegate_stake_slash_threshold
+            submission.identity_attestation_ratio < submission.policy.strong_rejection_threshold
         );
         let identity_shortfall = Network::percentage_factor_as_u128().saturating_sub(
             Network::percent_div(
                 submission.identity_attestation_ratio,
-                submission.policy.validator_delegate_stake_slash_threshold,
+                submission.policy.strong_rejection_threshold,
             )
             .min(Network::percentage_factor_as_u128()),
         );
@@ -7671,217 +7633,14 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation_remove_node() {
     });
 }
 
-fn run_submitted_validator_pool_slash_case(
-    attestation_numerator: u128,
-    attestation_denominator: u128,
-    add_stake_after_election: bool,
-) -> u128 {
-    new_test_ext().execute_with(|| {
-        let subnet_name: Vec<u8> = "submitted-proposal-pool-slashing".into();
-        let pool_balance = 1_200_000_000_000_u128;
-        let threshold = test_percent(1, 3);
-        let base_percentage = test_percent(1, 5);
-        let max_pool_slash = pool_balance;
-        assert_ok!(Network::set_validator_delegate_stake_slash_config(
-            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
-            threshold,
-            base_percentage,
-            max_pool_slash,
-        ));
-
-        build_activated_subnet(
-            subnet_name.clone(),
-            0,
-            MaxSubnetNodes::<Test>::get(),
-            10_000_000_000_000_000_000_000,
-            MinSubnetMinStake::<Test>::get(),
-        );
-        let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
-        let validator_ids = (1..=TotalSubnetNodes::<Test>::get(subnet_id))
-            .filter_map(|subnet_node_id| {
-                SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id)
-            })
-            .collect::<BTreeSet<_>>();
-        for validator_id in validator_ids {
-            let (_, shares_added) = Network::handle_increase_account_validator_delegate_stake(
-                &account(910),
-                validator_id,
-                pool_balance,
-            )
-            .expect("validator delegate stake credit must succeed");
-            assert!(shares_added > 0);
-        }
-        seed_equal_validator_delegate_stake_for_subnet(subnet_id);
-
-        let election_block = System::block_number();
-        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch, election_block);
-        let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
-        let elected_node_id = round.validator_subnet_node_id;
-        let validator_id = SubnetNodeValidatorId::<Test>::get(subnet_id, elected_node_id).unwrap();
-        assert_eq!(round.validator_delegate_stake_balance, pool_balance);
-
-        if add_stake_after_election {
-            assert_err!(
-                Network::handle_increase_account_validator_delegate_stake(
-                    &account(911),
-                    validator_id,
-                    pool_balance,
-                ),
-                Error::<Test>::ValidatorDelegateStakeSlashLocked
-            );
-        }
-
-        let attestation_ratio = test_percent(attestation_numerator, attestation_denominator);
-        let current_pool_balance = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
-        let expected_pool_slash = Network::get_validator_delegate_stake_slash_amount(
-            round.validator_delegate_stake_balance,
-            current_pool_balance,
-            attestation_ratio,
-            round.policy.validator_delegate_stake_slash_threshold,
-            round.policy.base_validator_delegate_stake_slash_percentage,
-            round.policy.max_validator_delegate_stake_slash_amount,
-        );
-        let starting_network_pool_balance = TotalValidatorDelegateStakeBalance::<Test>::get();
-        let starting_total_shares = ValidatorDelegateStakeShares::<Test>::get(validator_id);
-        let starting_account_shares =
-            AccountValidatorDelegateStakeShares::<Test>::get(account(910), validator_id);
-        let starting_account_value = Network::convert_to_balance(
-            starting_account_shares,
-            starting_total_shares,
-            current_pool_balance,
-        );
-        let starting_node_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
-
-        let consensus_submission_data = ConsensusSubmissionData::<Test> {
-            policy: round.policy,
-            validator_subnet_node_id: elected_node_id,
-            validator_node_stake_balance: round.validator_node_stake_balance,
-            validator_delegate_stake_balance: round.validator_delegate_stake_balance,
-            validator_epoch_progress: 0,
-            validator_reward_factor: 0,
-            attestation_ratio,
-            identity_attestation_ratio: 0,
-            identity_attestation_count: 0,
-            eligible_validator_identity_count: MaxSubnetNodes::<Test>::get(),
-            weight_sum: 0,
-            data_length: 0,
-            data: Vec::new(),
-            attests: BTreeMap::new(),
-            subnet_nodes: Vec::new(),
-            prioritize_queue_node_id: None,
-            remove_queue_node_id: None,
-        };
-        let mut weight_meter = WeightMeter::new();
-        // Deliberately make the identity penalty more severe than the stake shortfall. The direct
-        // node penalty follows these arguments, while the pool must use `attestation_ratio` above.
-        let mut pending_admitted_removals = PendingAdmittedNodeRemovals::<Test>::get(subnet_id);
-        let mut pending_admitted_removals_dirty = false;
-        let mut newly_pending_admitted_removals = Default::default();
-        Network::handle_non_consensus(
-            subnet_id,
-            consensus_submission_data,
-            0,
-            round.policy.min_attestation_percentage,
-            0,
-            round.policy.reputation_factors,
-            round.policy.not_in_consensus_subnet_reputation_factor,
-            round.policy.base_slash_percentage,
-            round.policy.max_slash_amount,
-            Network::percentage_factor_as_u128(),
-            &mut pending_admitted_removals,
-            &mut pending_admitted_removals_dirty,
-            &mut newly_pending_admitted_removals,
-            &mut weight_meter,
-        );
-
-        let ending_pool_balance = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
-        let ending_node_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
-        assert_eq!(
-            current_pool_balance - ending_pool_balance,
-            expected_pool_slash
-        );
-        assert_eq!(
-            TotalValidatorDelegateStakeBalance::<Test>::get(),
-            starting_network_pool_balance - expected_pool_slash
-        );
-        assert_eq!(
-            ValidatorDelegateStakeShares::<Test>::get(validator_id),
-            starting_total_shares
-        );
-        assert_eq!(
-            AccountValidatorDelegateStakeShares::<Test>::get(account(910), validator_id),
-            starting_account_shares
-        );
-
-        let ending_account_value = Network::convert_to_balance(
-            starting_account_shares,
-            starting_total_shares,
-            ending_pool_balance,
-        );
-        if expected_pool_slash > 0 {
-            assert!(ending_account_value < starting_account_value);
-        } else {
-            assert_eq!(ending_account_value, starting_account_value);
-        }
-
-        let slash_events = network_events()
-            .into_iter()
-            .filter(|event| {
-                matches!(
-                    event,
-                    Event::ValidatorSlashApplied {
-                        subnet_id: event_subnet_id,
-                        validator_id: event_validator_id,
-                        subnet_node_id,
-                        ..
-                    } if *event_subnet_id == subnet_id
-                        && *event_validator_id == validator_id
-                        && *subnet_node_id == elected_node_id
-                )
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(slash_events.len(), 1);
-        assert!(matches!(
-            &slash_events[0],
-            Event::ValidatorSlashApplied {
-                attestation_percentage,
-                node_stake_amount,
-                validator_delegate_stake_amount,
-                ..
-            } if *attestation_percentage == attestation_ratio
-                && *node_stake_amount == starting_node_stake - ending_node_stake
-                && *validator_delegate_stake_amount == expected_pool_slash
-        ));
-
-        expected_pool_slash
-    })
-}
-
-#[test]
-fn test_submitted_round_pool_slash_uses_stake_attestation_and_election_snapshot() {
-    let exact_threshold_slash = run_submitted_validator_pool_slash_case(1, 3, false);
-    assert_eq!(exact_threshold_slash, 0);
-
-    let between_thresholds_slash = run_submitted_validator_pool_slash_case(1, 2, false);
-    assert_eq!(between_thresholds_slash, 0);
-
-    let proportional_slash = run_submitted_validator_pool_slash_case(1, 6, true);
-    assert!(proportional_slash > 0);
-    assert!(proportional_slash < 1_200_000_000_000);
-}
-
 #[test]
 fn test_missing_proposal_uses_zero_support_slashes_and_one_absence_penalty() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "missing-proposal-slashing".into();
         let pool_balance = 1_000_000_u128;
-        let max_pool_slash = pool_balance / 2;
-        assert_ok!(Network::set_validator_delegate_stake_slash_config(
+        assert_ok!(Network::set_strong_rejection_threshold(
             RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
             test_percent(1, 3),
-            Network::percentage_factor_as_u128(),
-            max_pool_slash,
         ));
 
         build_activated_subnet(
@@ -7947,10 +7706,10 @@ fn test_missing_proposal_uses_zero_support_slashes_and_one_absence_penalty() {
         let ending_node_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
         let ending_pool_balance = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         assert!(ending_node_stake < starting_node_stake);
-        assert_eq!(starting_pool_balance - ending_pool_balance, max_pool_slash);
+        assert_eq!(ending_pool_balance, starting_pool_balance);
         assert_eq!(
             TotalValidatorDelegateStakeBalance::<Test>::get(),
-            starting_total_pool_balance - max_pool_slash
+            starting_total_pool_balance
         );
         assert_eq!(
             ValidatorDelegateStakeShares::<Test>::get(validator_id),
@@ -7965,7 +7724,7 @@ fn test_missing_proposal_uses_zero_support_slashes_and_one_absence_penalty() {
                 starting_account_shares,
                 starting_total_shares,
                 ending_pool_balance,
-            ) < starting_redemption_value
+            ) == starting_redemption_value
         );
         assert_eq!(
             SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id),
@@ -7976,13 +7735,11 @@ fn test_missing_proposal_uses_zero_support_slashes_and_one_absence_penalty() {
             .filter(|event| {
                 matches!(
                     event,
-                    Event::ValidatorSlashApplied {
+                    Event::SubnetNodeSlashApplied {
                         subnet_id: event_subnet_id,
-                        validator_id: event_validator_id,
                         subnet_node_id,
                         ..
                     } if *event_subnet_id == subnet_id
-                        && *event_validator_id == validator_id
                         && *subnet_node_id == elected_node_id
                 )
             })
@@ -7990,20 +7747,18 @@ fn test_missing_proposal_uses_zero_support_slashes_and_one_absence_penalty() {
         assert_eq!(slash_events.len(), 1);
         assert!(matches!(
             &slash_events[0],
-            Event::ValidatorSlashApplied {
+            Event::SubnetNodeSlashApplied {
                 attestation_percentage,
                 node_stake_amount,
-                validator_delegate_stake_amount,
                 ..
             } if *attestation_percentage == 0
                 && *node_stake_amount == starting_node_stake - ending_node_stake
-                && *validator_delegate_stake_amount == max_pool_slash
         ));
     });
 }
 
 #[test]
-fn test_distribute_rewards_under_min_attest_slash_validator() {
+fn test_distribute_rewards_under_min_attest_slash_subnet_node() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -8107,9 +7862,8 @@ fn test_distribute_rewards_under_min_attest_slash_validator() {
 
         let starting_rep =
             SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id.unwrap()).unwrap();
-        let strong_rejection_threshold = consensus_submission_data
-            .policy
-            .validator_delegate_stake_slash_threshold;
+        let strong_rejection_threshold =
+            consensus_submission_data.policy.strong_rejection_threshold;
         assert!(consensus_submission_data.identity_attestation_ratio < strong_rejection_threshold);
         let identity_shortfall = Network::percentage_factor_as_u128().saturating_sub(
             Network::percent_div(
@@ -8181,7 +7935,7 @@ fn test_distribute_rewards_under_min_attest_slash_validator() {
 }
 
 #[test]
-fn test_distribute_rewards_fork_under_min_attest_slash_validator() {
+fn test_distribute_rewards_fork_under_min_attest_slash_subnet_node() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -8288,9 +8042,8 @@ fn test_distribute_rewards_fork_under_min_attest_slash_validator() {
 
         let starting_rep =
             SubnetNodeReputation::<Test>::get(subnet_id, elected_node_id.unwrap()).unwrap();
-        let strong_rejection_threshold = consensus_submission_data
-            .policy
-            .validator_delegate_stake_slash_threshold;
+        let strong_rejection_threshold =
+            consensus_submission_data.policy.strong_rejection_threshold;
         assert!(consensus_submission_data.identity_attestation_ratio < strong_rejection_threshold);
         let identity_shortfall = Network::percentage_factor_as_u128().saturating_sub(
             Network::percent_div(
@@ -10003,7 +9756,6 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
             policy,
             validator_subnet_node_id: subnet_node_id,
             validator_node_stake_balance: initial_node_stake,
-            validator_delegate_stake_balance: 0,
             validator_epoch_progress: 0,
             validator_reward_factor: percentage_factor,
             attestation_ratio: percentage_factor,
@@ -10047,8 +9799,7 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
         TotalDelegateStake::<Test>::put(1);
 
         let (fresh_rewards, _) =
-            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy)
-                .expect("valid reward split");
+            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy);
         assert_eq!(
             fresh_rewards,
             RewardsData {
@@ -10117,8 +9868,7 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
             .all(|reward| reward == 0));
 
         let (next_rewards, _) =
-            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy)
-                .expect("valid reward split");
+            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy);
         assert_eq!(
             next_rewards, fresh_rewards,
             "forfeited zero-score allocations must not carry into a later round"
@@ -10257,9 +10007,8 @@ fn test_validator_delegate_rewards_require_circulating_shares() {
 #[test]
 fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
     use crate::{
-        BaseValidatorDelegateStakeSlashPercentage, MaxValidatorDelegateStakeSlashAmount,
         NodeStakePendingSlashLiabilityCount, PendingConsensusRoundSettlementEpoch,
-        SubnetBalanceTime, SubnetBalanceTimes, ValidatorDelegateStakePendingSlashLiabilityCount,
+        SubnetBalanceTime, SubnetBalanceTimes,
     };
     use sp_core::U256;
 
@@ -10271,8 +10020,6 @@ fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
                     4,
                     |subnet_id| {
                         set_equal_validator_delegate_weights_before_election(subnet_id, 4);
-                        BaseValidatorDelegateStakeSlashPercentage::<Test>::put(test_percent(1, 10));
-                        MaxValidatorDelegateStakeSlashAmount::<Test>::put(1u128);
                     },
                 );
             let validator_id = SubnetNodeValidatorId::<Test>::get(subnet_id, proposer).unwrap();
@@ -10288,8 +10035,7 @@ fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
                 1_000_000_000_000_000_000_000,
                 Network::percentage_factor_as_u128(),
                 &submission.policy,
-            )
-            .unwrap();
+            );
             assert!(rewards.delegate_stake_rewards > 0);
             assert!(TotalSubnetDelegateStakeCirculatingShares::<Test>::get(subnet_id) > 0);
             assert_eq!(
@@ -10298,10 +10044,6 @@ fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
             );
             assert_eq!(
                 NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer),
-                1
-            );
-            assert_eq!(
-                ValidatorDelegateStakePendingSlashLiabilityCount::<Test>::get(validator_id),
                 1
             );
 
@@ -10341,10 +10083,6 @@ fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
                 0
             );
             assert_eq!(
-                ValidatorDelegateStakePendingSlashLiabilityCount::<Test>::get(validator_id),
-                0
-            );
-            assert_eq!(
                 SubnetBalanceTimes::<Test>::get(subnet_id),
                 Some(SubnetBalanceTime {
                     last_updated_block: block,
@@ -10377,10 +10115,10 @@ fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
 }
 
 #[test]
-fn accepted_settlement_missing_balance_time_preserves_payouts_and_liability_for_retry() {
+fn accepted_settlement_missing_balance_time_recovers_and_finalizes_once() {
     new_test_ext().execute_with(|| {
         let (subnet_id, subnet_epoch, proposer, hotkey, data) =
-            build_elected_subnet_for_consensus(b"balance-time-settlement-retry".to_vec(), 4);
+            build_elected_subnet_for_consensus(b"balance-time-settlement-recovery".to_vec(), 4);
 
         let additional_attestors: Vec<_> = (1..=4).filter(|id| *id != proposer).collect();
         let submission = propose_and_precheck_identity_gate_round(
@@ -10398,66 +10136,23 @@ fn accepted_settlement_missing_balance_time_preserves_payouts_and_liability_for_
             1_000_000_000_000_000_000_000,
             Network::percentage_factor_as_u128(),
             &submission.policy,
-        )
-        .unwrap();
+        );
         assert!(rewards.delegate_stake_rewards > 0);
         assert!(TotalSubnetDelegateStakeCirculatingShares::<Test>::get(subnet_id) > 0);
-        let saved_record = crate::SubnetBalanceTimes::<Test>::take(subnet_id).unwrap();
+        crate::SubnetBalanceTimes::<Test>::remove(subnet_id);
+        System::set_block_number(System::block_number() + EpochLength::get());
+        let block = System::block_number();
         let owner = SubnetOwner::<Test>::get(subnet_id).unwrap();
         let owner_before = Balances::free_balance(&owner);
-        let node_stakes_before: Vec<_> = NodeSubnetStake::<Test>::iter().collect();
-        let validator_pools_before: Vec<_> =
-            ValidatorDelegateStakeBalance::<Test>::iter().collect();
+        let proposer_stake_before = NodeSubnetStake::<Test>::get(proposer, subnet_id);
         let pool_before = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
         let total_before = TotalDelegateStake::<Test>::get();
-        let reputation_before: Vec<_> =
-            SubnetNodeReputation::<Test>::iter_prefix(subnet_id).collect();
-        let events_before = System::events().len();
-        let pending_before = crate::PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id);
-        let liability_before =
-            crate::NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer);
-        assert_eq!(pending_before, Some(subnet_epoch));
-        assert!(liability_before > 0);
-
-        distribute_identity_gate_round_with_rewards(
-            subnet_id,
-            subnet_epoch,
-            submission.clone(),
-            rewards.clone(),
-        );
-        assert!(!Network::is_consensus_round_settled(
-            subnet_id,
-            subnet_epoch
-        ));
         assert_eq!(
             crate::PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
-            pending_before
+            Some(subnet_epoch)
         );
-        assert_eq!(
-            crate::NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer),
-            liability_before
-        );
-        assert_eq!(Balances::free_balance(&owner), owner_before);
-        assert_eq!(
-            NodeSubnetStake::<Test>::iter().collect::<Vec<_>>(),
-            node_stakes_before
-        );
-        assert_eq!(
-            ValidatorDelegateStakeBalance::<Test>::iter().collect::<Vec<_>>(),
-            validator_pools_before
-        );
-        assert_eq!(
-            SubnetNodeReputation::<Test>::iter_prefix(subnet_id).collect::<Vec<_>>(),
-            reputation_before
-        );
-        assert_eq!(
-            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
-            pool_before
-        );
-        assert_eq!(TotalDelegateStake::<Test>::get(), total_before);
-        assert_eq!(System::events().len(), events_before);
+        assert!(crate::NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer) > 0);
 
-        crate::SubnetBalanceTimes::<Test>::insert(subnet_id, saved_record);
         distribute_identity_gate_round_with_rewards(
             subnet_id,
             subnet_epoch,
@@ -10471,29 +10166,41 @@ fn accepted_settlement_missing_balance_time_preserves_payouts_and_liability_for_
             0
         );
         assert_eq!(
+            Balances::free_balance(&owner),
+            owner_before + rewards.subnet_owner_reward
+        );
+        assert!(NodeSubnetStake::<Test>::get(proposer, subnet_id) > proposer_stake_before);
+        assert_eq!(
             TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
             pool_before + rewards.delegate_stake_rewards
         );
-        let owner_paid = Balances::free_balance(&owner);
-        let nodes_paid: Vec<_> = NodeSubnetStake::<Test>::iter().collect();
-        let pool_paid = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
-        let accounting_paid = crate::SubnetBalanceTimes::<Test>::get(subnet_id);
-        let events_paid = System::events().len();
-        distribute_identity_gate_round_with_rewards(subnet_id, subnet_epoch, submission, rewards);
-        assert_eq!(Balances::free_balance(&owner), owner_paid);
         assert_eq!(
-            NodeSubnetStake::<Test>::iter().collect::<Vec<_>>(),
-            nodes_paid
-        );
-        assert_eq!(
-            TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
-            pool_paid
+            TotalDelegateStake::<Test>::get(),
+            total_before + rewards.delegate_stake_rewards
         );
         assert_eq!(
             crate::SubnetBalanceTimes::<Test>::get(subnet_id),
-            accounting_paid
+            Some(crate::SubnetBalanceTime {
+                last_updated_block: block,
+                ..Default::default()
+            })
         );
-        assert_eq!(System::events().len(), events_paid);
+        frame_support::assert_storage_noop!(distribute_identity_gate_round_with_rewards(
+            subnet_id,
+            subnet_epoch,
+            submission,
+            rewards,
+        ));
+
+        Network::elect_validator(subnet_id, subnet_epoch + 1, block);
+        assert!(SubnetElectedValidator::<Test>::contains_key(
+            subnet_id,
+            subnet_epoch + 1
+        ));
+        assert_eq!(
+            crate::PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
+            Some(subnet_epoch + 1)
+        );
     });
 }
 
@@ -10779,7 +10486,7 @@ fn local_reputation_rejected_proposer_missing_attestation_or_entry() {
             let mut submission =
                 propose_and_precheck_identity_gate_round(subnet, epoch, hotkey, scores, &[]);
             let one = Network::percentage_factor_as_u128();
-            submission.policy.validator_delegate_stake_slash_threshold = one;
+            submission.policy.strong_rejection_threshold = one;
             submission
                 .policy
                 .reputation_factors

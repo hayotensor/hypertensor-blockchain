@@ -2593,18 +2593,10 @@
     "authorization": "Council approval: at least 4/5 of members in this runtime"
   },
   {
-    "name": "set_validator_delegate_stake_slash_config",
+    "name": "set_strong_rejection_threshold",
     "args": [
       [
         "threshold",
-        "u128"
-      ],
-      [
-        "base_percentage",
-        "u128"
-      ],
-      [
-        "max_amount",
         "u128"
       ]
     ],

@@ -22,10 +22,6 @@ use sp_runtime::ArithmeticError;
 
 const MIN_VALIDATOR_REWARD_MULTIPLIER: f64 = 0.0;
 const MAX_REWARD_MULTIPLIER: f64 = 1.0;
-const NO_SNAPSHOTTED_VALIDATOR_DELEGATE_STAKE: u128 = 0;
-const DISABLED_VALIDATOR_DELEGATE_SLASH_THRESHOLD: u128 = 0;
-const DISABLED_VALIDATOR_DELEGATE_SLASH_PERCENTAGE: u128 = 0;
-const DISABLED_VALIDATOR_DELEGATE_SLASH_MAXIMUM: u128 = 0;
 
 impl<T: Config> Pallet<T> {
     pub(crate) fn canonicalize_consensus_data_entries(
@@ -93,7 +89,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         policy: &ConsensusPolicySnapshot,
         validator_identity_ids: &BTreeMap<u32, u32>,
-    ) -> Result<ConsensusAttestorWeightSnapshot, Error<T>> {
+    ) -> ConsensusAttestorWeightSnapshot {
         let mut validator_nodes: BTreeMap<u32, Vec<u32>> = BTreeMap::new();
         for (subnet_node_id, validator_id) in validator_identity_ids {
             validator_nodes
@@ -103,7 +99,10 @@ impl<T: Config> Pallet<T> {
         }
 
         let mut weights = BTreeMap::new();
-        let mut total_weight = 0u128;
+        // A snapshot can contain several u128 balances. Accumulate them at full width rather
+        // than rejecting an election when their sum cannot be stored directly as a u128.
+        // Node IDs are u32, so even the entire key space sums to less than 2^160.
+        let mut total_weight = U256::zero();
         let node_count_decay = policy.consensus_validator_node_count_decay;
         let percentage_factor = Self::percentage_factor_as_u128();
 
@@ -121,7 +120,8 @@ impl<T: Config> Pallet<T> {
                 let allocation = validator_node_weights
                     .get(&(subnet_id, subnet_node_id))
                     .copied()
-                    .unwrap_or(0);
+                    .unwrap_or(0)
+                    .min(percentage_factor);
                 let allocated_weight = Self::percent_mul(validator_delegate_stake, allocation);
 
                 let node_weight = if allocated_weight > 0
@@ -147,9 +147,7 @@ impl<T: Config> Pallet<T> {
                     allocated_weight
                 };
 
-                total_weight = total_weight
-                    .checked_add(node_weight)
-                    .ok_or(Error::<T>::AttestorWeightOverflow)?;
+                total_weight += U256::from(node_weight);
                 weights.insert(subnet_node_id, node_weight);
             }
         }
@@ -158,16 +156,35 @@ impl<T: Config> Pallet<T> {
             .consensus_validator_stake_weight_power
             .min(percentage_factor);
 
-        // Preserve the existing integer weights exactly when stake-weight diminishing is disabled.
-        if stake_weight_power == percentage_factor || total_weight == 0 {
-            return Ok(ConsensusAttestorWeightSnapshot {
+        // Preserve representable raw weights exactly. If the aggregate exceeds u128, rescale
+        // every weight by the same fraction using a full-width product. Rounding down ensures
+        // that the stored sum fits and remains exactly the sum of the stored node weights.
+        if stake_weight_power == percentage_factor || total_weight.is_zero() {
+            let maximum = U256::from(u128::MAX);
+            let total_weight = if total_weight > maximum {
+                let mut normalized_total = 0u128;
+                for node_weight in weights.values_mut() {
+                    *node_weight = (U256::from(*node_weight) * maximum / total_weight).as_u128();
+                    normalized_total += *node_weight;
+                }
+                normalized_total
+            } else {
+                total_weight.as_u128()
+            };
+            return ConsensusAttestorWeightSnapshot {
                 weights,
                 total_weight,
-            });
+            };
         }
 
         let exponent = Self::get_percent_as_f64(stake_weight_power);
-        let raw_total_weight = total_weight as f64;
+        let raw_total_weight = if total_weight <= U256::from(u128::MAX) {
+            total_weight.as_u128() as f64
+        } else {
+            // Diminishing power can use raw totals wider than u128. At most 2^32 finite
+            // u128 inputs also have a finite, positive f64 sum.
+            weights.values().map(|weight| *weight as f64).sum()
+        };
         let mut powered_total_weight = 0u128;
 
         for node_weight in weights.values_mut() {
@@ -180,16 +197,16 @@ impl<T: Config> Pallet<T> {
                 Self::get_f64_as_percentage(Self::pow(normalized_weight, exponent))
                     .min(percentage_factor);
 
-            powered_total_weight = powered_total_weight
-                .checked_add(powered_weight)
-                .ok_or(Error::<T>::AttestorWeightOverflow)?;
+            // Each transformed weight is at most Q18 and there are at most 2^32 node IDs,
+            // so their aggregate fits in u128 without a fallible arithmetic branch.
+            powered_total_weight += powered_weight;
             *node_weight = powered_weight;
         }
 
-        Ok(ConsensusAttestorWeightSnapshot {
+        ConsensusAttestorWeightSnapshot {
             weights,
             total_weight: powered_total_weight,
-        })
+        }
     }
 
     /// Validate the complete election snapshot without consulting mutable stake or membership.
@@ -725,7 +742,7 @@ impl<T: Config> Pallet<T> {
     /// * `min_attestation_percentage` - The selected consensus-failure threshold
     /// * `validator_non_consensus_reputation_factor`: Resolved subnet node factor for this epoch
     /// * `identity_reputation_shortfall`: Precomputed distinct-identity rejection severity
-    pub fn slash_validator(
+    pub fn slash_subnet_node(
         subnet_id: u32,
         subnet_node_id: u32,
         attestation_percentage: u128,
@@ -734,7 +751,7 @@ impl<T: Config> Pallet<T> {
         validator_non_consensus_reputation_factor: u128,
         identity_reputation_shortfall: Option<u128>,
     ) -> Weight {
-        Self::slash_validator_with_policy(
+        Self::slash_subnet_node_with_policy(
             subnet_id,
             subnet_node_id,
             attestation_percentage,
@@ -747,7 +764,7 @@ impl<T: Config> Pallet<T> {
         )
     }
 
-    pub fn slash_validator_with_policy(
+    pub fn slash_subnet_node_with_policy(
         subnet_id: u32,
         subnet_node_id: u32,
         attestation_percentage: u128,
@@ -758,12 +775,10 @@ impl<T: Config> Pallet<T> {
         base_slash_percentage: u128,
         max_slash_amount: u128,
     ) -> Weight {
-        // This compatibility helper has no historical round object. Snapshot the live position at
-        // invocation so it retains the same semantics while the round-aware path uses election
-        // state supplied by its caller.
+        // Direct calls use current node principal; round settlement supplies its election snapshot.
         let snapshotted_validator_node_stake_balance =
             NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
-        Self::slash_validator_for_round_with_policy(
+        Self::slash_subnet_node_for_round_with_policy(
             subnet_id,
             subnet_node_id,
             attestation_percentage,
@@ -774,21 +789,15 @@ impl<T: Config> Pallet<T> {
             base_slash_percentage,
             max_slash_amount,
             snapshotted_validator_node_stake_balance,
-            attestation_percentage,
-            NO_SNAPSHOTTED_VALIDATOR_DELEGATE_STAKE,
-            DISABLED_VALIDATOR_DELEGATE_SLASH_THRESHOLD,
-            DISABLED_VALIDATOR_DELEGATE_SLASH_PERCENTAGE,
-            DISABLED_VALIDATOR_DELEGATE_SLASH_MAXIMUM,
         )
-        .0
     }
 
     /// Apply snapshotted economic policy and reputation penalties to a submitted round.
     /// Direct node-stake severity uses the selected consensus-failure ratio against election-time
-    /// principal, while delegate-pool severity always uses the stake-weighted attestation ratio.
+    /// principal. Each node's direct stake is independent of its validator identity's other nodes.
     /// Proposer node reputation uses only the caller-provided distinct-identity support and
     /// strong-rejection shortfall.
-    pub fn slash_validator_for_round_with_policy(
+    pub fn slash_subnet_node_for_round_with_policy(
         subnet_id: u32,
         subnet_node_id: u32,
         attestation_percentage: u128,
@@ -799,12 +808,7 @@ impl<T: Config> Pallet<T> {
         base_slash_percentage: u128,
         max_slash_amount: u128,
         snapshotted_validator_node_stake_balance: u128,
-        stake_attestation_percentage: u128,
-        snapshotted_validator_delegate_stake_balance: u128,
-        validator_delegate_stake_slash_threshold: u128,
-        base_validator_delegate_stake_slash_percentage: u128,
-        max_validator_delegate_stake_slash_amount: u128,
-    ) -> (Weight, bool) {
+    ) -> Weight {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
@@ -816,8 +820,8 @@ impl<T: Config> Pallet<T> {
             });
         let economic_consensus_failed = attestation_percentage < min_attestation_percentage;
 
-        let validator_exists = if economic_consensus_failed {
-            let (slash_result, slash_weight) = Self::apply_validator_economic_slashes(
+        if economic_consensus_failed {
+            let (_, slash_weight) = Self::apply_subnet_node_slash(
                 subnet_id,
                 subnet_node_id,
                 attestation_percentage,
@@ -825,22 +829,10 @@ impl<T: Config> Pallet<T> {
                 base_slash_percentage,
                 max_slash_amount,
                 snapshotted_validator_node_stake_balance,
-                stake_attestation_percentage,
-                snapshotted_validator_delegate_stake_balance,
-                validator_delegate_stake_slash_threshold,
-                base_validator_delegate_stake_slash_percentage,
-                max_validator_delegate_stake_slash_amount,
             );
             weight = weight.saturating_add(slash_weight);
-            let Ok((validator_id, _, _)) = slash_result else {
-                // No reputation or quarantine side effect may be retained while this economic
-                // settlement remains pending. A later retry must observe the same round inputs.
-                return (weight, false);
-            };
-            validator_id.is_some()
-        } else if proposer_node_reputation_shortfall.is_some() {
-            // Preserve the canonical validator-node relationship check that gates quarantine in
-            // the economic-failure branch.
+        }
+        let validator_exists = if proposer_node_reputation_shortfall.is_some() {
             weight = weight.saturating_add(db_weight.reads(1));
             SubnetNodeValidatorId::<T>::contains_key(subnet_id, subnet_node_id)
         } else {
@@ -880,50 +872,39 @@ impl<T: Config> Pallet<T> {
             }
         }
 
-        (weight, true)
+        weight
     }
 
-    /// Apply only economic losses. Missing proposals call this directly so their existing
-    /// absence-reputation penalties are not duplicated by the submitted-round path above.
-    pub(crate) fn apply_validator_economic_slashes(
+    /// Slash only this subnet node's direct stake using its election-time principal.
+    /// A failed deduction rolls back, emits SubnetNodeSlashFailed, and returns zero so settlement
+    /// can continue and release the round's node liability. Validator delegate pools are unaffected.
+    pub(crate) fn apply_subnet_node_slash(
         subnet_id: u32,
         subnet_node_id: u32,
-        node_attestation_percentage: u128,
-        node_slash_threshold: u128,
+        attestation_percentage: u128,
+        slash_threshold: u128,
         base_slash_percentage: u128,
         max_slash_amount: u128,
-        snapshotted_validator_node_stake_balance: u128,
-        stake_attestation_percentage: u128,
-        snapshotted_validator_delegate_stake_balance: u128,
-        validator_delegate_stake_slash_threshold: u128,
-        base_validator_delegate_stake_slash_percentage: u128,
-        max_validator_delegate_stake_slash_amount: u128,
-    ) -> (Result<(Option<u32>, u128, u128), DispatchError>, Weight) {
+        snapshotted_node_stake_balance: u128,
+    ) -> (u128, Weight) {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
-
-        // A round owns one combined economic decision. Keep the direct-node and shared-pool
-        // mutations in the same storage transaction so a later pool-accounting failure cannot
-        // retain the node loss and then apply it again when the still-pending round retries.
-        let slash_result = with_transaction::<(Option<u32>, u128, u128), DispatchError, _>(|| {
-            let result = (|| -> Result<(Option<u32>, u128, u128), DispatchError> {
-                let node_stake_amount = if node_attestation_percentage < node_slash_threshold {
-                    let attestation_delta = Self::percentage_factor_as_u128().saturating_sub(
-                        Self::percent_div(node_attestation_percentage, node_slash_threshold)
+        let result = with_transaction::<u128, DispatchError, _>(|| {
+            let result = (|| -> Result<u128, DispatchError> {
+                let amount = if attestation_percentage < slash_threshold {
+                    let shortfall = Self::percentage_factor_as_u128().saturating_sub(
+                        Self::percent_div(attestation_percentage, slash_threshold)
                             .min(Self::percentage_factor_as_u128()),
                     );
-                    let account_subnet_stake = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
+                    let current_stake = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
                     weight = weight.saturating_add(db_weight.reads(1));
                     let amount = Self::get_slash_amount_with_policy(
-                        snapshotted_validator_node_stake_balance,
-                        attestation_delta,
+                        snapshotted_node_stake_balance,
+                        shortfall,
                         base_slash_percentage,
                         max_slash_amount,
                     )
-                    // A prior overlapping slash may have reduced the live position. Never
-                    // collect more than remains, but reject an inconsistent aggregate.
-                    .min(account_subnet_stake);
-
+                    .min(current_stake);
                     if amount > 0 {
                         weight = weight.saturating_add(db_weight.reads(3));
                         Self::decrease_node_stake(subnet_node_id, subnet_id, amount)?;
@@ -933,176 +914,33 @@ impl<T: Config> Pallet<T> {
                 } else {
                     0
                 };
-
-                // Resolve the identity before reputation processing can remove the node.
-                let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id);
-                weight = weight.saturating_add(db_weight.reads(1));
-
-                // A live election snapshots both this retained mapping and the validator pool's
-                // exposed principal. If slash policy was enabled for a non-empty snapshot, losing
-                // the mapping makes it impossible to identify the pool that owns the liability.
-                // Fail closed rather than committing only the direct-node loss and releasing the
-                // round's identity-wide lock.
-                let validator_pool_mapping_required = snapshotted_validator_delegate_stake_balance
-                    > 0
-                    && validator_delegate_stake_slash_threshold > 0
-                    && base_validator_delegate_stake_slash_percentage > 0
-                    && max_validator_delegate_stake_slash_amount > 0
-                    && stake_attestation_percentage < validator_delegate_stake_slash_threshold;
-                if validator_pool_mapping_required && validator_id.is_none() {
-                    return Err(Error::<T>::InvalidValidator.into());
-                }
-
-                let validator_delegate_stake_amount = if let Some(validator_id) = validator_id {
-                    if base_validator_delegate_stake_slash_percentage > 0
-                        && max_validator_delegate_stake_slash_amount > 0
-                        && stake_attestation_percentage < validator_delegate_stake_slash_threshold
-                    {
-                        let current_pool_balance =
-                            ValidatorDelegateStakeBalance::<T>::get(validator_id);
-                        let current_pool_shares =
-                            ValidatorDelegateStakeShares::<T>::get(validator_id);
-                        let current_circulating_shares =
-                            ValidatorDelegateStakeCirculatingShares::<T>::get(validator_id);
-                        let total_validator_delegate_stake =
-                            TotalValidatorDelegateStakeBalance::<T>::get();
-                        weight = weight.saturating_add(db_weight.reads(4));
-                        let amount = Self::get_validator_delegate_stake_slash_amount(
-                            snapshotted_validator_delegate_stake_balance,
-                            current_pool_balance,
-                            stake_attestation_percentage,
-                            validator_delegate_stake_slash_threshold,
-                            base_validator_delegate_stake_slash_percentage,
-                            max_validator_delegate_stake_slash_amount,
-                        );
-
-                        // An active slash decision must prove the pool shape even when its
-                        // proportional loss rounds to zero or an overlapping round already reduced
-                        // it to the valid empty state. Otherwise malformed shares could be blessed
-                        // as settled simply because this particular loss had sub-unit precision.
-                        Self::validate_delegate_pool_accounting(
-                            current_pool_shares,
-                            current_pool_balance,
-                            current_circulating_shares,
-                        )?;
-
-                        if amount > 0 {
-                            let next_pool_balance = current_pool_balance
-                                .checked_sub(amount)
-                                .ok_or(ArithmeticError::Underflow)?;
-                            let next_total = total_validator_delegate_stake
-                                .checked_sub(amount)
-                                .ok_or(ArithmeticError::Underflow)?;
-
-                            if next_pool_balance == 0 {
-                                let old_generation =
-                                    ValidatorDelegatePoolGeneration::<T>::get(validator_id);
-                                weight = weight.saturating_add(db_weight.reads(1));
-                                let new_generation = old_generation
-                                    .checked_add(1)
-                                    .ok_or(ArithmeticError::Overflow)?;
-                                ValidatorDelegateStakeBalance::<T>::remove(validator_id);
-                                ValidatorDelegateStakeShares::<T>::remove(validator_id);
-                                ValidatorDelegateStakeCirculatingShares::<T>::remove(validator_id);
-                                ValidatorDelegatePoolGeneration::<T>::insert(
-                                    validator_id,
-                                    new_generation,
-                                );
-                                TotalValidatorDelegateStakeBalance::<T>::put(next_total);
-                                weight = weight.saturating_add(db_weight.writes(5));
-                                Self::deposit_event(Event::ValidatorDelegatePoolReset {
-                                    validator_id,
-                                    old_generation,
-                                    new_generation,
-                                    invalidated_shares: current_circulating_shares,
-                                });
-                                // System::Number | System::ExecutionPhase | System::EventCount |
-                                // System::Events
-                                weight = weight.saturating_add(db_weight.reads_writes(4, 2));
-                            } else {
-                                ValidatorDelegateStakeBalance::<T>::insert(
-                                    validator_id,
-                                    next_pool_balance,
-                                );
-                                TotalValidatorDelegateStakeBalance::<T>::put(next_total);
-                                weight = weight.saturating_add(db_weight.writes(2));
-                            }
-                        }
-                        amount
-                    } else {
-                        0
-                    }
-                } else {
-                    0
-                };
-
-                if let Some(validator_id) = validator_id {
-                    // Every successful economic decision produces one combined audit event,
-                    // including launch-safe rounds whose delegate-pool loss is zero.
-                    Self::deposit_event(Event::ValidatorSlashApplied {
-                        subnet_id,
-                        validator_id,
-                        subnet_node_id,
-                        attestation_percentage: stake_attestation_percentage,
-                        node_stake_amount,
-                        validator_delegate_stake_amount,
-                    });
-                    // System::Number | System::ExecutionPhase | System::EventCount | System::Events
-                    weight = weight.saturating_add(db_weight.reads_writes(4, 2));
-                }
-
-                Ok((
-                    validator_id,
-                    node_stake_amount,
-                    validator_delegate_stake_amount,
-                ))
+                Self::deposit_event(Event::SubnetNodeSlashApplied {
+                    subnet_id,
+                    subnet_node_id,
+                    attestation_percentage,
+                    node_stake_amount: amount,
+                });
+                weight = weight.saturating_add(db_weight.reads_writes(4, 2));
+                Ok(amount)
             })();
-
             match result {
-                Ok(result) => TransactionOutcome::Commit(Ok(result)),
+                Ok(amount) => TransactionOutcome::Commit(Ok(amount)),
                 Err(error) => TransactionOutcome::Rollback(Err(error)),
             }
         });
-
-        (slash_result, weight)
-    }
-
-    /// Calculate the proportional validator-pool loss for one elected round.
-    pub fn get_validator_delegate_stake_slash_amount(
-        snapshotted_pool_balance: u128,
-        current_pool_balance: u128,
-        attestation_percentage: u128,
-        validator_delegate_stake_slash_threshold: u128,
-        base_validator_delegate_stake_slash_percentage: u128,
-        max_validator_delegate_stake_slash_amount: u128,
-    ) -> u128 {
-        if snapshotted_pool_balance == 0
-            || current_pool_balance == 0
-            || validator_delegate_stake_slash_threshold == 0
-            || base_validator_delegate_stake_slash_percentage == 0
-            || max_validator_delegate_stake_slash_amount == 0
-            || attestation_percentage >= validator_delegate_stake_slash_threshold
-        {
-            return 0;
-        }
-
-        let delegate_shortfall = Self::percentage_factor_as_u128().saturating_sub(
-            Self::percent_div(
-                attestation_percentage,
-                validator_delegate_stake_slash_threshold,
-            )
-            .min(Self::percentage_factor_as_u128()),
-        );
-        let base_pool_slash = Self::percent_mul(
-            snapshotted_pool_balance,
-            base_validator_delegate_stake_slash_percentage,
-        );
-        let proportional_pool_slash = Self::percent_mul(base_pool_slash, delegate_shortfall);
-
-        proportional_pool_slash
-            .min(snapshotted_pool_balance)
-            .min(current_pool_balance)
-            .min(max_validator_delegate_stake_slash_amount)
+        let amount = match result {
+            Ok(amount) => amount,
+            Err(error) => {
+                Self::deposit_event(Event::SubnetNodeSlashFailed {
+                    subnet_id,
+                    subnet_node_id,
+                    error,
+                });
+                weight = weight.saturating_add(db_weight.reads_writes(4, 2));
+                0
+            }
+        };
+        (amount, weight)
     }
 
     pub fn get_slash_amount(account_subnet_stake: u128, attestation_delta: u128) -> u128 {

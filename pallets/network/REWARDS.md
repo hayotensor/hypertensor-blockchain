@@ -152,6 +152,10 @@ not redistributed. Nodes absent from the score vector, with zero score, or quara
 receive no node reward. Reputation checks can quarantine a node during settlement. Settlement
 can credit a departed node only for an otherwise eligible historical Active contribution.
 
+If the admitted-node pending-removal set or its event list is full, that removal is skipped and
+logged with the subnet and node IDs. Reputation processing and settlement continue; the failed
+staging attempt leaves both collections unchanged.
+
 An attesting node uses its stored timing factor: later attestation can reduce its reward. The proposer's automatic attestation has a 100% factor for its score-based node reward. A node without an attestation currently defaults to a 100% factor, although identity-supermajority endorsement can cause a reputation penalty and possible removal. Reduced or skipped node rewards are not redistributed to other nodes, and the score denominator is not recomputed to exclude unpaid nodes.
 
 ## 5. A node reward can be shared again
@@ -203,6 +207,18 @@ Two rewards sit outside the scheduled foundation/subnet budget:
 
 Missing elected proposals and failed consensus quorums retain **100% of their scheduled subnet allocation** in `SubnetRewardCapacitor(subnet_id)`, saturating at `u128::MAX`. Each round accumulates only once, using its original emission allocation even if settlement is delayed. The separate proposal-validator bonus is not part of this allocation.
 
+Only the elected subnet node's direct stake is slashed. Validator delegate pools and other
+nodes owned by the same identity are unaffected. If a node deduction fails, it rolls back and
+`SubnetNodeSlashFailed` records the reason. That round's economic penalty is waived; reputation
+penalties, capacitor retention, and settlement continue, releasing the round's node-stake liability.
+No penalty debt, retry, or additional lock is created.
+
+Unusable historical consensus evidence also terminates the round: its recorded allocation is
+retained in the capacitor, its stake liability is released, and `ConsensusRoundCancelled` is
+emitted without rewards, penalties, or probation progression. Stored allocation percentages are
+bounded to Q18 before multiplication. Accepted rewards rebuild a missing balance-time checkpoint
+at the current block with zero historical credit; the missing record does not hold consensus open.
+
 An accepted round with a nonzero score total releases up to `SubnetRewardCapacitorReleasePercentage` of its normal allocation, rounded down in atomic units and limited by the stored capacitor and remaining `u128` reward-budget capacity. The global percentage defaults to 10% and is updated through the supermajority-collective call `set_subnet_reward_capacitor_release_percentage(value)`, using Q18 (`1e18 = 100%`, `1e17 = 10%`). Values must be between 0% and 100%; zero disables releases. Updates apply at the next settlement. The combined budget follows the successful round's existing owner, subnet-delegate, and node reward split. At the default rate, a normal allocation of 100 tokens and a capacitor containing 100 tokens produce a budget of 110 tokens and leave 90 in the capacitor. A zero allocation or zero-score round leaves the capacitor untouched. Permanent subnet removal clears its remaining capacitor.
 
 Allocation remains a ceiling, not a guaranteed payout: existing eligibility, timing, active-pool, and rounding rules apply to the combined budget. An **accepted zero-score round** still pays its normal owner and active subnet-delegate rewards, and can pay an eligible proposer bonus, but pays no score-based node rewards. Amounts left uncredited by these accepted-round rules are not added to the capacitor.
@@ -211,7 +227,7 @@ Allocation remains a ceiling, not a guaranteed payout: existing eligibility, tim
 
 - [Annual emissions and foundation split](src/supply/inflation.rs): `get_epoch_emissions`.
 - [Subnet weights and reward budgets](src/utilities/slot.rs): `calculate_subnet_weights`,
-  `get_net_flow_weights_for_eligible`, `checked_subnet_reward_split`, and `emission_settlement_step`.
+  `get_time_weighted_stake_weights_for_eligible`, `subnet_reward_split`, and `emission_settlement_step`.
 - [Consensus reward distribution](src/bank/rewards.rs): `distribute_rewards_for_round`,
   `handle_subnet_delegate_stake_reward`, and `handle_validator_delegate_stake`.
 - [Consensus scores and timing factors](src/consensus/attestation/subnet_validator.rs):

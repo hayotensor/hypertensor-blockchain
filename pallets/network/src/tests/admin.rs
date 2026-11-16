@@ -3,8 +3,7 @@ use super::test_utils::*;
 use crate::Event;
 use crate::{
     AttestorMinRewardFactor, AttestorRewardExponent, BaseNodeBurnAmount, BaseSlashPercentage,
-    BaseValidatorDelegateStakeSlashPercentage, BaseValidatorReward,
-    ConsensusValidatorIdentityAttestationPercentage,
+    BaseValidatorReward, ConsensusValidatorIdentityAttestationPercentage,
     ConsensusValidatorNodeCountDecayUpdateInterval,
     ConsensusValidatorStakeWeightPowerUpdateInterval, DefaultOverwatchSubnetWeight,
     DelegateStakeCooldownEpochs, DelegateStakeSubnetRemovalInterval, DelegateStakeWeightFactor,
@@ -15,25 +14,25 @@ use crate::{
     MaxRewardRateDecrease, MaxSlashAmount, MaxSubnetBootnodeAccess,
     MaxSubnetDelegateStakeRewardsPercentageChange, MaxSubnetMinStake,
     MaxSubnetNodeMinWeightDecreaseReputationThreshold, MaxSubnetNodes, MaxSubnets,
-    MaxSwapQueueCallsPerBlock, MaxUnbondings, MaxValidatorDelegateStakeSlashAmount,
-    MinActiveNodeStakeEpochs, MinChurnLimit, MinChurnLimitMultiplier,
-    MinConsensusValidatorStakeWeightPower, MinDelegateStakeDeposit, MinDelegateStakePercentage,
-    MinMaxRegisteredNodes, MinMinSubnetNodeReputation, MinNodeBurnRate, MinNodeReputationFactor,
-    MinProbationRounds, MinQueueEpochs, MinRegistrationCost, MinSubnetDelegateStakeBalance,
-    MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetReputation,
-    NetworkMaxStakeBalance, NewRegistrationCostMultiplier, NodeDelegateStakeCooldownEpochs,
-    NodeRewardRateUpdatePeriod, NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
+    MaxSwapQueueCallsPerBlock, MaxUnbondings, MinActiveNodeStakeEpochs, MinChurnLimit,
+    MinChurnLimitMultiplier, MinConsensusValidatorStakeWeightPower, MinDelegateStakeDeposit,
+    MinDelegateStakePercentage, MinMaxRegisteredNodes, MinMinSubnetNodeReputation, MinNodeBurnRate,
+    MinNodeReputationFactor, MinProbationRounds, MinQueueEpochs, MinRegistrationCost,
+    MinSubnetDelegateStakeBalance, MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs,
+    MinSubnetReputation, NetworkMaxStakeBalance, NewRegistrationCostMultiplier,
+    NodeDelegateStakeCooldownEpochs, NodeRewardRateUpdatePeriod,
+    NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
     OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock, OverwatchMinStakeBalance,
     OverwatchStakeWeightFactor, OverwatchTxPauseStartBlock, OverwatchValidatorWhitelist,
     OverwatchWeightFactor, RegistrationCostAlpha, RegistrationCostDecayBlocks,
-    RequireSubnetRegistrationWhitelist, StakeCooldownEpochs,
+    RequireSubnetRegistrationWhitelist, StakeCooldownEpochs, StrongRejectionThreshold,
     SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower, SubnetEnactmentEpochs,
     SubnetName, SubnetNodeValidatorId, SubnetOwnerPercentage, SubnetRegistrationEpochs,
     SubnetRegistrationWhitelist, SubnetRemovalActivationCooldown, SubnetRemovalCheckInterval,
     SubnetWeightFactors, SubnetWeightFactorsData, SubnetsData, TotalValidatorNodes, TxRateLimit,
-    ValidatorAbsentSubnetReputationFactor, ValidatorDelegateStakeSlashThreshold,
-    ValidatorNodeDelegateStakeWeightUpdateInterval, ValidatorNodeDelegateStakeWeights,
-    ValidatorRewardK, ValidatorRewardMidpoint, ValidatorSubnetNodes,
+    ValidatorAbsentSubnetReputationFactor, ValidatorNodeDelegateStakeWeightUpdateInterval,
+    ValidatorNodeDelegateStakeWeights, ValidatorRewardK, ValidatorRewardMidpoint,
+    ValidatorSubnetNodes,
 };
 use frame_support::{assert_err, assert_noop, assert_ok};
 
@@ -1030,117 +1029,35 @@ fn test_set_max_slash_amount() {
 }
 
 #[test]
-fn test_set_validator_delegate_stake_slash_config() {
+fn test_set_strong_rejection_threshold() {
     new_test_ext().execute_with(|| {
-        System::set_block_number(System::block_number() + 1);
-
-        assert_eq!(
-            ValidatorDelegateStakeSlashThreshold::<Test>::get(),
-            333333333333333333
-        );
-        assert_eq!(BaseValidatorDelegateStakeSlashPercentage::<Test>::get(), 0);
-        assert_eq!(MaxValidatorDelegateStakeSlashAmount::<Test>::get(), 0);
-
-        let threshold = test_percent(3, 10);
-        let base_percentage = test_percent(1, 10);
-        let max_amount = 5_000_000_000_000_000_000;
+        System::set_block_number(1);
+        assert_eq!(StrongRejectionThreshold::<Test>::get(), 333333333333333333);
         let supermajority = || RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5));
-
-        assert_ok!(Network::set_validator_delegate_stake_slash_config(
+        let threshold = test_percent(3, 10);
+        assert_ok!(Network::set_strong_rejection_threshold(
             supermajority(),
-            threshold,
-            base_percentage,
-            max_amount
-        ));
-        assert_eq!(
-            ValidatorDelegateStakeSlashThreshold::<Test>::get(),
             threshold
-        );
+        ));
+        assert_eq!(StrongRejectionThreshold::<Test>::get(), threshold);
         assert_eq!(
-            BaseValidatorDelegateStakeSlashPercentage::<Test>::get(),
-            base_percentage
+            network_events().last(),
+            Some(&Event::SetStrongRejectionThreshold { threshold })
         );
-        assert_eq!(
-            MaxValidatorDelegateStakeSlashAmount::<Test>::get(),
-            max_amount
-        );
-        assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SetValidatorDelegateStakeSlashConfig {
-                threshold,
-                base_percentage,
-                max_amount,
-            }
-        );
-
-        let invalid_configs = [
-            (0, base_percentage, max_amount),
-            (
-                <Test as crate::Config>::MinAttestationPercentage::get(),
-                base_percentage,
-                max_amount,
-            ),
-            (
-                <Test as crate::Config>::MinAttestationPercentage::get() + 1,
-                base_percentage,
-                max_amount,
-            ),
-            (
-                threshold,
-                Network::percentage_factor_as_u128() + 1,
-                max_amount,
-            ),
-            (threshold, 0, max_amount),
-            (threshold, base_percentage, 0),
-        ];
-
-        for (invalid_threshold, invalid_base, invalid_max) in invalid_configs {
-            assert_err!(
-                Network::set_validator_delegate_stake_slash_config(
-                    supermajority(),
-                    invalid_threshold,
-                    invalid_base,
-                    invalid_max
-                ),
-                Error::<Test>::InvalidValidatorDelegateStakeSlashConfig
-            );
-            assert_eq!(
-                ValidatorDelegateStakeSlashThreshold::<Test>::get(),
-                threshold
-            );
-            assert_eq!(
-                BaseValidatorDelegateStakeSlashPercentage::<Test>::get(),
-                base_percentage
-            );
-            assert_eq!(
-                MaxValidatorDelegateStakeSlashAmount::<Test>::get(),
-                max_amount
+        for value in [
+            0,
+            <Test as crate::Config>::MinAttestationPercentage::get(),
+            u128::MAX,
+        ] {
+            frame_support::assert_noop!(
+                Network::set_strong_rejection_threshold(supermajority(), value),
+                Error::<Test>::InvalidStrongRejectionThreshold
             );
         }
-
-        assert_err!(
-            Network::set_validator_delegate_stake_slash_config(
-                RuntimeOrigin::signed(account(1)),
-                threshold,
-                base_percentage,
-                max_amount
-            ),
+        frame_support::assert_noop!(
+            Network::set_strong_rejection_threshold(RuntimeOrigin::signed(account(1)), threshold),
             sp_runtime::DispatchError::BadOrigin
         );
-
-        let disabled_threshold = test_percent(1, 4);
-        assert_ok!(Network::set_validator_delegate_stake_slash_config(
-            supermajority(),
-            disabled_threshold,
-            0,
-            0
-        ));
-        assert_eq!(
-            ValidatorDelegateStakeSlashThreshold::<Test>::get(),
-            disabled_threshold
-        );
-        assert_eq!(BaseValidatorDelegateStakeSlashPercentage::<Test>::get(), 0);
-        assert_eq!(MaxValidatorDelegateStakeSlashAmount::<Test>::get(), 0);
     });
 }
 

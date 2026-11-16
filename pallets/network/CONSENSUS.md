@@ -4,7 +4,7 @@ Consensus is the per-subnet process that turns an elected validator node's view 
 
 Consensus is not global block production. It is a subnet-level incentives and attestation system.
 Each consensus-live active subnet attempts an election on its own epoch schedule. When its
-effective candidate set is nonempty and internally consistent, one subnet node is elected to
+effective candidate set contains an attributable node, one subnet node is elected to
 propose consensus data and the eligible Active-class subnet nodes can attest to that proposal.
 
 Each subnet stores a `ConsensusMechanism` selector for future mechanism-specific routing. The only
@@ -48,27 +48,51 @@ Delegators can stake to validators. Validator delegate stake is the stake source
 
 Each subnet has an assigned slot inside the chain epoch. When the chain reaches that subnet's slot, the pallet processes that subnet's consensus step.
 
+The hook first reserves settlement, recovery, and election together. The runtime integrity
+check uses the same weight calculation at the supported maximum sizes. Election is reserved
+against the admitted population because settlement can promote Probation nodes before the
+new election. Once admitted, this mandatory work has no second weight gate between settlement
+and election.
+
 The normal flow at a subnet's slot is:
 
-1. If the exact previous round has an emission allocation, its proposal is prechecked; a missing
-   proposal follows the allocated-round absence penalty path.
+1. The outstanding completed round is prechecked using its original emission epoch. A missing
+   allocation is zero; a missing proposal receives the normal absence outcome.
 2. For a present proposal, attestation ratios are calculated from its stored snapshots.
-3. Rewards or penalties are applied to that allocated round when its precheck yields settlement
-   data.
-4. If the subnet is active and consensus-live, it attempts to elect an Active-class node for the
-   new subnet epoch. An election is stored only when the effective candidate set is nonempty and
-   every candidate resolves to a validator identity.
-5. If the subnet is active, its registration queue is processed.
-6. If the subnet is active and block weight permits, its burn-rate state is updated.
+3. Valid rounds receive their rewards or penalties. Unusable historical election, voting, or
+   proposal evidence cancels the round without inventing a consensus decision or penalty.
+4. If the subnet is active and consensus-live, it elects an attributable Active-class node for
+   the new subnet epoch. Quarantined nodes and nodes missing their validator identity mapping
+   are excluded without blocking the remaining candidates.
+5. Remaining block weight funds pending node cleanup and consensus-history pruning. Pruning
+   visits at most four epochs per slot, including empty epochs, and reserves both database work
+   and proof space before deleting a round.
+6. If the subnet is active and block weight permits, its registration queue and burn-rate state
+   are updated. Queue admission preserves enough weight for the final queue write on every
+   iteration, so deferred work cannot invalidate the completed election.
 
 An elected node for the new subnet epoch is then responsible for submitting that epoch's consensus
 proposal.
 
 A successful step 4 stores the epoch-keyed elected node, candidate set, and round policy snapshots.
-Outcome-dependent subnet and node reputation updates occur only if that round receives an
-allocation and reaches settlement at the following subnet slot; a missing proposal follows step
-1, while a submitted proposal follows steps 2 and 3. Consequently, an allocated settlement in
-epoch `E` evaluates epoch `E - 1`.
+Outcome-dependent subnet and node reputation updates occur when that round reaches settlement;
+a missing proposal follows step 1, while a submitted proposal follows steps 2 and 3. Normally,
+settlement in epoch `E` evaluates epoch `E - 1`. An older outstanding round retains its original
+allocation if processing was delayed.
+
+A completed round cannot retain the pending-settlement marker because of unusable evidence.
+Cancellation preserves its bounded allocation in the reward capacitor, releases its node stake
+liability, and emits `ConsensusRoundCancelled` exactly once. The compact
+`PendingConsensusRoundSlashLiabilityNode` identifies the lock independently of the large election
+snapshot. Replaying old settlement never releases a newer round's lock, and a repeated call in
+the same slot does not settle a freshly elected round. The hook reserves weight for settlement,
+recovery, and election before optional maintenance.
+
+Voting-weight totals use wide intermediate arithmetic. If a raw total exceeds `u128`, the linear
+weights are proportionally scaled to fit, rounding down and storing their exact resulting sum.
+Representable raw weights remain unchanged. Missing balance-time history restarts with zero past
+credit instead of preventing reward settlement. Global pause, subnet lifecycle eligibility, and
+absence of eligible candidates remain intentional reasons not to elect.
 
 Consensus eligibility and reward eligibility are separate. An active, live subnet attempts an
 election at its slot even when it has no emission allocation; a valid effective candidate set can
@@ -543,18 +567,14 @@ slash_amount = min(MaxSlashAmount, base_slash * shortfall)
 
 By default, `BaseSlashPercentage` is 3.125%. `MaxSlashAmount` caps any single direct-node slash.
 
-Strong rejection has a separate, governance-controlled validator delegate-pool penalty. It applies
-only when the stake-weighted attestation rate is strictly below the round's snapshotted
-`ValidatorDelegateStakeSlashThreshold`, which defaults to the fixed-point representation of
-one-third. This economic penalty applies only to the elected proposer's validator identity; an
-attesting node is not slashed merely for attesting to the proposal.
+Only the elected subnet node's direct stake can be slashed. Validator identities organize
+ownership across nodes; their delegate pools and other nodes' stake are unaffected by this penalty.
 
-The same snapshotted configurable threshold also gates all submitted-proposal reputation decreases
-based solely on distinct validator-identity support rather than stake-weighted support. This
-includes the subnet, proposer node, and supporting attestors. The proposal-time validator snapshot
-fixes the eligible identity denominator. Each validator identity with one or more attesting nodes
-contributes exactly one supporter, and the proposer contributes one through its automatic
-attestation.
+`StrongRejectionThreshold` separately governs submitted-proposal reputation decreases for the
+subnet, proposer node, and supporting attestors. It defaults to one-third and uses distinct
+validator-identity support. The proposal snapshot fixes the eligible identity denominator. Each
+identity with one or more attesting nodes counts once, including the proposer through its
+automatic attestation.
 
 The proposer-role decrease uses the subnet's snapshotted `validator_non_consensus_decrease` as its
 maximum loss factor. The supporter decrease uses the separately snapshotted
@@ -583,42 +603,16 @@ direct stake or validator delegate pools; proposer economic slashing remains rol
 the proposer, the supporter decrease is applied to the reputation remaining after the
 proposer-role decrease, and the minimum-reputation removal check runs after both.
 
-The delegate-pool shortfall and slash are:
+The supermajority collective can update the reputation threshold with
+`set_strong_rejection_threshold(threshold)`. The threshold must remain above zero and below
+`MinAttestationPercentage`; each elected round retains its own immutable policy snapshot.
 
-```text
-delegate_shortfall = 1 - attestation_rate / delegate_slash_threshold
+Election locks only the elected node's direct principal until that round settles. Validator
+delegate-pool deposits, withdrawals, transfers, and swaps remain available under their normal
+staking rules, and cannot change the round's already frozen attestor weights.
 
-pool_slash = min(
-  snapshotted_pool_balance,
-  current_pool_balance,
-  max_pool_slash_amount,
-  snapshotted_pool_balance * base_pool_slash_percentage * delegate_shortfall
-)
-```
-
-The curve is linear: the pool slash is zero at the threshold and reaches the configured base
-percentage at 0% attestation. The election snapshots the threshold, base percentage, maximum
-amount, and validator-pool balance. Governance changes therefore apply to later elections, while
-rewards or incoming stake after election cannot increase an in-progress round's liability. The
-live balance cap prevents a settlement from taking more than remains in the pool.
-
-Pool slashing reduces `ValidatorDelegateStakeBalance` and the network-wide validator delegate
-stake total without burning shares. Every share consequently loses the same proportional
-redemption value. The whole validator identity pool is exposed, not merely the delegate weight
-allocated to the elected subnet node.
-
-Delegate-pool slashing is enabled only when both
-`BaseValidatorDelegateStakeSlashPercentage` and `MaxValidatorDelegateStakeSlashAmount` are
-nonzero. Both launch as zero, which disables only the delegate-pool balance loss and protects
-delegator principal. The threshold continues to govern the distinct-identity-support reputation
-curves even while pool slashing is disabled. A supermajority collective can later enable,
-reconfigure, or atomically disable the economic tier. The configured threshold must remain above
-zero and below `MinAttestationPercentage`; the base percentage cannot exceed 100%.
-
-When an enabled round is elected, outgoing removals and swaps from that validator pool are locked
-until the round's settlement slot, `election_block + EpochLength`. Incoming delegation and
-transfers of pool shares remain available because neither removes value from the slashable pool.
-Overlapping elected rounds extend the lock to the latest settlement block.
+If a node slash cannot be applied safely, its deduction rolls back and the economic penalty is
+waived. `SubnetNodeSlashFailed` records the reason; reputation processing and settlement continue.
 
 Only a strongly identity-rejected submitted proposal decreases the subnet, the proposer node under
 `validator_non_consensus_decrease`, and each recorded attestor under
@@ -628,7 +622,7 @@ economic slash. If a node's reputation falls below the subnet's minimum, it can 
 the active subnet and election set.
 
 If no proposal is submitted for an allocated elected round when it reaches settlement, the pallet
-treats the attestation rate as 0% for both economic formulas. It does not apply the
+treats the attestation rate as 0% for the node-stake slash. It does not apply the
 submitted-proposal strong-rejection reputation curves. The objective `validator_absent_decrease`
 and `ValidatorAbsentSubnetReputationFactor` penalties apply exactly once. There is no proposal
 content, attestor set, or successful consensus data to reward.

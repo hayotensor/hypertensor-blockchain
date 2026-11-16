@@ -100,8 +100,7 @@ fn seed_exact_prior_election_with_eligible_nodes(subnet_id: u32, epoch: u32, eli
             subnet_id,
             &round.policy,
             &round.eligible_validator_identity_ids,
-        )
-        .expect("the complete historical election fixture must have valid weights");
+        );
         crate::SubnetConsensusAttestorWeights::<Test>::insert(subnet_id, previous_epoch, weights);
     });
 }
@@ -1026,7 +1025,7 @@ fn test_calculate_rewards() {
 }
 
 #[test]
-fn calculate_rewards_fails_closed_for_corrupt_live_reward_percentages() {
+fn calculate_rewards_clamps_corrupt_live_percentages_and_ignores_invalid_pending_updates() {
     new_test_ext().execute_with(|| {
         let subnet_id = 999;
         let percentage_factor = Network::percentage_factor_as_u128();
@@ -1045,7 +1044,15 @@ fn calculate_rewards_fails_closed_for_corrupt_live_reward_percentages() {
             percentage_factor,
             current_subnet_epoch,
         );
-        assert_eq!(invalid_owner_rewards, RewardsData::default());
+        assert_eq!(
+            invalid_owner_rewards,
+            RewardsData {
+                overall_subnet_reward: overall_rewards,
+                subnet_owner_reward: overall_rewards,
+                ..Default::default()
+            }
+        );
+        assert_eq!(SubnetOwnerPercentage::<Test>::get(), invalid_percentage);
 
         SubnetOwnerPercentage::<Test>::set(valid_owner_percentage);
         SubnetDelegateStakeRewardsPercentage::<Test>::insert(subnet_id, invalid_percentage);
@@ -1055,7 +1062,18 @@ fn calculate_rewards_fails_closed_for_corrupt_live_reward_percentages() {
             percentage_factor,
             current_subnet_epoch,
         );
-        assert_eq!(invalid_delegate_rewards, RewardsData::default());
+        let owner_reward = overall_rewards / 10;
+        let subnet_rewards = overall_rewards - owner_reward;
+        assert_eq!(
+            invalid_delegate_rewards,
+            RewardsData {
+                overall_subnet_reward: overall_rewards,
+                subnet_owner_reward: owner_reward,
+                subnet_rewards,
+                delegate_stake_rewards: subnet_rewards,
+                subnet_node_rewards: 0,
+            }
+        );
 
         SubnetDelegateStakeRewardsPercentage::<Test>::insert(subnet_id, valid_delegate_percentage);
         let pending = PendingSubnetDelegateStakeRewardsPercentageUpdate::<Test> {
@@ -1070,7 +1088,17 @@ fn calculate_rewards_fails_closed_for_corrupt_live_reward_percentages() {
             percentage_factor,
             current_subnet_epoch,
         );
-        assert_eq!(invalid_pending_rewards, RewardsData::default());
+        assert_eq!(
+            invalid_pending_rewards,
+            RewardsData {
+                overall_subnet_reward: overall_rewards,
+                subnet_owner_reward: owner_reward,
+                subnet_rewards,
+                delegate_stake_rewards: subnet_rewards / 4,
+                subnet_node_rewards: subnet_rewards - subnet_rewards / 4,
+            },
+            "an invalid pending value must leave the valid active rate in use"
+        );
         assert_eq!(
             SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id),
             valid_delegate_percentage,
@@ -1086,7 +1114,7 @@ fn calculate_rewards_fails_closed_for_corrupt_live_reward_percentages() {
 }
 
 #[test]
-fn calculate_rewards_fails_closed_for_corrupt_snapshot_percentages() {
+fn calculate_rewards_clamps_corrupt_snapshot_percentages() {
     new_test_ext().execute_with(|| {
         let percentage_factor = Network::percentage_factor_as_u128();
         let invalid_percentage = percentage_factor.checked_add(1).unwrap();
@@ -1099,34 +1127,53 @@ fn calculate_rewards_fails_closed_for_corrupt_snapshot_percentages() {
         };
 
         policy.subnet_owner_percentage = invalid_percentage;
-        assert!(Network::calculate_rewards_with_policy(
-            overall_rewards,
-            percentage_factor,
-            &policy,
-        )
-        .is_none());
+        let (invalid_owner_rewards, _) =
+            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy);
+        assert_eq!(
+            invalid_owner_rewards,
+            RewardsData {
+                overall_subnet_reward: overall_rewards,
+                subnet_owner_reward: overall_rewards,
+                ..Default::default()
+            }
+        );
+        assert_eq!(policy.subnet_owner_percentage, invalid_percentage);
 
         policy.subnet_owner_percentage = percentage_factor / 2;
         policy.subnet_delegate_stake_rewards_percentage = invalid_percentage;
-        assert!(Network::calculate_rewards_with_policy(
-            overall_rewards,
-            percentage_factor,
-            &policy,
-        )
-        .is_none());
+        let (invalid_delegate_rewards, _) =
+            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy);
+        let owner_reward = overall_rewards / 2;
+        let subnet_rewards = overall_rewards - owner_reward;
+        assert_eq!(
+            invalid_delegate_rewards,
+            RewardsData {
+                overall_subnet_reward: overall_rewards,
+                subnet_owner_reward: owner_reward,
+                subnet_rewards,
+                delegate_stake_rewards: subnet_rewards,
+                subnet_node_rewards: 0,
+            }
+        );
 
         policy.subnet_delegate_stake_rewards_percentage = percentage_factor / 4;
-        assert!(Network::calculate_rewards_with_policy(
-            overall_rewards,
-            invalid_percentage,
-            &policy,
-        )
-        .is_none());
+        let (invalid_emission_rewards, _) =
+            Network::calculate_rewards_with_policy(overall_rewards, invalid_percentage, &policy);
+        assert_eq!(
+            invalid_emission_rewards,
+            RewardsData {
+                overall_subnet_reward: overall_rewards,
+                subnet_owner_reward: owner_reward,
+                subnet_rewards,
+                delegate_stake_rewards: subnet_rewards / 4,
+                subnet_node_rewards: subnet_rewards - subnet_rewards / 4,
+            }
+        );
 
         policy.subnet_delegate_stake_rewards_percentage = percentage_factor;
         let (maximal_split, _) =
-            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy)
-                .expect("individually valid sequential percentages must fit the subnet budget");
+            Network::calculate_rewards_with_policy(overall_rewards, percentage_factor, &policy);
+        assert_eq!(maximal_split, invalid_delegate_rewards);
         assert_eq!(
             maximal_split
                 .subnet_owner_reward
@@ -1135,5 +1182,109 @@ fn calculate_rewards_fails_closed_for_corrupt_snapshot_percentages() {
             Some(maximal_split.overall_subnet_reward)
         );
         assert_eq!(Balances::total_issuance(), issuance_before);
+    });
+}
+
+#[test]
+fn calculate_rewards_preserves_valid_splits_and_rounding() {
+    new_test_ext().execute_with(|| {
+        let q = Network::percentage_factor_as_u128();
+        for (budget, emission, owner, delegate, expected) in [
+            (
+                100,
+                q / 2,
+                q / 5,
+                q / 4,
+                RewardsData {
+                    overall_subnet_reward: 50,
+                    subnet_owner_reward: 10,
+                    subnet_rewards: 40,
+                    delegate_stake_rewards: 10,
+                    subnet_node_rewards: 30,
+                },
+            ),
+            (
+                101,
+                q / 2,
+                q / 3,
+                q / 4,
+                RewardsData {
+                    overall_subnet_reward: 50,
+                    subnet_owner_reward: 16,
+                    subnet_rewards: 34,
+                    delegate_stake_rewards: 8,
+                    subnet_node_rewards: 26,
+                },
+            ),
+            (
+                u128::MAX,
+                q,
+                0,
+                0,
+                RewardsData {
+                    overall_subnet_reward: u128::MAX,
+                    subnet_owner_reward: 0,
+                    subnet_rewards: u128::MAX,
+                    delegate_stake_rewards: 0,
+                    subnet_node_rewards: u128::MAX,
+                },
+            ),
+        ] {
+            let policy = ConsensusPolicySnapshot {
+                subnet_owner_percentage: owner,
+                subnet_delegate_stake_rewards_percentage: delegate,
+                ..Default::default()
+            };
+            let (rewards, _) = Network::calculate_rewards_with_policy(budget, emission, &policy);
+            assert_eq!(rewards, expected);
+        }
+    });
+}
+
+#[test]
+fn calculate_rewards_conserves_budget_for_boundary_inputs() {
+    new_test_ext().execute_with(|| {
+        let q = Network::percentage_factor_as_u128();
+        let rates = [0, 1, q / 3, q / 2, q - 1, q, q + 1, u128::MAX];
+        for budget in [0, 1, q - 1, q, q + 1, u128::MAX - 1, u128::MAX] {
+            for emission in rates {
+                for owner in rates {
+                    for delegate in rates {
+                        let policy = ConsensusPolicySnapshot {
+                            subnet_owner_percentage: owner,
+                            subnet_delegate_stake_rewards_percentage: delegate,
+                            ..Default::default()
+                        };
+                        let (rewards, _) =
+                            Network::calculate_rewards_with_policy(budget, emission, &policy);
+                        assert!(rewards.overall_subnet_reward <= budget);
+                        assert!(rewards.subnet_owner_reward <= rewards.overall_subnet_reward);
+                        assert!(rewards.delegate_stake_rewards <= rewards.subnet_rewards);
+                        assert!(rewards.subnet_node_rewards <= rewards.subnet_rewards);
+                        assert_eq!(
+                            rewards
+                                .subnet_owner_reward
+                                .checked_add(rewards.subnet_rewards),
+                            Some(rewards.overall_subnet_reward)
+                        );
+                        assert_eq!(
+                            rewards
+                                .delegate_stake_rewards
+                                .checked_add(rewards.subnet_node_rewards),
+                            Some(rewards.subnet_rewards)
+                        );
+                        assert_eq!(
+                            rewards
+                                .subnet_owner_reward
+                                .checked_add(rewards.delegate_stake_rewards)
+                                .and_then(
+                                    |allocated| allocated.checked_add(rewards.subnet_node_rewards)
+                                ),
+                            Some(rewards.overall_subnet_reward)
+                        );
+                    }
+                }
+            }
+        }
     });
 }

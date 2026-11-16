@@ -21,6 +21,8 @@ fn mandatory_slot(h: u32) -> Weight {
     let settlement = accepted
         .max(W::emission_step_rejected(h))
         .max(W::emission_step_missing())
+        .max(W::emission_step_cancelled())
+        .saturating_add(W::consensus_settlement_recovery())
         .saturating_add(db.reads_writes(3, 3))
         .saturating_add(Weight::from_parts(0, 8192 + 4 * (512 + 64)));
     let election = W::elect_validator(h);
@@ -29,7 +31,9 @@ fn mandatory_slot(h: u32) -> Weight {
         .saturating_add(W::emission_slot_selector())
         .saturating_add(W::emission_step_selectors())
         .saturating_add(settlement)
-        .saturating_add(db.reads(2))
+        .saturating_add(db.reads(1))
+        // Runtime metadata limits are 1024 bytes for each of four fields.
+        .saturating_add(Weight::from_parts(0, 4 * 1024 + 1024 + 4096))
         .saturating_add(election)
 }
 

@@ -607,10 +607,6 @@ fn consensus_round_rpc_uses_immutable_election_identity() {
             candidate.subnet_node_id == stored.validator_subnet_node_id
                 && candidate.validator_id == stored.validator_id
         }));
-        assert_eq!(
-            rpc.validator_delegate_balance_at_election.0,
-            stored.validator_delegate_stake_balance
-        );
     });
 }
 

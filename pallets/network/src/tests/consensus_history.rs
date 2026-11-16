@@ -109,13 +109,11 @@ fn election_weights_without_a_proposal_are_retained_until_settlement_then_pruned
 }
 
 #[test]
-fn missing_proposal_with_invalid_election_weights_preserves_stake_and_liabilities() {
+fn missing_proposal_with_invalid_election_weights_cancels_and_releases_liabilities() {
     for corruption in 0..3 {
         new_test_ext().execute_with(|| {
             let name = b"invalid-unproposed-weights".to_vec();
             let pool_balance = 1_000_000;
-            crate::BaseValidatorDelegateStakeSlashPercentage::<Test>::put(test_percent(1, 10));
-            crate::MaxValidatorDelegateStakeSlashAmount::<Test>::put(pool_balance);
             build_activated_subnet(
                 name.clone(),
                 0,
@@ -181,34 +179,37 @@ fn missing_proposal_with_invalid_election_weights_preserves_stake_and_liabilitie
                 crate::SubnetReputation::<Test>::get(subnet_id),
                 subnet_reputation
             );
-            assert_eq!(System::events(), events);
+            assert_eq!(System::events().len(), events.len() + 1);
+            System::assert_last_event(
+                crate::Event::ConsensusRoundCancelled {
+                    subnet_id,
+                    subnet_epoch: epoch,
+                }
+                .into(),
+            );
             assert_eq!(
                 ConsensusRoundSettlementStatus::<Test>::get(subnet_id, epoch),
-                Some(false)
+                Some(true)
             );
             assert_eq!(
                 PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
-                Some(epoch)
+                None
             );
             assert_eq!(
                 crate::NodeStakePendingSlashLiabilityCount::<Test>::get(
                     subnet_id,
                     round.validator_subnet_node_id
                 ),
-                1
+                0
             );
-            assert_eq!(
-                crate::ValidatorDelegateStakePendingSlashLiabilityCount::<Test>::get(
-                    round.validator_id
-                ),
-                1
-            );
-            assert!(Network::is_node_stake_slash_locked(
+            assert!(!Network::is_node_stake_slash_locked(
                 subnet_id,
                 round.validator_subnet_node_id
             ));
-            assert!(Network::is_validator_delegate_stake_slash_locked(
-                round.validator_id
+            Network::elect_validator(subnet_id, epoch + 1, System::block_number());
+            assert!(SubnetElectedValidator::<Test>::contains_key(
+                subnet_id,
+                epoch + 1
             ));
         });
     }
@@ -358,7 +359,7 @@ fn subnet_removal_clears_all_consensus_history_with_idle_weight() {
 }
 
 #[test]
-fn prune_cursor_starts_at_the_oldest_possible_epoch_and_skips_empty_epochs_cheaply() {
+fn prune_cursor_starts_at_the_oldest_possible_epoch_and_bounds_empty_epoch_visits() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -376,7 +377,7 @@ fn prune_cursor_starts_at_the_oldest_possible_epoch_and_skips_empty_epochs_cheap
                 .consensus_eligible_from_subnet_epoch = Some(eligible_from);
         });
 
-        // Pre-upgrade history from the subnet's first rounds, a long gap, then recent rounds.
+        // The subnet's first rounds, a long gap without elections, then recent rounds.
         let current_subnet_epoch = 1_000u32;
         let old_rounds = eligible_from..eligible_from + 3;
         let recent_rounds = current_subnet_epoch - 20..=current_subnet_epoch;
@@ -390,27 +391,34 @@ fn prune_cursor_starts_at_the_oldest_possible_epoch_and_skips_empty_epochs_cheap
             Some(eligible_from)
         );
 
-        // The first slot prunes the old rounds, skips the empty gap for one read per epoch and
-        // stops after MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT pruned rounds ...
+        // The first slot visits at most the configured number of epochs, including empty ones.
         Network::prune_consensus_history(&mut WeightMeter::new(), subnet_id, current_subnet_epoch);
         for epoch in old_rounds.clone() {
             assert!(round_fully_absent(subnet_id, epoch));
         }
-        let pruned_recent = MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT - old_rounds.len() as u32;
         assert_eq!(
             ConsensusHistoryPruneCursor::<Test>::get(subnet_id),
-            Some(*recent_rounds.start() + pruned_recent)
+            Some(eligible_from + MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT)
         );
+        assert!(round_fully_present(subnet_id, *recent_rounds.start()));
 
-        // ... and later slots walk the empty gap up to the retention horizon.
-        for _ in 0..50 {
+        // Later slots traverse the gap in bounded steps and eventually reach the horizon.
+        let horizon = current_subnet_epoch - CONSENSUS_HISTORY_RETENTION_EPOCHS;
+        for _ in 0..(horizon - eligible_from).div_ceil(MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT) {
+            let before = ConsensusHistoryPruneCursor::<Test>::get(subnet_id).unwrap();
             Network::prune_consensus_history(
                 &mut WeightMeter::new(),
                 subnet_id,
                 current_subnet_epoch,
             );
+            let after = ConsensusHistoryPruneCursor::<Test>::get(subnet_id).unwrap();
+            assert_eq!(
+                after,
+                before
+                    .saturating_add(MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT)
+                    .min(horizon)
+            );
         }
-        let horizon = current_subnet_epoch - CONSENSUS_HISTORY_RETENTION_EPOCHS;
         assert_eq!(
             ConsensusHistoryPruneCursor::<Test>::get(subnet_id),
             Some(horizon)

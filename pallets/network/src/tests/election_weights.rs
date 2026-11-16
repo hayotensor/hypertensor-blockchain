@@ -154,9 +154,123 @@ fn election_without_eligible_nodes_publishes_no_snapshot_or_liabilities() {
             NodeStakePendingSlashLiabilityCount::<Test>::iter().count(),
             0
         );
+    });
+}
+
+fn snapshot_balances(balances: &[u128], power: u128) -> ConsensusAttestorWeightSnapshot {
+    let subnet = 1;
+    let mut identities = BTreeMap::new();
+    for (index, balance) in balances.iter().enumerate() {
+        let node = index as u32 + 1;
+        identities.insert(node, node);
+        ValidatorDelegateStakeBalance::<Test>::insert(node, balance);
+        ValidatorNodeDelegateStakeWeights::<Test>::insert(
+            node,
+            BTreeMap::from([((subnet, node), TOKEN)]),
+        );
+    }
+    let mut policy = Network::consensus_policy_snapshot(subnet, 0);
+    policy.consensus_validator_stake_weight_power = power;
+    Network::snapshot_consensus_attestor_weights(subnet, &policy, &identities)
+}
+
+#[test]
+fn linear_voting_weights_preserve_boundaries_and_rescale_oversized_totals() {
+    new_test_ext().execute_with(|| {
+        for balances in [vec![u128::MAX, 0], vec![u128::MAX - 1, 1, 0]] {
+            let snapshot = snapshot_balances(&balances, TOKEN);
+            assert_eq!(
+                snapshot.weights.values().copied().collect::<Vec<_>>(),
+                balances
+            );
+            assert_eq!(snapshot.total_weight, u128::MAX);
+        }
+
+        let equal = snapshot_balances(&[u128::MAX, u128::MAX, 0], TOKEN);
         assert_eq!(
-            ValidatorDelegateStakePendingSlashLiabilityCount::<Test>::iter().count(),
-            0
+            equal.weights,
+            BTreeMap::from([(1, u128::MAX / 2), (2, u128::MAX / 2), (3, 0)])
+        );
+        assert_eq!(equal.total_weight, u128::MAX - 1);
+        assert_eq!(
+            Network::percent_div(equal.weights[&1], equal.total_weight),
+            TOKEN / 2
+        );
+
+        let unequal = snapshot_balances(
+            &[u128::MAX - 1, (u128::MAX - 1) / 2, (u128::MAX - 1) / 2, 0],
+            TOKEN,
+        );
+        assert_eq!(
+            unequal.weights,
+            BTreeMap::from([
+                (1, u128::MAX / 2),
+                (2, u128::MAX / 4),
+                (3, u128::MAX / 4),
+                (4, 0),
+            ])
+        );
+        assert_eq!(unequal.total_weight, u128::MAX - 2);
+        assert_eq!(
+            unequal.weights.values().copied().sum::<u128>(),
+            unequal.total_weight
+        );
+    });
+}
+
+#[test]
+fn diminishing_voting_power_handles_raw_totals_larger_than_u128() {
+    new_test_ext().execute_with(|| {
+        for power in [0, TOKEN / 2] {
+            let ordinary = snapshot_balances(&[2, 1, 1, 0], power);
+            let oversized =
+                snapshot_balances(&[1u128 << 127, 1u128 << 126, 1u128 << 126, 0], power);
+            assert_eq!(oversized, ordinary);
+            assert_eq!(oversized.weights[&4], 0);
+            assert_eq!(
+                oversized.weights.values().copied().sum::<u128>(),
+                oversized.total_weight
+            );
+        }
+    });
+}
+
+#[test]
+fn oversized_voting_total_still_publishes_a_complete_election() {
+    new_test_ext().execute_with(|| {
+        increase_epochs(50);
+        let name = b"wide-election-weights".to_vec();
+        build_activated_subnet(name.clone(), 0, 4, 10_000 * TOKEN, 100 * TOKEN);
+        let subnet = SubnetName::<Test>::get(name).unwrap();
+        for node in 1..=4 {
+            let validator = SubnetNodeValidatorId::<Test>::get(subnet, node).unwrap();
+            ValidatorDelegateStakeBalance::<Test>::insert(validator, u128::MAX);
+        }
+        let epoch = SubnetsData::<Test>::get(subnet)
+            .unwrap()
+            .consensus_eligible_from_subnet_epoch
+            .unwrap();
+        set_block_to_subnet_slot_epoch(epoch, subnet);
+        Network::elect_validator(subnet, epoch, System::block_number());
+
+        let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
+        let weights = SubnetConsensusAttestorWeights::<Test>::get(subnet, epoch).unwrap();
+        assert_ok!(Network::validate_consensus_attestor_weight_snapshot(
+            &round, &weights
+        ));
+        assert_eq!(weights.weights.len(), 4);
+        assert!(weights
+            .weights
+            .values()
+            .all(|weight| *weight == u128::MAX / 4));
+        assert_eq!(weights.total_weight, u128::MAX - 3);
+        assert_eq!(
+            ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
+            Some(false)
+        );
+        assert_eq!(
+            PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
+            Some(epoch)
         );
     });
 }

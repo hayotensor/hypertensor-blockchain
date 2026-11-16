@@ -162,6 +162,95 @@ fn release_uses_remaining_reserve_and_the_elected_reward_split() {
 }
 
 #[test]
+fn accepted_settlement_clamps_invalid_reward_percentages_and_finalizes_once() {
+    for (emission, owner, delegate, expected_parts) in [
+        (TOKEN + 1, TOKEN / 5, TOKEN / 4, (20, 60, 20)),
+        (TOKEN, TOKEN + 1, TOKEN / 4, (100, 0, 0)),
+        (TOKEN, TOKEN / 5, TOKEN + 1, (20, 0, 80)),
+    ] {
+        // Exercise both the normal allocation and the capacitor's second reward-split call.
+        for reserve in [0, 100 * TOKEN] {
+            new_test_ext().execute_with(|| {
+                let (subnet, epoch) = fixture();
+                BaseSlashPercentage::<Test>::put(TOKEN / 10);
+                MaxSlashAmount::<Test>::put(TOKEN);
+                SubnetRewardCapacitor::<Test>::insert(subnet, reserve);
+                propose(subnet, epoch, 100 * TOKEN, 100, NODES as usize);
+
+                // Inject malformed stored inputs after proposal so this exercises settlement
+                // against the exact election snapshot, independently from live setter checks.
+                SubnetElectedValidator::<Test>::mutate(subnet, epoch, |round| {
+                    let policy = &mut round.as_mut().unwrap().policy;
+                    policy.subnet_owner_percentage = owner;
+                    policy.subnet_delegate_stake_rewards_percentage = delegate;
+                });
+                let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
+                let emission_epoch =
+                    ConsensusRoundSettlementEmissionEpoch::<Test>::get(subnet, epoch).unwrap();
+                FinalSubnetEmissionWeights::<Test>::mutate(emission_epoch, |allocation| {
+                    allocation.subnet_weights.insert(subnet, emission);
+                });
+                assert_eq!(
+                    PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
+                    Some(epoch)
+                );
+                assert_eq!(
+                    NodeStakePendingSlashLiabilityCount::<Test>::get(
+                        subnet,
+                        round.validator_subnet_node_id,
+                    ),
+                    1
+                );
+
+                let before = balances(subnet);
+                settle(subnet, epoch + 1);
+                let released = reserve.min(10 * TOKEN);
+                let budget = 100 * TOKEN + released;
+                let after = balances(subnet);
+                assert_eq!(
+                    (after.0 - before.0, after.1 - before.1, after.2 - before.2),
+                    (
+                        budget * expected_parts.0 / 100,
+                        budget * expected_parts.1 / 100,
+                        budget * expected_parts.2 / 100,
+                    )
+                );
+                assert_eq!(
+                    SubnetRewardCapacitor::<Test>::get(subnet),
+                    reserve - released
+                );
+                assert!(Network::is_consensus_round_settled(subnet, epoch));
+                assert!(PendingConsensusRoundSettlementEpoch::<Test>::get(subnet).is_none());
+                assert_eq!(
+                    NodeStakePendingSlashLiabilityCount::<Test>::get(
+                        subnet,
+                        round.validator_subnet_node_id,
+                    ),
+                    0
+                );
+                assert_eq!(
+                    SubnetElectedValidator::<Test>::get(subnet, epoch),
+                    Some(round)
+                );
+
+                // A retry cannot issue rewards or consume capacitor funds twice.
+                frame_support::assert_storage_noop!(settle(subnet, epoch + 1));
+
+                Network::elect_validator(subnet, epoch + 1, System::block_number());
+                assert!(SubnetElectedValidator::<Test>::contains_key(
+                    subnet,
+                    epoch + 1
+                ));
+                assert_eq!(
+                    PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
+                    Some(epoch + 1)
+                );
+            });
+        }
+    }
+}
+
+#[test]
 fn release_uses_the_current_configured_percentage() {
     for (percentage, budget, reserve, released) in [
         (0, 100 * TOKEN, 100 * TOKEN, 0),
@@ -299,7 +388,7 @@ fn accepted_capacitor_supplement_fits_budget_and_preserves_unused_reserve() {
 }
 
 #[test]
-fn missing_proposal_with_invalid_emission_weight_remains_pending() {
+fn missing_proposal_clamps_invalid_emission_weight_and_settles() {
     new_test_ext().execute_with(|| {
         let (subnet, epoch) = fixture();
         elect(subnet, epoch, 100 * TOKEN);
@@ -310,16 +399,26 @@ fn missing_proposal_with_invalid_emission_weight_remains_pending() {
         });
         let before = balances(subnet);
         settle(subnet, epoch + 1);
-        assert!(!SubnetRewardCapacitor::<Test>::contains_key(subnet));
-        assert_eq!(balances(subnet), before);
+        assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), 100 * TOKEN);
+        assert_eq!(balances(subnet).0, before.0);
+        assert_eq!(balances(subnet).2, before.2);
         assert_eq!(
             ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
-            Some(false)
+            Some(true)
         );
         assert_eq!(
             PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
-            Some(epoch)
+            None
         );
+        let after = balances(subnet);
+        settle(subnet, epoch + 1);
+        assert_eq!(balances(subnet), after);
+        assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), 100 * TOKEN);
+        Network::elect_validator(subnet, epoch + 1, System::block_number());
+        assert!(SubnetElectedValidator::<Test>::contains_key(
+            subnet,
+            epoch + 1
+        ));
     });
 }
 

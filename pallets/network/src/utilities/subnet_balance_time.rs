@@ -89,16 +89,21 @@ impl<T: Config> Pallet<T> {
 
     /// Prepare accounting before any principal-bearing writes. Deleted subnets retain withdrawable
     /// balances but must not recreate emission accounting after their subnet state was removed.
+    /// Missing history restarts at the current block with no historical emission credit, allowing
+    /// settlement and balance changes to proceed without inventing a past holding duration.
     pub(crate) fn prepare_subnet_balance_time(
         subnet_id: u32,
         old_balance: u128,
         block: u32,
     ) -> Result<Option<SubnetBalanceTime>, DispatchError> {
         if !SubnetsData::<T>::contains_key(subnet_id) {
+            // SubnetBalanceTimes is removed on subnet removal
             return Ok(None);
         }
-        let previous =
-            SubnetBalanceTimes::<T>::get(subnet_id).ok_or(Error::<T>::MissingSubnetBalanceTime)?;
+        let previous = SubnetBalanceTimes::<T>::get(subnet_id).unwrap_or(SubnetBalanceTime {
+            last_updated_block: block,
+            ..Default::default()
+        });
         Self::checkpoint_subnet_balance_time(previous, old_balance, block).map(Some)
     }
 }

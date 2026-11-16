@@ -37,9 +37,7 @@ fn fixture() -> (u32, u32) {
         ));
     }
     seed_equal_validator_delegate_stake_for_subnet(subnet);
-    ValidatorDelegateStakeSlashThreshold::<Test>::put(TOKEN / 2);
-    BaseValidatorDelegateStakeSlashPercentage::<Test>::put(TOKEN / 100);
-    MaxValidatorDelegateStakeSlashAmount::<Test>::put(u128::MAX);
+    StrongRejectionThreshold::<Test>::put(TOKEN / 2);
     let epoch = Network::get_current_subnet_epoch_as_u32(subnet);
     Network::elect_validator(subnet, epoch, System::block_number());
     let emission_epoch = ConsensusRoundSettlementEmissionEpoch::<Test>::get(subnet, epoch).unwrap();
@@ -154,9 +152,6 @@ fn global_resume_cancels_missing_partial_and_quorate_rounds() {
             assert!(!Network::is_node_stake_slash_locked(
                 subnet,
                 round.validator_subnet_node_id
-            ));
-            assert!(!Network::is_validator_delegate_stake_slash_locked(
-                round.validator_id
             ));
             assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), 11 * TOKEN);
             assert_eq!(Balances::free_balance(owner), owner_balance);
@@ -302,9 +297,6 @@ fn cancellation_overflow_saturates_and_releases_liabilities() {
         assert!(!Network::is_node_stake_slash_locked(
             subnet,
             round.validator_subnet_node_id
-        ));
-        assert!(!Network::is_validator_delegate_stake_slash_locked(
-            round.validator_id
         ));
         assert_eq!(cancellation_count(subnet, epoch), 1);
         settle(subnet, epoch + 2);

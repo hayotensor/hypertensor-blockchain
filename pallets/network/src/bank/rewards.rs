@@ -29,9 +29,10 @@ impl<T: Config> Pallet<T> {
 
     /// Add an admitted node to the in-memory quarantine set used by one settlement.
     ///
-    /// The set has the same bound as the admitted-node population. Every physical node removal must
-    /// clear its marker, so inserting a live node cannot exceed this bound.
+    /// The set has the same bound as the admitted-node population. If inconsistent state fills
+    /// either collection, skip this removal without changing either collection or blocking settlement.
     fn stage_pending_admitted_node_removal(
+        subnet_id: u32,
         pending: &mut BoundedBTreeSet<u32, T::MaxSubnetNodesUpperBound>,
         newly_pending: &mut BoundedVec<u32, T::MaxSubnetNodesUpperBound>,
         subnet_node_id: u32,
@@ -40,16 +41,28 @@ impl<T: Config> Pallet<T> {
             return false;
         }
 
-        pending
-            .try_insert(subnet_node_id)
-            .expect("pending admitted-node removals are bounded by the admitted-node population");
-        newly_pending
-            .try_push(subnet_node_id)
-            .expect("new admitted-node removals are bounded by the admitted-node population");
+        if pending.try_insert(subnet_node_id).is_err() {
+            log::error!(
+                target: "runtime::network",
+                "Skipped admitted-node removal for subnet {subnet_id}, node {subnet_node_id}: pending removal set is full",
+            );
+            return false;
+        }
+        if newly_pending.try_push(subnet_node_id).is_err() {
+            // The marker was absent on entry. Undo this insertion so the failed attempt leaves
+            // both the quarantine set and its batched event list unchanged.
+            pending.remove(&subnet_node_id);
+            log::error!(
+                target: "runtime::network",
+                "Skipped admitted-node removal for subnet {subnet_id}, node {subnet_node_id}: pending removal event list is full",
+            );
+            return false;
+        }
         true
     }
 
     fn stage_pending_queued_node_removal(
+        subnet_id: u32,
         pending: &mut BoundedBTreeSet<u32, T::MaxRegisteredNodesUpperBound>,
         newly_pending: &mut BoundedVec<u32, T::MaxRegisteredNodesUpperBound>,
         subnet_node_id: u32,
@@ -58,12 +71,21 @@ impl<T: Config> Pallet<T> {
             return false;
         }
 
-        pending
-            .try_insert(subnet_node_id)
-            .expect("pending queued-node removals are bounded by the queued population");
-        newly_pending
-            .try_push(subnet_node_id)
-            .expect("new queued-node removals are bounded by the queued population");
+        if pending.try_insert(subnet_node_id).is_err() {
+            log::error!(
+                target: "runtime::network",
+                "Skipped queued-node removal for subnet {subnet_id}, node {subnet_node_id}: pending removal set is full",
+            );
+            return false;
+        }
+        if newly_pending.try_push(subnet_node_id).is_err() {
+            pending.remove(&subnet_node_id);
+            log::error!(
+                target: "runtime::network",
+                "Skipped queued-node removal for subnet {subnet_id}, node {subnet_node_id}: pending removal event list is full",
+            );
+            return false;
+        }
         true
     }
 
@@ -80,6 +102,7 @@ impl<T: Config> Pallet<T> {
         let mut newly_pending = BoundedVec::default();
 
         let inserted = Self::stage_pending_admitted_node_removal(
+            subnet_id,
             &mut pending,
             &mut newly_pending,
             subnet_node_id,
@@ -242,7 +265,7 @@ impl<T: Config> Pallet<T> {
                     )
                 };
 
-            let slash_succeeded = Self::handle_non_consensus(
+            Self::handle_non_consensus(
                 subnet_id,
                 consensus_submission_data,
                 penalty_attestation_ratio,
@@ -258,11 +281,6 @@ impl<T: Config> Pallet<T> {
                 &mut newly_pending_admitted_removals,
                 weight_meter,
             );
-            if !slash_succeeded {
-                // The combined node/pool slash rolled back. Keep the exact round pending and do
-                // not retain reputation, reward, quarantine, or liability-release side effects.
-                return;
-            }
             if let Some(balance) = next_capacitor {
                 SubnetRewardCapacitor::<T>::insert(subnet_id, balance);
                 weight_meter.consume(db_weight.writes(1));
@@ -301,30 +319,13 @@ impl<T: Config> Pallet<T> {
                     .min(u128::MAX - rewards_data.overall_subnet_reward);
                 if supplement > 0 {
                     let combined_reward = rewards_data.overall_subnet_reward + supplement;
-                    let Some((combined_rewards, _)) = Self::calculate_rewards_with_policy(
+                    let (combined_rewards, _) = Self::calculate_rewards_with_policy(
                         combined_reward,
                         percentage_factor,
                         &policy,
-                    ) else {
-                        return;
-                    };
+                    );
                     rewards_data = combined_rewards;
                     remaining_capacitor = Some(capacitor - supplement);
-                }
-            }
-        }
-
-        // Validate the reward checkpoint before finalizing or paying any accepted-round rewards.
-        // Missing/corrupt accounting leaves the round pending for an explicit repair.
-        if rewards_data.delegate_stake_rewards > 0 {
-            let circulating = TotalSubnetDelegateStakeCirculatingShares::<T>::get(subnet_id);
-            weight_meter.consume(db_weight.reads(1));
-            if Self::delegate_pool_has_circulating_shares(circulating) {
-                let balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
-                let block = Self::get_current_block_as_u32();
-                weight_meter.consume(db_weight.reads(4));
-                if Self::prepare_subnet_balance_time(subnet_id, balance, block).is_err() {
-                    return;
                 }
             }
         }
@@ -361,6 +362,7 @@ impl<T: Config> Pallet<T> {
                     .is_some_and(|reputation| reputation < min_subnet_node_reputation)
                 {
                     pending_admitted_removals_dirty |= Self::stage_pending_admitted_node_removal(
+                        subnet_id,
                         &mut pending_admitted_removals,
                         &mut newly_pending_admitted_removals,
                         validator_subnet_node_id,
@@ -469,11 +471,7 @@ impl<T: Config> Pallet<T> {
         }
 
         // --- Reward owner
-        Self::settle_subnet_owner_reward(
-            weight_meter,
-            subnet_id,
-            rewards_data.subnet_owner_reward,
-        );
+        Self::settle_subnet_owner_reward(weight_meter, subnet_id, rewards_data.subnet_owner_reward);
 
         // CPU cost for this bounded loop is covered by the generated `emission_step(h)` model;
         // only branch-specific storage work is tracked by this internal admission meter.
@@ -522,6 +520,7 @@ impl<T: Config> Pallet<T> {
 
             if node_exists && reputation < min_subnet_node_reputation {
                 pending_admitted_removals_dirty |= Self::stage_pending_admitted_node_removal(
+                    subnet_id,
                     &mut pending_admitted_removals,
                     &mut newly_pending_admitted_removals,
                     subnet_node.id,
@@ -564,6 +563,7 @@ impl<T: Config> Pallet<T> {
 
                 if node_exists && reputation < min_subnet_node_reputation {
                     pending_admitted_removals_dirty |= Self::stage_pending_admitted_node_removal(
+                        subnet_id,
                         &mut pending_admitted_removals,
                         &mut newly_pending_admitted_removals,
                         subnet_node.id,
@@ -664,6 +664,7 @@ impl<T: Config> Pallet<T> {
 
             if node_exists && reputation < min_subnet_node_reputation {
                 pending_admitted_removals_dirty |= Self::stage_pending_admitted_node_removal(
+                    subnet_id,
                     &mut pending_admitted_removals,
                     &mut newly_pending_admitted_removals,
                     subnet_node.id,
@@ -836,14 +837,12 @@ impl<T: Config> Pallet<T> {
         pending_admitted_removals_dirty: &mut bool,
         newly_pending_admitted_removals: &mut BoundedVec<u32, T::MaxSubnetNodesUpperBound>,
         weight_meter: &mut WeightMeter,
-    ) -> bool {
+    ) {
         let db_weight = T::DbWeight::get();
         let validator_subnet_node_id = consensus_submission_data.validator_subnet_node_id;
-        let stake_attestation_ratio = consensus_submission_data.attestation_ratio;
         let identity_attestation_ratio = consensus_submission_data.identity_attestation_ratio;
-        let strong_rejection_threshold = consensus_submission_data
-            .policy
-            .validator_delegate_stake_slash_threshold;
+        let strong_rejection_threshold =
+            consensus_submission_data.policy.strong_rejection_threshold;
         let strong_rejection_identity_shortfall = if strong_rejection_threshold > 0
             && identity_attestation_ratio < strong_rejection_threshold
         {
@@ -856,9 +855,9 @@ impl<T: Config> Pallet<T> {
         } else {
             None
         };
-        // Economic settlement must commit before any reputation or quarantine change.
+        // A failed slash is rolled back and forfeited; reputation and round finalization continue.
         if penalty_attestation_ratio < penalty_attestation_threshold {
-            let (slash_result, slash_weight) = Self::apply_validator_economic_slashes(
+            let (_, slash_weight) = Self::apply_subnet_node_slash(
                 subnet_id,
                 validator_subnet_node_id,
                 penalty_attestation_ratio,
@@ -866,22 +865,8 @@ impl<T: Config> Pallet<T> {
                 base_slash_percentage,
                 max_slash_amount,
                 consensus_submission_data.validator_node_stake_balance,
-                stake_attestation_ratio,
-                consensus_submission_data.validator_delegate_stake_balance,
-                consensus_submission_data
-                    .policy
-                    .validator_delegate_stake_slash_threshold,
-                consensus_submission_data
-                    .policy
-                    .base_validator_delegate_stake_slash_percentage,
-                consensus_submission_data
-                    .policy
-                    .max_validator_delegate_stake_slash_amount,
             );
             weight_meter.consume(slash_weight);
-            if slash_result.is_err() {
-                return false;
-            }
         }
 
         // The proposer may owe both role penalties. Keep their sequential rounding, but load
@@ -972,6 +957,7 @@ impl<T: Config> Pallet<T> {
                 };
                 if reputation.is_some_and(|value| value < min_subnet_node_reputation) {
                     *pending_admitted_removals_dirty |= Self::stage_pending_admitted_node_removal(
+                        subnet_id,
                         pending_admitted_removals,
                         newly_pending_admitted_removals,
                         subnet_node_id,
@@ -983,12 +969,12 @@ impl<T: Config> Pallet<T> {
         // Also covers a missing proposer attestation or a reputation-neutral rejection.
         if proposer_reputation.is_some_and(|value| value < min_subnet_node_reputation) {
             *pending_admitted_removals_dirty |= Self::stage_pending_admitted_node_removal(
+                subnet_id,
                 pending_admitted_removals,
                 newly_pending_admitted_removals,
                 validator_subnet_node_id,
             );
         }
-        true
     }
 
     pub(crate) fn handle_validator_reward(
@@ -1136,22 +1122,27 @@ impl<T: Config> Pallet<T> {
                     weight_meter.consume(db_weight.reads(1));
 
                     if Self::stage_pending_queued_node_removal(
+                        subnet_id,
                         &mut pending,
                         &mut newly_pending_queued_removals,
                         remove_queue_node_id,
                     ) {
-                        PendingQueuedNodeRemovals::<T>::insert(subnet_id, pending);
+                        PendingQueuedNodeRemovals::<T>::insert(subnet_id, &pending);
                         weight_meter.consume(db_weight.writes(1));
                     }
 
-                    queue.remove(index);
-                    SubnetNodeQueue::<T>::insert(subnet_id, &queue);
-                    weight_meter.consume(db_weight.writes(1));
+                    // Capacity failures leave this registration queued. An existing quarantine
+                    // marker still permits its logical removal without staging a duplicate marker.
+                    if pending.contains(&remove_queue_node_id) {
+                        queue.remove(index);
+                        SubnetNodeQueue::<T>::insert(subnet_id, &queue);
+                        weight_meter.consume(db_weight.writes(1));
 
-                    Self::deposit_event(Event::QueuedNodeRemoved {
-                        subnet_id,
-                        subnet_node_id: remove_queue_node_id,
-                    });
+                        Self::deposit_event(Event::QueuedNodeRemoved {
+                            subnet_id,
+                            subnet_node_id: remove_queue_node_id,
+                        });
+                    }
                 }
             }
         }

@@ -29,19 +29,61 @@ use frame_support::{pallet_prelude::Weight, weights::WeightMeter};
 /// single pending round, which is never pruned.
 pub const CONSENSUS_HISTORY_RETENTION_EPOCHS: u32 = 16;
 
-/// Upper bound on epochs pruned per subnet slot. Steady state prunes one per subnet epoch; the
-/// surplus lets a cursor catch up after slots that ran out of weight. Empty epochs are skipped
-/// for one read each and are bounded only by the weight meter.
+/// Upper bound on epochs visited per subnet slot, including epochs without an election.
+/// Steady state prunes one per subnet epoch; the surplus lets a cursor catch up after skipped
+/// slots without making one hook's work depend on the length of the gap.
 pub const MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT: u32 = 4;
 
 /// Keys removed per storage prefix per block when clearing a removed subnet's history.
 pub const REMOVED_SUBNET_HISTORY_CLEAR_LIMIT: u32 = 256;
 
 impl<T: Config> Pallet<T> {
+    /// Conservative trie allowance for a compact storage key. These manual proof bounds
+    /// supplement database ref-time until pruning has dedicated benchmark measurements.
+    fn consensus_history_key_proof(keys: u64) -> Weight {
+        Weight::from_parts(0, 4_096u64.saturating_mul(keys))
+    }
+
+    fn consensus_round_probe_weight() -> Weight {
+        // Election data stores one four-byte node ID and one eight-byte identity-map entry
+        // per candidate. The fixed margin covers the policy, principal, and SCALE prefixes.
+        T::DbWeight::get()
+            .reads(1)
+            .saturating_add(Weight::from_parts(
+                0,
+                12 * T::MaxSubnetNodesUpperBound::get() as u64 + 1_024 + 4_096,
+            ))
+    }
+
+    fn consensus_attestation_prune_weight(loops: u64, unique: u64) -> Weight {
+        // Prefix clearing removes overlay entries as well as iterating backend entries.
+        // Reserve the larger count, plus the end probe, even when overlay reads are free.
+        let proof_per_entry = T::ValidatorArgsLimit::get() as u64 + 5 + 4_096;
+        T::DbWeight::get()
+            .reads_writes(loops.saturating_add(1), unique)
+            .saturating_add(Weight::from_parts(
+                0,
+                loops
+                    .max(unique)
+                    .saturating_add(1)
+                    .saturating_mul(proof_per_entry),
+            ))
+    }
+
     /// Fixed single-key removals per pruned round (elected round, status, emission epoch,
     /// submission, max items, proposal args, attestor weights).
     fn consensus_round_fixed_prune_weight() -> Weight {
-        T::DbWeight::get().reads_writes(1, 7)
+        // Canonical stored proposals keep opaque args/attest data in separate keys. Their
+        // compact per-node fields use 86 bytes, elections use 12, and weights use 20. Round
+        // up to 128 per node, plus fixed fields, seven trie paths, and the proposal payload.
+        let proof = 128 * T::MaxSubnetNodesUpperBound::get() as u64
+            + 1_024
+            + 7 * 4_096
+            + T::ValidatorArgsLimit::get() as u64
+            + 5;
+        T::DbWeight::get()
+            .reads_writes(1, 7)
+            .saturating_add(Weight::from_parts(0, proof))
     }
 
     /// Prune consensus history for `subnet_id` older than the retention window, never touching
@@ -53,7 +95,9 @@ impl<T: Config> Pallet<T> {
         current_subnet_epoch: u32,
     ) {
         let db_weight = T::DbWeight::get();
-        let selector_weight = db_weight.reads(2);
+        let selector_weight = db_weight
+            .reads(2)
+            .saturating_add(Self::consensus_history_key_proof(2));
         if !weight_meter.can_consume(selector_weight) {
             return;
         }
@@ -67,11 +111,12 @@ impl<T: Config> Pallet<T> {
         };
 
         let Some(mut cursor) = ConsensusHistoryPruneCursor::<T>::get(subnet_id) else {
-            // One-time init at the oldest epoch that can hold history: no round is elected before
-            // the subnet's consensus-eligibility epoch. History written before this pruning
-            // existed (e.g. before an upgrade) is therefore reached too; empty epochs are skipped
-            // cheaply below, so catching up stays bounded per slot.
-            let init_weight = db_weight.reads_writes(1, 1);
+            // Initialize at the oldest epoch that can hold history: no round is elected before
+            // the subnet's consensus-eligibility epoch. Empty epochs are skipped within the
+            // same per-slot visit bound as elected rounds.
+            let init_weight = Self::subnet_lifecycle_read_weight()
+                .saturating_add(db_weight.writes(1))
+                .saturating_add(Self::consensus_history_key_proof(1));
             if weight_meter.can_consume(init_weight) {
                 weight_meter.consume(init_weight);
                 let oldest = SubnetsData::<T>::get(subnet_id)
@@ -84,19 +129,27 @@ impl<T: Config> Pallet<T> {
 
         let attestation_limit = T::MaxSubnetNodesUpperBound::get().max(1);
         let worst_case_epoch_weight = Self::consensus_round_fixed_prune_weight()
-            .saturating_add(db_weight.reads_writes(1, attestation_limit as u64));
-        let cursor_write_weight = db_weight.writes(1);
+            // Backend-resident attestations require one read per removed entry and an end
+            // probe, unlike fresh overlay writes. Reserve them before clearing the prefix.
+            .saturating_add(Self::consensus_attestation_prune_weight(
+                attestation_limit as u64,
+                attestation_limit as u64,
+            ));
+        let cursor_write_weight = db_weight
+            .writes(1)
+            .saturating_add(Self::consensus_history_key_proof(1));
 
-        let probe_weight = db_weight.reads(1);
+        let probe_weight = Self::consensus_round_probe_weight();
         let start = cursor;
-        let mut pruned = 0u32;
-        while cursor < stop && pruned < MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT {
+        let mut visited = 0u32;
+        while cursor < stop && visited < MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT {
             // Every per-epoch record is written only after that epoch's election, so an epoch
             // without an elected round holds no history and costs a single read to skip.
             if !weight_meter.can_consume(probe_weight.saturating_add(cursor_write_weight)) {
                 break;
             }
             weight_meter.consume(probe_weight);
+            visited += 1;
             if !SubnetElectedValidator::<T>::contains_key(subnet_id, cursor) {
                 cursor = cursor.saturating_add(1);
                 continue;
@@ -112,9 +165,13 @@ impl<T: Config> Pallet<T> {
                 attestation_limit,
                 None,
             );
-            weight_meter.consume(
-                db_weight.reads_writes(removed.loops.max(1) as u64, removed.unique as u64),
-            );
+            // The SDK's current clear_prefix wrapper reports backend removals only, omitting
+            // overlay deletions from `unique`. Charge the reserved valid-round write/proof
+            // bound so both storage locations are covered; backend reads still use its count.
+            weight_meter.consume(Self::consensus_attestation_prune_weight(
+                removed.loops as u64,
+                attestation_limit as u64,
+            ));
             if removed.maybe_cursor.is_some() {
                 // More attestation entries than the per-call limit (inconsistent state). The same
                 // prefix must not be cleared twice in one block; resume on a later slot.
@@ -131,7 +188,6 @@ impl<T: Config> Pallet<T> {
             weight_meter.consume(Self::consensus_round_fixed_prune_weight());
 
             cursor = cursor.saturating_add(1);
-            pruned = pruned.saturating_add(1);
         }
 
         if cursor != start {

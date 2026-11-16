@@ -56,7 +56,6 @@ pub fn consensus<T: Config>(
                         status: u8::from(proposed),
                         electedNodeId: v.validator_subnet_node_id,
                         electedValidatorId: v.validator_id,
-                        delegateBalanceAtElection: v.validator_delegate_stake_balance,
                         proposalSubmitted: proposed,
                     }
                 })

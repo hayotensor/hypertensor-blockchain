@@ -375,6 +375,122 @@ impl<T: Config> Pallet<T> {
         weight
     }
 
+    /// Charge the lifecycle read even when settlement has no proposal and never reads this key.
+    /// Metadata bounds cover the three vectors, repository URL, and fixed/SCALE fields. The
+    /// trie margin is conservative until a dedicated lifecycle selector is benchmarked.
+    pub(crate) fn subnet_lifecycle_read_weight() -> Weight {
+        let proof =
+            3 * T::MaxVectorLength::get() as u64 + T::MaxUrlLength::get() as u64 + 1_024 + 4_096;
+        T::DbWeight::get()
+            .reads(1)
+            .saturating_add(Weight::from_parts(0, proof))
+    }
+
+    /// Complete bounded admission for settlement, recovery, and election.
+    ///
+    /// Settlement uses the bounded historical and physical queue sizes. Election reserves every
+    /// admitted node because settlement can promote Probation candidates, but cannot admit new
+    /// nodes. Optional maintenance never borrows from this envelope.
+    pub(crate) fn subnet_slot_mandatory_weight(
+        historical_items: u32,
+        queued_nodes: u32,
+        admitted_nodes: u32,
+    ) -> Weight {
+        let historical_items = historical_items.min(T::MaxSubnetNodesUpperBound::get());
+        let h = historical_items.max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES);
+        let q = queued_nodes
+            .min(T::MaxRegisteredNodesUpperBound::get())
+            .max(1);
+        let e = admitted_nodes
+            .min(T::MaxSubnetNodesUpperBound::get())
+            .max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES);
+        let minimum_identity_attestors = Self::min_identity_attestors_for_ratio(
+            Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
+            T::SuperMajorityAttestationRatio::get(),
+        );
+        let max_non_attestors = h.saturating_sub(minimum_identity_attestors);
+        let non_attestor_reputation = if max_non_attestors == 0 {
+            Weight::zero()
+        } else {
+            T::WeightInfo::emission_step_accepted_non_attestor_reputation(max_non_attestors)
+        };
+        let accepted = T::WeightInfo::emission_step(h)
+            .saturating_add(
+                T::WeightInfo::emission_step_accepted_queue_mutations(q).max(
+                    T::WeightInfo::emission_step_accepted_queue_mutations_front(q),
+                ),
+            )
+            .saturating_add(T::WeightInfo::emission_step_accepted_below_min_weight_reputation(h))
+            .saturating_add(non_attestor_reputation);
+        let settlement_branch = if historical_items == 0 {
+            T::WeightInfo::emission_step_missing()
+        } else {
+            accepted.max(T::WeightInfo::emission_step_rejected(h))
+        };
+        let settlement = settlement_branch
+            .max(T::WeightInfo::emission_step_cancelled())
+            .saturating_add(T::WeightInfo::consensus_settlement_recovery())
+            .saturating_add(T::DbWeight::get().reads_writes(3, 3))
+            .saturating_add(Self::pending_subnet_node_removal_proof_weight());
+        settlement
+            .saturating_add(T::WeightInfo::elect_validator(e))
+            .saturating_add(Self::subnet_lifecycle_read_weight())
+    }
+
+    /// Maximum hook work required to reach and finish an assigned subnet's mandatory step.
+    /// Keep the runtime integrity contract identical to the actual admission path.
+    pub(crate) fn mandatory_subnet_hook_weight() -> Weight {
+        T::WeightInfo::on_initialize_base()
+            .saturating_add(T::WeightInfo::advance_overwatch_epoch_noop())
+            .saturating_add(T::WeightInfo::emission_slot_selector())
+            .saturating_add(T::WeightInfo::emission_step_selectors())
+            .saturating_add(
+                Self::subnet_slot_mandatory_weight(
+                    T::MaxSubnetNodesUpperBound::get(),
+                    T::MaxRegisteredNodesUpperBound::get(),
+                    T::MaxSubnetNodesUpperBound::get(),
+                )
+                .max(Self::subnet_slot_mandatory_weight(
+                    0,
+                    0,
+                    T::MaxSubnetNodesUpperBound::get(),
+                )),
+            )
+    }
+
+    /// The caller pays the generated fixed selector envelope before these bounded reads.
+    fn select_subnet_slot_mandatory_weight(subnet_id: u32, subnet_epoch: u32) -> Weight {
+        let historical_items = PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id)
+            .or_else(|| subnet_epoch.checked_sub(1))
+            .map(|epoch| SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, epoch))
+            .unwrap_or(0);
+        let admitted_nodes = TotalAdmittedSubnetNodes::<T>::get(subnet_id);
+        let queued_nodes = TotalSubnetNodes::<T>::get(subnet_id).saturating_sub(admitted_nodes);
+        Self::subnet_slot_mandatory_weight(historical_items, queued_nodes, admitted_nodes)
+    }
+
+    /// Run the subnet selected by the current reverse slot assignment after one admission.
+    /// At its assigned block the subnet epoch equals the general epoch by the schedule invariant.
+    pub(crate) fn run_assigned_subnet_slot(
+        weight_meter: &mut WeightMeter,
+        block: u32,
+        current_epoch: u32,
+        subnet_id: u32,
+    ) -> bool {
+        let selectors = T::WeightInfo::emission_step_selectors();
+        if !weight_meter.can_consume(selectors) {
+            return false;
+        }
+        weight_meter.consume(selectors);
+        let mandatory = Self::select_subnet_slot_mandatory_weight(subnet_id, current_epoch);
+        if !weight_meter.can_consume(mandatory) {
+            return false;
+        }
+        weight_meter.consume(mandatory);
+        Self::emission_step_prepaid(weight_meter, block, current_epoch, current_epoch, subnet_id);
+        true
+    }
+
     /// - Generates emissions variables to distribute emissions: `precheck_subnet_consensus_submission`
     /// - Distributes emissions: `distribute_rewards`
     /// - Elects validator: `elect_validator`
@@ -388,14 +504,47 @@ impl<T: Config> Pallet<T> {
         current_subnet_epoch: u32,
         subnet_id: u32,
     ) {
-        Self::emission_settlement_step(
+        let selectors = T::WeightInfo::emission_step_selectors();
+        if !weight_meter.can_consume(selectors) {
+            return;
+        }
+        weight_meter.consume(selectors);
+        let mandatory = Self::select_subnet_slot_mandatory_weight(subnet_id, current_subnet_epoch);
+        if !weight_meter.can_consume(mandatory) {
+            return;
+        }
+        weight_meter.consume(mandatory);
+        Self::emission_step_prepaid(
             weight_meter,
             block,
             current_epoch,
             current_subnet_epoch,
             subnet_id,
         );
-        Self::emission_operational_step(weight_meter, block, current_subnet_epoch, subnet_id);
+    }
+
+    /// The complete bounded settlement and election work was charged by the caller. Internal
+    /// settlement accounting is diagnostic; only optional maintenance consumes the outer meter.
+    fn emission_step_prepaid(
+        weight_meter: &mut WeightMeter,
+        block: u32,
+        current_epoch: u32,
+        current_subnet_epoch: u32,
+        subnet_id: u32,
+    ) {
+        Self::emission_settlement_step(
+            &mut WeightMeter::new(),
+            block,
+            current_epoch,
+            current_subnet_epoch,
+            subnet_id,
+        );
+        Self::emission_operational_step_prepaid(
+            weight_meter,
+            block,
+            current_subnet_epoch,
+            subnet_id,
+        );
     }
 
     /// Settle the prior subnet epoch under a reward-core envelope that is independent from
@@ -421,6 +570,10 @@ impl<T: Config> Pallet<T> {
         let Some(settlement_subnet_epoch) = settlement_subnet_epoch else {
             return;
         };
+        // Repeated hook/helper calls must never settle a round elected in this same slot.
+        if settlement_subnet_epoch == current_subnet_epoch {
+            return;
+        }
 
         let historical_items =
             SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, settlement_subnet_epoch)
@@ -431,9 +584,18 @@ impl<T: Config> Pallet<T> {
         } else {
             T::WeightInfo::precheck_subnet_consensus_submission(historical_items)
         }
-        .max(T::WeightInfo::precheck_subnet_consensus_submission_cancelled());
+        .max(T::WeightInfo::precheck_subnet_consensus_submission_cancelled())
+        .saturating_add(T::WeightInfo::consensus_settlement_recovery());
 
         if !weight_meter.can_consume(precheck_weight) {
+            return;
+        }
+
+        if settlement_subnet_epoch > current_subnet_epoch {
+            // A future pending epoch is inconsistent with the assigned-slot lifecycle.
+            weight_meter.consume(precheck_weight);
+            // Cancellation is covered by the recovery envelope reserved in precheck_weight.
+            Self::cancel_pending_consensus_round(subnet_id, settlement_subnet_epoch);
             return;
         }
 
@@ -447,13 +609,17 @@ impl<T: Config> Pallet<T> {
         );
         weight_meter.consume(precheck_weight);
         let Some(mut consensus_submission_data) = consensus_submission_data else {
+            // Every admitted old round must terminate. This also covers future precheck exits
+            // without turning unusable evidence into an absence penalty.
+            // Cancellation is covered by the recovery envelope reserved in precheck_weight.
+            Self::cancel_pending_consensus_round(subnet_id, settlement_subnet_epoch);
             return;
         };
 
         weight_meter.consume(db_weight.reads(1));
         let settlement_emission_epoch =
             ConsensusRoundSettlementEmissionEpoch::<T>::get(subnet_id, settlement_subnet_epoch)
-                .unwrap_or(current_epoch);
+                .unwrap_or_else(|| settlement_subnet_epoch.saturating_add(1));
         weight_meter.consume(db_weight.reads(1));
         // The global allocation slot precedes every subnet settlement slot. Consequently, by the
         // time this code runs, either a missing epoch record or an omitted subnet key definitively
@@ -480,16 +646,11 @@ impl<T: Config> Pallet<T> {
             consensus_submission_data.policy.base_validator_reward = 0;
         }
 
-        let Some((rewards_data, rewards_block_weight)) = Self::calculate_rewards_with_policy(
+        let (rewards_data, rewards_block_weight) = Self::calculate_rewards_with_policy(
             subnets_emissions,
             subnet_weight,
             &consensus_submission_data.policy,
-        ) else {
-            // Election snapshots are immutable. If a migration or corrupt state supplied an
-            // impossible reward percentage, retain the pending round and every slash liability
-            // without issuing any component of its reward budget.
-            return;
-        };
+        );
         weight_meter.consume(rewards_block_weight);
         Self::distribute_rewards_for_round(
             weight_meter,
@@ -499,11 +660,46 @@ impl<T: Config> Pallet<T> {
             consensus_submission_data,
             rewards_data,
         );
+        // Finalization normally removed this pointer already. If reward preparation could not
+        // complete, cancel this exact old round so the following election can still proceed.
+        // Its work was reserved in precheck_weight, including the final pending-pointer read.
+        Self::cancel_pending_consensus_round(subnet_id, settlement_subnet_epoch);
     }
 
-    /// Run independently admitted subnet operations after reward settlement. Election sees the
-    /// quarantine markers first; physical cleanup then spends only genuinely remaining weight.
+    /// Direct operational entry point for callers that have not prepaid the complete subnet slot.
     pub fn emission_operational_step(
+        weight_meter: &mut WeightMeter,
+        block: u32,
+        current_subnet_epoch: u32,
+        subnet_id: u32,
+    ) {
+        let selector = T::DbWeight::get()
+            .reads(1)
+            .saturating_add(Weight::from_parts(0, 4_096));
+        if !weight_meter.can_consume(selector) {
+            return;
+        }
+        weight_meter.consume(selector);
+        let admitted_nodes = TotalAdmittedSubnetNodes::<T>::get(subnet_id)
+            .min(T::MaxSubnetNodesUpperBound::get())
+            .max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES);
+        let mandatory = Self::subnet_lifecycle_read_weight()
+            .saturating_add(T::WeightInfo::elect_validator(admitted_nodes));
+        if !weight_meter.can_consume(mandatory) {
+            return;
+        }
+        weight_meter.consume(mandatory);
+        Self::emission_operational_step_prepaid(
+            weight_meter,
+            block,
+            current_subnet_epoch,
+            subnet_id,
+        );
+    }
+
+    /// Election has already been admitted together with settlement. Its execution cannot be
+    /// skipped by a second weight check; cleanup and maintenance use only the unreserved balance.
+    fn emission_operational_step_prepaid(
         weight_meter: &mut WeightMeter,
         block: u32,
         current_subnet_epoch: u32,
@@ -513,27 +709,11 @@ impl<T: Config> Pallet<T> {
         // Operational subnet-epoch work must not depend on a reward allocation. Queue and
         // burn maintenance run while Active so the preparation epoch is useful, whereas a
         // validator election additionally requires the consensus eligibility epoch to be reached.
-        let subnet_read_weight = db_weight.reads(1);
-        if !weight_meter.can_consume(subnet_read_weight) {
-            return;
-        }
-        weight_meter.consume(subnet_read_weight);
         if let Ok(subnet) = SubnetsData::<T>::try_get(subnet_id) {
             if subnet.state == SubnetState::Active
                 && Self::_is_subnet_active_and_live(&subnet, current_subnet_epoch)
             {
-                // Read the candidate cardinality before reserving election weight.
-                let cardinality_read_weight = db_weight.reads(1);
-                if weight_meter.can_consume(cardinality_read_weight) {
-                    weight_meter.consume(cardinality_read_weight);
-                    let candidate_count = Self::elect_validator_weight_component(subnet_id);
-                    let election_weight = T::WeightInfo::elect_validator(candidate_count);
-
-                    if weight_meter.can_consume(election_weight) {
-                        weight_meter.consume(election_weight);
-                        Self::elect_validator(subnet_id, current_subnet_epoch, block);
-                    }
-                }
+                Self::elect_validator(subnet_id, current_subnet_epoch, block);
             }
 
             // Drain quarantined physical state only after the conditional election. This preserves
@@ -779,11 +959,9 @@ impl<T: Config> Pallet<T> {
             // The generated `emission_step_queue(q)` model covers bounded CPU/vector work. This
             // internal meter only needs to reserve the storage work that the helper consumes and
             // the one final queue write.
-            let storage_write_weight = if admitted_nodes == 0 {
-                db_weight.writes(1) // Only count the storage write once
-            } else {
-                Weight::zero()
-            };
+            // Keep the final queue write available on every iteration. It is consumed only
+            // once below; a successful earlier admission has not spent that reservation yet.
+            let storage_write_weight = db_weight.writes(1);
 
             let pending_lookup_weight = db_weight
                 .reads(1)
@@ -1098,11 +1276,12 @@ impl<T: Config> Pallet<T> {
         for subnet_id in subnet_ids {
             weight = weight.saturating_add(db_weight.reads(2));
             let balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
-            let Some(previous) = SubnetBalanceTimes::<T>::get(subnet_id) else {
-                // Never reconstruct past backing from a current balance. An invalid cohort
-                // receives no balance-time factor and does not partially advance checkpoints.
-                return (BTreeMap::new(), weight);
-            };
+            // Missing history gives only this subnet zero past credit. Restart its checkpoint
+            // at allocation so healthy members of the cohort retain their completed-epoch area.
+            let previous = SubnetBalanceTimes::<T>::get(subnet_id).unwrap_or(SubnetBalanceTime {
+                last_updated_block: allocation_block,
+                ..Default::default()
+            });
             // A later balance change in this same epoch has already completed E-1. Reuse
             // that immutable area without moving its checkpoint backwards to allocation slot 2.
             let checkpoint = if previous.last_updated_block > allocation_block
@@ -1154,9 +1333,9 @@ impl<T: Config> Pallet<T> {
         (weights, weight)
     }
 
-    /// Discard one pending round after global unpause. Use only its recorded allocation; do not
-    /// synthesize rewards for epochs skipped while paused. Settlement runs after the allocation
-    /// slot, so a missing allocation is definitively zero even after a short pause.
+    /// Give an unusable or globally cancelled round a terminal outcome without inventing a
+    /// consensus decision. Retain its allocation, release its liability, and permit the next
+    /// election. Missing allocation is zero; invalid percentages cannot exceed the epoch budget.
     fn cancel_pending_consensus_round(subnet_id: u32, subnet_epoch: u32) -> Weight {
         let db_weight = T::DbWeight::get();
         let mut weight = db_weight.reads(1);
@@ -1164,21 +1343,26 @@ impl<T: Config> Pallet<T> {
             return weight;
         }
         weight = weight.saturating_add(db_weight.reads(1));
-        let Some(emission_epoch) =
+        if Self::is_consensus_round_settled(subnet_id, subnet_epoch) {
+            // Repair a stale pointer without repeating capacitor credits or cancellation events.
+            return weight.saturating_add(Self::finalize_consensus_round_slash_liability(
+                subnet_id,
+                subnet_epoch,
+            ));
+        }
+        weight = weight.saturating_add(db_weight.reads(1));
+        // Elections occur at slot + epoch * EpochLength; their allocation is epoch + 1.
+        let emission_epoch =
             ConsensusRoundSettlementEmissionEpoch::<T>::get(subnet_id, subnet_epoch)
-        else {
-            return weight;
-        };
+                .unwrap_or_else(|| subnet_epoch.saturating_add(1));
         let allocation = FinalSubnetEmissionWeights::<T>::get(emission_epoch);
         weight = weight.saturating_add(db_weight.reads(1));
         let subnet_weight = allocation
             .subnet_weights
             .get(&subnet_id)
             .copied()
-            .unwrap_or(0);
-        if subnet_weight > Self::percentage_factor_as_u128() {
-            return weight;
-        }
+            .unwrap_or(0)
+            .min(Self::percentage_factor_as_u128());
         let reward = Self::percent_mul(allocation.subnets_emissions, subnet_weight);
         let next_capacitor = if reward == 0 {
             None
@@ -1191,10 +1375,6 @@ impl<T: Config> Pallet<T> {
             subnet_id,
             subnet_epoch,
         ));
-        weight = weight.saturating_add(db_weight.reads(1));
-        if !Self::is_consensus_round_settled(subnet_id, subnet_epoch) {
-            return weight;
-        }
         if let Some(balance) = next_capacitor {
             SubnetRewardCapacitor::<T>::insert(subnet_id, balance);
             weight = weight.saturating_add(db_weight.writes(1));
@@ -1216,7 +1396,13 @@ impl<T: Config> Pallet<T> {
 
         weight = weight.saturating_add(db_weight.reads(1));
         if Self::is_consensus_round_settled(subnet_id, prev_subnet_epoch) {
-            return (None, weight);
+            return (
+                None,
+                weight.saturating_add(Self::finalize_consensus_round_slash_liability(
+                    subnet_id,
+                    prev_subnet_epoch,
+                )),
+            );
         }
         weight = weight.saturating_add(db_weight.reads(2));
         if Self::consensus_round_precedes_network_resume(subnet_id, prev_subnet_epoch) {
@@ -1229,10 +1415,15 @@ impl<T: Config> Pallet<T> {
             );
         }
 
-        // A missing or corrupt election snapshot must not turn a rejected proposal into
-        // an absence penalty. Cancellation above can still release a cancelled round.
+        // Unusable historical evidence cancels the round without assigning an absence penalty.
+        // Its compact liability record is sufficient to release stake and advance consensus.
         let Some(round) = SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch) else {
-            return (None, weight.saturating_add(db_weight.reads(1)));
+            return (
+                None,
+                weight.saturating_add(db_weight.reads(1)).saturating_add(
+                    Self::cancel_pending_consensus_round(subnet_id, prev_subnet_epoch),
+                ),
+            );
         };
         weight = weight.saturating_add(db_weight.reads(1));
 
@@ -1240,13 +1431,25 @@ impl<T: Config> Pallet<T> {
         let Some(attestor_weight_snapshot) =
             SubnetConsensusAttestorWeights::<T>::get(subnet_id, prev_subnet_epoch)
         else {
-            return (None, weight);
+            return (
+                None,
+                weight.saturating_add(Self::cancel_pending_consensus_round(
+                    subnet_id,
+                    prev_subnet_epoch,
+                )),
+            );
         };
 
         if Self::validate_consensus_attestor_weight_snapshot(&round, &attestor_weight_snapshot)
             .is_err()
         {
-            return (None, weight);
+            return (
+                None,
+                weight.saturating_add(Self::cancel_pending_consensus_round(
+                    subnet_id,
+                    prev_subnet_epoch,
+                )),
+            );
         }
 
         // SubnetConsensusSubmission
@@ -1260,17 +1463,15 @@ impl<T: Config> Pallet<T> {
                 // including when settlement is retried in a later global epoch.
                 let emission_epoch =
                     ConsensusRoundSettlementEmissionEpoch::<T>::get(subnet_id, prev_subnet_epoch)
-                        .unwrap_or(current_epoch);
+                        .unwrap_or_else(|| prev_subnet_epoch.saturating_add(1));
                 let allocation = FinalSubnetEmissionWeights::<T>::get(emission_epoch);
                 weight = weight.saturating_add(db_weight.reads(2));
                 let subnet_weight = allocation
                     .subnet_weights
                     .get(&subnet_id)
                     .copied()
-                    .unwrap_or(0);
-                if subnet_weight > Self::percentage_factor_as_u128() {
-                    return (None, weight);
-                }
+                    .unwrap_or(0)
+                    .min(Self::percentage_factor_as_u128());
                 let reward = Self::percent_mul(allocation.subnets_emissions, subnet_weight);
                 let next_capacitor = if reward > 0 {
                     weight = weight.saturating_add(db_weight.reads(1));
@@ -1283,7 +1484,7 @@ impl<T: Config> Pallet<T> {
 
                 // Apply economic losses while leaving reputation loss to the existing
                 // absence-specific node and subnet penalties below.
-                let (slash_result, slash_weight) = Self::apply_validator_economic_slashes(
+                let (_, slash_weight) = Self::apply_subnet_node_slash(
                     subnet_id,
                     validator_subnet_node_id,
                     0,
@@ -1291,19 +1492,8 @@ impl<T: Config> Pallet<T> {
                     round.policy.base_slash_percentage,
                     round.policy.max_slash_amount,
                     round.validator_node_stake_balance,
-                    0,
-                    round.validator_delegate_stake_balance,
-                    round.policy.validator_delegate_stake_slash_threshold,
-                    round.policy.base_validator_delegate_stake_slash_percentage,
-                    round.policy.max_validator_delegate_stake_slash_amount,
                 );
                 weight = weight.saturating_add(slash_weight);
-                if slash_result.is_err() {
-                    // Keep the immutable round, pending marker, and both liability locks for
-                    // an exact retry. Absence reputation must not be charged until its
-                    // economic settlement commits successfully.
-                    return (None, weight);
-                }
                 if let Some(balance) = next_capacitor {
                     SubnetRewardCapacitor::<T>::insert(subnet_id, balance);
                     weight = weight.saturating_add(db_weight.writes(1));
@@ -1371,37 +1561,47 @@ impl<T: Config> Pallet<T> {
             }
         };
 
-        // Proposal-time quarantine subtracts eligible members, but each retained weight is
-        // the original election value, including its original decay and power transform.
+        // Proposal-time quarantine subtracts eligible members. Wide sums preserve the exact
+        // ratio without narrowing intermediate arithmetic; malformed membership cancels the round.
         let mut eligible_ids = BTreeSet::new();
-        let mut eligible_weight = 0u128;
+        let mut eligible_weight = U256::zero();
         for node_id in &submission.validator_ids {
             if !eligible_ids.insert(*node_id) {
-                return (None, weight);
+                return (
+                    None,
+                    weight.saturating_add(Self::cancel_pending_consensus_round(
+                        subnet_id,
+                        prev_subnet_epoch,
+                    )),
+                );
             }
             let Some(node_weight) = attestor_weight_snapshot.weights.get(node_id) else {
-                return (None, weight);
+                return (
+                    None,
+                    weight.saturating_add(Self::cancel_pending_consensus_round(
+                        subnet_id,
+                        prev_subnet_epoch,
+                    )),
+                );
             };
-            let Some(next_weight) = eligible_weight.checked_add(*node_weight) else {
-                return (None, weight);
-            };
-            eligible_weight = next_weight;
+            eligible_weight += U256::from(*node_weight);
         }
-        let mut attested_weight = 0u128;
+        let mut attested_weight = U256::zero();
         for node_id in submission.attests.keys() {
             if !eligible_ids.contains(node_id) {
-                return (None, weight);
+                return (
+                    None,
+                    weight.saturating_add(Self::cancel_pending_consensus_round(
+                        subnet_id,
+                        prev_subnet_epoch,
+                    )),
+                );
             }
-            let Some(next_weight) =
-                attested_weight.checked_add(attestor_weight_snapshot.weights[node_id])
-            else {
-                return (None, weight);
-            };
-            attested_weight = next_weight;
+            attested_weight += U256::from(attestor_weight_snapshot.weights[node_id]);
         }
-        let attestation_ratio = if eligible_weight > 0 {
-            Self::percent_div(attested_weight, eligible_weight)
-                .clamp(0, Self::percentage_factor_as_u128())
+        let attestation_ratio = if !eligible_weight.is_zero() {
+            (attested_weight * U256::from(Self::percentage_factor_as_u128()) / eligible_weight)
+                .as_u128()
         } else {
             0
         };
@@ -1438,7 +1638,6 @@ impl<T: Config> Pallet<T> {
             policy: round.policy,
             validator_subnet_node_id: submission.validator_id,
             validator_node_stake_balance: round.validator_node_stake_balance,
-            validator_delegate_stake_balance: round.validator_delegate_stake_balance,
             validator_epoch_progress: submission.validator_epoch_progress,
             validator_reward_factor: submission.validator_reward_factor,
             attestation_ratio,
@@ -1505,7 +1704,13 @@ impl<T: Config> Pallet<T> {
         let evaluated_subnet_epoch = current_subnet_epoch.saturating_sub(1);
         if let Some(pending) = PendingSubnetDelegateStakeRewardsPercentage::<T>::get(subnet_id) {
             weight = weight.saturating_add(db_weight.reads(1));
-            if pending.effective_subnet_epoch <= evaluated_subnet_epoch {
+            // The split clamps malformed percentages, so validate the pending value separately
+            // before using or promoting it. Keep the active rate and retain an invalid pending
+            // value for inspection. Configurable registration bounds may have changed since the
+            // update was scheduled; only the permanent Q18 bound applies here.
+            if pending.effective_subnet_epoch <= evaluated_subnet_epoch
+                && pending.value <= Self::percentage_factor_as_u128()
+            {
                 delegate_stake_rewards_percentage = pending.value;
                 pending_update = Some(pending);
             }
@@ -1513,17 +1718,12 @@ impl<T: Config> Pallet<T> {
             weight = weight.saturating_add(db_weight.reads(1));
         }
 
-        // Validate the complete split before activating a pending value. A malformed current or
-        // pending rate therefore cannot be persisted by this accounting path, and its allocation
-        // is zero rather than a partially over-budget `RewardsData` value.
-        let Some(rewards_data) = Self::checked_subnet_reward_split(
+        let rewards_data = Self::subnet_reward_split(
             overall_rewards,
             emission_weight,
             subnet_owner_percentage,
             delegate_stake_rewards_percentage,
-        ) else {
-            return (RewardsData::default(), weight);
-        };
+        );
 
         if let Some(pending) = pending_update {
             SubnetDelegateStakeRewardsPercentage::<T>::insert(subnet_id, pending.value);
@@ -1539,56 +1739,53 @@ impl<T: Config> Pallet<T> {
         (rewards_data, weight)
     }
 
-    /// Calculate one subnet's complete reward split, rejecting every malformed percentage and
-    /// proving that the resulting liabilities exactly partition (and never exceed) its budget.
-    fn checked_subnet_reward_split(
+    /// Calculate one subnet's complete reward split for any input, capping percentages at 100%.
+    /// Storage writes must still validate percentages; clamping here prevents malformed reward
+    /// inputs from blocking settlement and leaves every valid split unchanged.
+    fn subnet_reward_split(
         overall_rewards: u128,
         emission_weight: u128,
         subnet_owner_percentage: u128,
         subnet_delegate_stake_rewards_percentage: u128,
-    ) -> Option<RewardsData> {
+    ) -> RewardsData {
         let percentage_factor = Self::percentage_factor_as_u128();
-        if emission_weight > percentage_factor
-            || subnet_owner_percentage > percentage_factor
-            || subnet_delegate_stake_rewards_percentage > percentage_factor
-        {
-            return None;
-        }
+        let emission_weight = emission_weight.min(percentage_factor);
+        let subnet_owner_percentage = subnet_owner_percentage.min(percentage_factor);
+        let subnet_delegate_stake_rewards_percentage =
+            subnet_delegate_stake_rewards_percentage.min(percentage_factor);
 
+        // percent_mul uses U256 intermediates and rounds down. With percentages at most 100%,
+        // each component is bounded by its input, even for u128::MAX, so subtraction is exact.
+        // Giving nodes the remainder makes owner + delegates + nodes equal the subnet budget.
         let overall_subnet_reward = Self::percent_mul(overall_rewards, emission_weight);
         let subnet_owner_reward = Self::percent_mul(overall_subnet_reward, subnet_owner_percentage);
-        let subnet_rewards = overall_subnet_reward.checked_sub(subnet_owner_reward)?;
+        let subnet_rewards = overall_subnet_reward - subnet_owner_reward;
         let delegate_stake_rewards =
             Self::percent_mul(subnet_rewards, subnet_delegate_stake_rewards_percentage);
-        let subnet_node_rewards = subnet_rewards.checked_sub(delegate_stake_rewards)?;
+        let subnet_node_rewards = subnet_rewards - delegate_stake_rewards;
 
-        let combined_allocation = subnet_owner_reward
-            .checked_add(delegate_stake_rewards)?
-            .checked_add(subnet_node_rewards)?;
-        if combined_allocation != overall_subnet_reward {
-            return None;
-        }
-
-        Some(RewardsData {
+        RewardsData {
             overall_subnet_reward,
             subnet_owner_reward,
             subnet_rewards,
             delegate_stake_rewards,
             subnet_node_rewards,
-        })
+        }
     }
 
     pub fn calculate_rewards_with_policy(
         overall_rewards: u128,
         emission_weight: u128,
         policy: &ConsensusPolicySnapshot,
-    ) -> Option<(RewardsData, Weight)> {
-        Self::checked_subnet_reward_split(
-            overall_rewards,
-            emission_weight,
-            policy.subnet_owner_percentage,
-            policy.subnet_delegate_stake_rewards_percentage,
+    ) -> (RewardsData, Weight) {
+        (
+            Self::subnet_reward_split(
+                overall_rewards,
+                emission_weight,
+                policy.subnet_owner_percentage,
+                policy.subnet_delegate_stake_rewards_percentage,
+            ),
+            Weight::zero(),
         )
-        .map(|rewards_data| (rewards_data, Weight::zero()))
     }
 }

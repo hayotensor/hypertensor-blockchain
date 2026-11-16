@@ -60,10 +60,6 @@ pub fn get_elected_subnet_node_id(subnet_id: u32, subnet_epoch: u32) -> Option<u
 }
 
 pub fn insert_elected_subnet_node(subnet_id: u32, subnet_epoch: u32, subnet_node_id: u32) {
-    let validator_delegate_stake_balance =
-        SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id)
-            .map(ValidatorDelegateStakeBalance::<Test>::get)
-            .unwrap_or_default();
     let validator_id =
         SubnetNodeValidatorId::<Test>::get(subnet_id, subnet_node_id).unwrap_or_default();
 
@@ -75,14 +71,12 @@ pub fn insert_elected_subnet_node(subnet_id: u32, subnet_epoch: u32, subnet_node
         eligible_validator_identity_ids: BTreeMap::from([(subnet_node_id, validator_id)]),
         validator_node_stake_balance: NodeSubnetStake::<Test>::get(subnet_node_id, subnet_id),
         policy: Network::consensus_policy_snapshot(subnet_id, subnet_epoch),
-        validator_delegate_stake_balance,
     };
     let weights = Network::snapshot_consensus_attestor_weights(
         subnet_id,
         &round.policy,
         &round.eligible_validator_identity_ids,
-    )
-    .expect("fixture election weights must be valid");
+    );
     crate::SubnetConsensusAttestorWeights::<Test>::insert(subnet_id, subnet_epoch, weights);
     SubnetElectedValidator::<Test>::insert(subnet_id, subnet_epoch, round);
 }

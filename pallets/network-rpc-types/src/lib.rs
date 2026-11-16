@@ -481,7 +481,6 @@ pub struct ValidatorInfo<AccountId> {
     pub identity: Option<IdentityInfo>,
     pub delegate_pool_shares: RpcU128,
     pub delegate_pool_balance: RpcU128,
-    pub delegate_pool_slash_lock_until: u32,
     pub last_node_allocation_update: Option<u32>,
 }
 
@@ -571,9 +570,7 @@ pub struct ConsensusPolicyInfo {
     pub attestor_min_reward_factor: RpcU128,
     pub base_slash_percentage: RpcU128,
     pub max_slash_amount: RpcU128,
-    pub validator_delegate_stake_slash_threshold: RpcU128,
-    pub base_validator_delegate_stake_slash_percentage: RpcU128,
-    pub max_validator_delegate_stake_slash_amount: RpcU128,
+    pub strong_rejection_threshold: RpcU128,
     pub validator_absent_subnet_reputation_factor: RpcU128,
     pub in_consensus_subnet_reputation_factor: RpcU128,
     pub not_in_consensus_subnet_reputation_factor: RpcU128,
@@ -657,7 +654,6 @@ pub struct ConsensusRoundInfo {
     pub status: ConsensusRoundStatus,
     pub elected_subnet_node_id: u32,
     pub elected_validator_id: u32,
-    pub validator_delegate_balance_at_election: RpcU128,
     pub election_candidates: Vec<ConsensusCandidateInfo>,
     pub policy: ConsensusPolicyInfo,
     pub proposal: Option<ConsensusProposalInfo>,
@@ -882,7 +878,6 @@ mod tests {
                 identity: None,
                 delegate_pool_shares: RpcU128(6),
                 delegate_pool_balance: RpcU128(7),
-                delegate_pool_slash_lock_until: 8,
                 last_node_allocation_update: None,
             },
             &[
@@ -895,7 +890,6 @@ mod tests {
                 "identity",
                 "delegatePoolShares",
                 "delegatePoolBalance",
-                "delegatePoolSlashLockUntil",
                 "lastNodeAllocationUpdate",
             ],
         );
@@ -932,9 +926,7 @@ mod tests {
                 "attestorMinRewardFactor",
                 "baseSlashPercentage",
                 "maxSlashAmount",
-                "validatorDelegateStakeSlashThreshold",
-                "baseValidatorDelegateStakeSlashPercentage",
-                "maxValidatorDelegateStakeSlashAmount",
+                "strongRejectionThreshold",
                 "validatorAbsentSubnetReputationFactor",
                 "inConsensusSubnetReputationFactor",
                 "notInConsensusSubnetReputationFactor",

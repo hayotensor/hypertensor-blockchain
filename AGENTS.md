@@ -313,8 +313,8 @@ runtime to execute a custom scoring algorithm. `Attestation` is the implemented
 7. Fund **validator delegate pools** using `add_validator_delegate_stake` and
    verify each identity's node allocations. These determine consensus voting
    weight. Direct node stake and subnet delegate stake do not substitute for
-   validator-pool attestor weight. Fund and allocate before the first election,
-   because pending slash liabilities can lock validator-pool changes.
+   validator-pool attestor weight. Fund and allocate before the first election
+   because each round freezes its voting weights at election.
 8. Verify minimum node and distinct-identity counts, delegate balance, subnet
    reputation against `MinSubnetReputation`, service readiness, and timing.
    The exact owner signs `activate_subnet(subnet_id)`.
@@ -406,8 +406,10 @@ At each subnet's next assigned slot, cancellation retains any recorded allocatio
 in its capacitor, releases that round's stake liabilities, and applies no rewards,
 penalties, or probation progression before the next eligible election. Missing
 allocations for skipped epochs are not recreated. Historical round records remain
-queryable; `ConsensusRoundCancelled` reports cancellation. Epoch-status RPC hides
-cancelled work. Global resume does not extend registration or enactment
+queryable; `ConsensusRoundCancelled` reports cancellation. Unusable historical election,
+voting, or proposal evidence also cancels a completed round, retains its recorded allocation,
+and releases its stake liability so the next election can proceed. Missing balance-time records
+restart with zero historical credit. Epoch-status RPC hides globally cancelled work. Global resume does not extend registration or enactment
 deadlines; those lifecycle limits remain separate from consensus cancellation.
 
 Election candidates, policy, and all attestor weights freeze together at the
@@ -418,8 +420,9 @@ using the surviving nodes' original frozen weights and their sum; it does not
 recompute weights or alter the election snapshot. Later quarantine does not
 rewrite the proposal's recorded eligibility or quorum denominator.
 Missing proposals or insufficient agreement can affect
-reputation and slash the proposer's direct stake and, when enabled, its validator
-delegate pool. Use the recorded policy to calculate exposure and thresholds.
+reputation and slash only the proposer's direct node stake. Validator delegate pools and
+other nodes owned by the same identity are unaffected. Use the recorded round policy
+to calculate the node's exposure and thresholds.
 
 Admitted newcomers are Probation nodes: they occupy capacity and can appear in
 scores, but cannot propose, attest, or receive node rewards or associated delegate
@@ -508,10 +511,10 @@ corresponding stake/balance removal and unbonding claim path.
 
 1. Read the position, current ownership, pending node removals, pending consensus
    liabilities, applicable minimums, and `StakeUnbondingLedger(account)` capacity.
-   Validator pools and elected direct node stake can be locked until historical
-   slash liabilities settle; changing keys or removing a node does not bypass
-   this. Direct stake cannot fall below the enforced node minimum while the
-   relevant live-node constraints apply.
+   Elected direct node stake can be locked until historical node-slash liabilities
+   settle. Changing keys or removing a node does not bypass that lock. Validator
+   delegate pools have no consensus slash locks. Direct stake cannot fall below
+   the enforced node minimum while the relevant live-node constraints apply.
 2. Submit the corresponding removal. To fully exit an admitted node, request
    `remove_subnet_node(subnet_id, subnet_node_id)` with its coldkey, wait for any
    deferred cleanup/settlement, then remove the remaining direct stake. A live

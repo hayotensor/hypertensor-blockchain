@@ -100,6 +100,8 @@ parameter_types! {
 parameter_types! {
   pub const BlockHashCount: BlockNumber = 250;
   pub const SS58Prefix: u8 = 42;
+  pub static TestDbWeight: frame_support::weights::RuntimeDbWeight =
+      frame_support::weights::RuntimeDbWeight { read: 0, write: 0 };
 }
 
 pub type Signature = MultiSignature;
@@ -150,7 +152,7 @@ impl frame_system::Config for Test {
     type BlockWeights = BlockWeights;
     type BlockLength = ();
     type Block = Block;
-    type DbWeight = ();
+    type DbWeight = TestDbWeight;
     type RuntimeOrigin = RuntimeOrigin;
     type RuntimeCall = RuntimeCall;
     type Nonce = u32;

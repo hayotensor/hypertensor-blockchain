@@ -58,7 +58,6 @@ fn validator_out(value: Option<rpc::ValidatorInfo<sp_runtime::AccountId32>>) -> 
                 identity,
                 poolBalance: v.delegate_pool_balance.0,
                 poolShares: v.delegate_pool_shares.0,
-                slashLockUntil: v.delegate_pool_slash_lock_until,
             }
         })
         .unwrap_or_default();

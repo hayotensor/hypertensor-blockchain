@@ -151,7 +151,6 @@ struct ValidatorInfo {
     OptionalIdentity identity;
     uint128 poolBalance;
     uint128 poolShares;
-    uint32 slashLockUntil;
 }
 
 struct SubnetInfo {
@@ -204,7 +203,6 @@ struct ConsensusRound {
     uint8 status;
     uint32 electedNodeId;
     uint32 electedValidatorId;
-    uint128 delegateBalanceAtElection;
     bool proposalSubmitted;
 }
 

@@ -289,33 +289,13 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
-    pub fn do_set_validator_delegate_stake_slash_config(
-        threshold: u128,
-        base_percentage: u128,
-        max_amount: u128,
-    ) -> DispatchResult {
-        let percentage_factor = Self::percentage_factor_as_u128();
-        let config_disabled = base_percentage == 0 && max_amount == 0;
-        let config_enabled = base_percentage > 0 && max_amount > 0;
-
+    pub fn do_set_strong_rejection_threshold(threshold: u128) -> DispatchResult {
         ensure!(
-            threshold > 0
-                && threshold < T::MinAttestationPercentage::get()
-                && base_percentage <= percentage_factor
-                && (config_disabled || config_enabled),
-            Error::<T>::InvalidValidatorDelegateStakeSlashConfig
+            threshold > 0 && threshold < T::MinAttestationPercentage::get(),
+            Error::<T>::InvalidStrongRejectionThreshold
         );
-
-        ValidatorDelegateStakeSlashThreshold::<T>::set(threshold);
-        BaseValidatorDelegateStakeSlashPercentage::<T>::set(base_percentage);
-        MaxValidatorDelegateStakeSlashAmount::<T>::set(max_amount);
-
-        Self::deposit_event(Event::SetValidatorDelegateStakeSlashConfig {
-            threshold,
-            base_percentage,
-            max_amount,
-        });
-
+        StrongRejectionThreshold::<T>::set(threshold);
+        Self::deposit_event(Event::SetStrongRejectionThreshold { threshold });
         Ok(())
     }
     pub fn do_set_network_max_stake_balance(value: u128) -> DispatchResult {
