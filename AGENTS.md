@@ -391,9 +391,12 @@ For each open round:
    Settlement is performed by hooks; there is no subnet `claim_rewards` call.
 
 Failed quorum or a missing elected proposal retains the full scheduled subnet
-allocation in `SubnetRewardCapacitor`. Accepted nonzero-score rounds supplement
-their normal allocation by up to 10%, drawn from that balance and distributed
-using the round's reward split. Zero-score/zero-allocation rounds leave it stored;
+allocation in `SubnetRewardCapacitor`, saturating at `u128::MAX`. Accepted nonzero-score
+rounds supplement their normal allocation by `SubnetRewardCapacitorReleasePercentage`
+(10% by default), drawn from that balance and limited by reward-budget capacity.
+The supermajority-collective call `set_subnet_reward_capacitor_release_percentage(value)`
+sets a Q18 percentage from 0% to 100%, effective at the next settlement; zero disables releases.
+The supplement uses the round's reward split. Zero-score/zero-allocation rounds leave it stored;
 permanent subnet removal clears it. See [REWARDS.md](pallets/network/REWARDS.md).
 
 Global `Network.unpause` starts fresh consensus: all unsettled rounds elected

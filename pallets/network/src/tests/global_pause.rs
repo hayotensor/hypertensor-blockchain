@@ -283,7 +283,7 @@ fn repeated_pauses_cancel_once_and_missing_allocation_never_creates_rewards() {
 }
 
 #[test]
-fn cancellation_overflow_keeps_liabilities_for_an_exact_retry() {
+fn cancellation_overflow_saturates_and_releases_liabilities() {
     new_test_ext().execute_with(|| {
         let (subnet, epoch) = fixture();
         let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
@@ -292,19 +292,23 @@ fn cancellation_overflow_keeps_liabilities_for_an_exact_retry() {
         settle(subnet, epoch + 1);
         assert_eq!(
             ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
-            Some(false)
+            Some(true)
         );
-        assert!(Network::is_node_stake_slash_locked(
+        assert_eq!(
+            PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
+            None
+        );
+        assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), u128::MAX);
+        assert!(!Network::is_node_stake_slash_locked(
             subnet,
             round.validator_subnet_node_id
         ));
-        assert!(Network::is_validator_delegate_stake_slash_locked(
+        assert!(!Network::is_validator_delegate_stake_slash_locked(
             round.validator_id
         ));
-        assert_eq!(cancellation_count(subnet, epoch), 0);
-        SubnetRewardCapacitor::<Test>::insert(subnet, 0);
+        assert_eq!(cancellation_count(subnet, epoch), 1);
         settle(subnet, epoch + 2);
-        assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), 10 * TOKEN);
+        assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), u128::MAX);
         assert_eq!(cancellation_count(subnet, epoch), 1);
     });
 }

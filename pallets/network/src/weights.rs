@@ -34,6 +34,8 @@
 //! ACTIVE/QUEUED NODE METADATA SEPARATION REGENERATED: 2026-10-17 (UTC), CLI 60.0.0,
 //! STEPS: `20`, REPEAT: `10`, ANALYSIS: `max`. 32 existing methods plus 26 variants.
 //! See .maintain/benchmark-node-metadata-weights.sh; existing manual safety additions retained.
+//! CAPACITOR RELEASE SETTER AND ACCEPTED SETTLEMENT REGENERATED: 2026-11-15, CLI 60.0.0,
+//! STEPS: `20`, REPEAT: `10`, ANALYSIS: `max`; prior safety allowances retained.
 //! WORST CASE MAP SIZE: `1000000`
 //! HOSTNAME: `Bob`, CPU: `11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz`
 //! WASM-EXECUTION: `Compiled`, CHAIN: `None`, DB CACHE: `1024`
@@ -239,6 +241,7 @@ pub trait WeightInfo {
 	fn collective_remove_subnet_node() -> Weight;
 	fn collective_remove_overwatch_node() -> Weight;
 	fn set_subnet_owner_percentage() -> Weight;
+	fn set_subnet_reward_capacitor_release_percentage() -> Weight;
 	fn set_max_subnets() -> Weight;
 	fn set_max_bootnodes() -> Weight;
 	fn set_max_subnet_bootnodes_access() -> Weight;
@@ -4391,6 +4394,25 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetRewardCapacitorReleasePercentage` (r:0 w:1)
+	/// Proof: `Network::SubnetRewardCapacitorReleasePercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn set_subnet_reward_capacitor_release_percentage() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `24`
+		//  Estimated: `1509`
+		// Minimum execution time: 22_108_000 picoseconds.
+		Weight::from_parts(23_863_000, 1509)
+			.saturating_add(T::DbWeight::get().reads(4_u64))
+			.saturating_add(T::DbWeight::get().writes(3_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MaxSubnets` (r:0 w:1)
 	/// Proof: `Network::MaxSubnets` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_max_subnets() -> Weight {
@@ -5962,6 +5984,33 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `2384 + x * (14500 ±0)`
 		//  Estimated: `5849 + x * (16975 ±0)`
+		// Minimum execution time: 300_854_000 picoseconds.
+		let measured = Weight::from_parts(319_770_000, 5849)
+			// Standard Error: 807_895
+			.saturating_add(Weight::from_parts(73_210_141, 0).saturating_mul(x.into()))
+			.saturating_add(T::DbWeight::get().reads(44_u64))
+			.saturating_add(T::DbWeight::get().reads((4_u64).saturating_mul(x.into())))
+			.saturating_add(T::DbWeight::get().writes(9_u64))
+			.saturating_add(Weight::from_parts(0, 16975).saturating_mul(x.into()));
+		let shared_identities = Weight::from_parts(361_670_000, 7418)
+			// Standard Error: 955_873
+			.saturating_add(Weight::from_parts(45_063_909, 0).saturating_mul(x.into()))
+			.saturating_add(T::DbWeight::get().reads(44_u64))
+			.saturating_add(T::DbWeight::get().reads((2_u64).saturating_mul(x.into())))
+			.saturating_add(T::DbWeight::get().writes(9_u64))
+			.saturating_add(Weight::from_parts(0, 9731).saturating_mul(x.into()));
+		let measured = measured.max(shared_identities)
+			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(Self::pending_admitted_removal_scan(MAX_PENDING_ADMITTED_REMOVALS))
+			.saturating_add(Self::pending_queued_removal_scan(MAX_PENDING_QUEUED_REMOVALS))
+			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+		;
+		// Preserve the complete prior envelope, including its safety allowances.
+		let baseline = {
+			// Proof Size summary in bytes:
+		//  Measured:  `2384 + x * (14500 ±0)`
+		//  Estimated: `5849 + x * (16975 ±0)`
 		// Minimum execution time: 323_761_000 picoseconds.
 		let measured = Weight::from_parts(338_325_000, 5849)
 			// Standard Error: 341_994
@@ -5997,6 +6046,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(0, 2491).saturating_mul(x.into()))
 			.saturating_add(consensus_round_liability_proof())
 		};
+		measured.max(baseline)
+		}
+			.saturating_add(Self::pending_admitted_removal_scan(MAX_PENDING_ADMITTED_REMOVALS))
+			.saturating_add(Self::pending_queued_removal_scan(MAX_PENDING_QUEUED_REMOVALS));
 		measured.max(baseline)
 	}
 	/// Storage: `Network::MinDelegateStakeDeposit` (r:1 w:0)
@@ -7596,6 +7649,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetRewardCapacitor` (r:1 w:1)
 	/// Proof: `Network::SubnetRewardCapacitor` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetRewardCapacitorReleasePercentage` (r:1 w:0)
+	/// Proof: `Network::SubnetRewardCapacitorReleasePercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetDelegateStakeCirculatingShares` (r:1 w:0)
 	/// Proof: `Network::TotalSubnetDelegateStakeCirculatingShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetDelegateStakeBalance` (r:1 w:1)
@@ -7757,6 +7812,31 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// The range of component `h` is `[3, 512]`.
 	fn emission_step(h: u32, ) -> Weight {
 		// Proof Size summary in bytes:
+		//  Measured:  `10369 + h * (1120 ±11)`
+		//  Estimated: `18784 + h * (3595 ±11)`
+		// Minimum execution time: 1_025_780_000 picoseconds.
+		// Retain the larger prior base time and all existing safety allowances.
+		let measured = Weight::from_parts(1_408_194_652, 18784)
+			// Standard Error: 1_202_489
+			.saturating_add(Weight::from_parts(79_583_495, 0).saturating_mul(h.into()))
+			.saturating_add(T::DbWeight::get().reads(86_u64))
+			.saturating_add(T::DbWeight::get().reads((10_u64).saturating_mul(h.into())))
+			.saturating_add(T::DbWeight::get().writes(26_u64))
+			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(h.into())))
+			.saturating_add(Weight::from_parts(0, 3595).saturating_mul(h.into()));
+		let measured = measured
+			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+			.saturating_add(settlement_pending_marker_envelope())
+			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
+			.saturating_add(rewards_capacitor_envelope())
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(consensus_resume_check_envelope())
+			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+		;
+		// Preserve the complete prior envelope, including its safety allowances.
+		let baseline = {
+			// Proof Size summary in bytes:
 		//  Measured:  `10329 + h * (1120 ±11)`
 		//  Estimated: `18744 + h * (3595 ±11)`
 		// Minimum execution time: 564_059_000 picoseconds.
@@ -7799,6 +7879,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(consensus_resume_check_envelope())
+		};
+		measured.max(baseline)
 		};
 		measured.max(baseline)
 	}
@@ -8192,6 +8274,25 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Proof Size summary in bytes:
 		//  Measured:  `2194 + x * (130 ±0)`
 		//  Estimated: `5659 + x * (130 ±0)`
+		// Minimum execution time: 35_968_000 picoseconds.
+		let measured = Weight::from_parts(44_653_300, 5659)
+			// Standard Error: 11_580
+			.saturating_add(Weight::from_parts(747_468, 0).saturating_mul(x.into()))
+			.saturating_add(T::DbWeight::get().reads(5_u64))
+			.saturating_add(Weight::from_parts(0, 130).saturating_mul(x.into()));
+		let measured = measured
+			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+			.saturating_add(pending_liability_key_proof())
+			.saturating_add(T::DbWeight::get().reads(2))
+			.saturating_add(consensus_resume_check_envelope())
+			.saturating_add(Weight::from_parts(250_000_000, 0))
+			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+		;
+		// Preserve the complete prior envelope, including its safety allowances.
+		let baseline = {
+			// Proof Size summary in bytes:
+		//  Measured:  `2194 + x * (130 ±0)`
+		//  Estimated: `5659 + x * (130 ±0)`
 		// Minimum execution time: 51_652_000 picoseconds.
 		let measured = Weight::from_parts(64_318_747, 5659)
 			// Standard Error: 16_090
@@ -8220,6 +8321,9 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(consensus_resume_check_envelope())
 		};
+		measured.max(baseline)
+		}
+			.saturating_add(Weight::from_parts(250_000_000, 0));
 		measured.max(baseline)
 	}
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:1)
@@ -12412,6 +12516,25 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetRewardCapacitorReleasePercentage` (r:0 w:1)
+	/// Proof: `Network::SubnetRewardCapacitorReleasePercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn set_subnet_reward_capacitor_release_percentage() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `24`
+		//  Estimated: `1509`
+		// Minimum execution time: 22_108_000 picoseconds.
+		Weight::from_parts(23_863_000, 1509)
+			.saturating_add(RocksDbWeight::get().reads(4_u64))
+			.saturating_add(RocksDbWeight::get().writes(3_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MaxSubnets` (r:0 w:1)
 	/// Proof: `Network::MaxSubnets` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn set_max_subnets() -> Weight {
@@ -13983,6 +14106,33 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `2384 + x * (14500 ±0)`
 		//  Estimated: `5849 + x * (16975 ±0)`
+		// Minimum execution time: 300_854_000 picoseconds.
+		let measured = Weight::from_parts(319_770_000, 5849)
+			// Standard Error: 807_895
+			.saturating_add(Weight::from_parts(73_210_141, 0).saturating_mul(x.into()))
+			.saturating_add(RocksDbWeight::get().reads(44_u64))
+			.saturating_add(RocksDbWeight::get().reads((4_u64).saturating_mul(x.into())))
+			.saturating_add(RocksDbWeight::get().writes(9_u64))
+			.saturating_add(Weight::from_parts(0, 16975).saturating_mul(x.into()));
+		let shared_identities = Weight::from_parts(361_670_000, 7418)
+			// Standard Error: 955_873
+			.saturating_add(Weight::from_parts(45_063_909, 0).saturating_mul(x.into()))
+			.saturating_add(RocksDbWeight::get().reads(44_u64))
+			.saturating_add(RocksDbWeight::get().reads((2_u64).saturating_mul(x.into())))
+			.saturating_add(RocksDbWeight::get().writes(9_u64))
+			.saturating_add(Weight::from_parts(0, 9731).saturating_mul(x.into()));
+		let measured = measured.max(shared_identities)
+			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(Self::pending_admitted_removal_scan(MAX_PENDING_ADMITTED_REMOVALS))
+			.saturating_add(Self::pending_queued_removal_scan(MAX_PENDING_QUEUED_REMOVALS))
+			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+		;
+		// Preserve the complete prior envelope, including its safety allowances.
+		let baseline = {
+			// Proof Size summary in bytes:
+		//  Measured:  `2384 + x * (14500 ±0)`
+		//  Estimated: `5849 + x * (16975 ±0)`
 		// Minimum execution time: 323_761_000 picoseconds.
 		let measured = Weight::from_parts(338_325_000, 5849)
 			// Standard Error: 341_994
@@ -14018,6 +14168,10 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(0, 2491).saturating_mul(x.into()))
 			.saturating_add(consensus_round_liability_proof())
 		};
+		measured.max(baseline)
+		}
+			.saturating_add(Self::pending_admitted_removal_scan(MAX_PENDING_ADMITTED_REMOVALS))
+			.saturating_add(Self::pending_queued_removal_scan(MAX_PENDING_QUEUED_REMOVALS));
 		measured.max(baseline)
 	}
 	/// Storage: `Network::MinDelegateStakeDeposit` (r:1 w:0)
@@ -15617,6 +15771,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetRewardCapacitor` (r:1 w:1)
 	/// Proof: `Network::SubnetRewardCapacitor` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetRewardCapacitorReleasePercentage` (r:1 w:0)
+	/// Proof: `Network::SubnetRewardCapacitorReleasePercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetDelegateStakeCirculatingShares` (r:1 w:0)
 	/// Proof: `Network::TotalSubnetDelegateStakeCirculatingShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetDelegateStakeBalance` (r:1 w:1)
@@ -15778,6 +15934,31 @@ impl WeightInfo for () {
 	/// The range of component `h` is `[3, 512]`.
 	fn emission_step(h: u32, ) -> Weight {
 		// Proof Size summary in bytes:
+		//  Measured:  `10369 + h * (1120 ±11)`
+		//  Estimated: `18784 + h * (3595 ±11)`
+		// Minimum execution time: 1_025_780_000 picoseconds.
+		// Retain the larger prior base time and all existing safety allowances.
+		let measured = Weight::from_parts(1_408_194_652, 18784)
+			// Standard Error: 1_202_489
+			.saturating_add(Weight::from_parts(79_583_495, 0).saturating_mul(h.into()))
+			.saturating_add(RocksDbWeight::get().reads(86_u64))
+			.saturating_add(RocksDbWeight::get().reads((10_u64).saturating_mul(h.into())))
+			.saturating_add(RocksDbWeight::get().writes(26_u64))
+			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(h.into())))
+			.saturating_add(Weight::from_parts(0, 3595).saturating_mul(h.into()));
+		let measured = measured
+			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+			.saturating_add(settlement_pending_marker_envelope())
+			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(RocksDbWeight::get().reads_writes(1, 1))
+			.saturating_add(rewards_capacitor_envelope())
+			.saturating_add(RocksDbWeight::get().reads(2))
+			.saturating_add(consensus_resume_check_envelope())
+			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+		;
+		// Preserve the complete prior envelope, including its safety allowances.
+		let baseline = {
+			// Proof Size summary in bytes:
 		//  Measured:  `10329 + h * (1120 ±11)`
 		//  Estimated: `18744 + h * (3595 ±11)`
 		// Minimum execution time: 564_059_000 picoseconds.
@@ -15820,6 +16001,8 @@ impl WeightInfo for () {
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(RocksDbWeight::get().reads(2))
 			.saturating_add(consensus_resume_check_envelope())
+		};
+		measured.max(baseline)
 		};
 		measured.max(baseline)
 	}
@@ -16213,6 +16396,25 @@ impl WeightInfo for () {
 		// Proof Size summary in bytes:
 		//  Measured:  `2194 + x * (130 ±0)`
 		//  Estimated: `5659 + x * (130 ±0)`
+		// Minimum execution time: 35_968_000 picoseconds.
+		let measured = Weight::from_parts(44_653_300, 5659)
+			// Standard Error: 11_580
+			.saturating_add(Weight::from_parts(747_468, 0).saturating_mul(x.into()))
+			.saturating_add(RocksDbWeight::get().reads(5_u64))
+			.saturating_add(Weight::from_parts(0, 130).saturating_mul(x.into()));
+		let measured = measured
+			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+			.saturating_add(pending_liability_key_proof())
+			.saturating_add(RocksDbWeight::get().reads(2))
+			.saturating_add(consensus_resume_check_envelope())
+			.saturating_add(Weight::from_parts(250_000_000, 0))
+			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
+		;
+		// Preserve the complete prior envelope, including its safety allowances.
+		let baseline = {
+			// Proof Size summary in bytes:
+		//  Measured:  `2194 + x * (130 ±0)`
+		//  Estimated: `5659 + x * (130 ±0)`
 		// Minimum execution time: 51_652_000 picoseconds.
 		let measured = Weight::from_parts(64_318_747, 5659)
 			// Standard Error: 16_090
@@ -16241,6 +16443,9 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(2))
 			.saturating_add(consensus_resume_check_envelope())
 		};
+		measured.max(baseline)
+		}
+			.saturating_add(Weight::from_parts(250_000_000, 0));
 		measured.max(baseline)
 	}
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:1)

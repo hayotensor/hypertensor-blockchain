@@ -626,6 +626,7 @@ pub mod pallet {
             start_block: u32,
         },
         SetSubnetOwnerPercentage(u128),
+        SetSubnetRewardCapacitorReleasePercentage(u128),
         SetDelegateStakeCooldownEpochs(u32),
         SetNodeDelegateStakeCooldownEpochs(u32),
         SetStakeCooldownEpochs(u32),
@@ -3135,6 +3136,11 @@ pub mod pallet {
         // 23%
         230000000000000000
     }
+    #[pallet::type_value]
+    pub fn DefaultSubnetRewardCapacitorReleasePercentage() -> u128 {
+        // 10%, in Q18.
+        100_000_000_000_000_000
+    }
     /// This type value is referenced in:
     /// - ChurnLimit
     #[pallet::type_value]
@@ -4780,9 +4786,15 @@ pub mod pallet {
         StorageMap<_, Identity, u32, DistributionData, ValueQuery>;
 
     /// Scheduled rewards retained after failed consensus. Successful nonzero-score rounds
-    /// release up to 10% of their normal allocation through the existing reward split.
+    /// release the configured percentage of their normal allocation through the reward split.
     #[pallet::storage]
     pub type SubnetRewardCapacitor<T> = StorageMap<_, Identity, u32, u128, ValueQuery>;
+
+    /// Q18 fraction of the normal round allocation released from the capacitor at settlement.
+    /// Defaults to 10%; zero disables releases.
+    #[pallet::storage]
+    pub type SubnetRewardCapacitorReleasePercentage<T> =
+        StorageValue<_, u128, ValueQuery, DefaultSubnetRewardCapacitorReleasePercentage>;
 
     //
     // Reputation
@@ -8072,6 +8084,17 @@ pub mod pallet {
                 base_percentage,
                 max_amount,
             )
+        }
+
+        /// Set the Q18 capacitor release percentage (0–100%), effective at the next settlement.
+        #[pallet::call_index(183)]
+        #[pallet::weight(T::WeightInfo::set_subnet_reward_capacitor_release_percentage())]
+        pub fn set_subnet_reward_capacitor_release_percentage(
+            origin: OriginFor<T>,
+            value: u128,
+        ) -> DispatchResult {
+            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_subnet_reward_capacitor_release_percentage(value)
         }
     }
 

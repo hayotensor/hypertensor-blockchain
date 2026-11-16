@@ -226,6 +226,8 @@ impl pallet_treasury::Config for Test {
 // This ensures users can not arbitrage subnet rewards on slots
 parameter_types! {
     pub const EpochLength: u32 = EPOCH_LENGTH; // Testnet 600 blocks per erpoch / 69 mins per epoch, Local 10
+    // Mutable only in tests to exercise zero-epoch checkpoint recovery.
+    pub static NetworkEpochLength: u32 = EPOCH_LENGTH;
     pub const EpochsPerYear: u32 = EPOCHS_PER_YEAR; // Testnet 600 blocks per erpoch / 69 mins per epoch, Local 10
     pub const NetworkPalletId: PalletId = PalletId(*b"/network");
     pub const OverwatchEpochEmissions: u128 = OVERWATCH_EPOCH_EMISSIONS;
@@ -264,7 +266,7 @@ impl Config for Test {
         pallet_collective::EnsureProportionAtLeast<AccountId, CouncilCollective, 2, 3>;
     type SuperMajorityCollectiveOrigin =
         pallet_collective::EnsureProportionAtLeast<AccountId, CouncilCollective, 4, 5>;
-    type EpochLength = EpochLength;
+    type EpochLength = NetworkEpochLength;
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = ConstU32<0>;
     type Economics = TestEconomics;

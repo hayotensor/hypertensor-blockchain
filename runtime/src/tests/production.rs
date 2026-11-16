@@ -1,11 +1,288 @@
 use crate::*;
 use frame_support::{
     assert_noop, assert_ok,
-    dispatch::DispatchClass,
+    dispatch::{DispatchClass, GetDispatchInfo},
     traits::{Hooks, PalletInfoAccess},
     weights::WeightToFee,
 };
 use sp_runtime::traits::{Convert, Dispatchable};
+
+fn signed_capacity_extrinsic(call: RuntimeCall) -> UncheckedExtrinsic {
+    use pallet_revive::evm::runtime::EthExtra;
+    use sp_core::Pair;
+    let signer = sp_core::sr25519::Pair::from_string("//Alice", None).unwrap();
+    let who = AccountId::from(signer.public());
+    let mut extra = EthExtraImpl::get_eth_extension(System::account_nonce(&who), 0);
+    extra.9 = Default::default();
+    let payload = SignedPayload::new(call.clone(), extra.clone()).unwrap();
+    let signature = payload.using_encoded(|bytes| signer.sign(bytes));
+    generic::UncheckedExtrinsic::new_signed(call, who, signature.into(), extra).into()
+}
+
+fn apply_capacity_call(label: &str, call: RuntimeCall) {
+    let refunds_fee = matches!(
+        &call,
+        RuntimeCall::Network(
+            pallet_network::Call::propose_attestation { .. } | pallet_network::Call::attest { .. }
+        )
+    );
+    let extrinsic = signed_capacity_extrinsic(call);
+    let info = extrinsic.get_dispatch_info();
+    let length = extrinsic.encoded_size();
+    let booked = info
+        .total_weight()
+        .saturating_add(BlockWeights::get().get(info.class).base_extrinsic)
+        .saturating_add_proof_size(length as u64);
+    assert_eq!(info.class, DispatchClass::Normal);
+    assert!(info.extension_weight.ref_time() > 0);
+    let events_before = System::events().len();
+    eprintln!("signed {label}: declared_ref_time={}, declared_proof={}, encoded_len={}, extension_ref_time={}",
+        booked.ref_time(), booked.proof_size(), length, info.extension_weight.ref_time());
+    assert_ok!(Executive::apply_extrinsic(extrinsic).expect("signed call fits the remaining block"));
+    let actual_fee = System::events()[events_before..]
+        .iter()
+        .find_map(|record| match &record.event {
+            RuntimeEvent::TransactionPayment(
+                pallet_transaction_payment::Event::TransactionFeePaid {
+                    who, actual_fee, ..
+                },
+            ) if who == &account("Alice") => Some(*actual_fee),
+            _ => None,
+        })
+        .expect("signed dispatch executes the transaction-payment extension");
+    if refunds_fee {
+        assert_eq!(actual_fee, 0);
+    } else {
+        assert!(actual_fee > 0);
+    }
+}
+
+fn maximum_network_slot_reservation() -> Weight {
+    use pallet_network::weights::WeightInfo as _;
+    type W = <Runtime as pallet_network::Config>::WeightInfo;
+    let nodes = NetworkMaxSubnetNodesUpperBound::get();
+    let queued = NetworkMaxRegisteredNodesUpperBound::get();
+    let accepted = W::emission_step(nodes)
+        .saturating_add(
+            W::emission_step_accepted_queue_mutations(queued)
+                .max(W::emission_step_accepted_queue_mutations_front(queued)),
+        )
+        .saturating_add(W::emission_step_accepted_below_min_weight_reputation(nodes))
+        .saturating_add(W::emission_step_accepted_non_attestor_reputation(nodes - 3));
+    let db = <Runtime as frame_system::Config>::DbWeight::get();
+    let settlement = accepted
+        .max(W::emission_step_rejected(nodes))
+        .max(W::emission_step_missing())
+        .max(W::emission_step_cancelled())
+        .saturating_add(db.reads_writes(3, 3))
+        .saturating_add(Weight::from_parts(0, 8192 + 4 * u64::from(nodes + queued)));
+    W::on_initialize_base()
+        .saturating_add(W::advance_overwatch_epoch_noop())
+        .saturating_add(W::emission_slot_selector())
+        .saturating_add(W::emission_step_selectors())
+        .saturating_add(settlement)
+        .saturating_add(db.reads(2))
+        .saturating_add(W::elect_validator(nodes))
+}
+
+#[test]
+fn signed_extrinsics_remain_admissible_after_network_and_scheduler_reservations() {
+    use pallet_network as n;
+    use sp_runtime::traits::Header as _;
+    use std::collections::BTreeMap;
+
+    for scenario in ["maximum_subnet_slot", "full_network_cap", "busy_scheduler"] {
+        crate::tests::npos::ext().execute_with(|| {
+            let block = n::NETWORK_DESIGNATED_EPOCH_SLOTS;
+            let mut parent = H256::repeat_byte(1);
+            for number in 1..=block {
+                let digest = sp_consensus_babe::digests::PreDigest::SecondaryPlain(
+                    sp_consensus_babe::digests::SecondaryPlainPreDigest {
+                        authority_index: 0,
+                        slot: u64::from(number).into(),
+                    },
+                );
+                Executive::initialize_block(&Header::new(
+                    number,
+                    H256::zero(),
+                    H256::zero(),
+                    parent,
+                    generic::Digest { logs: vec![DigestItem::PreRuntime(
+                        sp_consensus_babe::BABE_ENGINE_ID, digest.encode(),
+                    )] },
+                ));
+                if number < block {
+                    assert_ok!(Executive::apply_extrinsic(
+                        generic::UncheckedExtrinsic::new_bare(RuntimeCall::Timestamp(
+                            pallet_timestamp::Call::set { now: u64::from(number) * SLOT_DURATION },
+                        )).into(),
+                    ).unwrap());
+                    parent = Executive::finalize_block().hash();
+                }
+            }
+
+            // Retain actual base/other hook charges, then reserve the complete modeled Network
+            // work. This conservatively also keeps its already-charged empty-hook cost.
+            let network = if scenario == "maximum_subnet_slot" {
+                maximum_network_slot_reservation()
+            } else {
+                MaximumHooksWeight::get()
+            };
+            assert!(network.all_lte(MaximumHooksWeight::get()));
+            System::register_extra_weight_unchecked(network, DispatchClass::Mandatory);
+            if scenario == "busy_scheduler" {
+                System::register_extra_weight_unchecked(
+                    Perbill::from_percent(10) * MAXIMUM_BLOCK_WEIGHT,
+                    DispatchClass::Mandatory,
+                );
+                // Reserve Scheduler's whole dynamic allowance, including its service overhead.
+                let scheduler = MaximumSchedulerWeight::get();
+                System::register_extra_weight_unchecked(scheduler, DispatchClass::Mandatory);
+                assert_eq!(System::block_weight().total(), Perbill::from_percent(90) * MAXIMUM_BLOCK_WEIGHT);
+            }
+            assert_ok!(Executive::apply_extrinsic(
+                generic::UncheckedExtrinsic::new_bare(RuntimeCall::Timestamp(
+                    pallet_timestamp::Call::set { now: u64::from(block) * SLOT_DURATION },
+                )).into(),
+            ).unwrap());
+            let remaining = MAXIMUM_BLOCK_WEIGHT.saturating_sub(System::block_weight().total());
+            eprintln!("reserved {scenario}: network_ref_time={}, network_proof={}, after_hooks_and_timestamp_ref_time={}, after_hooks_and_timestamp_proof={}",
+                network.ref_time(), network.proof_size(), remaining.ref_time(), remaining.proof_size());
+
+            // Build a 512-node round to execute a full-size proposal through signed Executive
+            // dispatch. This fixture is separate from the conservative hook reservation above.
+            let subnet = 1;
+            let nodes = NetworkMaxSubnetNodesUpperBound::get();
+            n::SubnetSlot::<Runtime>::insert(subnet, block);
+            for node in 1..=nodes {
+                n::SubnetNodesData::<Runtime>::insert(subnet, node, n::SubnetNode {
+                    id: node, validator_id: node,
+                    classification: n::SubnetNodeClassification { node_class: n::SubnetNodeClass::Active, start_epoch: 0 },
+                });
+                n::SubnetNodeValidatorId::<Runtime>::insert(subnet, node, node);
+                n::SubnetNodeIdHotkey::<Runtime>::insert(subnet, node, account("Alice"));
+                n::ValidatorDelegateStakeBalance::<Runtime>::insert(node, TENSOR);
+                n::ValidatorNodeDelegateStakeWeights::<Runtime>::insert(node, BTreeMap::from([((subnet, node), TENSOR)]));
+            }
+            n::SubnetNodeElectionSlots::<Runtime>::insert(subnet, (1..=nodes).collect::<Vec<_>>());
+            Network::elect_validator(subnet, 0, block);
+            let proposer = n::SubnetElectedValidator::<Runtime>::get(subnet, 0).unwrap().validator_subnet_node_id;
+
+            let bob_before = Balances::free_balance(account("Bob"));
+            apply_capacity_call("balances_transfer", pallet_balances::Call::transfer_keep_alive {
+                dest: account("Bob"), value: TENSOR,
+            }.into());
+            assert_eq!(Balances::free_balance(account("Bob")), bob_before + TENSOR);
+            apply_capacity_call("network_proposal_512", n::Call::propose_attestation {
+                subnet_id: subnet,
+                data: (1..=nodes).map(|subnet_node_id| n::SubnetNodeConsensusData { subnet_node_id, score: 1 }).collect(),
+                prioritize_queue_node_id: None, remove_queue_node_id: None, args: None, attest_data: None,
+            }.into());
+            let attestor = if proposer == 1 { 2 } else { 1 };
+            apply_capacity_call("network_attest", n::Call::attest {
+                subnet_id: subnet, subnet_node_id: attestor, data: None,
+            }.into());
+            let submission = n::SubnetConsensusSubmission::<Runtime>::get(subnet, 0).unwrap();
+            assert_eq!(submission.data.len(), nodes as usize);
+            assert!(submission.attests.contains_key(&attestor));
+
+            apply_capacity_call("revive_map_account", pallet_revive::Call::map_account {}.into());
+            let destination = sp_core::H160::repeat_byte(0x77);
+            apply_capacity_call("revive_value_transfer", pallet_revive::Call::call {
+                dest: destination, value: TENSOR, data: vec![],
+                weight_limit: Weight::from_parts(50 * WEIGHT_REF_TIME_PER_MILLIS, 128 * 1024),
+                storage_deposit_limit: TENSOR,
+            }.into());
+            assert_eq!(Revive::evm_balance(&destination), TENSOR.into());
+            assert!(System::block_weight().total().all_lte(MAXIMUM_BLOCK_WEIGHT));
+            assert!(System::block_weight().get(DispatchClass::Normal).all_lte(BlockWeights::get().get(DispatchClass::Normal).max_total.unwrap()));
+            eprintln!("{scenario}: after_signed_calls_ref_time={}, after_signed_calls_proof={}",
+                MAXIMUM_BLOCK_WEIGHT.saturating_sub(System::block_weight().total()).ref_time(),
+                MAXIMUM_BLOCK_WEIGHT.saturating_sub(System::block_weight().total()).proof_size());
+        });
+    }
+}
+
+#[test]
+fn normal_extrinsic_admission_counts_hooks_in_both_weight_dimensions() {
+    use sp_runtime::transaction_validity::{InvalidTransaction, TransactionValidityError};
+
+    let limits = BlockWeights::get();
+    for class in [DispatchClass::Normal, DispatchClass::Operational] {
+        eprintln!("class {class:?}: max_total={:?}, max_extrinsic={:?}, reserved={:?}, base_extrinsic={:?}",
+            limits.get(class).max_total, limits.get(class).max_extrinsic,
+            limits.get(class).reserved, limits.get(class).base_extrinsic);
+    }
+    for (label, hook) in [
+        ("maximum_subnet_slot", maximum_network_slot_reservation()),
+        ("full_network_cap", MaximumHooksWeight::get()),
+    ] {
+        let whole = limits.max_block.saturating_sub(hook);
+        let normal = whole.min(limits.get(DispatchClass::Normal).max_total.unwrap());
+        eprintln!(
+            "{label} before other hooks: whole_headroom={whole:?}, normal_headroom={normal:?}"
+        );
+    }
+
+    for scenario in [
+        "network_cap",
+        "scheduler_cap",
+        "time_exhausted",
+        "proof_exhausted",
+    ] {
+        crate::tests::npos::ext().execute_with(|| {
+            System::initialize(&1, &H256::zero(), &generic::Digest::default());
+            // A real signed Revive call declaration at the Ethereum transaction weight ceiling.
+            // Validation alone admits it; prepare must also enforce the current block budget.
+            let extrinsic = signed_capacity_extrinsic(
+                pallet_revive::Call::call {
+                    dest: sp_core::H160::repeat_byte(0x78),
+                    value: 0,
+                    data: vec![],
+                    weight_limit: Revive::evm_max_extrinsic_weight(),
+                    storage_deposit_limit: TENSOR,
+                }
+                .into(),
+            );
+            let info = extrinsic.get_dispatch_info();
+            assert_eq!(info.class, DispatchClass::Normal);
+            let length = extrinsic.encoded_size();
+            let booked = info
+                .total_weight()
+                .saturating_add(limits.get(info.class).base_extrinsic)
+                .saturating_add_proof_size(length as u64);
+            let mandatory = match scenario {
+                "network_cap" => MaximumHooksWeight::get().saturating_add(limits.base_block),
+                "scheduler_cap" => Perbill::from_percent(90) * limits.max_block,
+                "time_exhausted" => {
+                    Weight::from_parts(limits.max_block.ref_time() - booked.ref_time() + 1, 0)
+                }
+                _ => Weight::from_parts(0, limits.max_block.proof_size() - booked.proof_size() + 1),
+            };
+            System::register_extra_weight_unchecked(mandatory, DispatchClass::Mandatory);
+            let (_, next_length) =
+                frame_system::CheckWeight::<Runtime>::do_validate(&info, length).unwrap();
+            let admission =
+                frame_system::CheckWeight::<Runtime>::do_prepare(&info, length, next_length);
+            if scenario == "network_cap" {
+                assert_ok!(admission);
+                assert!(System::block_weight().total().all_lte(limits.max_block));
+            } else {
+                assert_eq!(
+                    admission,
+                    Err(TransactionValidityError::Invalid(
+                        InvalidTransaction::ExhaustsResources
+                    ))
+                );
+                assert_eq!(System::block_weight().total(), mandatory);
+            }
+            eprintln!(
+                "large_revive {scenario}: declared={booked:?}, admitted={}",
+                scenario == "network_cap"
+            );
+        });
+    }
+}
 
 fn account(seed: &str) -> AccountId {
     genesis::presets::get_account_id_from_seed::<sp_core::sr25519::Public>(seed)

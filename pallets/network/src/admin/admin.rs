@@ -59,6 +59,16 @@ impl<T: Config> Pallet<T> {
 
         Ok(())
     }
+    pub fn do_set_subnet_reward_capacitor_release_percentage(value: u128) -> DispatchResult {
+        ensure!(
+            value <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+        SubnetRewardCapacitorReleasePercentage::<T>::put(value);
+        Self::deposit_event(Event::SetSubnetRewardCapacitorReleasePercentage(value));
+        Ok(())
+    }
+
     pub fn do_set_max_subnets(value: u32) -> DispatchResult {
         // Account for designated general-chain work and the temporary rotation capacity.
         let available_slots = T::EpochLength::get()

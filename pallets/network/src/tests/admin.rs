@@ -35,7 +35,7 @@ use crate::{
     ValidatorNodeDelegateStakeWeightUpdateInterval, ValidatorNodeDelegateStakeWeights,
     ValidatorRewardK, ValidatorRewardMidpoint, ValidatorSubnetNodes,
 };
-use frame_support::{assert_err, assert_ok};
+use frame_support::{assert_err, assert_noop, assert_ok};
 
 //
 // Admin / Collective Extrinsic Tests
@@ -281,6 +281,57 @@ fn test_set_subnet_owner_percentage_fails_without_super_majority() {
             ),
             sp_runtime::DispatchError::BadOrigin
         );
+    });
+}
+
+#[test]
+fn test_set_subnet_reward_capacitor_release_percentage() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(System::block_number() + 1);
+        let percentage_factor = Network::percentage_factor_as_u128();
+        assert_eq!(
+            crate::SubnetRewardCapacitorReleasePercentage::<Test>::get(),
+            percentage_factor / 10
+        );
+
+        for value in [0, percentage_factor / 4, percentage_factor] {
+            assert_ok!(Network::set_subnet_reward_capacitor_release_percentage(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                value,
+            ));
+            assert_eq!(
+                crate::SubnetRewardCapacitorReleasePercentage::<Test>::get(),
+                value
+            );
+            System::assert_last_event(RuntimeEvent::Network(
+                Event::SetSubnetRewardCapacitorReleasePercentage(value),
+            ));
+        }
+    });
+}
+
+#[test]
+fn test_capacitor_release_percentage_rejects_bad_origin_and_invalid_percent() {
+    new_test_ext().execute_with(|| {
+        let percentage_factor = Network::percentage_factor_as_u128();
+        for origin in [
+            RuntimeOrigin::signed(account(1)),
+            RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),
+        ] {
+            assert_noop!(
+                Network::set_subnet_reward_capacitor_release_percentage(origin, percentage_factor),
+                sp_runtime::DispatchError::BadOrigin
+            );
+        }
+        for value in [percentage_factor + 1, u128::MAX] {
+            assert_noop!(
+                Network::set_subnet_reward_capacitor_release_percentage(
+                    RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                    value,
+                ),
+                Error::<Test>::InvalidPercent
+            );
+        }
     });
 }
 

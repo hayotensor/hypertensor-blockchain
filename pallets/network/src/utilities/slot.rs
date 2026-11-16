@@ -1184,11 +1184,7 @@ impl<T: Config> Pallet<T> {
             None
         } else {
             weight = weight.saturating_add(db_weight.reads(1));
-            let Some(balance) = SubnetRewardCapacitor::<T>::get(subnet_id).checked_add(reward)
-            else {
-                return weight;
-            };
-            Some(balance)
+            Some(SubnetRewardCapacitor::<T>::get(subnet_id).saturating_add(reward))
         };
 
         weight = weight.saturating_add(Self::finalize_consensus_round_slash_liability(
@@ -1278,12 +1274,7 @@ impl<T: Config> Pallet<T> {
                 let reward = Self::percent_mul(allocation.subnets_emissions, subnet_weight);
                 let next_capacitor = if reward > 0 {
                     weight = weight.saturating_add(db_weight.reads(1));
-                    let Some(balance) =
-                        SubnetRewardCapacitor::<T>::get(subnet_id).checked_add(reward)
-                    else {
-                        return (None, weight);
-                    };
-                    Some(balance)
+                    Some(SubnetRewardCapacitor::<T>::get(subnet_id).saturating_add(reward))
                 } else {
                     None
                 };

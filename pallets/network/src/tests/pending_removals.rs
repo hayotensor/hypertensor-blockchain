@@ -5,9 +5,10 @@ use crate::{
     AttestEntry, ConsensusPolicySnapshot, ConsensusSubmissionData, ConsensusSubnetNode, Error,
     Event, MinSubnetMinStake, MinSubnetNodes, NodeSubnetStake, PendingAdmittedNodeRemovals,
     PendingQueuedNodeRemovals, QueuedSubnetNodesData, RewardsData, SubnetConsensusAttestorWeights,
-    SubnetConsensusSubmission, SubnetElectedValidator, SubnetName, SubnetNodeClass,
-    SubnetNodeConsensusData, SubnetNodeElectionSlots, SubnetNodeReputation, SubnetNodeValidatorId,
-    SubnetNodesData, SubnetOwner, SubnetReputationFactors, SubnetState,
+    SubnetConsensusSubmission, SubnetConsensusSubmissionMaxItems, SubnetElectedValidator,
+    SubnetName, SubnetNodeClass, SubnetNodeConsensusData, SubnetNodeElectionSlots,
+    SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData, SubnetOwner,
+    SubnetReputationFactors, SubnetState,
 };
 use frame_support::pallet_prelude::Pays;
 use frame_support::traits::{Get, Hooks};
@@ -475,6 +476,13 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
             SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch).unwrap();
         assert_eq!(stored_weights.weights[&pending_node_id], 1);
         assert_eq!(stored_weights.total_weight, 4);
+        // Settlement still decodes the entire election snapshot after proposal quarantine.
+        // Its hook reservation must retain that bound even though only three voters remain.
+        assert_eq!(stored_submission.validator_ids.len(), 3);
+        assert_eq!(
+            SubnetConsensusSubmissionMaxItems::<Test>::get(subnet_id, subnet_epoch),
+            stored_weights.weights.len() as u32,
+        );
         let (processed, _) = Network::precheck_subnet_consensus_submission(
             subnet_id,
             subnet_epoch,

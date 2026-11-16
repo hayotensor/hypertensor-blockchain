@@ -2,7 +2,7 @@
 
 Six stateless Revive precompiles expose the network pallet through typed Solidity
 interfaces. They are compiled into the runtime; no contract deployment is needed.
-All 70 signed network extrinsics have one wrapper. The 76 collective-controlled
+All 70 signed network extrinsics have one wrapper. The 77 collective-controlled
 extrinsics are recorded as deferred in [coverage.json](coverage.json).
 
 | Interface | Address | Responsibility |

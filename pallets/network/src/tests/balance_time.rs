@@ -89,6 +89,196 @@ fn balance_time_checkpoint_matches_per_block_reference_across_changes_and_gaps()
 }
 
 #[test]
+fn balance_time_zero_epoch_length_resets_history_and_resumes_without_backdating() {
+    new_test_ext().execute_with(|| {
+        let length = NetworkEpochLength::get();
+        let previous = SubnetBalanceTime {
+            last_updated_block: length + 1,
+            current_epoch_area: U256::from(1000u32),
+            previous_epoch_area: U256::from(1000u128 * length as u128),
+        };
+        for block in [0, 2 * length + 7, u32::MAX] {
+            NetworkEpochLength::set(0);
+            let result = Network::checkpoint_subnet_balance_time(previous, u128::MAX, block);
+            NetworkEpochLength::set(length);
+
+            assert_eq!(result, Ok(empty_record(block)));
+            let recovered = result.unwrap();
+            assert_eq!(
+                Network::checkpoint_subnet_balance_time(recovered, 2000, block),
+                Ok(recovered),
+            );
+            if let Some(next_block) = block.checked_add(1) {
+                let resumed =
+                    Network::checkpoint_subnet_balance_time(recovered, 2000, next_block).unwrap();
+                assert_eq!(resumed.last_updated_block, next_block);
+                assert_eq!(resumed.current_epoch_area, U256::from(2000u32));
+                assert_eq!(resumed.previous_epoch_area, U256::zero());
+            }
+        }
+    });
+}
+
+#[test]
+fn balance_time_checkpoint_preserves_exact_bounds_at_maximum_balance_and_block() {
+    new_test_ext().execute_with(|| {
+        let length = EpochLength::get();
+        let balance = U256::from(u128::MAX);
+        for (start, end) in [
+            (0, 0),
+            (0, length - 1),
+            (length - 1, length),
+            (length + 7, length + 7),
+            (length + 7, 2 * length - 1),
+            (length + 7, 4 * length + 3),
+            (0, u32::MAX),
+            (u32::MAX - 2 * length, u32::MAX),
+            (u32::MAX - length, u32::MAX),
+            (u32::MAX - 1, u32::MAX),
+            (u32::MAX, u32::MAX),
+        ] {
+            // The pool has held the maximum balance continuously since block zero.
+            let previous = SubnetBalanceTime {
+                last_updated_block: start,
+                current_epoch_area: balance * U256::from(start % length),
+                previous_epoch_area: if start < length {
+                    U256::zero()
+                } else {
+                    balance * U256::from(length)
+                },
+            };
+            let actual = Network::checkpoint_subnet_balance_time(previous, u128::MAX, end).unwrap();
+            assert_eq!(actual.last_updated_block, end);
+            assert_eq!(
+                actual.current_epoch_area,
+                balance * U256::from(end % length)
+            );
+            assert_eq!(
+                actual.previous_epoch_area,
+                if end < length {
+                    U256::zero()
+                } else {
+                    balance * U256::from(length)
+                },
+                "checkpoint from {start} to {end}",
+            );
+        }
+    });
+}
+
+#[test]
+fn balance_time_invalid_history_restarts_at_requested_block() {
+    new_test_ext().execute_with(|| {
+        let length = EpochLength::get();
+        let block = 2 * length + 7;
+        let valid = SubnetBalanceTime {
+            last_updated_block: block,
+            current_epoch_area: U256::from(u128::MAX) * U256::from(7u32),
+            previous_epoch_area: U256::from(u128::MAX) * U256::from(length),
+        };
+        for (previous, requested_block) in [
+            (valid, block - 1),
+            (
+                SubnetBalanceTime {
+                    current_epoch_area: valid.current_epoch_area + U256::one(),
+                    ..valid
+                },
+                block,
+            ),
+            (
+                SubnetBalanceTime {
+                    previous_epoch_area: valid.previous_epoch_area + U256::one(),
+                    ..valid
+                },
+                block,
+            ),
+            (
+                SubnetBalanceTime {
+                    current_epoch_area: U256::MAX,
+                    ..valid
+                },
+                block,
+            ),
+            (
+                SubnetBalanceTime {
+                    previous_epoch_area: U256::MAX,
+                    ..valid
+                },
+                block,
+            ),
+            (
+                SubnetBalanceTime {
+                    previous_epoch_area: U256::one(),
+                    ..empty_record(0)
+                },
+                0,
+            ),
+            (
+                SubnetBalanceTime {
+                    current_epoch_area: U256::one(),
+                    ..empty_record(2 * length)
+                },
+                2 * length,
+            ),
+            (
+                SubnetBalanceTime {
+                    current_epoch_area: U256::MAX,
+                    ..empty_record(u32::MAX)
+                },
+                u32::MAX,
+            ),
+        ] {
+            let recovered =
+                Network::checkpoint_subnet_balance_time(previous, u128::MAX, requested_block)
+                    .unwrap();
+            assert_eq!(recovered, empty_record(requested_block));
+            assert_eq!(
+                Network::checkpoint_subnet_balance_time(recovered, u128::MAX, requested_block),
+                Ok(recovered),
+            );
+        }
+    });
+}
+
+#[test]
+fn balance_time_recovery_counts_only_blocks_after_the_reset() {
+    new_test_ext().execute_with(|| {
+        let length = EpochLength::get();
+        let block = 2 * length + length / 2;
+        let invalid = SubnetBalanceTime {
+            last_updated_block: block - 1,
+            current_epoch_area: U256::MAX,
+            previous_epoch_area: U256::MAX,
+        };
+        let recovered = Network::checkpoint_subnet_balance_time(invalid, 1000, block).unwrap();
+        assert_eq!(recovered, empty_record(block));
+
+        // A balance change at recovery starts earning credit only after that block.
+        let same_block = Network::checkpoint_subnet_balance_time(recovered, 2000, block).unwrap();
+        assert_eq!(same_block, recovered);
+        let next_block =
+            Network::checkpoint_subnet_balance_time(same_block, 2000, block + 1).unwrap();
+        assert_eq!(next_block.current_epoch_area, U256::from(2000u32));
+        assert_eq!(next_block.previous_epoch_area, U256::zero());
+
+        let partial_epoch =
+            Network::checkpoint_subnet_balance_time(next_block, 2000, 3 * length).unwrap();
+        assert_eq!(partial_epoch.current_epoch_area, U256::zero());
+        assert_eq!(
+            partial_epoch.previous_epoch_area,
+            U256::from(2000u128 * (3 * length - block) as u128)
+        );
+        let full_epoch =
+            Network::checkpoint_subnet_balance_time(partial_epoch, 2000, 4 * length).unwrap();
+        assert_eq!(full_epoch.current_epoch_area, U256::zero());
+        assert_eq!(
+            full_epoch.previous_epoch_area,
+            U256::from(2000u128 * length as u128)
+        );
+    });
+}
+
+#[test]
 fn balance_time_full_epoch_half_epoch_and_same_block_deposits() {
     new_test_ext().execute_with(|| {
         let length = EpochLength::get();

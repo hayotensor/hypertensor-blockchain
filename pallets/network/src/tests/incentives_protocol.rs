@@ -10255,6 +10255,128 @@ fn test_validator_delegate_rewards_require_circulating_shares() {
 }
 
 #[test]
+fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
+    use crate::{
+        BaseValidatorDelegateStakeSlashPercentage, MaxValidatorDelegateStakeSlashAmount,
+        NodeStakePendingSlashLiabilityCount, PendingConsensusRoundSettlementEpoch,
+        SubnetBalanceTime, SubnetBalanceTimes, ValidatorDelegateStakePendingSlashLiabilityCount,
+    };
+    use sp_core::U256;
+
+    for future_timestamp in [false, true] {
+        new_test_ext().execute_with(|| {
+            let (subnet_id, subnet_epoch, proposer, hotkey, data) =
+                build_elected_subnet_for_consensus_with_setup(
+                    b"balance-time-settlement-recovery".to_vec(),
+                    4,
+                    |subnet_id| {
+                        set_equal_validator_delegate_weights_before_election(subnet_id, 4);
+                        BaseValidatorDelegateStakeSlashPercentage::<Test>::put(test_percent(1, 10));
+                        MaxValidatorDelegateStakeSlashAmount::<Test>::put(1u128);
+                    },
+                );
+            let validator_id = SubnetNodeValidatorId::<Test>::get(subnet_id, proposer).unwrap();
+            let additional_attestors: Vec<_> = (1..=4).filter(|id| *id != proposer).collect();
+            let submission = propose_and_precheck_identity_gate_round(
+                subnet_id,
+                subnet_epoch,
+                hotkey,
+                data,
+                &additional_attestors,
+            );
+            let (rewards, _) = Network::calculate_rewards_with_policy(
+                1_000_000_000_000_000_000_000,
+                Network::percentage_factor_as_u128(),
+                &submission.policy,
+            )
+            .unwrap();
+            assert!(rewards.delegate_stake_rewards > 0);
+            assert!(TotalSubnetDelegateStakeCirculatingShares::<Test>::get(subnet_id) > 0);
+            assert_eq!(
+                PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
+                Some(subnet_epoch)
+            );
+            assert_eq!(
+                NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer),
+                1
+            );
+            assert_eq!(
+                ValidatorDelegateStakePendingSlashLiabilityCount::<Test>::get(validator_id),
+                1
+            );
+
+            System::set_block_number(System::block_number() + EpochLength::get());
+            let block = System::block_number();
+            let previous = SubnetBalanceTimes::<Test>::get(subnet_id).unwrap();
+            let invalid = if future_timestamp {
+                SubnetBalanceTime {
+                    last_updated_block: block + 1,
+                    ..previous
+                }
+            } else {
+                SubnetBalanceTime {
+                    current_epoch_area: U256::MAX,
+                    previous_epoch_area: U256::MAX,
+                    ..previous
+                }
+            };
+            SubnetBalanceTimes::<Test>::insert(subnet_id, invalid);
+
+            let owner = SubnetOwner::<Test>::get(subnet_id).unwrap();
+            let owner_before = Balances::free_balance(&owner);
+            let node_before = NodeSubnetStake::<Test>::get(proposer, subnet_id);
+            let pool_before = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
+            let total_before = TotalDelegateStake::<Test>::get();
+            distribute_identity_gate_round_with_rewards(
+                subnet_id,
+                subnet_epoch,
+                submission.clone(),
+                rewards.clone(),
+            );
+
+            assert!(Network::is_consensus_round_settled(subnet_id, subnet_epoch));
+            assert!(PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id).is_none());
+            assert_eq!(
+                NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer),
+                0
+            );
+            assert_eq!(
+                ValidatorDelegateStakePendingSlashLiabilityCount::<Test>::get(validator_id),
+                0
+            );
+            assert_eq!(
+                SubnetBalanceTimes::<Test>::get(subnet_id),
+                Some(SubnetBalanceTime {
+                    last_updated_block: block,
+                    ..Default::default()
+                })
+            );
+            assert_eq!(
+                Balances::free_balance(&owner),
+                owner_before + rewards.subnet_owner_reward
+            );
+            assert!(NodeSubnetStake::<Test>::get(proposer, subnet_id) > node_before);
+            assert_eq!(
+                TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id),
+                pool_before + rewards.delegate_stake_rewards
+            );
+            assert_eq!(
+                TotalDelegateStake::<Test>::get(),
+                total_before + rewards.delegate_stake_rewards
+            );
+
+            // A repeated settlement cannot pay any recipient or alter the recovered history again.
+            frame_support::assert_storage_noop!(distribute_identity_gate_round_with_rewards(
+                subnet_id,
+                subnet_epoch,
+                submission,
+                rewards,
+            ));
+        });
+    }
+}
+
+#[test]
 fn accepted_settlement_missing_balance_time_preserves_payouts_and_liability_for_retry() {
     new_test_ext().execute_with(|| {
         let (subnet_id, subnet_epoch, proposer, hotkey, data) =

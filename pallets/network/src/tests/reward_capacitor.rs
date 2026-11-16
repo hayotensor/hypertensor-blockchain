@@ -162,6 +162,37 @@ fn release_uses_remaining_reserve_and_the_elected_reward_split() {
 }
 
 #[test]
+fn release_uses_the_current_configured_percentage() {
+    for (percentage, budget, reserve, released) in [
+        (0, 100 * TOKEN, 100 * TOKEN, 0),
+        (TOKEN / 4, 100 * TOKEN, 100 * TOKEN, 25 * TOKEN),
+        (TOKEN, 100 * TOKEN, 300 * TOKEN, 100 * TOKEN),
+        (TOKEN, 100 * TOKEN, 3 * TOKEN, 3 * TOKEN),
+        (TOKEN / 4, 9, 100, 2),
+    ] {
+        new_test_ext().execute_with(|| {
+            let (subnet, epoch) = fixture();
+            SubnetRewardCapacitor::<Test>::insert(subnet, reserve);
+            propose(subnet, epoch, budget, 100, NODES as usize);
+            // A collective update applies to the next settlement, including an elected round.
+            assert_ok!(Network::set_subnet_reward_capacitor_release_percentage(
+                RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                percentage,
+            ));
+            let before = balances(subnet);
+            settle(subnet, epoch + 1);
+            assert_eq!(
+                SubnetRewardCapacitor::<Test>::get(subnet),
+                reserve - released
+            );
+            assert_eq!(balances(subnet).0 - before.0, (budget + released) / 5);
+            assert!(Network::is_consensus_round_settled(subnet, epoch));
+            assert!(PendingConsensusRoundSettlementEpoch::<Test>::get(subnet).is_none());
+        });
+    }
+}
+
+#[test]
 fn delayed_missing_proposal_stores_its_original_allocation_once() {
     new_test_ext().execute_with(|| {
         let (subnet, epoch) = fixture();
@@ -206,61 +237,65 @@ fn accepted_zero_score_and_sub_ten_unit_allocation_do_not_release_the_reserve() 
 }
 
 #[test]
-fn capacitor_overflow_preserves_pending_round_until_a_successful_retry() {
+fn capacitor_overflow_saturates_and_settles_failed_rounds() {
     for missing_proposal in [false, true] {
-        new_test_ext().execute_with(|| {
-            let (subnet, epoch) = fixture();
-            if missing_proposal {
-                elect(subnet, epoch, 100 * TOKEN);
-            } else {
-                propose(subnet, epoch, 100 * TOKEN, 100, 1);
-            }
-            SubnetRewardCapacitor::<Test>::insert(subnet, u128::MAX);
-            let before = balances(subnet);
-            let reputation = SubnetReputation::<Test>::get(subnet);
-            settle(subnet, epoch + 1);
-            assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), u128::MAX);
-            assert_eq!(balances(subnet), before);
-            assert_eq!(SubnetReputation::<Test>::get(subnet), reputation);
-            assert_eq!(
-                ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
-                Some(false)
-            );
-            assert_eq!(
-                PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
-                Some(epoch)
-            );
+        for capacitor in [u128::MAX - 1, u128::MAX] {
+            new_test_ext().execute_with(|| {
+                let (subnet, epoch) = fixture();
+                if missing_proposal {
+                    elect(subnet, epoch, 100 * TOKEN);
+                } else {
+                    propose(subnet, epoch, 100 * TOKEN, 100, 1);
+                }
+                SubnetRewardCapacitor::<Test>::insert(subnet, capacitor);
+                settle(subnet, epoch + 1);
+                assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), u128::MAX);
+                assert_eq!(
+                    ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
+                    Some(true)
+                );
+                assert_eq!(
+                    PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
+                    None
+                );
 
-            SubnetRewardCapacitor::<Test>::insert(subnet, 0);
-            settle(subnet, epoch + 1);
-            assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), 100 * TOKEN);
-            assert_eq!(
-                ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
-                Some(true)
-            );
-        });
+                let after = balances(subnet);
+                let reputation = SubnetReputation::<Test>::get(subnet);
+                settle(subnet, epoch + 1);
+                assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), u128::MAX);
+                assert_eq!(balances(subnet), after);
+                assert_eq!(SubnetReputation::<Test>::get(subnet), reputation);
+            });
+        }
     }
 }
 
 #[test]
-fn accepted_combined_budget_overflow_preserves_pending_round_and_reserve() {
-    new_test_ext().execute_with(|| {
-        let (subnet, epoch) = fixture();
-        SubnetRewardCapacitor::<Test>::insert(subnet, TOKEN);
-        propose(subnet, epoch, u128::MAX, 100, NODES as usize);
-        let before = balances(subnet);
-        settle(subnet, epoch + 1);
-        assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), TOKEN);
-        assert_eq!(balances(subnet), before);
-        assert_eq!(
-            ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
-            Some(false)
-        );
-        assert_eq!(
-            PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
-            Some(epoch)
-        );
-    });
+fn accepted_capacitor_supplement_fits_budget_and_preserves_unused_reserve() {
+    for headroom in [0, 100] {
+        new_test_ext().execute_with(|| {
+            let (subnet, epoch) = fixture();
+            SubnetRewardCapacitor::<Test>::insert(subnet, TOKEN);
+            propose(subnet, epoch, u128::MAX - headroom, 100, NODES as usize);
+            let before = balances(subnet);
+            settle(subnet, epoch + 1);
+            assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), TOKEN - headroom);
+            assert!(balances(subnet).0 > before.0);
+            assert_eq!(
+                ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
+                Some(true)
+            );
+            assert_eq!(
+                PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
+                None
+            );
+
+            let after = balances(subnet);
+            settle(subnet, epoch + 1);
+            assert_eq!(balances(subnet), after);
+            assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), TOKEN - headroom);
+        });
+    }
 }
 
 #[test]

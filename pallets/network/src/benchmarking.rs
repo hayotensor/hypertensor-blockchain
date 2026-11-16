@@ -2004,8 +2004,10 @@ fn prepare_election_weight_fixture<T: Config>(x: u32, shared_identities: bool) -
     }
     // Canonicalization must sort a nontrivial insertion/removal ordering.
     SubnetNodeElectionSlots::<T>::insert(subnet_id, (1..=x).rev().collect::<Vec<_>>());
-    ConsensusValidatorNodeCountDecay::<T>::insert(subnet_id, factor / 2);
-    ConsensusValidatorStakeWeightPower::<T>::insert(subnet_id, factor / 2);
+    // A power of 0.5 takes libm's sqrt shortcut. Use non-special fractional exponents
+    // for both the node-count penalty (2/3) and normalized stake power (1/3).
+    ConsensusValidatorNodeCountDecay::<T>::insert(subnet_id, factor / 3);
+    ConsensusValidatorStakeWeightPower::<T>::insert(subnet_id, factor / 3);
     BaseValidatorDelegateStakeSlashPercentage::<T>::set(factor / 10);
     MaxValidatorDelegateStakeSlashAmount::<T>::set(DEFAULT_DEPOSIT_AMOUNT);
     BaseSlashPercentage::<T>::set(factor / 10);
@@ -8288,6 +8290,21 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn set_subnet_reward_capacitor_release_percentage() {
+        let new_value = Network::<T>::percentage_factor_as_u128();
+        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
+            .expect("try_successful_origin failed");
+
+        #[extrinsic_call]
+        set_subnet_reward_capacitor_release_percentage(origin as T::RuntimeOrigin, new_value);
+
+        assert_eq!(
+            SubnetRewardCapacitorReleasePercentage::<T>::get(),
+            new_value
+        );
+    }
+
+    #[benchmark]
     fn set_max_subnets() {
         let epoch_length = T::EpochLength::get();
         let designated_epoch_slots = T::DesignatedEpochSlots::get();
@@ -11350,6 +11367,8 @@ mod benchmarks {
         );
         assert!(normal_reward >= 10);
         SubnetRewardCapacitor::<T>::insert(subnet_id, normal_reward);
+        let release_percentage = Network::<T>::percentage_factor_as_u128();
+        SubnetRewardCapacitorReleasePercentage::<T>::put(release_percentage);
         assert_eq!(
             subnet_emission_weights.subnet_weights.len() as u32,
             T::MaxPhysicalSubnetsUpperBound::get()
@@ -11370,7 +11389,7 @@ mod benchmarks {
 
         assert_eq!(
             SubnetRewardCapacitor::<T>::get(subnet_id),
-            normal_reward - normal_reward / 10,
+            normal_reward - Network::<T>::percent_mul(normal_reward, release_percentage),
         );
         for node_index in 0..h {
             let _n = node_index + 1;

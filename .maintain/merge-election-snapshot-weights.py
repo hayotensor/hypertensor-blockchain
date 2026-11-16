@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Merge measured election snapshot weights while retaining prior envelopes.
 
-Usage: merge-election-snapshot-weights.py GENERATED AUDIT_JSON BASELINE_WEIGHTS
+Usage: merge-election-snapshot-weights.py GENERATED AUDIT_JSON BASELINE_WEIGHTS [METHODS]
+METHODS is an optional comma-separated subset; other methods remain byte-identical.
 Both election profiles are combined using Weight::max. Previous measured bounds
 remain floors, and the complete manual suffix (including its DB charges) survives.
 """
@@ -20,6 +21,16 @@ METHOD = re.compile(r"(?:\t///[^\n]*\n)*\tfn (\w+)\([^\n]*\) -> Weight \{.*?\n\t
 MANUAL = re.compile(r"^\t\t\t\.saturating_add\((?!Weight::from_parts|(?:T::DbWeight|RocksDbWeight)::get).*$", re.M)
 ALLOWANCES_BEGIN = "// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES"
 ALLOWANCES_END = "// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES"
+REQUIRED_ALLOWANCES = {
+    "elect_validator": [
+        ".saturating_add(Self::pending_admitted_removal_scan(MAX_PENDING_ADMITTED_REMOVALS))",
+        ".saturating_add(Self::pending_queued_removal_scan(MAX_PENDING_QUEUED_REMOVALS))",
+    ],
+    # Cover the observed raw timing outlier independently of the fitted regression.
+    "precheck_subnet_consensus_submission": [
+        ".saturating_add(Weight::from_parts(250_000_000, 0))",
+    ],
+}
 
 
 def expression(block):
@@ -27,7 +38,7 @@ def expression(block):
     return block[start:-3].strip()
 
 
-def main(generated_path, audit_path, baseline_path):
+def main(generated_path, audit_path, baseline_path, selected=None):
     generated = Path(generated_path).read_text()
     baseline = Path(baseline_path).read_text()
     destination = Path("pallets/network/src/weights.rs")
@@ -40,12 +51,14 @@ def main(generated_path, audit_path, baseline_path):
         baseline_methods.setdefault(match[1], []).append(match[0])
     assert set(generated_methods) == METHODS | {"elect_validator_multi_node"}
     assert all(len(blocks) == 2 for blocks in generated_methods.values())
-    counts = dict.fromkeys(METHODS, 0)
+    selected = set(selected.split(",")) if selected else METHODS
+    assert selected and selected <= METHODS
+    counts = dict.fromkeys(selected, 0)
     preserved = []
 
     def replace(match):
         name = match[1]
-        if name not in METHODS:
+        if name not in selected:
             return match[0]
         index = counts[name]
         counts[name] += 1
@@ -55,6 +68,9 @@ def main(generated_path, audit_path, baseline_path):
         else:
             manual = MANUAL.search(old)
             suffix = old[manual.start():-3].strip() if manual else ""
+        additions = [term for term in REQUIRED_ALLOWANCES.get(name, []) if term not in suffix]
+        if additions:
+            suffix += "\n\t\t\t" + "\n\t\t\t".join(additions)
         fresh = generated_methods[name][index]
         head = fresh[:fresh.index("\t\tWeight::from_parts")]
         body = head + "\t\tlet measured = " + expression(fresh) + ";\n"
@@ -71,26 +87,32 @@ def main(generated_path, audit_path, baseline_path):
         body += "\n\t\t;\n"
         body += "\t\t// Preserve the complete prior envelope, including its safety allowances.\n"
         old_body = old[old.index("-> Weight {") + len("-> Weight {"):-3].strip()
-        body += "\t\tlet baseline = {\n\t\t\t" + old_body + "\n\t\t};\n"
+        body += "\t\tlet baseline = {\n\t\t\t" + old_body + "\n\t\t}"
+        # Newly required allowances apply to both candidates of the max. On a
+        # rerun the marked suffix already has them, so the old body is untouched.
+        if additions:
+            body += "\n\t\t\t" + "\n\t\t\t".join(additions)
+        body += ";\n"
         body += "\t\tmeasured.max(baseline)"
         body += "\n\t}"
-        preserved.append({"method": name, "implementation": index, "manual_suffix": suffix})
+        preserved.append({"method": name, "implementation": index, "manual_suffix": suffix,
+                          "new_allowances": additions})
         return body
 
     after = METHOD.sub(replace, before)
     assert all(count == 2 for count in counts.values())
-    assert [m[0] for m in METHOD.finditer(before) if m[1] not in METHODS] == [
-        m[0] for m in METHOD.finditer(after) if m[1] not in METHODS
+    assert [m[0] for m in METHOD.finditer(before) if m[1] not in selected] == [
+        m[0] for m in METHOD.finditer(after) if m[1] not in selected
     ]
     Path(audit_path).write_text(json.dumps({
-        "methods": sorted(METHODS),
+        "methods": sorted(selected),
         "preserved": preserved,
         "before_sha256": hashlib.sha256(before.encode()).hexdigest(),
         "after_sha256": hashlib.sha256(after.encode()).hexdigest(),
         "baseline_sha256": hashlib.sha256(baseline.encode()).hexdigest(),
     }, indent=2) + "\n")
     destination.write_text(after)
-    print("Updated seven methods in both implementations; prior bounds and manual suffixes retained")
+    print(f"Updated {len(selected)} methods in both implementations; prior bounds and manual suffixes retained")
 
 
 if __name__ == "__main__":

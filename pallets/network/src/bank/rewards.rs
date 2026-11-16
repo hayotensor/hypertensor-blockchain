@@ -196,15 +196,13 @@ impl<T: Config> Pallet<T> {
 
         // --- If under either minimum attestation ratio, penalize validator, skip rewards
         if stake_quorum_failed || identity_quorum_failed {
-            // Check before settlement effects so an overflow leaves the round retryable.
+            // A full capacitor must not block settlement.
             let next_capacitor = if rewards_data.overall_subnet_reward > 0 {
                 weight_meter.consume(db_weight.reads(1));
-                let Some(balance) = SubnetRewardCapacitor::<T>::get(subnet_id)
-                    .checked_add(rewards_data.overall_subnet_reward)
-                else {
-                    return;
-                };
-                Some(balance)
+                Some(
+                    SubnetRewardCapacitor::<T>::get(subnet_id)
+                        .saturating_add(rewards_data.overall_subnet_reward),
+                )
             } else {
                 None
             };
@@ -289,25 +287,30 @@ impl<T: Config> Pallet<T> {
         // Release against the normal allocation, never against the stored balance. Zero-score
         // rounds cannot distribute node rewards, so retain their capacitor for a later round.
         let mut remaining_capacitor = None;
-        if consensus_submission_data.weight_sum > 0 && rewards_data.overall_subnet_reward >= 10 {
+        if consensus_submission_data.weight_sum > 0 && rewards_data.overall_subnet_reward > 0 {
             weight_meter.consume(db_weight.reads(1));
             let capacitor = SubnetRewardCapacitor::<T>::get(subnet_id);
-            let supplement = capacitor.min(rewards_data.overall_subnet_reward / 10);
-            if supplement > 0 {
-                let Some(combined_reward) =
-                    rewards_data.overall_subnet_reward.checked_add(supplement)
-                else {
-                    return;
-                };
-                let Some((combined_rewards, _)) = Self::calculate_rewards_with_policy(
-                    combined_reward,
-                    percentage_factor,
-                    &policy,
-                ) else {
-                    return;
-                };
-                rewards_data = combined_rewards;
-                remaining_capacitor = Some(capacitor - supplement);
+            if capacitor > 0 {
+                weight_meter.consume(db_weight.reads(1));
+                let release_percentage = SubnetRewardCapacitorReleasePercentage::<T>::get();
+                let supplement = capacitor
+                    .min(Self::percent_mul(
+                        rewards_data.overall_subnet_reward,
+                        release_percentage,
+                    ))
+                    .min(u128::MAX - rewards_data.overall_subnet_reward);
+                if supplement > 0 {
+                    let combined_reward = rewards_data.overall_subnet_reward + supplement;
+                    let Some((combined_rewards, _)) = Self::calculate_rewards_with_policy(
+                        combined_reward,
+                        percentage_factor,
+                        &policy,
+                    ) else {
+                        return;
+                    };
+                    rewards_data = combined_rewards;
+                    remaining_capacitor = Some(capacitor - supplement);
+                }
             }
         }
 

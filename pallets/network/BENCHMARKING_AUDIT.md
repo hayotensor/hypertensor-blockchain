@@ -389,11 +389,26 @@ and allocation records. The prior measured envelopes and all manual allowances
 remain floors; the production `WeightInfo` interface is unchanged. All 226 trait
 methods have exactly two implementations; the additional profile is measurement-only.
 
-The installed maximum mandatory subnet-slot reservation at 512 nodes is
-468.657 ms and 10,858,640 proof bytes, below the unchanged 1-second/16-MiB budget.
-All five verified capacity profiles passed from 64 through 512 nodes. The full
-healthy hook peaked at 58.229378 ms. The full pallet/benchmark suite passed 1,111
-tests (one ignored), and the actual runtime integrity test passed.
+The follow-up slot-budget review corrected the election fixtures to exercise
+general fractional powers rather than libm's `0.5` square-root shortcut. It added
+maximum pending-set scan allowances and an observed precheck timing margin, and
+selectively refreshed three production methods while preserving prior floors.
+The installed maximum mandatory subnet-slot reservation at 512 nodes is now
+469.012 ms and 10,868,091 proof bytes, below the unchanged 1-second/16-MiB allowance.
+All five fresh verified capacity profiles passed from 64 through 512 nodes; the
+full healthy hook peaked at 33.407109 ms in timing-only samples. The final-weight
+pallet/benchmark suite passed 1,111 tests (one ignored), runtime production passed
+14 tests, and generated runtime integrity passed. Real signed transfer, proposal,
+attestation, and small Revive calls fit after conservative hook reservations,
+including a modeled busy-Scheduler block.
+
+An unresolved preexisting history-pruning issue prevents a blanket full-hook
+budget guarantee: the pruning admission guard reserves fewer prefix reads than
+it can later charge, and history cleanup has no proof-size allowance. Capacity
+fixtures do not cover persisted retention backlogs. This finding is separate
+from the measured snapshot/settlement paths and needs its own benchmark and
+accounting correction.
 
 See the [measurement audit](../../.maintain/election-snapshot-audit.md) for exact
-commands, artifact paths, Wasm hashes, capacity measurements, and merge safeguards.
+commands, artifact paths, Wasm hashes, capacity measurements, extrinsic headroom,
+merge safeguards, and the pruning finding.
