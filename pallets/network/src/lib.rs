@@ -1661,22 +1661,22 @@ pub mod pallet {
         pub min_stake: u128,
         pub max_stake: u128,
         pub queue_immunity_epochs: u32,
-        pub pending_queue_immunity_epochs: Option<PendingOwnerU32Update<T>>,
+        pub pending_queue_immunity_epochs: Option<PendingU32Update<T>>,
         pub target_node_registrations_per_epoch: u32,
         pub node_registrations_this_epoch: u32,
         pub subnet_node_queue_epochs: u32,
-        pub pending_subnet_node_queue_epochs: Option<PendingOwnerU32Update<T>>,
+        pub pending_subnet_node_queue_epochs: Option<PendingU32Update<T>>,
         pub probation_rounds: u32,
-        pub pending_probation_rounds: Option<PendingOwnerU32Update<T>>,
+        pub pending_probation_rounds: Option<PendingU32Update<T>>,
         pub delegate_stake_percentage: u128,
         pub pending_delegate_stake_percentage:
             Option<PendingSubnetDelegateStakeRewardsPercentageUpdate<T>>,
         pub last_delegate_stake_rewards_update: u32,
         pub consensus_validator_node_count_decay: u128,
-        pub pending_consensus_validator_node_count_decay: Option<PendingOwnerU128Update<T>>,
+        pub pending_consensus_validator_node_count_decay: Option<PendingU128Update<T>>,
         pub last_consensus_validator_node_count_decay_update: Option<u32>,
         pub consensus_validator_stake_weight_power: u128,
-        pub pending_consensus_validator_stake_weight_power: Option<PendingOwnerU128Update<T>>,
+        pub pending_consensus_validator_stake_weight_power: Option<PendingU128Update<T>>,
         pub last_consensus_validator_stake_weight_power_update: Option<u32>,
         pub node_burn_rate_alpha: u128,
         pub current_node_burn_rate: u128,
@@ -1687,10 +1687,10 @@ pub mod pallet {
         pub slot_index: Option<u32>,
         pub subnet_node_min_weight_decrease_reputation_threshold: u128,
         pub pending_subnet_node_min_weight_decrease_reputation_threshold:
-            Option<PendingOwnerU128Update<T>>,
+            Option<PendingU128Update<T>>,
         pub reputation: u128,
         pub min_subnet_node_reputation: u128,
-        pub pending_min_subnet_node_reputation: Option<PendingOwnerU128Update<T>>,
+        pub pending_min_subnet_node_reputation: Option<PendingU128Update<T>>,
         pub absent_decrease_reputation_factor: u128,
         pub included_increase_reputation_factor: u128,
         pub below_min_weight_decrease_reputation_factor: u128,
@@ -1803,7 +1803,7 @@ pub mod pallet {
         pub classification: SubnetNodeClassification,
     }
 
-    /// Optional live metadata, keyed by (subnet ID, node ID) across queue admission.
+    /// Optional metadata, keyed by (subnet ID, node ID) across admission and deferred cleanup.
     #[derive(
         frame_support::DefaultNoBound,
         Encode,
@@ -1960,12 +1960,16 @@ pub mod pallet {
     )]
     pub struct SubnetNodeClassification {
         pub node_class: SubnetNodeClass,
-        /// First subnet-local epoch in which this classification is effective.
+        /// Queued: first logical queue epoch, excluding all global paused blocks.
+        /// Probation/Active: first ordinary subnet-local epoch for this classification.
+        /// Admission replaces the queued timestamp with the ordinary subnet epoch.
         /// Probation progress is tracked separately as qualifying inclusions, not elapsed time.
         pub start_epoch: u32,
     }
 
     impl SubnetNode {
+        /// Supply a logical queue epoch for Queued nodes and an ordinary subnet epoch for
+        /// admitted nodes, matching the clock of this node's stored classification.
         pub fn has_classification(&self, required: &SubnetNodeClass, subnet_epoch: u32) -> bool {
             self.classification.node_class >= *required
                 && self.classification.start_epoch <= subnet_epoch
@@ -2485,7 +2489,7 @@ pub mod pallet {
         scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
-    pub struct PendingOwnerU32Update<T: Config> {
+    pub struct PendingU32Update<T: Config> {
         pub value: u32,
         pub effective_subnet_epoch: u32,
         pub owner: T::AccountId,
@@ -2504,7 +2508,7 @@ pub mod pallet {
         scale_info::TypeInfo,
     )]
     #[scale_info(skip_type_params(T))]
-    pub struct PendingOwnerU128Update<T: Config> {
+    pub struct PendingU128Update<T: Config> {
         pub value: u128,
         pub effective_subnet_epoch: u32,
         pub owner: T::AccountId,
@@ -3629,8 +3633,9 @@ pub mod pallet {
     pub type SubnetsData<T> = StorageMap<_, Identity, u32, SubnetData>;
 
     /// Logical registration epoch for a pending subnet. Global unpause shifts this anchor
-    /// by the number of general epoch boundaries crossed while paused, preserving the
-    /// minimum activation wait and both registration/enactment windows. Removed on activation.
+    /// by the number of general epoch boundaries crossed while paused plus one extra epoch,
+    /// extending the minimum activation wait and both registration/enactment windows.
+    /// Same-block pause/unpause also grants the extra epoch. Removed on activation.
     #[pallet::storage] // subnet_id => epoch
     pub type SubnetRegistrationEpoch<T> = StorageMap<_, Identity, u32, u32>;
 
@@ -3638,8 +3643,8 @@ pub mod pallet {
     #[pallet::storage] // subnet_id => AccountId
     pub type SubnetOwner<T: Config> = StorageMap<_, Identity, u32, T::AccountId>;
 
-    /// Most recent epoch a subnet was activated on
-    /// Used to calculate subnet removal intervals
+    /// Logical epoch of the most recent subnet activation, used for the capacity-removal cooldown.
+    /// Global unpause shifts it by the crossed general epoch boundaries plus one grace epoch.
     #[pallet::storage]
     pub type PrevSubnetActivationEpoch<T> = StorageValue<_, u32, ValueQuery, DefaultZeroU32>;
 
@@ -4012,7 +4017,7 @@ pub mod pallet {
     /// A subnet owner's node-count decay update scheduled for a future subnet epoch.
     #[pallet::storage]
     pub type PendingConsensusValidatorNodeCountDecay<T: Config> =
-        StorageMap<_, Identity, u32, PendingOwnerU128Update<T>, OptionQuery>;
+        StorageMap<_, Identity, u32, PendingU128Update<T>, OptionQuery>;
 
     /// Last global epoch a subnet owner updated the subnet's consensus validator node count decay.
     #[pallet::storage]
@@ -4033,7 +4038,7 @@ pub mod pallet {
     /// A subnet owner's stake-weight power update scheduled for a future subnet epoch.
     #[pallet::storage]
     pub type PendingConsensusValidatorStakeWeightPower<T: Config> =
-        StorageMap<_, Identity, u32, PendingOwnerU128Update<T>, OptionQuery>;
+        StorageMap<_, Identity, u32, PendingU128Update<T>, OptionQuery>;
 
     /// Network lower bound for subnet owner stake-weight power updates.
     #[pallet::storage]
@@ -4135,7 +4140,7 @@ pub mod pallet {
 
     #[pallet::storage]
     pub type PendingSubnetNodeQueueEpochs<T: Config> =
-        StorageMap<_, Identity, u32, PendingOwnerU32Update<T>, OptionQuery>;
+        StorageMap<_, Identity, u32, PendingU32Update<T>, OptionQuery>;
 
     /// Consecutive qualifying inclusions required for Probation -> Active promotion.
     /// Promotion also requires full reputation; this is a round count, not a waiting timer.
@@ -4145,7 +4150,7 @@ pub mod pallet {
 
     #[pallet::storage]
     pub type PendingProbationRounds<T: Config> =
-        StorageMap<_, Identity, u32, PendingOwnerU32Update<T>, OptionQuery>;
+        StorageMap<_, Identity, u32, PendingU32Update<T>, OptionQuery>;
 
     /// Consecutive qualifying inclusions for each admitted Probation node.
     /// Only ordinary accepted nonzero-total-score rounds with identity supermajority change it.
@@ -4162,7 +4167,7 @@ pub mod pallet {
 
     #[pallet::storage]
     pub type PendingQueueImmunityEpochs<T: Config> =
-        StorageMap<_, Identity, u32, PendingOwnerU32Update<T>, OptionQuery>;
+        StorageMap<_, Identity, u32, PendingU32Update<T>, OptionQuery>;
 
     /// Min required stake balance for a Subnet Node in a specified subnet
     #[pallet::storage]
@@ -4208,7 +4213,7 @@ pub mod pallet {
 
     #[pallet::storage]
     pub type PendingSubnetNodeMinWeightDecreaseReputationThreshold<T: Config> =
-        StorageMap<_, Identity, u32, PendingOwnerU128Update<T>, OptionQuery>;
+        StorageMap<_, Identity, u32, PendingU128Update<T>, OptionQuery>;
 
     /// Total subnet UIDs. Used to get each nodes UID
     #[pallet::storage] // subnet_id --> u32
@@ -4226,9 +4231,16 @@ pub mod pallet {
 
     /// Optional networking/descriptive fields for admitted and queued nodes.
     /// All-absent metadata has no entry; `Some(empty_bytes)` remains present.
+    /// Removed nodes may retain this record until their bounded idle cleanup runs.
     #[pallet::storage]
     pub type SubnetNodeMetadata<T: Config> =
         StorageDoubleMap<_, Identity, u32, Identity, u32, NodeMetadata<T>, OptionQuery>;
+
+    /// Residual metadata, hotkey overrides, probation progress and slot indexes for removed nodes.
+    /// A full queue falls back to synchronous cleanup, so idle starvation cannot grow unbounded state.
+    #[pallet::storage]
+    pub type NodeMetadataCleanupQueue<T: Config> =
+        StorageValue<_, BoundedVec<(u32, u32), ConstU32<64>>, ValueQuery>;
 
     /// Admitted Probation and Active nodes, including quarantined nodes until physical cleanup.
     /// subnet_id --> uid --> data
@@ -4636,6 +4648,12 @@ pub mod pallet {
     #[pallet::storage]
     pub type NetworkPauseStartBlock<T> = StorageValue<_, u32, OptionQuery>;
 
+    /// Actual blocks elapsed in completed global pauses. The queue clock subtracts this
+    /// counter and freezes at NetworkPauseStartBlock during an ongoing pause. No grace epochs
+    /// are added here, so the clock never moves backwards when the network resumes.
+    #[pallet::storage]
+    pub type TotalNetworkPausedBlocks<T> = StorageValue<_, u32, ValueQuery>;
+
     /// Latest real global unpause. Rounds elected at or before this block cannot accept new
     /// proposals/attestations. The preceding epoch is cancelled at the next subnet slot;
     /// older skipped rounds expire with consensus history and never block elections.
@@ -4889,7 +4907,7 @@ pub mod pallet {
 
     #[pallet::storage]
     pub type PendingMinSubnetNodeReputation<T: Config> =
-        StorageMap<_, Identity, u32, PendingOwnerU128Update<T>, OptionQuery>;
+        StorageMap<_, Identity, u32, PendingU128Update<T>, OptionQuery>;
 
     #[pallet::storage]
     pub type SubnetNodeReputation<T> = StorageDoubleMap<
@@ -5358,6 +5376,7 @@ pub mod pallet {
     }
 
     #[derive(Encode, Decode, codec::DecodeWithMemTracking, Clone, PartialEq, Eq, TypeInfo)]
+    /// Swap deadlines are inclusive running-block timestamps, excluding global pauses.
     pub enum QueuedSwapCall<AccountId> {
         // swap_from_subnet_to_subnet
         SwapToSubnetDelegateStake {
@@ -5365,7 +5384,7 @@ pub mod pallet {
             to_subnet_id: u32,
             balance: u128,
             min_shares_out: u128,
-            execute_before_block: u32,
+            execute_before_running_block: u32,
         },
         // swap_from_validator_to_validator
         SwapToValidatorDelegateStake {
@@ -5373,7 +5392,7 @@ pub mod pallet {
             to_validator_id: u32,
             balance: u128,
             min_shares_out: u128,
-            execute_before_block: u32,
+            execute_before_running_block: u32,
         },
     }
 
@@ -5384,7 +5403,7 @@ pub mod pallet {
                     to_subnet_id,
                     balance,
                     min_shares_out,
-                    execute_before_block,
+                    execute_before_running_block,
                     ..
                 } => fmt
                     .debug_struct("QueuedSwapCall::SwapToSubnetDelegateStake")
@@ -5392,13 +5411,13 @@ pub mod pallet {
                     .field("to_subnet_id", to_subnet_id)
                     .field("balance", balance)
                     .field("min_shares_out", min_shares_out)
-                    .field("execute_before_block", execute_before_block)
+                    .field("execute_before_running_block", execute_before_running_block)
                     .finish(),
                 Self::SwapToValidatorDelegateStake {
                     to_validator_id,
                     balance,
                     min_shares_out,
-                    execute_before_block,
+                    execute_before_running_block,
                     ..
                 } => fmt
                     .debug_struct("QueuedSwapCall::SwapToValidatorDelegateStake")
@@ -5406,7 +5425,7 @@ pub mod pallet {
                     .field("to_validator_id", to_validator_id)
                     .field("balance", balance)
                     .field("min_shares_out", min_shares_out)
-                    .field("execute_before_block", execute_before_block)
+                    .field("execute_before_running_block", execute_before_running_block)
                     .finish(),
             }
         }
@@ -5416,8 +5435,9 @@ pub mod pallet {
     pub struct QueuedSwapItem<AccountId> {
         pub id: u32,
         pub call: QueuedSwapCall<AccountId>,
-        pub queued_at_block: u32,
-        /// Snapshotted source-pool cooldown (with a one-epoch minimum).
+        /// Queue entry time on the shared running-block clock, excluding global pauses.
+        pub queued_at_running_block: u32,
+        /// Snapshotted source-pool cooldown in running blocks (with a one-epoch minimum).
         pub execute_after_blocks: u32,
     }
 
@@ -5426,7 +5446,7 @@ pub mod pallet {
             fmt.debug_struct("QueuedSwapItem")
                 .field("id", &self.id)
                 .field("call", &self.call)
-                .field("queued_at_block", &self.queued_at_block)
+                .field("queued_at_running_block", &self.queued_at_running_block)
                 .field("execute_after_blocks", &self.execute_after_blocks)
                 .finish()
         }
@@ -5456,16 +5476,16 @@ pub mod pallet {
             }
         }
 
-        pub fn get_execute_before_block(&self) -> u32 {
+        pub fn get_execute_before_running_block(&self) -> u32 {
             match self {
                 QueuedSwapCall::SwapToSubnetDelegateStake {
-                    execute_before_block,
+                    execute_before_running_block,
                     ..
                 }
                 | QueuedSwapCall::SwapToValidatorDelegateStake {
-                    execute_before_block,
+                    execute_before_running_block,
                     ..
-                } => *execute_before_block,
+                } => *execute_before_running_block,
             }
         }
     }
@@ -6059,7 +6079,9 @@ pub mod pallet {
         ///
         #[pallet::call_index(7)]
         #[pallet::weight(
-            T::WeightInfo::activate_subnet().saturating_add(
+            T::WeightInfo::activate_subnet()
+                .saturating_add(Pallet::<T>::subnet_residual_metadata_cleanup_weight(*subnet_id))
+                .saturating_add(
                 Pallet::<T>::pending_node_removal_marker_clear_weight()
             )
         )]
@@ -6078,7 +6100,9 @@ pub mod pallet {
 
         #[pallet::call_index(10)]
         #[pallet::weight(
-            T::WeightInfo::owner_deactivate_subnet().saturating_add(
+            T::WeightInfo::owner_deactivate_subnet()
+                .saturating_add(Pallet::<T>::subnet_residual_metadata_cleanup_weight(*subnet_id))
+                .saturating_add(
                 T::WeightInfo::do_remove_registered_subnet_initial_validator_cleanup()
             ).saturating_add(Pallet::<T>::pending_node_removal_marker_clear_weight())
         )]
@@ -6477,8 +6501,8 @@ pub mod pallet {
                 return Ok(());
             }
 
-            // Ownership survives removal for stake withdrawals; hotkey entries must stay
-            // bounded by the admitted/queued node counts used to reserve subnet cleanup weight.
+            // Ownership survives removal for stake withdrawals. Hotkey updates require live
+            // membership; residual overrides are frozen and accounted for by the cleanup queue.
             ensure!(
                 SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id)
                     || QueuedSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id),
@@ -6830,7 +6854,7 @@ pub mod pallet {
         /// * `delegate_stake_shares_to_swap` - Shares of `from_subnet_id` to swap to `to_subnet_id`
         /// * `min_balance_out` - Minimum source principal the redeemed shares must produce.
         /// * `min_shares_out` - Minimum destination shares that must be minted.
-        /// * `execute_before_block` - Last block at which the queued swap may execute.
+        /// * `execute_before_running_block` - Inclusive deadline on the shared running-block clock.
         ///
         /// # Requirements
         ///
@@ -6845,7 +6869,7 @@ pub mod pallet {
             delegate_stake_shares_to_swap: u128,
             min_balance_out: u128,
             min_shares_out: u128,
-            execute_before_block: u32,
+            execute_before_running_block: u32,
         ) -> DispatchResult {
             Self::is_paused()?;
 
@@ -6863,7 +6887,7 @@ pub mod pallet {
                 delegate_stake_shares_to_swap,
                 min_balance_out,
                 min_shares_out,
-                execute_before_block,
+                execute_before_running_block,
             )
         }
 
@@ -6995,7 +7019,7 @@ pub mod pallet {
             stake_to_be_removed: u128,
             min_balance_out: u128,
             min_shares_out: u128,
-            execute_before_block: u32,
+            execute_before_running_block: u32,
         ) -> DispatchResult {
             Self::is_paused()?;
 
@@ -7006,7 +7030,7 @@ pub mod pallet {
                 stake_to_be_removed,
                 min_balance_out,
                 min_shares_out,
-                execute_before_block,
+                execute_before_running_block,
             )
         }
 
@@ -7023,7 +7047,7 @@ pub mod pallet {
             node_delegate_stake_shares_to_swap: u128,
             min_balance_out: u128,
             min_shares_out: u128,
-            execute_before_block: u32,
+            execute_before_running_block: u32,
         ) -> DispatchResult {
             Self::is_paused()?;
 
@@ -7039,7 +7063,7 @@ pub mod pallet {
                 node_delegate_stake_shares_to_swap,
                 min_balance_out,
                 min_shares_out,
-                execute_before_block,
+                execute_before_running_block,
             )
         }
 
@@ -7052,7 +7076,7 @@ pub mod pallet {
             subnet_delegate_stake_shares_to_swap: u128,
             min_balance_out: u128,
             min_shares_out: u128,
-            execute_before_block: u32,
+            execute_before_running_block: u32,
         ) -> DispatchResult {
             Self::is_paused()?;
 
@@ -7068,7 +7092,7 @@ pub mod pallet {
                 subnet_delegate_stake_shares_to_swap,
                 min_balance_out,
                 min_shares_out,
-                execute_before_block,
+                execute_before_running_block,
             )
         }
 
@@ -7393,7 +7417,9 @@ pub mod pallet {
 
         #[pallet::call_index(81)]
         #[pallet::weight(
-            T::WeightInfo::collective_remove_subnet().saturating_add(
+            T::WeightInfo::collective_remove_subnet()
+                .saturating_add(Pallet::<T>::subnet_residual_metadata_cleanup_weight(*subnet_id))
+                .saturating_add(
                 T::WeightInfo::do_remove_registered_subnet_initial_validator_cleanup()
             ).saturating_add(Pallet::<T>::pending_node_removal_marker_clear_weight())
         )]
@@ -8640,9 +8666,11 @@ pub mod pallet {
             subnet_id: u32,
             reason: SubnetRemovalReason,
         ) -> SubnetRemovalOutcome {
-            // These scalar counters bound every subnet-keyed prefix cleared by cleanup without
-            // decoding any of those collections before weight is reserved.
-            let selector_weight = T::DbWeight::get().reads(3);
+            // Scalar counters bound live-node prefixes. Reserve the bounded residual queue scan
+            // separately before selecting the additional metadata cleanup weight.
+            let selector_weight = T::DbWeight::get()
+                .reads(3)
+                .saturating_add(Self::node_metadata_cleanup_queue_weight());
             if !weight_meter.can_consume(selector_weight) {
                 return SubnetRemovalOutcome::Deferred;
             }
@@ -8658,6 +8686,7 @@ pub mod pallet {
                 .clamp(1, T::MaxRegisteredNodesUpperBound::get());
             let o = overwatch_nodes.clamp(1, T::MaxOverwatchNodesUpperBound::get());
             let step_weight = T::WeightInfo::do_remove_subnet(a, r, o)
+                .saturating_add(Self::subnet_residual_metadata_cleanup_weight(subnet_id))
                 .saturating_add(
                     T::WeightInfo::do_remove_registered_subnet_initial_validator_cleanup(),
                 )
@@ -9094,6 +9123,9 @@ pub mod pallet {
         /// self-removes a node. `SubnetNodeValidatorId` and node stake remain so owners can
         /// withdraw stake after subnet removal.
         pub fn clean_subnet_nodes(subnet_id: u32) -> Weight {
+            // Residual records are not included in live-node counts. Drain and account for
+            // them separately before the ordinary bounded prefix clears.
+            let residual_weight = Self::cleanup_subnet_residual_metadata(subnet_id);
             let mut weight_acc = WeightAccumulator::<T>::new();
 
             let removed_subnet_nodes_data =
@@ -9181,7 +9213,7 @@ pub mod pallet {
             TotalElectableNodes::<T>::mutate(|n| *n = n.saturating_sub(electable_nodes));
             weight_acc.add_mutate();
 
-            let final_weight = weight_acc.finalize();
+            let final_weight = weight_acc.finalize().saturating_add(residual_weight);
             final_weight
         }
 
@@ -9454,7 +9486,13 @@ pub mod pallet {
             };
 
             // Precompute every fallible counter/epoch transition before touching currency.
-            let classification_start_epoch = subnet_epoch
+            let classification_epoch = if subnet.state == SubnetState::Registered {
+                // Bootstrap admission immediately replaces this with the ordinary subnet epoch.
+                subnet_epoch
+            } else {
+                Self::queue_epoch_at(subnet_id, Self::get_current_block_as_u32())
+            };
+            let classification_start_epoch = classification_epoch
                 .checked_add(1)
                 .ok_or(sp_runtime::ArithmeticError::Overflow)?;
             let next_total_subnet_nodes = TotalSubnetNodes::<T>::get(subnet_id)
@@ -10205,6 +10243,7 @@ pub mod pallet {
             let mut weight_meter = WeightMeter::with_limit(remaining_weight);
             Self::cleanup_removed_subnet_consensus_history(&mut weight_meter);
             Self::retry_pending_consensus_operations(block_number, &mut weight_meter);
+            Self::cleanup_deferred_node_metadata(&mut weight_meter);
             weight_meter.consumed()
         }
     }
@@ -10224,6 +10263,9 @@ pub mod pallet {
             max_attempts: u32,
             weight_meter: &mut WeightMeter,
         ) {
+            // The caller reserves these two reads in execute_ready_swap_selectors. Convert once
+            // per batch; all item readiness and expiry checks use the same running-block value.
+            let running_block = Self::running_block_at(block_number);
             // Decode/take the queue once and inspect only original queue positions. Rotated IDs
             // are collected separately so no blocked item can be retried during this invocation.
             let queue = Self::take_swap_queue(weight_meter);
@@ -10233,7 +10275,7 @@ pub mod pallet {
 
             while scanned < attempt_limit {
                 let queue_id = queue[scanned];
-                match Self::execute_ready_swap_call_item(queue_id, block_number, weight_meter) {
+                match Self::execute_ready_swap_call_item(queue_id, running_block, weight_meter) {
                     SwapExecutionOutcome::Completed => {
                         // A terminal item (or a stale order ID) is omitted from the rebuild.
                         scanned += 1;
@@ -10285,7 +10327,7 @@ pub mod pallet {
 
         pub(crate) fn execute_ready_swap_call_item(
             queue_id: u32,
-            block_number: u32,
+            running_block: u32,
             weight_meter: &mut WeightMeter,
         ) -> SwapExecutionOutcome {
             weight_meter.consume(T::DbWeight::get().reads(1));
@@ -10294,7 +10336,7 @@ pub mod pallet {
                 return SwapExecutionOutcome::Completed;
             };
 
-            let blocks_passed = block_number.saturating_sub(item.queued_at_block);
+            let blocks_passed = running_block.saturating_sub(item.queued_at_running_block);
             if blocks_passed < item.execute_after_blocks {
                 return SwapExecutionOutcome::NotReady;
             }
@@ -10308,7 +10350,7 @@ pub mod pallet {
             };
 
             let completed =
-                match Self::execute_swap_call_internal(&item.call, block_number, weight_meter) {
+                match Self::execute_swap_call_internal(&item.call, running_block, weight_meter) {
                     Ok(completed) => completed,
                     Err(outcome) => return outcome,
                 };
@@ -10341,10 +10383,10 @@ pub mod pallet {
 
         pub(crate) fn execute_swap_call_internal(
             queued_call: &QueuedSwapCall<T::AccountId>,
-            block_number: u32,
+            running_block: u32,
             weight_meter: &mut WeightMeter,
         ) -> Result<CompletedSwapOutcome, SwapExecutionOutcome> {
-            if block_number > queued_call.get_execute_before_block() {
+            if running_block > queued_call.get_execute_before_running_block() {
                 return Self::refund_queued_swap(
                     queued_call.get_queue_account(),
                     queued_call.get_queue_balance(),
@@ -10359,7 +10401,7 @@ pub mod pallet {
                     to_subnet_id,
                     balance,
                     min_shares_out,
-                    execute_before_block: _,
+                    execute_before_running_block: _,
                 } => {
                     if !SubnetsData::<T>::contains_key(to_subnet_id) {
                         return Self::refund_queued_swap(
@@ -10422,7 +10464,7 @@ pub mod pallet {
                     to_validator_id,
                     balance,
                     min_shares_out,
-                    execute_before_block: _,
+                    execute_before_running_block: _,
                 } => {
                     if !ValidatorsData::<T>::contains_key(to_validator_id) {
                         return Self::refund_queued_swap(

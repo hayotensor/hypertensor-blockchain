@@ -1439,6 +1439,11 @@ fn test_remove_queued_subnet_node() {
             0
         );
 
+        assert_eq!(
+            PeerIdSubnetNodeId::<Test>::get(subnet_id, &peer_id),
+            subnet_node_id
+        );
+        Network::cleanup_deferred_node_metadata(&mut WeightMeter::new());
         let peer_account = PeerIdSubnetNodeId::<Test>::try_get(subnet_id, peer_id.clone());
         assert_eq!(peer_account, Err(()));
 
@@ -1577,6 +1582,7 @@ fn test_remove_queued_subnet_node() {
             Err(())
         );
 
+        Network::cleanup_deferred_node_metadata(&mut WeightMeter::new());
         let peer_account = PeerIdSubnetNodeId::<Test>::try_get(subnet_id, peer_id.clone());
         assert_eq!(peer_account, Err(()));
 
@@ -1719,6 +1725,7 @@ fn test_remove_queued_subnet_node() {
             Err(())
         );
 
+        Network::cleanup_deferred_node_metadata(&mut WeightMeter::new());
         let peer_account = PeerIdSubnetNodeId::<Test>::try_get(subnet_id, peer_id.clone());
         assert_eq!(peer_account, Err(()));
 
@@ -1864,6 +1871,7 @@ fn test_remove_queued_subnet_node() {
             Err(())
         );
 
+        Network::cleanup_deferred_node_metadata(&mut WeightMeter::new());
         let peer_account = PeerIdSubnetNodeId::<Test>::try_get(subnet_id, peer_id.clone());
         assert_eq!(peer_account, Err(()));
 
@@ -4248,11 +4256,12 @@ fn test_remove_node_from_election_slot() {
             "Slot list should be 1 element shorter"
         );
 
-        // 3. NodeSlotIndex for removed node should be gone
+        // 3. The removed node's own index remains until deferred residual cleanup.
         let removed_node_index = NodeSlotIndex::<Test>::get(subnet_id, node_to_remove);
         assert_eq!(
-            removed_node_index, None,
-            "NodeSlotIndex should be None for removed node {}",
+            removed_node_index,
+            Some(remove_position as u32),
+            "NodeSlotIndex should remain for removed node {} until cleanup",
             node_to_remove
         );
 

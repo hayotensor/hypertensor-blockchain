@@ -5,6 +5,7 @@ pub mod keys;
 pub mod math;
 pub mod misc;
 pub mod multiaddr;
+pub mod node_cleanup;
 pub mod overwatch_node;
 pub mod owner;
 pub mod randomness;

@@ -61,13 +61,13 @@ fn insert_to_subnet_swap_call_queue(account_id: AccountIdOf<Test>, subnet_id: u3
         to_subnet_id: subnet_id,
         balance: balance,
         min_shares_out: 1,
-        execute_before_block: u32::MAX,
+        execute_before_running_block: u32::MAX,
     };
 
     let queued_item = QueuedSwapItem {
         id,
         call,
-        queued_at_block: Network::get_current_block_as_u32(),
+        queued_at_running_block: Network::running_block_at(Network::get_current_block_as_u32()),
         execute_after_blocks: EpochLength::get(),
     };
 
@@ -101,13 +101,13 @@ fn insert_to_validator_swap_call_queue(
         to_validator_id: validator_id,
         balance: balance,
         min_shares_out: 1,
-        execute_before_block: u32::MAX,
+        execute_before_running_block: u32::MAX,
     };
 
     let queued_item = QueuedSwapItem {
         id,
         call,
-        queued_at_block: Network::get_current_block_as_u32(),
+        queued_at_running_block: Network::running_block_at(Network::get_current_block_as_u32()),
         execute_after_blocks: EpochLength::get(),
     };
 
@@ -192,6 +192,392 @@ fn setup_all_swap_sources() -> (u32, u32, u32, [AccountIdOf<Test>; 4], [u128; 4]
 }
 
 #[test]
+fn swap_clock_preserves_all_four_directions_before_and_after_readiness() {
+    for pause_after_ready in [false, true] {
+        new_test_ext().execute_with(|| {
+            DelegateStakeCooldownEpochs::<Test>::put(3);
+            NodeDelegateStakeCooldownEpochs::<Test>::put(3);
+            let (subnet, from_validator, to_validator, stakers, shares) = setup_all_swap_sources();
+            let length = EpochLength::get();
+
+            // New swaps must use the same clock even when earlier pauses already occurred.
+            assert_ok!(Network::do_pause());
+            System::set_block_number(System::block_number() + 13);
+            assert_ok!(Network::do_unpause());
+            let queued_at = Network::running_block_at(System::block_number());
+            let deadline = queued_at + 3 * length + 20;
+            for result in [
+                Network::swap_from_subnet_to_subnet(
+                    RuntimeOrigin::signed(stakers[0].clone()),
+                    subnet,
+                    subnet,
+                    shares[0],
+                    1,
+                    1,
+                    deadline,
+                ),
+                Network::swap_from_subnet_to_validator(
+                    RuntimeOrigin::signed(stakers[1].clone()),
+                    subnet,
+                    to_validator,
+                    shares[1],
+                    1,
+                    1,
+                    deadline,
+                ),
+                Network::swap_from_validator_to_subnet(
+                    RuntimeOrigin::signed(stakers[2].clone()),
+                    from_validator,
+                    subnet,
+                    shares[2],
+                    1,
+                    1,
+                    deadline,
+                ),
+                Network::swap_from_validator_to_validator(
+                    RuntimeOrigin::signed(stakers[3].clone()),
+                    from_validator,
+                    to_validator,
+                    shares[3],
+                    1,
+                    1,
+                    deadline,
+                ),
+            ] {
+                assert_ok!(result);
+            }
+            let order = SwapQueueOrder::<Test>::get();
+            let items: Vec<_> = order
+                .iter()
+                .map(|id| SwapCallQueue::<Test>::get(id).unwrap())
+                .collect();
+            assert!(items
+                .iter()
+                .all(|item| item.queued_at_running_block == queued_at
+                    && item.execute_after_blocks == 3 * length));
+            let principal = TotalQueuedSwapPrincipal::<Test>::get();
+            let pause_age = if pause_after_ready {
+                3 * length + 5
+            } else {
+                length
+            };
+            System::set_block_number(System::block_number() + pause_age);
+
+            for duration in [0, 1, length - 1, 20 * length] {
+                let before = Network::running_block_at(System::block_number());
+                assert_ok!(Network::do_pause());
+                System::set_block_number(System::block_number() + duration);
+                assert_ok!(Network::do_pause()); // Must retain the original pause start.
+                Network::on_initialize(System::block_number());
+                assert_eq!(Network::running_block_at(System::block_number()), before);
+                assert_ok!(Network::do_unpause());
+                assert_ok!(Network::do_unpause()); // Must not count the same pause twice.
+                assert_eq!(Network::running_block_at(System::block_number()), before);
+                assert_eq!(SwapQueueOrder::<Test>::get(), order);
+                assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), principal);
+                for item in &items {
+                    assert_eq!(SwapCallQueue::<Test>::get(item.id), Some(item.clone()));
+                }
+            }
+
+            let paused = crate::TotalNetworkPausedBlocks::<Test>::get();
+            assert_eq!(paused, 13 + 21 * length);
+            assert!(System::block_number() > deadline);
+            if !pause_after_ready {
+                System::set_block_number(queued_at + 3 * length - 1 + paused);
+                Network::on_initialize(System::block_number());
+                assert_eq!(SwapQueueOrder::<Test>::get(), order);
+                assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), principal);
+            }
+            let execute_at = queued_at
+                + if pause_after_ready {
+                    pause_age + 1
+                } else {
+                    3 * length
+                };
+            // Real hook scheduling may admit only a prefix per block.
+            for offset in 0..4 {
+                System::set_block_number(execute_at + paused + offset);
+                Network::on_initialize(System::block_number());
+                assert_queued_swap_principal_invariant();
+            }
+            assert!(SwapQueueOrder::<Test>::get().is_empty());
+            assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), 0);
+            for (index, staker) in stakers.iter().enumerate() {
+                assert_eq!(QueuedSwapRefundBalance::<Test>::get(staker), 0);
+                let destination_shares = if index % 2 == 0 {
+                    AccountSubnetDelegateStakeShares::<Test>::get(staker, subnet)
+                } else {
+                    AccountValidatorDelegateStakeShares::<Test>::get(staker, to_validator)
+                };
+                assert!(destination_shares > 0);
+            }
+            for item in items {
+                assert!(network_events().iter().any(|event| matches!(event,
+                    Event::SwapCallCredited { id, balance, .. }
+                    if *id == item.id && *balance == item.call.get_queue_balance()
+                )));
+            }
+        });
+    }
+}
+
+#[test]
+fn swap_clock_deadline_is_inclusive_and_pause_does_not_revive_expired_swaps() {
+    for validator_destination in [false, true] {
+        for (expired_before_pause, after_deadline) in [(false, 0), (false, 1), (true, 0)] {
+            new_test_ext().execute_with(|| {
+                let (subnet, _, validator, stakers, _) = setup_all_swap_sources();
+                let staker = &stakers[0];
+                let balance = 1_000_000_000_000_000_000_000;
+                DelegateStakeCooldownEpochs::<Test>::put(1);
+                let deadline =
+                    Network::running_block_at(System::block_number()) + EpochLength::get();
+                let id = NextSwapQueueId::<Test>::get();
+                let call = if validator_destination {
+                    QueuedSwapCall::SwapToValidatorDelegateStake {
+                        account_id: staker.clone(),
+                        to_validator_id: validator,
+                        balance,
+                        min_shares_out: 1,
+                        execute_before_running_block: deadline,
+                    }
+                } else {
+                    QueuedSwapCall::SwapToSubnetDelegateStake {
+                        account_id: staker.clone(),
+                        to_subnet_id: subnet,
+                        balance,
+                        min_shares_out: 1,
+                        execute_before_running_block: deadline,
+                    }
+                };
+                assert_ok!(Network::queue_swap(
+                    staker.clone(),
+                    QueuedSwapSource::SubnetDelegate,
+                    call
+                ));
+                if expired_before_pause {
+                    System::set_block_number(deadline + 1);
+                }
+                assert_ok!(Network::do_pause());
+                System::set_block_number(System::block_number() + 20 * EpochLength::get());
+                assert_ok!(Network::do_unpause());
+                let execute_at = deadline + if expired_before_pause { 2 } else { after_deadline };
+                System::set_block_number(
+                    execute_at + crate::TotalNetworkPausedBlocks::<Test>::get(),
+                );
+                Network::on_initialize(System::block_number());
+                assert!(SwapCallQueue::<Test>::get(id).is_none());
+                assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), 0);
+                if expired_before_pause || after_deadline != 0 {
+                    assert_eq!(QueuedSwapRefundBalance::<Test>::get(staker), balance);
+                    assert!(network_events().iter().any(|event| matches!(event,
+                        Event::SwapCallRefunded { id: refunded_id, reason: SwapRefundReason::Expired, .. } if *refunded_id == id
+                    )));
+                    let wallet = Balances::free_balance(staker);
+                    assert_ok!(Network::claim_unbondings(RuntimeOrigin::signed(
+                        staker.clone()
+                    )));
+                    assert_eq!(Balances::free_balance(staker), wallet + balance);
+                } else {
+                    assert_eq!(QueuedSwapRefundBalance::<Test>::get(staker), 0);
+                    assert!(network_events().iter().any(|event| matches!(event,
+                        Event::SwapCallCredited { id: credited_id, .. } if *credited_id == id
+                    )));
+                }
+                assert_ok!(Network::do_pause());
+                System::set_block_number(System::block_number() + EpochLength::get());
+                assert_ok!(Network::do_unpause());
+                System::set_block_number(System::block_number() + 1);
+                Network::on_initialize(System::block_number());
+                assert!(SwapCallQueue::<Test>::get(id).is_none());
+                assert_eq!(QueuedSwapRefundBalance::<Test>::get(staker), 0);
+            });
+        }
+    }
+}
+
+#[test]
+fn swap_clock_updates_while_paused_preserve_principal_and_cooldown() {
+    for pause_after_ready in [false, true] {
+        new_test_ext().execute_with(|| {
+            let (subnet, _, validator, stakers, _) = setup_all_swap_sources();
+            let staker = &stakers[0];
+            DelegateStakeCooldownEpochs::<Test>::put(1);
+            assert_ok!(Network::do_pause());
+            System::set_block_number(System::block_number() + 17);
+            assert_ok!(Network::do_unpause());
+            let start = Network::running_block_at(System::block_number());
+            let id = NextSwapQueueId::<Test>::get();
+            assert_ok!(Network::queue_swap(
+                staker.clone(),
+                QueuedSwapSource::SubnetDelegate,
+                QueuedSwapCall::SwapToSubnetDelegateStake {
+                    account_id: staker.clone(),
+                    to_subnet_id: subnet,
+                    balance: 1_000_000_000_000_000_000_000,
+                    min_shares_out: 1,
+                    execute_before_running_block: u32::MAX
+                }
+            ));
+            let original = SwapCallQueue::<Test>::get(id).unwrap();
+            let earliest = start + original.execute_after_blocks;
+            let age = if pause_after_ready {
+                original.execute_after_blocks + 5
+            } else {
+                1
+            };
+            System::set_block_number(System::block_number() + age);
+            assert_ok!(Network::do_pause());
+            System::set_block_number(System::block_number() + 20 * EpochLength::get());
+            let running_now = Network::running_block_at(System::block_number());
+            let new_call = |deadline| QueuedSwapCall::SwapToValidatorDelegateStake {
+                account_id: staker.clone(),
+                to_validator_id: validator,
+                balance: u128::MAX,
+                min_shares_out: 1,
+                execute_before_running_block: deadline,
+            };
+            let invalid_deadline = if pause_after_ready {
+                running_now
+            } else {
+                earliest - 1
+            };
+            frame_support::assert_noop!(
+                Network::update_swap_queue(
+                    RuntimeOrigin::signed(staker.clone()),
+                    id,
+                    new_call(invalid_deadline)
+                ),
+                Error::<Test>::InvalidSwapDeadline
+            );
+            let deadline = earliest.max(running_now + 1);
+            assert_ok!(Network::update_swap_queue(
+                RuntimeOrigin::signed(staker.clone()),
+                id,
+                new_call(deadline)
+            ));
+            let updated = SwapCallQueue::<Test>::get(id).unwrap();
+            assert_eq!(
+                updated.queued_at_running_block,
+                original.queued_at_running_block
+            );
+            assert_eq!(updated.execute_after_blocks, original.execute_after_blocks);
+            assert_eq!(
+                updated.call.get_queue_balance(),
+                original.call.get_queue_balance()
+            );
+            assert_eq!(updated.call.get_execute_before_running_block(), deadline);
+            Network::on_initialize(System::block_number());
+            assert_eq!(SwapCallQueue::<Test>::get(id), Some(updated));
+            assert_ok!(Network::do_unpause());
+            if !pause_after_ready {
+                frame_support::assert_noop!(
+                    Network::claim_unbondings(RuntimeOrigin::signed(staker.clone())),
+                    Error::<Test>::NoStakeUnbondingsOrCooldownNotMet
+                );
+                System::set_block_number(
+                    earliest - 1 + crate::TotalNetworkPausedBlocks::<Test>::get(),
+                );
+                Network::on_initialize(System::block_number());
+                assert!(SwapCallQueue::<Test>::contains_key(id));
+            }
+            System::set_block_number(deadline + crate::TotalNetworkPausedBlocks::<Test>::get());
+            Network::on_initialize(System::block_number());
+            assert!(!SwapCallQueue::<Test>::contains_key(id));
+            assert!(AccountValidatorDelegateStakeShares::<Test>::get(staker, validator) > 0);
+            assert_eq!(QueuedSwapRefundBalance::<Test>::get(staker), 0);
+            assert_queued_swap_principal_invariant();
+        });
+    }
+}
+
+#[test]
+fn swap_clock_deadline_arithmetic_uses_running_time_and_rejects_overflow() {
+    let length = EpochLength::get();
+    for paused_blocks in [0, 2 * length] {
+        new_test_ext().execute_with(|| {
+            let (subnet, _, validator, stakers, _) = setup_all_swap_sources();
+            let staker = &stakers[0];
+            DelegateStakeCooldownEpochs::<Test>::put(1);
+            crate::TotalNetworkPausedBlocks::<Test>::put(paused_blocks);
+            System::set_block_number(u32::MAX - length);
+            let start = Network::running_block_at(System::block_number());
+            let new_call = |deadline| QueuedSwapCall::SwapToSubnetDelegateStake {
+                account_id: staker.clone(),
+                to_subnet_id: subnet,
+                balance: 1_000_000_000_000_000_000_000,
+                min_shares_out: 1,
+                execute_before_running_block: deadline,
+            };
+            frame_support::assert_noop!(
+                Network::queue_swap(
+                    staker.clone(),
+                    QueuedSwapSource::SubnetDelegate,
+                    new_call(start + length - 1)
+                ),
+                Error::<Test>::InvalidSwapDeadline
+            );
+            let id = NextSwapQueueId::<Test>::get();
+            assert_ok!(Network::queue_swap(
+                staker.clone(),
+                QueuedSwapSource::SubnetDelegate,
+                new_call(u32::MAX)
+            ));
+            let original = SwapCallQueue::<Test>::get(id).unwrap();
+            assert_eq!(original.queued_at_running_block, start);
+
+            System::set_block_number(u32::MAX);
+            let update = QueuedSwapCall::SwapToValidatorDelegateStake {
+                account_id: staker.clone(),
+                to_validator_id: validator,
+                balance: u128::MAX,
+                min_shares_out: 1,
+                execute_before_running_block: u32::MAX,
+            };
+            if paused_blocks == 0 {
+                frame_support::assert_noop!(
+                    Network::update_swap_queue(RuntimeOrigin::signed(staker.clone()), id, update),
+                    Error::<Test>::InvalidSwapDeadline
+                );
+                assert_eq!(SwapCallQueue::<Test>::get(id), Some(original));
+                frame_support::assert_noop!(
+                    Network::queue_swap(
+                        staker.clone(),
+                        QueuedSwapSource::SubnetDelegate,
+                        new_call(u32::MAX)
+                    ),
+                    Error::<Test>::InvalidSwapDeadline
+                );
+            } else {
+                // A maximum chain block is still safe when the running clock has room.
+                assert_ok!(Network::update_swap_queue(
+                    RuntimeOrigin::signed(staker.clone()),
+                    id,
+                    update
+                ));
+                let updated = SwapCallQueue::<Test>::get(id).unwrap();
+                assert_eq!(
+                    updated.queued_at_running_block,
+                    original.queued_at_running_block
+                );
+                assert_eq!(updated.execute_after_blocks, original.execute_after_blocks);
+                assert_eq!(
+                    updated.call.get_queue_balance(),
+                    original.call.get_queue_balance()
+                );
+                assert_ok!(Network::queue_swap(
+                    staker.clone(),
+                    QueuedSwapSource::SubnetDelegate,
+                    new_call(u32::MAX)
+                ));
+            }
+            assert_queued_swap_principal_invariant();
+        });
+    }
+}
+
+#[test]
 fn test_update_swap_queue_requires_existing_queue_owner() {
     new_test_ext().execute_with(|| {
         let deposit_amount: u128 = 10000000000000000000000;
@@ -217,7 +603,7 @@ fn test_update_swap_queue_requires_existing_queue_owner() {
                     to_subnet_id: subnet_id,
                     balance: u128::MAX,
                     min_shares_out: 1,
-                    execute_before_block: u32::MAX,
+                    execute_before_running_block: u32::MAX,
                 },
             ),
             Error::<Test>::NotKeyOwner
@@ -240,7 +626,7 @@ fn test_update_swap_queue_requires_existing_queue_owner() {
                     to_validator_id: 1,
                     balance: u128::MAX,
                     min_shares_out: 1,
-                    execute_before_block: u32::MAX,
+                    execute_before_running_block: u32::MAX,
                 },
             ),
             Error::<Test>::NotKeyOwner
@@ -272,7 +658,7 @@ fn test_swap_queue_order_accepts_configured_capacity_and_rejects_overflow() {
             to_subnet_id: 1,
             balance: 1,
             min_shares_out: 1,
-            execute_before_block: u32::MAX,
+            execute_before_running_block: u32::MAX,
         };
 
         assert_err!(
@@ -308,7 +694,7 @@ fn test_queue_swap_enforces_minimum_balance() {
                     to_subnet_id: u32::MAX,
                     balance,
                     min_shares_out: 1,
-                    execute_before_block: u32::MAX,
+                    execute_before_running_block: u32::MAX,
                 },
             )
         };
@@ -333,7 +719,7 @@ fn test_queue_swap_rejects_zero_principal_without_allocating_an_id() {
     new_test_ext().execute_with(|| {
         let staker = account(12);
         let next_id = NextSwapQueueId::<Test>::get();
-        let execute_before_block = System::block_number()
+        let execute_before_running_block = System::block_number()
             .checked_add(EpochLength::get())
             .unwrap();
 
@@ -346,7 +732,7 @@ fn test_queue_swap_rejects_zero_principal_without_allocating_an_id() {
                     to_subnet_id: 1,
                     balance: 0,
                     min_shares_out: 1,
-                    execute_before_block,
+                    execute_before_running_block,
                 },
             ),
             Error::<Test>::ZeroSwapBalance
@@ -434,7 +820,7 @@ fn test_expired_swap_is_terminally_refunded() {
         const QUEUED_BALANCE: u128 = 10_000;
         let staker = account(13);
         let queue_id = NextSwapQueueId::<Test>::get();
-        let execute_before_block = System::block_number()
+        let execute_before_running_block = System::block_number()
             .checked_add(EpochLength::get())
             .unwrap();
 
@@ -446,11 +832,11 @@ fn test_expired_swap_is_terminally_refunded() {
                 to_subnet_id: u32::MAX,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block,
+                execute_before_running_block,
             },
         ));
 
-        let execution_block = execute_before_block.checked_add(1).unwrap();
+        let execution_block = execute_before_running_block.checked_add(1).unwrap();
         System::set_block_number(execution_block);
         Network::execute_ready_swap_calls_with_limit(execution_block, 1, &mut WeightMeter::new());
 
@@ -502,7 +888,7 @@ fn test_destination_exchange_rate_slippage_refunds_without_minting_shares() {
                 to_subnet_id: subnet_id,
                 balance: QUEUED_BALANCE,
                 min_shares_out: MIN_SHARES_OUT,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
 
@@ -587,7 +973,7 @@ fn test_below_minimum_subnet_swap_is_refunded_without_destination_credit() {
                 to_subnet_id: subnet_id,
                 balance: queued_balance,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
 
@@ -658,7 +1044,7 @@ fn test_below_minimum_validator_swap_is_refunded_without_destination_credit() {
                 to_validator_id: VALIDATOR_ID,
                 balance: queued_balance,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
 
@@ -829,7 +1215,7 @@ fn test_update_swap_queue_delegate_stake() {
             to_subnet_id: from_subnet_id,
             balance: u128::MAX,
             min_shares_out: 1,
-            execute_before_block: u32::MAX,
+            execute_before_running_block: u32::MAX,
         };
 
         assert_ok!(Network::update_swap_queue(
@@ -887,7 +1273,7 @@ fn test_update_swap_queue_delegate_stake() {
             to_validator_id: 1,
             balance: u128::MAX,
             min_shares_out: 1,
-            execute_before_block: u32::MAX,
+            execute_before_running_block: u32::MAX,
         };
 
         assert_ok!(Network::update_swap_queue(
@@ -1084,7 +1470,7 @@ fn test_update_swap_queue_node_delegate_stake() {
             to_subnet_id: from_subnet_id,
             balance: u128::MAX,
             min_shares_out: 1,
-            execute_before_block: u32::MAX,
+            execute_before_running_block: u32::MAX,
         };
 
         assert_ok!(Network::update_swap_queue(
@@ -1142,7 +1528,7 @@ fn test_update_swap_queue_node_delegate_stake() {
             to_validator_id: 1,
             balance: u128::MAX,
             min_shares_out: 1,
-            execute_before_block: u32::MAX,
+            execute_before_running_block: u32::MAX,
         };
 
         assert_ok!(Network::update_swap_queue(
@@ -1304,12 +1690,12 @@ fn subnet_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         let (subnet_id, _, to_validator_id, stakers, shares) = setup_all_swap_sources();
         let credited_staker = &stakers[0];
         let refunded_staker = &stakers[1];
-        let queued_at_block = System::block_number();
+        let queued_at_running_block = System::block_number();
         let source_cooldown_blocks = COOLDOWN_EPOCHS.checked_mul(EpochLength::get()).unwrap();
 
         // A deadline that covered the old one-epoch delay must not debit source principal when
         // the configured source cooldown is longer.
-        let too_early_deadline = queued_at_block.checked_add(EpochLength::get()).unwrap();
+        let too_early_deadline = queued_at_running_block.checked_add(EpochLength::get()).unwrap();
         assert_err!(
             Network::swap_from_subnet_to_subnet(
                 RuntimeOrigin::signed(credited_staker.clone()),
@@ -1353,8 +1739,8 @@ fn subnet_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         let credited_item = SwapCallQueue::<Test>::get(credited_id).unwrap();
         let refunded_item = SwapCallQueue::<Test>::get(refunded_id).unwrap();
         let refunded_principal = refunded_item.call.get_queue_balance();
-        assert_eq!(credited_item.queued_at_block, queued_at_block);
-        assert_eq!(refunded_item.queued_at_block, queued_at_block);
+        assert_eq!(credited_item.queued_at_running_block, queued_at_running_block);
+        assert_eq!(refunded_item.queued_at_running_block, queued_at_running_block);
         assert_eq!(credited_item.execute_after_blocks, source_cooldown_blocks);
         assert_eq!(refunded_item.execute_after_blocks, source_cooldown_blocks);
         assert_queued_swap_principal_invariant();
@@ -1363,7 +1749,7 @@ fn subnet_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         DelegateStakeCooldownEpochs::<Test>::put(1);
         let wallet_before_claim = Balances::free_balance(refunded_staker);
         let issuance_before_claim = Balances::total_issuance();
-        let one_epoch_block = queued_at_block.checked_add(EpochLength::get()).unwrap();
+        let one_epoch_block = queued_at_running_block.checked_add(EpochLength::get()).unwrap();
         System::set_block_number(one_epoch_block);
         Network::execute_ready_swap_calls_with_limit(one_epoch_block, 2, &mut WeightMeter::new());
 
@@ -1387,7 +1773,7 @@ fn subnet_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         assert_eq!(Balances::free_balance(refunded_staker), wallet_before_claim);
         assert_eq!(Balances::total_issuance(), issuance_before_claim);
 
-        let unlock_block = queued_at_block.checked_add(source_cooldown_blocks).unwrap();
+        let unlock_block = queued_at_running_block.checked_add(source_cooldown_blocks).unwrap();
         let block_before_unlock = unlock_block.checked_sub(1).unwrap();
         System::set_block_number(block_before_unlock);
         Network::execute_ready_swap_calls_with_limit(
@@ -1456,10 +1842,10 @@ fn validator_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
             setup_all_swap_sources();
         let credited_staker = &stakers[2];
         let refunded_staker = &stakers[3];
-        let queued_at_block = System::block_number();
+        let queued_at_running_block = System::block_number();
         let source_cooldown_blocks = COOLDOWN_EPOCHS.checked_mul(EpochLength::get()).unwrap();
 
-        let too_early_deadline = queued_at_block.checked_add(EpochLength::get()).unwrap();
+        let too_early_deadline = queued_at_running_block.checked_add(EpochLength::get()).unwrap();
         assert_err!(
             Network::swap_from_validator_to_subnet(
                 RuntimeOrigin::signed(credited_staker.clone()),
@@ -1503,8 +1889,8 @@ fn validator_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         let credited_item = SwapCallQueue::<Test>::get(credited_id).unwrap();
         let refunded_item = SwapCallQueue::<Test>::get(refunded_id).unwrap();
         let refunded_principal = refunded_item.call.get_queue_balance();
-        assert_eq!(credited_item.queued_at_block, queued_at_block);
-        assert_eq!(refunded_item.queued_at_block, queued_at_block);
+        assert_eq!(credited_item.queued_at_running_block, queued_at_running_block);
+        assert_eq!(refunded_item.queued_at_running_block, queued_at_running_block);
         assert_eq!(credited_item.execute_after_blocks, source_cooldown_blocks);
         assert_eq!(refunded_item.execute_after_blocks, source_cooldown_blocks);
         assert_queued_swap_principal_invariant();
@@ -1512,7 +1898,7 @@ fn validator_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         NodeDelegateStakeCooldownEpochs::<Test>::put(1);
         let wallet_before_claim = Balances::free_balance(refunded_staker);
         let issuance_before_claim = Balances::total_issuance();
-        let one_epoch_block = queued_at_block.checked_add(EpochLength::get()).unwrap();
+        let one_epoch_block = queued_at_running_block.checked_add(EpochLength::get()).unwrap();
         System::set_block_number(one_epoch_block);
         Network::execute_ready_swap_calls_with_limit(one_epoch_block, 2, &mut WeightMeter::new());
 
@@ -1536,7 +1922,7 @@ fn validator_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         assert_eq!(Balances::free_balance(refunded_staker), wallet_before_claim);
         assert_eq!(Balances::total_issuance(), issuance_before_claim);
 
-        let unlock_block = queued_at_block.checked_add(source_cooldown_blocks).unwrap();
+        let unlock_block = queued_at_running_block.checked_add(source_cooldown_blocks).unwrap();
         let block_before_unlock = unlock_block.checked_sub(1).unwrap();
         System::set_block_number(block_before_unlock);
         Network::execute_ready_swap_calls_with_limit(
@@ -1949,7 +2335,7 @@ fn test_queued_principal_underflow_rotates_and_allows_trailing_credit() {
                 to_validator_id: VALIDATOR_ID,
                 balance: blocked_balance,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         let trailing_queue_id = NextSwapQueueId::<Test>::get();
@@ -1961,7 +2347,7 @@ fn test_queued_principal_underflow_rotates_and_allows_trailing_credit() {
                 to_validator_id: VALIDATOR_ID,
                 balance: trailing_balance,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         let blocked_item = SwapCallQueue::<Test>::get(blocked_queue_id).unwrap();
@@ -1969,7 +2355,7 @@ fn test_queued_principal_underflow_rotates_and_allows_trailing_credit() {
         // The corrupted total cannot cover the head, but it can cover the trailing item.
         TotalQueuedSwapPrincipal::<Test>::set(trailing_balance);
         let execution_block = blocked_item
-            .queued_at_block
+            .queued_at_running_block
             .saturating_add(blocked_item.execute_after_blocks);
         System::set_block_number(execution_block);
         Network::execute_ready_swap_calls_with_limit(execution_block, 2, &mut WeightMeter::new());
@@ -2010,7 +2396,7 @@ fn test_queued_principal_underflow_defers_before_refund() {
                 to_subnet_id: u32::MAX,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         let queued_item = SwapCallQueue::<Test>::get(queue_id).unwrap();
@@ -2019,7 +2405,7 @@ fn test_queued_principal_underflow_defers_before_refund() {
 
         TotalQueuedSwapPrincipal::<Test>::set(QUEUED_BALANCE - 1);
         let execution_block = queued_item
-            .queued_at_block
+            .queued_at_running_block
             .saturating_add(queued_item.execute_after_blocks);
         System::set_block_number(execution_block);
         Network::execute_ready_swap_calls(execution_block, &mut WeightMeter::new());
@@ -2052,7 +2438,7 @@ fn test_immature_head_stops_without_reordering_ready_tail() {
                 to_validator_id: VALIDATOR_ID,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         let tail_id = NextSwapQueueId::<Test>::get();
@@ -2064,7 +2450,7 @@ fn test_immature_head_stops_without_reordering_ready_tail() {
                 to_validator_id: VALIDATOR_ID,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         SwapCallQueue::<Test>::mutate(tail_id, |maybe_item| {
@@ -2113,7 +2499,7 @@ fn test_stale_queue_id_is_dropped_and_ready_tail_progresses() {
                 to_validator_id: VALIDATOR_ID,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         let valid_id = NextSwapQueueId::<Test>::get();
@@ -2125,7 +2511,7 @@ fn test_stale_queue_id_is_dropped_and_ready_tail_progresses() {
                 to_validator_id: VALIDATOR_ID,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
 
@@ -2172,7 +2558,7 @@ fn test_zero_unbonding_capacity_cannot_block_refund_or_ready_tail() {
                 to_subnet_id: u32::MAX,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         let valid_id = NextSwapQueueId::<Test>::get();
@@ -2184,7 +2570,7 @@ fn test_zero_unbonding_capacity_cannot_block_refund_or_ready_tail() {
                 to_validator_id: VALIDATOR_ID,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         let execution_block = System::block_number()
@@ -2335,7 +2721,7 @@ fn test_on_initialize_refunds_under_minimum_subnet_swap_without_mutating_destina
                 to_subnet_id: subnet_id,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), QUEUED_BALANCE);
@@ -2437,7 +2823,7 @@ fn test_execute_ready_swap_refunds_under_minimum_validator_without_mutating_dest
                 to_validator_id: VALIDATOR_ID,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), QUEUED_BALANCE);
@@ -2515,7 +2901,7 @@ fn test_full_unbonding_ledger_cannot_permanently_block_swap_refund_or_tail() {
                 to_subnet_id: u32::MAX,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         let trailing_queue_id = NextSwapQueueId::<Test>::get();
@@ -2527,7 +2913,7 @@ fn test_full_unbonding_ledger_cannot_permanently_block_swap_refund_or_tail() {
                 to_validator_id: VALIDATOR_ID,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
 
@@ -2669,7 +3055,7 @@ fn test_terminal_refunds_respect_execution_limit_and_do_not_touch_unbondings() {
                 to_subnet_id: u32::MAX,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         let second_id = NextSwapQueueId::<Test>::get();
@@ -2681,7 +3067,7 @@ fn test_terminal_refunds_respect_execution_limit_and_do_not_touch_unbondings() {
                 to_validator_id: VALIDATOR_ID,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
 
@@ -2785,7 +3171,7 @@ fn test_full_unbonding_ledger_is_untouched_by_dedicated_swap_refund() {
                 to_subnet_id: u32::MAX,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         let execution_block = System::block_number()
@@ -3011,9 +3397,9 @@ fn test_swap_queue_id_exhaustion_does_not_overwrite_existing_item() {
                 to_subnet_id: 1,
                 balance: 1_000,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
-            queued_at_block: System::block_number(),
+            queued_at_running_block: System::block_number(),
             execute_after_blocks: EpochLength::get(),
         };
         SwapCallQueue::<Test>::insert(queue_id, original_item.clone());
@@ -3036,7 +3422,7 @@ fn test_swap_queue_id_exhaustion_does_not_overwrite_existing_item() {
                     to_validator_id: 2,
                     balance: 9_999,
                     min_shares_out: 1,
-                    execute_before_block: u32::MAX,
+                    execute_before_running_block: u32::MAX,
                 },
             ),
             Error::<Test>::SwapQueueIdExhausted
@@ -3088,7 +3474,7 @@ fn test_subnet_credit_overflow_refunds_without_destination_mutation() {
                 to_subnet_id: subnet_id,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), QUEUED_BALANCE);
@@ -3165,7 +3551,7 @@ fn test_validator_credit_overflow_refunds_without_destination_mutation() {
                 to_validator_id: VALIDATOR_ID,
                 balance: QUEUED_BALANCE,
                 min_shares_out: 1,
-                execute_before_block: u32::MAX,
+                execute_before_running_block: u32::MAX,
             },
         ));
         assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), QUEUED_BALANCE);

@@ -1,7 +1,7 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    ChurnLimit, MinSubnetMinStake, PendingOwnerU32Update, PendingSubnetNodeQueueEpochs,
+    ChurnLimit, MinSubnetMinStake, PendingU32Update, PendingSubnetNodeQueueEpochs,
     QueueImmunityEpochs, QueuedSubnetNodesData, SubnetConsensusSubmission, SubnetElectedValidator,
     SubnetName, SubnetNodeClass, SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetNodesData,
 };
@@ -140,7 +140,7 @@ fn registration_queue_processing_uses_duration_scheduled_for_evaluated_epoch() {
         let effective_subnet_epoch = start_epoch.saturating_add(3);
         PendingSubnetNodeQueueEpochs::<Test>::insert(
             subnet_id,
-            PendingOwnerU32Update {
+            PendingU32Update {
                 value: 3,
                 effective_subnet_epoch,
                 owner: account(1),

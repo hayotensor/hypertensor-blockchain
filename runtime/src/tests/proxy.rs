@@ -16,7 +16,7 @@ fn swap_call() -> pallet_network::QueuedSwapCall<AccountId> {
         to_subnet_id: 2,
         balance: 10,
         min_shares_out: 1,
-        execute_before_block: 100,
+        execute_before_running_block: 100,
     }
 }
 
@@ -120,7 +120,7 @@ fn non_transfer_rejects_network_value_calls() {
             delegate_stake_shares_to_swap: 10,
             min_balance_out: 1,
             min_shares_out: 1,
-            execute_before_block: u32::MAX,
+            execute_before_running_block: u32::MAX,
         }),
         network_call(pallet_network::Call::transfer_delegate_stake {
             subnet_id: 1,
@@ -153,7 +153,7 @@ fn non_transfer_rejects_network_value_calls() {
             stake_to_be_removed: 10,
             min_balance_out: 1,
             min_shares_out: 1,
-            execute_before_block: u32::MAX,
+            execute_before_running_block: u32::MAX,
         }),
         network_call(pallet_network::Call::swap_from_validator_to_subnet {
             from_validator_id: 1,
@@ -161,7 +161,7 @@ fn non_transfer_rejects_network_value_calls() {
             node_delegate_stake_shares_to_swap: 10,
             min_balance_out: 1,
             min_shares_out: 1,
-            execute_before_block: u32::MAX,
+            execute_before_running_block: u32::MAX,
         }),
         network_call(pallet_network::Call::swap_from_subnet_to_validator {
             from_subnet_id: 1,
@@ -169,7 +169,7 @@ fn non_transfer_rejects_network_value_calls() {
             subnet_delegate_stake_shares_to_swap: 10,
             min_balance_out: 1,
             min_shares_out: 1,
-            execute_before_block: u32::MAX,
+            execute_before_running_block: u32::MAX,
         }),
         network_call(pallet_network::Call::update_swap_queue {
             id: 1,

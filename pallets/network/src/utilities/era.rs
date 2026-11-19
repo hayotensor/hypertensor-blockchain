@@ -337,6 +337,32 @@ impl<T: Config> Pallet<T> {
         Self::get_subnet_epoch_with_block_as_u32(subnet_id, Self::get_current_block_as_u32())
     }
 
+    /// Blocks elapsed while the network is running, excluding global pauses without rounding.
+    ///
+    /// Evaluate the current block, or a current round's slot block after checking the global
+    /// resume cutoff. The current cumulative pause total cannot reconstruct older pause history;
+    /// historical queries must use storage at their requested block.
+    pub fn running_block_at(block: u32) -> u32 {
+        let effective_block =
+            NetworkPauseStartBlock::<T>::get().map_or(block, |pause_start| block.min(pause_start));
+        effective_block.saturating_sub(TotalNetworkPausedBlocks::<T>::get())
+    }
+
+    /// Queued nodes use running time converted to subnet epochs. Admitted nodes and consensus
+    /// use ordinary subnet epochs. See `running_block_at` for the supported evaluation times.
+    pub(crate) fn queue_epoch_at(subnet_id: u32, block: u32) -> u32 {
+        Self::get_subnet_epoch_with_block_as_u32(subnet_id, Self::running_block_at(block))
+    }
+
+    /// Freeze queue age at the evaluated subnet slot. Admission and proposal-time immunity
+    /// must use this same boundary: the logical clock can cross an epoch between physical slots.
+    /// Proposal callers must reject rounds preceding global resume before using this helper.
+    pub(crate) fn queue_epoch_at_subnet_slot(subnet_id: u32, subnet_epoch: u32) -> u32 {
+        let slot = SubnetSlot::<T>::get(subnet_id).unwrap_or(0);
+        let block = slot.saturating_add(subnet_epoch.saturating_mul(T::EpochLength::get()));
+        Self::queue_epoch_at(subnet_id, block)
+    }
+
     /// Return the phase-aware epoch for `subnet_id` at an explicit block.
     ///
     /// A subnet epoch advances at that subnet's assigned slot, not at the general epoch's

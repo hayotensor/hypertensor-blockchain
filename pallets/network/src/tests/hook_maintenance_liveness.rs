@@ -48,7 +48,8 @@ fn registration_queue_preserves_the_final_write_budget_after_each_admission() {
 
         let _guard = DbWeightGuard::new();
         let db = TestDbWeight::get();
-        let selector = db.reads(7);
+        // Includes the pause counter, pause marker, and two queue-clock slot lookups.
+        let selector = db.reads(11);
         let admission = db
             .reads(1)
             .saturating_add(Network::pending_subnet_node_removal_proof_weight())

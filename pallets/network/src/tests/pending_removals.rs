@@ -267,6 +267,11 @@ fn accepted_queue_removal_quarantines_and_dequeues_before_physical_cleanup() {
             subnet_node_id
         ));
         assert!(PendingQueuedNodeRemovals::<Test>::get(subnet_id).is_empty());
+        assert!(crate::SubnetNodeMetadata::<Test>::contains_key(
+            subnet_id,
+            subnet_node_id
+        ));
+        Network::on_idle(System::block_number(), Weight::MAX);
         assert!(!crate::SubnetNodeMetadata::<Test>::contains_key(
             subnet_id,
             subnet_node_id
@@ -1576,8 +1581,24 @@ fn queue_mutations_require_identity_supermajority_despite_stake_supermajority() 
         let queued_node_id = 1;
         let prioritized_node_id = 2;
 
-        insert_subnet_node(301, subnet_id, 30_001, 30_002, 30_003, SubnetNodeClass::Queued, 0);
-        insert_subnet_node(302, subnet_id, 30_011, 30_012, 30_013, SubnetNodeClass::Queued, 0);
+        insert_subnet_node(
+            301,
+            subnet_id,
+            30_001,
+            30_002,
+            30_003,
+            SubnetNodeClass::Queued,
+            0,
+        );
+        insert_subnet_node(
+            302,
+            subnet_id,
+            30_011,
+            30_012,
+            30_013,
+            SubnetNodeClass::Queued,
+            0,
+        );
         let queue_before = crate::SubnetNodeQueue::<Test>::get(subnet_id);
         assert_eq!(queue_before.len(), 2);
 

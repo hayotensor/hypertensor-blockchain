@@ -25,7 +25,7 @@ impl<T: Config> Pallet<T> {
 
     fn prepare_pending_owner_u32_update(
         current_subnet_epoch: u32,
-        pending: Option<PendingOwnerU32Update<T>>,
+        pending: Option<PendingU32Update<T>>,
         materialize: impl FnOnce(u32),
     ) -> DispatchResult {
         if let Some(pending) = pending {
@@ -44,7 +44,7 @@ impl<T: Config> Pallet<T> {
 
     fn prepare_pending_owner_u128_update(
         current_subnet_epoch: u32,
-        pending: Option<PendingOwnerU128Update<T>>,
+        pending: Option<PendingU128Update<T>>,
         materialize: impl FnOnce(u128),
     ) -> DispatchResult {
         if let Some(pending) = pending {
@@ -61,9 +61,9 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
-    fn pending_owner_u32_value_for_epoch(
+    fn effective_u32_value_for_epoch(
         live_value: u32,
-        pending: Option<PendingOwnerU32Update<T>>,
+        pending: Option<PendingU32Update<T>>,
         subnet_epoch: u32,
     ) -> u32 {
         pending
@@ -72,9 +72,9 @@ impl<T: Config> Pallet<T> {
             .unwrap_or(live_value)
     }
 
-    fn pending_owner_u128_value_for_epoch(
+    fn effective_u128_value_for_epoch(
         live_value: u128,
-        pending: Option<PendingOwnerU128Update<T>>,
+        pending: Option<PendingU128Update<T>>,
         subnet_epoch: u32,
     ) -> u128 {
         pending
@@ -84,7 +84,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_min_subnet_node_reputation_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u128 {
-        Self::pending_owner_u128_value_for_epoch(
+        Self::effective_u128_value_for_epoch(
             MinSubnetNodeReputation::<T>::get(subnet_id),
             PendingMinSubnetNodeReputation::<T>::get(subnet_id),
             subnet_epoch,
@@ -95,7 +95,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         subnet_epoch: u32,
     ) -> u128 {
-        Self::pending_owner_u128_value_for_epoch(
+        Self::effective_u128_value_for_epoch(
             SubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
             PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::get(subnet_id),
             subnet_epoch,
@@ -103,7 +103,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_subnet_node_queue_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
-        Self::pending_owner_u32_value_for_epoch(
+        Self::effective_u32_value_for_epoch(
             SubnetNodeQueueEpochs::<T>::get(subnet_id),
             PendingSubnetNodeQueueEpochs::<T>::get(subnet_id),
             subnet_epoch,
@@ -111,7 +111,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_probation_rounds_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
-        Self::pending_owner_u32_value_for_epoch(
+        Self::effective_u32_value_for_epoch(
             ProbationRounds::<T>::get(subnet_id),
             PendingProbationRounds::<T>::get(subnet_id),
             subnet_epoch,
@@ -119,7 +119,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_queue_immunity_epochs_for_epoch(subnet_id: u32, subnet_epoch: u32) -> u32 {
-        Self::pending_owner_u32_value_for_epoch(
+        Self::effective_u32_value_for_epoch(
             QueueImmunityEpochs::<T>::get(subnet_id),
             PendingQueueImmunityEpochs::<T>::get(subnet_id),
             subnet_epoch,
@@ -140,7 +140,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         subnet_epoch: u32,
     ) -> u128 {
-        Self::pending_owner_u128_value_for_epoch(
+        Self::effective_u128_value_for_epoch(
             ConsensusValidatorNodeCountDecay::<T>::get(subnet_id),
             PendingConsensusValidatorNodeCountDecay::<T>::get(subnet_id),
             subnet_epoch,
@@ -151,7 +151,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         subnet_epoch: u32,
     ) -> u128 {
-        Self::pending_owner_u128_value_for_epoch(
+        Self::effective_u128_value_for_epoch(
             ConsensusValidatorStakeWeightPower::<T>::get(subnet_id),
             PendingConsensusValidatorStakeWeightPower::<T>::get(subnet_id),
             subnet_epoch,
@@ -475,7 +475,7 @@ impl<T: Config> Pallet<T> {
             Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingSubnetNodeQueueEpochs::<T>::insert(
             subnet_id,
-            PendingOwnerU32Update {
+            PendingU32Update {
                 value,
                 effective_subnet_epoch,
                 owner: coldkey.clone(),
@@ -519,7 +519,7 @@ impl<T: Config> Pallet<T> {
             Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingProbationRounds::<T>::insert(
             subnet_id,
-            PendingOwnerU32Update {
+            PendingU32Update {
                 value,
                 effective_subnet_epoch,
                 owner: coldkey.clone(),
@@ -1082,7 +1082,7 @@ impl<T: Config> Pallet<T> {
             Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingQueueImmunityEpochs::<T>::insert(
             subnet_id,
-            PendingOwnerU32Update {
+            PendingU32Update {
                 value,
                 effective_subnet_epoch,
                 owner: coldkey.clone(),
@@ -1136,7 +1136,7 @@ impl<T: Config> Pallet<T> {
             Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingConsensusValidatorNodeCountDecay::<T>::insert(
             subnet_id,
-            PendingOwnerU128Update {
+            PendingU128Update {
                 value,
                 effective_subnet_epoch,
                 owner: coldkey.clone(),
@@ -1193,7 +1193,7 @@ impl<T: Config> Pallet<T> {
             Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingConsensusValidatorStakeWeightPower::<T>::insert(
             subnet_id,
-            PendingOwnerU128Update {
+            PendingU128Update {
                 value,
                 effective_subnet_epoch,
                 owner: coldkey.clone(),
@@ -1244,7 +1244,7 @@ impl<T: Config> Pallet<T> {
             Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingMinSubnetNodeReputation::<T>::insert(
             subnet_id,
-            PendingOwnerU128Update {
+            PendingU128Update {
                 value,
                 effective_subnet_epoch,
                 owner: coldkey.clone(),
@@ -1288,7 +1288,7 @@ impl<T: Config> Pallet<T> {
             Self::next_owner_parameter_effective_subnet_epoch(current_subnet_epoch);
         PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::insert(
             subnet_id,
-            PendingOwnerU128Update {
+            PendingU128Update {
                 value,
                 effective_subnet_epoch,
                 owner: coldkey.clone(),

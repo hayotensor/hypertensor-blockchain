@@ -17,7 +17,7 @@ use crate::{
     NodeRegistrationsThisEpoch, NodeSlotIndex, NodeSubnetStake, OverwatchNodeIndex,
     OverwatchSubnetWeights, PeerIdOverwatchNodeId, PeerIdSubnetNodeId, PeerInfo,
     PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
-    PendingMinSubnetNodeReputation, PendingOwnerU128Update, PendingOwnerU32Update,
+    PendingMinSubnetNodeReputation, PendingU128Update, PendingU32Update,
     PendingProbationRounds, PendingQueueImmunityEpochs,
     PendingSubnetDelegateStakeRewardsPercentage, PendingSubnetDelegateStakeRewardsPercentageUpdate,
     PendingSubnetNodeMinWeightDecreaseReputationThreshold, PendingSubnetNodeQueueEpochs,
@@ -492,12 +492,12 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
         TotalNodes::<Test>::mutate(|count| *count = count.saturating_add(1));
         TotalSubnetNodeUids::<Test>::insert(subnet_id, queued_node_id);
 
-        let pending_u32 = PendingOwnerU32Update::<Test> {
+        let pending_u32 = PendingU32Update::<Test> {
             value: 7,
             effective_subnet_epoch: 99,
             owner: owner.clone(),
         };
-        let pending_u128 = PendingOwnerU128Update::<Test> {
+        let pending_u128 = PendingU128Update::<Test> {
             value: Network::percentage_factor_as_u128(),
             effective_subnet_epoch: 99,
             owner: owner.clone(),

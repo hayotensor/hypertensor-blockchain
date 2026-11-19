@@ -35,7 +35,7 @@ impl<T: Config> Pallet<T> {
         delegate_stake_shares_to_swap: u128,
         min_balance_out: u128,
         min_shares_out: u128,
-        execute_before_block: u32,
+        execute_before_running_block: u32,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
@@ -57,7 +57,7 @@ impl<T: Config> Pallet<T> {
             to_subnet_id,
             balance,
             min_shares_out,
-            execute_before_block,
+            execute_before_running_block,
         };
 
         Self::queue_swap(
@@ -88,7 +88,7 @@ impl<T: Config> Pallet<T> {
         delegate_stake_shares_to_swap: u128,
         min_balance_out: u128,
         min_shares_out: u128,
-        execute_before_block: u32,
+        execute_before_running_block: u32,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
@@ -108,7 +108,7 @@ impl<T: Config> Pallet<T> {
             to_validator_id,
             balance,
             min_shares_out,
-            execute_before_block,
+            execute_before_running_block,
         };
 
         Self::queue_swap(account_id.clone(), QueuedSwapSource::SubnetDelegate, call)?;
@@ -133,7 +133,7 @@ impl<T: Config> Pallet<T> {
         delegate_stake_shares_to_swap: u128,
         min_balance_out: u128,
         min_shares_out: u128,
-        execute_before_block: u32,
+        execute_before_running_block: u32,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
@@ -155,7 +155,7 @@ impl<T: Config> Pallet<T> {
             to_subnet_id,
             balance,
             min_shares_out,
-            execute_before_block,
+            execute_before_running_block,
         };
 
         Self::queue_swap(account_id.clone(), QueuedSwapSource::SubnetDelegate, call)?;
@@ -180,7 +180,7 @@ impl<T: Config> Pallet<T> {
         delegate_stake_shares_to_swap: u128,
         min_balance_out: u128,
         min_shares_out: u128,
-        execute_before_block: u32,
+        execute_before_running_block: u32,
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
@@ -202,7 +202,7 @@ impl<T: Config> Pallet<T> {
             to_validator_id,
             balance,
             min_shares_out,
-            execute_before_block,
+            execute_before_running_block,
         };
 
         Self::queue_swap(

@@ -196,7 +196,7 @@ fn prime_near_full_swap_queue<T: Config>() {
     let queued_items = max_queue_len
         .checked_sub(1)
         .expect("swap queue benchmark requires a non-zero queue bound");
-    let queued_at_block = get_current_block_as_u32::<T>();
+    let queued_at_running_block = Network::<T>::running_block_at(get_current_block_as_u32::<T>());
     let account_id = get_account::<T>("near_full_swap_queue_account", 0);
     let mut queue: SwapQueueIds<T> = BoundedVec::new();
 
@@ -211,9 +211,9 @@ fn prime_near_full_swap_queue<T: Config>() {
                     to_subnet_id: u32::MAX,
                     balance: 1,
                     min_shares_out: 1,
-                    execute_before_block: u32::MAX,
+                    execute_before_running_block: u32::MAX,
                 },
-                queued_at_block,
+                queued_at_running_block,
                 execute_after_blocks: T::EpochLength::get(),
             },
         );
@@ -1806,6 +1806,17 @@ pub fn insert_subnet_node<T: Config>(
     TotalAdmittedNodes::<T>::mutate(|n: &mut u32| *n += 1);
 }
 
+// Exercise the synchronous fallback in removal benchmarks. The deferred branch retains
+// their CPU/proof envelope and separately accounts for queue bookkeeping.
+fn fill_node_metadata_cleanup_queue<T: Config>() {
+    NodeMetadataCleanupQueue::<T>::put(
+        BoundedVec::<(u32, u32), frame_support::traits::ConstU32<64>>::try_from(
+            (0..64).map(|id| (u32::MAX, id)).collect::<Vec<_>>(),
+        )
+        .unwrap(),
+    );
+}
+
 fn seed_common_remove_subnet_node_state<T: Config>(
     subnet_id: u32,
     subnet_node_id: u32,
@@ -3017,11 +3028,11 @@ fn prepare_mixed_swap_benchmark<T: Config>(
         });
     }
 
-    let queued_at_block = get_current_block_as_u32::<T>();
+    let queued_at_running_block = get_current_block_as_u32::<T>();
     let execute_after_blocks = T::EpochLength::get();
-    let block_number = queued_at_block.saturating_add(execute_after_blocks);
+    let block_number = queued_at_running_block.saturating_add(execute_after_blocks);
     assert_eq!(
-        block_number.saturating_sub(queued_at_block),
+        block_number.saturating_sub(queued_at_running_block),
         execute_after_blocks
     );
     frame_system::Pallet::<T>::set_block_number(u32_to_block::<T>(block_number));
@@ -3049,7 +3060,7 @@ fn prepare_mixed_swap_benchmark<T: Config>(
                     to_validator_id: validator_id,
                     balance,
                     min_shares_out: 1,
-                    execute_before_block: u32::MAX,
+                    execute_before_running_block: u32::MAX,
                 }
             }
             MixedSwapBranch::Subnet => {
@@ -3060,7 +3071,7 @@ fn prepare_mixed_swap_benchmark<T: Config>(
                     to_subnet_id,
                     balance,
                     min_shares_out: 1,
-                    execute_before_block: u32::MAX,
+                    execute_before_running_block: u32::MAX,
                 }
             }
             MixedSwapBranch::Refund => {
@@ -3072,7 +3083,7 @@ fn prepare_mixed_swap_benchmark<T: Config>(
                     to_subnet_id: missing_subnet_id,
                     balance,
                     min_shares_out: 1,
-                    execute_before_block: u32::MAX,
+                    execute_before_running_block: u32::MAX,
                 }
             }
         };
@@ -3081,7 +3092,7 @@ fn prepare_mixed_swap_benchmark<T: Config>(
             QueuedSwapItem {
                 id: queue_id,
                 call,
-                queued_at_block,
+                queued_at_running_block,
                 execute_after_blocks,
             },
         );
@@ -4694,6 +4705,8 @@ mod benchmarks {
             DEFAULT_SUBNET_NODE_STAKE,
         );
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
+        // Exercise queue registration after a completed global pause.
+        TotalNetworkPausedBlocks::<T>::put(T::EpochLength::get());
 
         let queue_len = T::MaxRegisteredNodesUpperBound::get();
         MaxRegisteredNodes::<T>::insert(subnet_id, queue_len);
@@ -4769,6 +4782,10 @@ mod benchmarks {
             Some(validator_id)
         );
         let queued_subnet_node = QueuedSubnetNodesData::<T>::get(subnet_id, subnet_node_id);
+        assert_eq!(
+            queued_subnet_node.classification.start_epoch,
+            Network::<T>::queue_epoch_at(subnet_id, get_current_block_as_u32::<T>()) + 1
+        );
         let queued_subnet_node_metadata =
             crate::SubnetNodeMetadata::<T>::get(subnet_id, subnet_node_id).unwrap_or_default();
         assert_eq!(queued_subnet_node_metadata.peer_info, Some(peer_info));
@@ -5264,6 +5281,7 @@ mod benchmarks {
 
     #[benchmark]
     fn swap_from_subnet_to_subnet() {
+        TotalNetworkPausedBlocks::<T>::put(1);
         let end = 4;
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
@@ -5557,6 +5575,7 @@ mod benchmarks {
 
     #[benchmark]
     fn swap_from_validator_to_validator() {
+        TotalNetworkPausedBlocks::<T>::put(1);
         // The queue minimum is an anti-spam floor; benchmark the queue path itself.
         MinQueuedSwapBalance::<T>::put(0);
         let from_validator_id = 1;
@@ -5740,6 +5759,7 @@ mod benchmarks {
 
     #[benchmark]
     fn swap_from_validator_to_subnet() {
+        TotalNetworkPausedBlocks::<T>::put(1);
         // The queue minimum is an anti-spam floor; benchmark the queue path itself.
         MinQueuedSwapBalance::<T>::put(0);
         let end = 4;
@@ -5826,6 +5846,7 @@ mod benchmarks {
 
     #[benchmark]
     fn swap_from_subnet_to_validator() {
+        TotalNetworkPausedBlocks::<T>::put(1);
         let end = 4;
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
@@ -5966,6 +5987,7 @@ mod benchmarks {
             DEFAULT_SUBNET_NODE_STAKE,
         );
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
+        TotalNetworkPausedBlocks::<T>::put(T::EpochLength::get());
 
         ConsensusValidatorStakeWeightPower::<T>::insert(
             subnet_id,
@@ -7930,6 +7952,8 @@ mod benchmarks {
         for subnet_id in 1..=registrations {
             SubnetRegistrationEpoch::<T>::insert(subnet_id, 0);
         }
+        PrevSubnetActivationEpoch::<T>::put(1);
+        TotalNetworkPausedBlocks::<T>::put(1);
         frame_system::Pallet::<T>::set_block_number(T::EpochLength::get().into());
         assert_ok!(Network::<T>::do_pause());
         assert!(NetworkPaused::<T>::get());
@@ -7948,8 +7972,13 @@ mod benchmarks {
             Some(get_current_block_as_u32::<T>())
         );
         for subnet_id in 1..=registrations {
-            assert_eq!(SubnetRegistrationEpoch::<T>::get(subnet_id), Some(2));
+            assert_eq!(SubnetRegistrationEpoch::<T>::get(subnet_id), Some(3));
         }
+        assert_eq!(PrevSubnetActivationEpoch::<T>::get(), 4);
+        assert_eq!(
+            TotalNetworkPausedBlocks::<T>::get(),
+            1 + 2 * T::EpochLength::get()
+        );
     }
 
     /// The resume selector must measure the nonempty cutoff and assigned-slot reads.
@@ -9448,6 +9477,7 @@ mod benchmarks {
 
     #[benchmark]
     fn update_swap_queue() {
+        TotalNetworkPausedBlocks::<T>::put(1);
         let deposit_amount: u128 = 10000000000000000000000;
         let amount: u128 = 1000000000000000000000;
         let stake_amount: u128 = MinSubnetMinStake::<T>::get();
@@ -9477,7 +9507,11 @@ mod benchmarks {
 
         let _ = T::Currency::deposit_creating(
             &account.clone(),
-            (amount + 500).try_into().ok().expect("REASON"),
+            amount
+                .saturating_add(T::Currency::minimum_balance().saturated_into::<u128>())
+                .try_into()
+                .ok()
+                .expect("benchmark funding fits balance"),
         );
 
         let total_subnet_delegate_stake_shares =
@@ -9596,9 +9630,11 @@ mod benchmarks {
             to_subnet_id: from_subnet_id,
             balance: u128::MAX,
             min_shares_out: 1,
-            execute_before_block: u32::MAX,
+            execute_before_running_block: u32::MAX,
         };
 
+        // Updates remain available while paused; measure the populated pause marker.
+        assert_ok!(Network::<T>::do_pause());
         #[extrinsic_call]
         update_swap_queue(
             RawOrigin::Signed(account.clone()),
@@ -9750,6 +9786,9 @@ mod benchmarks {
         for subnet_node_id in a.saturating_add(1)..=fixture_admitted_nodes {
             Network::<T>::remove_admitted_subnet_node(subnet_id, subnet_node_id);
         }
+        // The queued fixture reuses these peers. Release residual reservations outside the
+        // measured live-prefix cleanup; residual work has its own separately charged envelope.
+        Network::<T>::cleanup_deferred_node_metadata(&mut WeightMeter::new());
         build_queued_subnet_nodes::<T>(
             subnet_id,
             a,
@@ -9980,6 +10019,8 @@ mod benchmarks {
         let (subnet_id, subnet_node_id, validator_id, unique) =
             seed_admitted_remove_subnet_node_state::<T>(n, e);
 
+        fill_node_metadata_cleanup_queue::<T>();
+
         #[block]
         {
             Network::<T>::remove_admitted_subnet_node(subnet_id, subnet_node_id);
@@ -10017,6 +10058,8 @@ mod benchmarks {
         // Exercise the large-election removal model up to the subnet-node bound.
         let (subnet_id, subnet_node_id, validator_id, unique) =
             seed_admitted_remove_subnet_node_state::<T>(n, e);
+
+        fill_node_metadata_cleanup_queue::<T>();
 
         #[block]
         {
@@ -10058,6 +10101,8 @@ mod benchmarks {
         let (subnet_id, subnet_node_id, validator_id, _) =
             seed_admitted_remove_subnet_node_state::<T>(n, e);
 
+        fill_node_metadata_cleanup_queue::<T>();
+
         #[block]
         {
             let selected_validator_id =
@@ -10085,6 +10130,8 @@ mod benchmarks {
     ) {
         let (subnet_id, subnet_node_id, validator_id, _) =
             seed_admitted_remove_subnet_node_state::<T>(n, e);
+
+        fill_node_metadata_cleanup_queue::<T>();
 
         #[block]
         {
@@ -10115,6 +10162,8 @@ mod benchmarks {
         // r = number of queued nodes in the subnet (for SubnetNodeQueue retain operation)
         let (subnet_id, remove_subnet_node_id, validator_id, unique) =
             seed_queued_remove_subnet_node_state::<T>(n, r);
+
+        fill_node_metadata_cleanup_queue::<T>();
 
         #[block]
         {
@@ -10153,6 +10202,8 @@ mod benchmarks {
     ) {
         let (subnet_id, subnet_node_id, validator_id, _) =
             seed_queued_remove_subnet_node_state::<T>(n, r);
+
+        fill_node_metadata_cleanup_queue::<T>();
 
         #[block]
         {
@@ -10925,10 +10976,13 @@ mod benchmarks {
 
     #[benchmark]
     fn execute_ready_swap_selectors() {
+        let block = get_current_block_as_u32::<T>().max(2);
+        TotalNetworkPausedBlocks::<T>::put(1);
         #[block]
         {
             let _ = MaxSwapQueueCallsPerBlock::<T>::get();
             let _ = SwapQueueCount::<T>::get();
+            let _ = Network::<T>::running_block_at(block);
         }
     }
 
@@ -10993,9 +11047,9 @@ mod benchmarks {
                         to_validator_id: validator_id,
                         balance,
                         min_shares_out: 1,
-                        execute_before_block: u32::MAX,
+                        execute_before_running_block: u32::MAX,
                     },
-                    queued_at_block: block_number,
+                    queued_at_running_block: block_number,
                     execute_after_blocks: 0,
                 },
             );
@@ -11069,9 +11123,9 @@ mod benchmarks {
                         to_subnet_id,
                         balance,
                         min_shares_out: 1,
-                        execute_before_block: u32::MAX,
+                        execute_before_running_block: u32::MAX,
                     },
-                    queued_at_block: block_number,
+                    queued_at_running_block: block_number,
                     execute_after_blocks: 0,
                 },
             );
@@ -11128,9 +11182,9 @@ mod benchmarks {
                         to_subnet_id: missing_subnet_id,
                         balance,
                         min_shares_out: 1,
-                        execute_before_block: u32::MAX,
+                        execute_before_running_block: u32::MAX,
                     },
-                    queued_at_block: block_number,
+                    queued_at_running_block: block_number,
                     execute_after_blocks: 0,
                 },
             );
@@ -11869,6 +11923,7 @@ mod benchmarks {
             DEFAULT_SUBNET_NODE_STAKE,
         );
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
+        TotalNetworkPausedBlocks::<T>::put(T::EpochLength::get());
         MaxRegisteredNodes::<T>::insert(subnet_id, q);
         ChurnLimit::<T>::insert(subnet_id, q);
         ChurnLimitMultiplier::<T>::insert(subnet_id, 1);

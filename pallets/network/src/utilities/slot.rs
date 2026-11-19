@@ -834,6 +834,7 @@ impl<T: Config> Pallet<T> {
             };
             let removal_weight =
                 T::WeightInfo::remove_queued_subnet_node(validator_nodes, queued_nodes_count)
+                    .saturating_add(Self::node_metadata_cleanup_queue_weight())
                     .saturating_add(marker_clear_weight);
             if !weight_meter.can_consume(removal_weight) {
                 continue;
@@ -852,9 +853,9 @@ impl<T: Config> Pallet<T> {
     ) {
         let db_weight = T::DbWeight::get();
 
-        // Initial weight check - need at least 7 reads to proceed. Resolving the pending queue
-        // duration reads both its live and pending storage values.
-        if !weight_meter.can_consume(db_weight.reads(7)) {
+        // Seven existing reads plus four queue-clock reads (including both slot lookups).
+        // Resolving the pending queue duration reads its live and pending storage values.
+        if !weight_meter.can_consume(db_weight.reads(11)) {
             return;
         }
 
@@ -896,6 +897,9 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
+        let queue_epoch = Self::queue_epoch_at_subnet_slot(subnet_id, current_subnet_epoch);
+        weight_meter.consume(db_weight.reads(4));
+
         let mut admitted_nodes = 0;
         let nodes_to_process: Vec<_> = queue.iter().take(take as usize).collect();
 
@@ -904,7 +908,7 @@ impl<T: Config> Pallet<T> {
             if !Self::has_epoch_period_elapsed(
                 subnet_node.classification.start_epoch,
                 subnet_node_queue_epochs,
-                current_subnet_epoch,
+                queue_epoch,
             ) {
                 // Nodes are ordered by epoch, so we can break early if the first node
                 // is not ready yet to be admitted from the queue

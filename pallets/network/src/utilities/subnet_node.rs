@@ -432,7 +432,8 @@ impl<T: Config> Pallet<T> {
                     NodeSlotIndex::<T>::insert(subnet_id, moved_node_id, pos as u32);
                 }
 
-                NodeSlotIndex::<T>::remove(subnet_id, subnet_node_id);
+                // The removed node's own index is cleared with its deferred residual records.
+                // Only the surviving node's index must match the changed slot list immediately.
                 TotalSubnetElectableNodes::<T>::mutate(subnet_id, |mut n| n.saturating_dec());
                 TotalElectableNodes::<T>::mutate(|mut n| n.saturating_dec());
                 Ok(true)
@@ -488,42 +489,12 @@ impl<T: Config> Pallet<T> {
         // defensively so a stale/mismatched marker cannot survive a node lifecycle transition.
         Self::clear_pending_subnet_node_removal(subnet_id, subnet_node_id);
 
-        let metadata = SubnetNodeMetadata::<T>::take(subnet_id, subnet_node_id).unwrap_or_default();
+        Self::defer_node_metadata_cleanup(subnet_id, subnet_node_id);
 
-        if let Some(unique) = metadata.unique {
-            UniqueParamSubnetNodeId::<T>::remove(subnet_id, unique);
-        }
-
-        if let Some(peer_info) = metadata.peer_info {
-            PeerIdSubnetNodeId::<T>::remove(subnet_id, &peer_info.peer_id);
-            if let Some(peer_info_multiaddr) = peer_info.multiaddr.clone() {
-                MultiaddrSubnetNodeId::<T>::remove(subnet_id, peer_info_multiaddr);
-            }
-        }
-
-        if let Some(bootnode_peer_info) = metadata.bootnode_peer_info {
-            BootnodePeerIdSubnetNodeId::<T>::remove(subnet_id, bootnode_peer_info.peer_id);
-            if let Some(bootnode_multiaddr) = bootnode_peer_info.multiaddr.clone() {
-                MultiaddrSubnetNodeId::<T>::remove(subnet_id, bootnode_multiaddr);
-            }
-        }
-
-        if let Some(client_peer_info) = metadata.client_peer_info {
-            ClientPeerIdSubnetNodeId::<T>::remove(subnet_id, client_peer_info.peer_id);
-            if let Some(client_multiaddr) = client_peer_info.multiaddr.clone() {
-                MultiaddrSubnetNodeId::<T>::remove(subnet_id, client_multiaddr);
-            }
-        }
-
-        SubnetNodeIdHotkey::<T>::remove(subnet_id, subnet_node_id);
         SubnetNodeReputation::<T>::remove(subnet_id, subnet_node_id);
 
-        // Queued nodes never have progress; promotion already clears it for Active nodes.
-        if subnet_node.classification.node_class == SubnetNodeClass::Probation {
-            SubnetNodeProbationProgress::<T>::remove(subnet_id, subnet_node_id);
-        }
-        // We don't remove `HotkeySubnetId`. This is only removed when a node fully removes stake
-        // to allow them to always unstake under their hotkey
+        // Keep SubnetNodeValidatorId and NodeSubnetStake indefinitely: the canonical coldkey
+        // must retain access to its stake after membership and residual metadata are removed.
 
         // Remove subnet ID from set
         ValidatorSubnetNodes::<T>::mutate(subnet_node.validator_id, |node_map| {
@@ -698,6 +669,7 @@ impl<T: Config> Pallet<T> {
         Self::pending_node_removal_sets_weight()
             .saturating_mul(2)
             .saturating_add(maximum_admitted)
+            .saturating_add(Self::node_metadata_cleanup_queue_weight())
             .saturating_add(Self::pending_node_removal_marker_clear_weight())
     }
 
@@ -712,14 +684,15 @@ impl<T: Config> Pallet<T> {
             Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
             T::MaxSubnetNodesUpperBound::get(),
         );
-        if e < ADMITTED_REMOVAL_ELECTION_MODEL_SPLIT {
+        let removal = if e < ADMITTED_REMOVAL_ELECTION_MODEL_SPLIT {
             T::WeightInfo::remove_admitted_subnet_node_small(n, e)
         } else if e == ADMITTED_REMOVAL_ELECTION_MODEL_SPLIT {
             T::WeightInfo::remove_admitted_subnet_node_small(n, e)
                 .max(T::WeightInfo::remove_admitted_subnet_node_large(n, e))
         } else {
             T::WeightInfo::remove_admitted_subnet_node_large(n, e)
-        }
+        };
+        removal.saturating_add(Self::node_metadata_cleanup_queue_weight())
     }
 
     /// Dispatch-time counterpart of `admitted_subnet_node_removal_weight`. These generated models
@@ -731,7 +704,7 @@ impl<T: Config> Pallet<T> {
             Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES,
             T::MaxSubnetNodesUpperBound::get(),
         );
-        if e < ADMITTED_REMOVAL_ELECTION_MODEL_SPLIT {
+        let removal = if e < ADMITTED_REMOVAL_ELECTION_MODEL_SPLIT {
             T::WeightInfo::remove_admitted_subnet_node_dispatch_small(n, e)
         } else if e == ADMITTED_REMOVAL_ELECTION_MODEL_SPLIT {
             T::WeightInfo::remove_admitted_subnet_node_dispatch_small(n, e).max(
@@ -739,7 +712,8 @@ impl<T: Config> Pallet<T> {
             )
         } else {
             T::WeightInfo::remove_admitted_subnet_node_dispatch_large(n, e)
-        }
+        };
+        removal.saturating_add(Self::node_metadata_cleanup_queue_weight())
     }
 
     /// Return a conservative weight for either node-removal branch, including the reads needed
@@ -755,11 +729,13 @@ impl<T: Config> Pallet<T> {
             max_validator_nodes,
             T::MaxSubnetNodesUpperBound::get(),
         );
-        let maximum_branch =
-            maximum_admitted.max(T::WeightInfo::remove_queued_subnet_node_dispatch(
+        let maximum_branch = maximum_admitted.max(
+            T::WeightInfo::remove_queued_subnet_node_dispatch(
                 max_validator_nodes,
                 T::MaxRegisteredNodesUpperBound::get(),
-            ));
+            )
+            .saturating_add(Self::node_metadata_cleanup_queue_weight()),
+        );
 
         let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) else {
             return maximum_branch;
@@ -778,6 +754,7 @@ impl<T: Config> Pallet<T> {
                 .saturating_sub(admitted_nodes)
                 .clamp(1, T::MaxRegisteredNodesUpperBound::get());
             T::WeightInfo::remove_queued_subnet_node_dispatch(validator_nodes, queued_nodes)
+                .saturating_add(Self::node_metadata_cleanup_queue_weight())
         };
 
         branch_weight

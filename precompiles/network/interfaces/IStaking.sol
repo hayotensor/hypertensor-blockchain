@@ -18,7 +18,7 @@ interface IStaking {
         uint128 delegateStakeSharesToSwap,
         uint128 minBalanceOut,
         uint128 minSharesOut,
-        uint32 executeBeforeBlock
+        uint32 executeBeforeRunningBlock
     ) external;
     /// Network::transfer_delegate_stake (call index 56).
     function transferDelegateStake(uint32 subnetId, bytes32 toAccountId, uint128 delegateStakeSharesToTransfer)
@@ -47,7 +47,7 @@ interface IStaking {
         uint128 stakeToBeRemoved,
         uint128 minBalanceOut,
         uint128 minSharesOut,
-        uint32 executeBeforeBlock
+        uint32 executeBeforeRunningBlock
     ) external;
     /// Network::swap_from_validator_to_subnet (call index 64).
     function swapFromValidatorToSubnet(
@@ -56,7 +56,7 @@ interface IStaking {
         uint128 nodeDelegateStakeSharesToSwap,
         uint128 minBalanceOut,
         uint128 minSharesOut,
-        uint32 executeBeforeBlock
+        uint32 executeBeforeRunningBlock
     ) external;
     /// Network::swap_from_subnet_to_validator (call index 65).
     function swapFromSubnetToValidator(
@@ -65,7 +65,7 @@ interface IStaking {
         uint128 subnetDelegateStakeSharesToSwap,
         uint128 minBalanceOut,
         uint128 minSharesOut,
-        uint32 executeBeforeBlock
+        uint32 executeBeforeRunningBlock
     ) external;
     /// Network::update_swap_queue (call index 66).
     function updateSwapQueue(uint32 id, QueuedSwap calldata newCall) external;
@@ -79,6 +79,8 @@ interface IStaking {
     function removeOverwatchNodeStake(uint32 overwatchNodeId, uint128 stakeToBeRemoved) external;
 
     // Bounded contract-focused queries.
+    /// Shared running-block clock: global pauses freeze swap cooldowns and deadlines.
+    function getRunningBlock() external view returns (uint32);
     function getNodeStake(uint32 subnetId, uint32 subnetNodeId) external view returns (uint128);
     function getOverwatchStake(uint32 overwatchNodeId) external view returns (uint128);
     function getSubnetPool(uint32 subnetId, bytes32 accountId) external view returns (Pool memory);

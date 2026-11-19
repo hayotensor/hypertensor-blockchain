@@ -6,7 +6,7 @@ use crate::{
     LastSubnetDelegateStakeRewardsUpdate, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     MinSubnetNodeReputation, OverwatchNodeValidatorId, PeerInfo,
     PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
-    PendingMinSubnetNodeReputation, PendingOwnerU128Update, PendingOwnerU32Update,
+    PendingMinSubnetNodeReputation, PendingU128Update, PendingU32Update,
     PendingProbationRounds, PendingQueueImmunityEpochs,
     PendingSubnetDelegateStakeRewardsPercentage, PendingSubnetDelegateStakeRewardsPercentageUpdate,
     PendingSubnetNodeMinWeightDecreaseReputationThreshold, PendingSubnetNodeQueueEpochs,
@@ -113,18 +113,18 @@ fn test_get_subnet_info() {
             last_consensus_validator_stake_weight_power_update,
         );
 
-        let pending_queue = PendingOwnerU32Update::<Test> {
+        let pending_queue = PendingU32Update::<Test> {
             value: pending_queue_immunity_epochs,
             effective_subnet_epoch,
             owner: owner.clone(),
         };
 
-        let pending_subnet_node_queue = PendingOwnerU32Update::<Test> {
+        let pending_subnet_node_queue = PendingU32Update::<Test> {
             value: pending_subnet_node_queue_epochs,
             effective_subnet_epoch,
             owner: owner.clone(),
         };
-        let pending_probation = PendingOwnerU32Update::<Test> {
+        let pending_probation = PendingU32Update::<Test> {
             value: pending_probation_rounds,
             effective_subnet_epoch,
             owner: owner.clone(),
@@ -134,22 +134,22 @@ fn test_get_subnet_info() {
             effective_subnet_epoch,
             owner: owner.clone(),
         };
-        let pending_node_count_decay = PendingOwnerU128Update::<Test> {
+        let pending_node_count_decay = PendingU128Update::<Test> {
             value: pending_consensus_validator_node_count_decay,
             effective_subnet_epoch,
             owner: owner.clone(),
         };
-        let pending_stake_weight_power = PendingOwnerU128Update::<Test> {
+        let pending_stake_weight_power = PendingU128Update::<Test> {
             value: pending_consensus_validator_stake_weight_power,
             effective_subnet_epoch,
             owner: owner.clone(),
         };
-        let pending_min_weight_threshold = PendingOwnerU128Update::<Test> {
+        let pending_min_weight_threshold = PendingU128Update::<Test> {
             value: pending_min_weight_decrease_reputation_threshold,
             effective_subnet_epoch,
             owner: owner.clone(),
         };
-        let pending_min_reputation = PendingOwnerU128Update::<Test> {
+        let pending_min_reputation = PendingU128Update::<Test> {
             value: pending_min_subnet_node_reputation,
             effective_subnet_epoch,
             owner: owner.clone(),

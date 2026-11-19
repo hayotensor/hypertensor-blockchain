@@ -75,15 +75,16 @@ pub(super) fn max_queue<T: Config>(subnet_id: u32, nodes: u32) -> (u32, u32) {
         max_fill_node::<T>(subnet_id, id);
     }
     let epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
+    let queue_epoch = Network::<T>::queue_epoch_at_subnet_slot(subnet_id, epoch);
     // Represent an existing mature queue, so both tail actions pass the actual proposal guard.
     for id in nodes + 1..=nodes + queue_len {
         QueuedSubnetNodesData::<T>::mutate(subnet_id, id, |node| {
-            node.classification.start_epoch = epoch.saturating_sub(1);
+            node.classification.start_epoch = queue_epoch.saturating_sub(1);
         });
     }
     SubnetNodeQueue::<T>::mutate(subnet_id, |queue| {
         for node in queue {
-            node.classification.start_epoch = epoch.saturating_sub(1);
+            node.classification.start_epoch = queue_epoch.saturating_sub(1);
         }
     });
     SubnetElectedValidator::<T>::mutate(subnet_id, epoch, |round| {

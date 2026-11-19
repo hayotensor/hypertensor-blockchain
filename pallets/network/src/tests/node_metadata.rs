@@ -1,7 +1,11 @@
 use super::{mock::*, test_utils::*};
 use crate::*;
 use codec::Encode;
-use frame_support::{assert_noop, assert_ok, traits::Currency, weights::WeightMeter};
+use frame_support::{
+    assert_noop, assert_ok,
+    traits::{Currency, Hooks},
+    weights::{Weight, WeightMeter},
+};
 use sp_core::OpaquePeerId;
 
 const DEPOSIT: u128 = 10_000_000_000_000_000_000_000;
@@ -451,7 +455,7 @@ fn key_rotations_keep_metadata_attached_to_node_id() {
 }
 
 #[test]
-fn quarantine_retains_metadata_until_physical_cleanup_and_retains_withdrawal_state() {
+fn quarantine_removes_membership_before_idle_metadata_cleanup_and_retains_withdrawal_state() {
     for queued in [false, true] {
         new_test_ext().execute_with(|| {
             let (subnet, node, coldkey) = fixture(queued);
@@ -480,8 +484,12 @@ fn quarantine_retains_metadata_until_physical_cleanup_and_retains_withdrawal_sta
                 node,
                 Some(Default::default())
             ));
-            assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
-            assert_indexes(subnet, node, &m, false);
+            assert_eq!(
+                SubnetNodeMetadata::<Test>::get(subnet, node),
+                Some(m.clone())
+            );
+            assert_indexes(subnet, node, &m, true);
+            assert!(NodeMetadataCleanupQueue::<Test>::get().contains(&(subnet, node)));
             assert!(!SubnetNodesData::<Test>::contains_key(subnet, node));
             assert!(!QueuedSubnetNodesData::<Test>::contains_key(subnet, node));
             assert_eq!(NodeSubnetStake::<Test>::get(node, subnet), stake);
@@ -493,6 +501,11 @@ fn quarantine_retains_metadata_until_physical_cleanup_and_retains_withdrawal_sta
                 }
                 .into(),
             );
+            Network::on_idle(System::block_number(), Weight::MAX);
+            assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
+            assert_indexes(subnet, node, &m, false);
+            assert_eq!(NodeSubnetStake::<Test>::get(node, subnet), stake);
+            assert_eq!(SubnetNodeValidatorId::<Test>::get(subnet, node), validator);
         });
     }
 }
@@ -534,8 +547,11 @@ fn metadata_updates_reject_removed_nodes_with_retained_ownership() {
                     Network::get_subnet_node_associated_coldkey(subnet, node).unwrap(),
                     coldkey
                 );
-                assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
-                assert_indexes(subnet, node, &metadata, false);
+                assert_eq!(
+                    SubnetNodeMetadata::<Test>::contains_key(subnet, node),
+                    !remove_whole_subnet
+                );
+                assert_indexes(subnet, node, &metadata, !remove_whole_subnet);
 
                 // Both setting and clearing metadata must reject historical node IDs,
                 // without recreating metadata/reverse indexes or emitting update events.
@@ -611,7 +627,10 @@ fn hotkey_updates_reject_removed_nodes_but_preserve_stake_withdrawals() {
             ));
             assert!(!SubnetNodesData::<Test>::contains_key(subnet, node));
             assert!(!QueuedSubnetNodesData::<Test>::contains_key(subnet, node));
-            assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
+            assert_eq!(
+                SubnetNodeIdHotkey::<Test>::get(subnet, node),
+                Some(account(900_002))
+            );
             assert_eq!(SubnetNodeValidatorId::<Test>::get(subnet, node), validator);
 
             for new_hotkey in [Some(account(900_003)), None] {
@@ -632,12 +651,14 @@ fn hotkey_updates_reject_removed_nodes_but_preserve_stake_withdrawals() {
                 stake
             ));
             assert_eq!(NodeSubnetStake::<Test>::get(node, subnet), 0);
+            Network::on_idle(System::block_number(), Weight::MAX);
+            assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
         });
     }
 }
 
 #[test]
-fn hotkey_updates_cannot_grow_cleanup_prefix_through_queued_node_churn() {
+fn hotkey_residuals_are_tracked_during_queued_node_churn() {
     new_test_ext().execute_with(|| {
         let (subnet, _, _) = fixture(false);
         let live_nodes = TotalSubnetNodes::<Test>::get(subnet);
@@ -652,6 +673,12 @@ fn hotkey_updates_cannot_grow_cleanup_prefix_through_queued_node_churn() {
             );
             let node = TotalSubnetNodeUids::<Test>::get(subnet);
             let coldkey = Network::get_subnet_node_associated_coldkey(subnet, node).unwrap();
+            assert_ok!(Network::update_node_hotkey(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet,
+                node,
+                Some(account(900_002))
+            ));
             assert_ok!(Network::remove_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet,
@@ -669,7 +696,7 @@ fn hotkey_updates_cannot_grow_cleanup_prefix_through_queued_node_churn() {
             );
             assert_eq!(
                 SubnetNodeIdHotkey::<Test>::iter_prefix(subnet).count(),
-                hotkeys
+                hotkeys + NodeMetadataCleanupQueue::<Test>::get().len()
             );
         }
         assert!(matches!(
@@ -689,6 +716,12 @@ fn hotkey_updates_cannot_recreate_entries_after_pending_cleanup() {
     for queued in [false, true] {
         new_test_ext().execute_with(|| {
             let (subnet, node, coldkey) = fixture(queued);
+            assert_ok!(Network::update_node_hotkey(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet,
+                node,
+                Some(account(900_001))
+            ));
             if queued {
                 PendingQueuedNodeRemovals::<Test>::mutate(subnet, |ids| {
                     ids.try_insert(node).unwrap();
@@ -705,7 +738,10 @@ fn hotkey_updates_cannot_recreate_entries_after_pending_cleanup() {
                 Some(account(900_002))
             ));
             assert!(!Network::has_pending_subnet_node_removal(subnet, node));
-            assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
+            assert_eq!(
+                SubnetNodeIdHotkey::<Test>::get(subnet, node),
+                Some(account(900_001))
+            );
             assert_noop!(
                 Network::update_node_hotkey(
                     RuntimeOrigin::signed(coldkey),
@@ -715,6 +751,8 @@ fn hotkey_updates_cannot_recreate_entries_after_pending_cleanup() {
                 ),
                 Error::<Test>::InvalidSubnetNodeId
             );
+            Network::on_idle(System::block_number(), Weight::MAX);
+            assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
         });
     }
 }
@@ -791,5 +829,317 @@ fn composed_readers_include_metadata_and_missing_metadata_does_not_hide_core() {
         assert!(info.peer_info.is_none() && info.unique.is_none());
         SubnetNodeMetadata::<Test>::insert(subnet, 999_999, maximum(43));
         assert!(Network::get_subnet_node_info(subnet, 999_999).is_none());
+    });
+}
+
+#[test]
+fn removed_nodes_cannot_participate_and_can_unstake_before_or_long_after_idle_cleanup() {
+    for queued in [false, true] {
+        for cleanup_first in [false, true] {
+            new_test_ext().execute_with(|| {
+                let (subnet, node, coldkey) = fixture(queued);
+                let metadata = maximum(42);
+                set(subnet, node, &coldkey, metadata.clone());
+                assert_ok!(Network::update_node_hotkey(
+                    RuntimeOrigin::signed(coldkey.clone()),
+                    subnet,
+                    node,
+                    Some(account(900_002))
+                ));
+                let hotkey = Network::get_subnet_node_associated_hotkey(subnet, node).unwrap();
+                let slot_index = NodeSlotIndex::<Test>::get(subnet, node);
+                let validator = SubnetNodeValidatorId::<Test>::get(subnet, node).unwrap();
+                let stake = NodeSubnetStake::<Test>::get(node, subnet);
+                assert_ok!(Network::remove_subnet_node(
+                    RuntimeOrigin::signed(coldkey.clone()),
+                    subnet,
+                    node
+                ));
+                assert!(!SubnetNodeReputation::<Test>::contains_key(subnet, node));
+                assert!(!SubnetNodeElectionSlots::<Test>::get(subnet).contains(&node));
+                assert!(!ValidatorSubnetNodes::<Test>::get(validator)
+                    .get(&subnet)
+                    .is_some_and(|nodes| nodes.contains(&node)));
+                assert!(!ValidatorNodeDelegateStakeWeights::<Test>::get(validator)
+                    .contains_key(&(subnet, node)));
+                assert!(Network::get_subnet_node_info(subnet, node).is_none());
+                assert_indexes(subnet, node, &metadata, true);
+                assert_eq!(
+                    SubnetNodeIdHotkey::<Test>::get(subnet, node),
+                    Some(hotkey.clone())
+                );
+                assert_eq!(NodeSlotIndex::<Test>::get(subnet, node), slot_index);
+                assert_noop!(
+                    Network::attest(RuntimeOrigin::signed(hotkey), subnet, node, None),
+                    Error::<Test>::InvalidSubnetNodeId
+                );
+                let epoch = Network::get_current_subnet_epoch_as_u32(subnet) + 10;
+                Network::elect_validator(subnet, epoch);
+                let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
+                assert_ne!(round.validator_subnet_node_id, node);
+                assert!(!round.eligible_subnet_node_ids.contains(&node));
+
+                if cleanup_first {
+                    Network::on_idle(System::block_number(), Weight::MAX);
+                    // Cleanup and a later subnet deletion must not erase historical stake ownership.
+                    Network::do_remove_subnet(subnet, SubnetRemovalReason::Owner);
+                    System::set_block_number(System::block_number() + 1_000_000);
+                }
+                assert_eq!(
+                    SubnetNodeValidatorId::<Test>::get(subnet, node),
+                    Some(validator)
+                );
+                assert_eq!(NodeSubnetStake::<Test>::get(node, subnet), stake);
+                assert_ok!(Network::remove_node_stake(
+                    RuntimeOrigin::signed(coldkey.clone()),
+                    subnet,
+                    node,
+                    stake
+                ));
+                assert_eq!(NodeSubnetStake::<Test>::get(node, subnet), 0);
+                let before = Balances::free_balance(&coldkey);
+                let cooldown = StakeCooldownEpochs::<Test>::get() * EpochLength::get();
+                System::set_block_number(System::block_number() + cooldown + 1);
+                assert_ok!(Network::claim_unbondings(RuntimeOrigin::signed(
+                    coldkey.clone()
+                )));
+                assert_eq!(Balances::free_balance(&coldkey), before + stake);
+                Network::on_idle(System::block_number(), Weight::MAX);
+                assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
+                assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
+                assert!(!NodeSlotIndex::<Test>::contains_key(subnet, node));
+                assert_indexes(subnet, node, &metadata, false);
+            });
+        }
+    }
+}
+
+#[test]
+fn idle_cleanup_without_metadata_preserves_moved_nodes_slot_index() {
+    new_test_ext().execute_with(|| {
+        let (subnet, _, _) = fixture(false);
+        let slots = SubnetNodeElectionSlots::<Test>::get(subnet);
+        let node = slots[0];
+        let moved_node = *slots.last().unwrap();
+        assert_ne!(node, moved_node);
+        let coldkey = Network::get_subnet_node_associated_coldkey(subnet, node).unwrap();
+        set(subnet, node, &coldkey, NodeMetadata::default());
+        assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
+        assert_ok!(Network::update_node_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            subnet,
+            node,
+            Some(account(900_002))
+        ));
+
+        Network::perform_remove_subnet_node(subnet, node);
+        assert_eq!(SubnetNodeElectionSlots::<Test>::get(subnet)[0], moved_node);
+        assert_eq!(NodeSlotIndex::<Test>::get(subnet, moved_node), Some(0));
+        assert_eq!(NodeSlotIndex::<Test>::get(subnet, node), Some(0));
+        assert_eq!(
+            SubnetNodeIdHotkey::<Test>::get(subnet, node),
+            Some(account(900_002))
+        );
+        Network::on_idle(System::block_number(), Weight::MAX);
+        assert!(!NodeSlotIndex::<Test>::contains_key(subnet, node));
+        assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
+        assert_eq!(NodeSlotIndex::<Test>::get(subnet, moved_node), Some(0));
+    });
+}
+
+#[test]
+fn idle_metadata_cleanup_respects_both_weight_dimensions_and_is_idempotent() {
+    new_test_ext().execute_with(|| {
+        let (subnet, node, coldkey) = fixture(false);
+        let metadata = maximum(42);
+        set(subnet, node, &coldkey, metadata.clone());
+        Network::perform_remove_subnet_node(subnet, node);
+        let second_node = 3;
+        let second_coldkey =
+            Network::get_subnet_node_associated_coldkey(subnet, second_node).unwrap();
+        let second_metadata = maximum(43);
+        set(
+            subnet,
+            second_node,
+            &second_coldkey,
+            second_metadata.clone(),
+        );
+        Network::perform_remove_subnet_node(subnet, second_node);
+        let queue = NodeMetadataCleanupQueue::<Test>::get();
+        let exact = Network::node_metadata_cleanup_queue_weight()
+            .saturating_add(Network::node_metadata_cleanup_item_weight());
+        for insufficient in [
+            Weight::zero(),
+            Weight::from_parts(exact.ref_time() - 1, exact.proof_size()),
+            Weight::from_parts(exact.ref_time(), exact.proof_size() - 1),
+        ] {
+            let mut meter = WeightMeter::with_limit(insufficient);
+            Network::cleanup_deferred_node_metadata(&mut meter);
+            assert!(meter.consumed().all_lte(insufficient));
+            assert_eq!(NodeMetadataCleanupQueue::<Test>::get(), queue);
+            assert_indexes(subnet, node, &metadata, true);
+            assert!(NodeSlotIndex::<Test>::contains_key(subnet, node));
+        }
+        let mut meter = WeightMeter::with_limit(exact);
+        Network::cleanup_deferred_node_metadata(&mut meter);
+        assert_eq!(meter.consumed(), exact);
+        assert_eq!(
+            NodeMetadataCleanupQueue::<Test>::get().as_slice(),
+            &[(subnet, second_node)]
+        );
+        assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
+        assert!(!NodeSlotIndex::<Test>::contains_key(subnet, node));
+        assert!(NodeSlotIndex::<Test>::contains_key(subnet, second_node));
+        assert_indexes(subnet, node, &metadata, false);
+        assert_indexes(subnet, second_node, &second_metadata, true);
+        let counts = (TotalNodes::<Test>::get(), TotalAdmittedNodes::<Test>::get());
+        Network::cleanup_deferred_node_metadata(&mut WeightMeter::new());
+        assert!(!NodeMetadataCleanupQueue::<Test>::exists());
+        assert_indexes(subnet, second_node, &second_metadata, false);
+        assert!(!NodeSlotIndex::<Test>::contains_key(subnet, second_node));
+        Network::cleanup_deferred_node_metadata(&mut WeightMeter::new());
+        assert_eq!(
+            counts,
+            (TotalNodes::<Test>::get(), TotalAdmittedNodes::<Test>::get())
+        );
+    });
+}
+
+#[test]
+fn residual_indexes_stay_reserved_until_idle_then_can_be_reused() {
+    new_test_ext().execute_with(|| {
+        let (subnet, node, coldkey) = fixture(false);
+        let metadata = maximum(42);
+        set(subnet, node, &coldkey, metadata.clone());
+        Network::perform_remove_subnet_node(subnet, node);
+        let other_node = 3;
+        let other_coldkey =
+            Network::get_subnet_node_associated_coldkey(subnet, other_node).unwrap();
+        assert_noop!(
+            Network::update_node_unique(
+                RuntimeOrigin::signed(other_coldkey.clone()),
+                subnet,
+                other_node,
+                metadata.unique.clone()
+            ),
+            Error::<Test>::UniqueParameterTaken
+        );
+        for peer in [
+            &metadata.peer_info,
+            &metadata.bootnode_peer_info,
+            &metadata.client_peer_info,
+        ] {
+            assert_noop!(
+                Network::validate_peer_info(subnet, other_node, 0, peer.as_ref().unwrap()),
+                Error::<Test>::PeerIdExist
+            );
+            assert!(!Network::is_owner_of_multiaddr_or_ownerless(
+                subnet,
+                other_node,
+                peer.as_ref().unwrap().multiaddr.clone().unwrap()
+            ));
+        }
+        Network::on_idle(System::block_number(), Weight::MAX);
+        set(subnet, other_node, &other_coldkey, metadata.clone());
+        assert_indexes(subnet, other_node, &metadata, true);
+        // An already-drained cleanup task must never erase the new owner's indexes.
+        Network::on_idle(System::block_number(), Weight::MAX);
+        assert_indexes(subnet, other_node, &metadata, true);
+    });
+}
+
+#[test]
+fn full_metadata_cleanup_queue_does_not_block_removal_or_unstaking() {
+    for queued in [false, true] {
+        new_test_ext().execute_with(|| {
+            let (subnet, node, coldkey) = fixture(queued);
+            let metadata = maximum(42);
+            set(subnet, node, &coldkey, metadata.clone());
+            assert_ok!(Network::update_node_hotkey(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet,
+                node,
+                Some(account(900_002))
+            ));
+            let queue: BoundedVec<_, frame_support::traits::ConstU32<64>> = (0..64)
+                .map(|id| (u32::MAX, id))
+                .collect::<Vec<_>>()
+                .try_into()
+                .unwrap();
+            NodeMetadataCleanupQueue::<Test>::put(&queue);
+            let stake = NodeSubnetStake::<Test>::get(node, subnet);
+            assert_ok!(Network::remove_subnet_node(
+                RuntimeOrigin::signed(coldkey.clone()),
+                subnet,
+                node
+            ));
+            assert_eq!(NodeMetadataCleanupQueue::<Test>::get(), queue);
+            assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
+            assert_indexes(subnet, node, &metadata, false);
+            assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
+            assert!(!SubnetNodeProbationProgress::<Test>::contains_key(
+                subnet, node
+            ));
+            assert!(!NodeSlotIndex::<Test>::contains_key(subnet, node));
+            assert_ok!(Network::remove_node_stake(
+                RuntimeOrigin::signed(coldkey),
+                subnet,
+                node,
+                stake
+            ));
+        });
+    }
+}
+
+#[test]
+fn subnet_removal_drains_only_its_residual_metadata_without_double_counting() {
+    new_test_ext().execute_with(|| {
+        let (subnet, node, coldkey) = fixture(false);
+        let metadata = maximum(42);
+        set(subnet, node, &coldkey, metadata.clone());
+        assert_ok!(Network::update_node_hotkey(
+            RuntimeOrigin::signed(coldkey),
+            subnet,
+            node,
+            Some(account(900_002))
+        ));
+        let before = Network::subnet_residual_metadata_cleanup_weight(subnet);
+        Network::perform_remove_subnet_node(subnet, node);
+        assert_eq!(
+            Network::subnet_residual_metadata_cleanup_weight(subnet),
+            before.saturating_add(Network::node_metadata_cleanup_item_weight())
+        );
+        NodeMetadataCleanupQueue::<Test>::mutate(|q| q.try_push((u32::MAX, 1)).unwrap());
+        SubnetNodeMetadata::<Test>::insert(u32::MAX, 1, maximum(43));
+        SubnetNodeIdHotkey::<Test>::insert(u32::MAX, 1, account(900_003));
+        SubnetNodeProbationProgress::<Test>::insert(u32::MAX, 1, 1);
+        NodeSlotIndex::<Test>::insert(u32::MAX, 1, 0);
+        Network::do_remove_subnet(subnet, SubnetRemovalReason::Owner);
+        assert_eq!(
+            NodeMetadataCleanupQueue::<Test>::get().as_slice(),
+            &[(u32::MAX, 1)]
+        );
+        assert!(SubnetNodeMetadata::<Test>::contains_key(u32::MAX, 1));
+        assert!(SubnetNodeIdHotkey::<Test>::contains_key(u32::MAX, 1));
+        assert!(SubnetNodeProbationProgress::<Test>::contains_key(
+            u32::MAX,
+            1
+        ));
+        assert!(NodeSlotIndex::<Test>::contains_key(u32::MAX, 1));
+        assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
+        assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
+        assert!(!NodeSlotIndex::<Test>::contains_key(subnet, node));
+        assert_indexes(subnet, node, &metadata, false);
+        assert_eq!(TotalNodes::<Test>::get(), 0);
+        assert_eq!(TotalAdmittedNodes::<Test>::get(), 0);
+        Network::on_idle(System::block_number(), Weight::MAX);
+        assert!(!SubnetNodeIdHotkey::<Test>::contains_key(u32::MAX, 1));
+        assert!(!SubnetNodeProbationProgress::<Test>::contains_key(
+            u32::MAX,
+            1
+        ));
+        assert!(!NodeSlotIndex::<Test>::contains_key(u32::MAX, 1));
+        assert_eq!(TotalNodes::<Test>::get(), 0);
+        assert_eq!(TotalAdmittedNodes::<Test>::get(), 0);
     });
 }

@@ -137,7 +137,7 @@ fn scalar_account_and_byte_arguments_preserve_the_native_call_payload() {
         delegateStakeSharesToSwap => delegate_stake_shares_to_swap: ((1u128 << 100) + 103),
         minBalanceOut => min_balance_out: ((1u128 << 100) + 104),
         minSharesOut => min_shares_out: ((1u128 << 100) + 105),
-        executeBeforeBlock => execute_before_block: 106u32,
+        executeBeforeRunningBlock => execute_before_running_block: 106u32,
     );
     case!(staking, IStaking, IStakingCalls, transferDelegateStakeCall => transfer_delegate_stake;
         subnetId => subnet_id: 101u32,
@@ -170,7 +170,7 @@ fn scalar_account_and_byte_arguments_preserve_the_native_call_payload() {
         stakeToBeRemoved => stake_to_be_removed: ((1u128 << 100) + 103),
         minBalanceOut => min_balance_out: ((1u128 << 100) + 104),
         minSharesOut => min_shares_out: ((1u128 << 100) + 105),
-        executeBeforeBlock => execute_before_block: 106u32,
+        executeBeforeRunningBlock => execute_before_running_block: 106u32,
     );
     case!(staking, IStaking, IStakingCalls, swapFromValidatorToSubnetCall => swap_from_validator_to_subnet;
         fromValidatorId => from_validator_id: 101u32,
@@ -178,7 +178,7 @@ fn scalar_account_and_byte_arguments_preserve_the_native_call_payload() {
         nodeDelegateStakeSharesToSwap => node_delegate_stake_shares_to_swap: ((1u128 << 100) + 103),
         minBalanceOut => min_balance_out: ((1u128 << 100) + 104),
         minSharesOut => min_shares_out: ((1u128 << 100) + 105),
-        executeBeforeBlock => execute_before_block: 106u32,
+        executeBeforeRunningBlock => execute_before_running_block: 106u32,
     );
     case!(staking, IStaking, IStakingCalls, swapFromSubnetToValidatorCall => swap_from_subnet_to_validator;
         fromSubnetId => from_subnet_id: 101u32,
@@ -186,7 +186,7 @@ fn scalar_account_and_byte_arguments_preserve_the_native_call_payload() {
         subnetDelegateStakeSharesToSwap => subnet_delegate_stake_shares_to_swap: ((1u128 << 100) + 103),
         minBalanceOut => min_balance_out: ((1u128 << 100) + 104),
         minSharesOut => min_shares_out: ((1u128 << 100) + 105),
-        executeBeforeBlock => execute_before_block: 106u32,
+        executeBeforeRunningBlock => execute_before_running_block: 106u32,
     );
     case!(staking, IStaking, IStakingCalls, removeDelegateAccountBalanceCall => remove_delegate_account_balance;
         amountToRemove => amount_to_remove: ((1u128 << 100) + 101),

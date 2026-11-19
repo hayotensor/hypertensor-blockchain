@@ -798,7 +798,7 @@ fn static_reads_work_and_nonzero_swap_arguments_survive_abi_conversion() {
         subnetDelegateStakeSharesToSwap: 123456789123456789,
         minBalanceOut: 10,
         minSharesOut: 11,
-        executeBeforeBlock: 900,
+        executeBeforeRunningBlock: 900,
     }
     .abi_encode();
     let decoded = abi::IStaking::IStakingCalls::abi_decode_validate(&wire).unwrap();
@@ -811,7 +811,7 @@ fn static_reads_work_and_nonzero_swap_arguments_survive_abi_conversion() {
         subnet_delegate_stake_shares_to_swap: 123456789123456789,
         min_balance_out: 10,
         min_shares_out: 11,
-        execute_before_block: 900,
+        execute_before_running_block: 900,
     };
     assert_eq!(call.encode(), expected.encode());
     crate::tests::npos::ext().execute_with(|| {
@@ -840,6 +840,74 @@ fn static_reads_work_and_nonzero_swap_arguments_survive_abi_conversion() {
         assert_eq!(
             abi::IStaking::getNodeStakeCall::abi_decode_returns(&result.data).unwrap(),
             321
+        );
+    });
+}
+
+#[test]
+fn swap_running_clock_and_queue_reads_match_native_storage_across_pause() {
+    crate::tests::npos::ext().execute_with(|| {
+        let who = setup();
+        System::set_block_number(1_000);
+        n::TotalNetworkPausedBlocks::<Runtime>::put(17);
+        let clock = read(addresses::STAKING, abi::IStaking::getRunningBlockCall {});
+        assert_eq!(clock, 983);
+        let id = n::NextSwapQueueId::<Runtime>::get();
+        let balance = n::MinQueuedSwapBalance::<Runtime>::get().max(1);
+        n::SwapCallQueue::<Runtime>::insert(
+            id,
+            n::QueuedSwapItem {
+                id,
+                call: n::QueuedSwapCall::SwapToSubnetDelegateStake {
+                    account_id: who.clone(),
+                    to_subnet_id: 7,
+                    balance,
+                    min_shares_out: 11,
+                    execute_before_running_block: u32::MAX,
+                },
+                queued_at_running_block: clock,
+                execute_after_blocks: 20,
+            },
+        );
+        let item = n::SwapCallQueue::<Runtime>::get(id).unwrap();
+        let info = read(addresses::STAKING, abi::IStaking::getQueuedSwapCall { id });
+        assert!(info.exists);
+        assert_eq!(info.info.queuedAtRunningBlock, clock);
+        assert_eq!(info.info.executeAfterBlocks, item.execute_after_blocks);
+        assert_eq!(convert::queued_swap(&info.info.call).unwrap(), item.call);
+
+        assert_ok!(Network::do_pause());
+        System::set_block_number(2_000);
+        // Query through STATICCALL to verify that the clock remains a read-only view while paused.
+        let contract = deploy(forwarder(addresses::STAKING, 0xfa, false));
+        let result = Revive::bare_call(
+            RuntimeOrigin::signed(who),
+            contract,
+            U256::zero(),
+            TransactionLimits::WeightAndDeposit {
+                weight_limit: CONTRACT_WEIGHT,
+                deposit_limit: TENSOR,
+            },
+            abi::IStaking::getRunningBlockCall {}.abi_encode(),
+            &Default::default(),
+        )
+        .result
+        .unwrap();
+        assert!(!result.did_revert());
+        assert_eq!(
+            abi::IStaking::getRunningBlockCall::abi_decode_returns(&result.data).unwrap(),
+            clock
+        );
+        assert_ok!(Network::do_unpause());
+        assert_eq!(
+            read(addresses::STAKING, abi::IStaking::getRunningBlockCall {}),
+            clock
+        );
+        assert_eq!(n::SwapCallQueue::<Runtime>::get(id), Some(item));
+        System::set_block_number(2_001);
+        assert_eq!(
+            read(addresses::STAKING, abi::IStaking::getRunningBlockCall {}),
+            clock + 1
         );
     });
 }

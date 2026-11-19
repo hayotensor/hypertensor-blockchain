@@ -8,7 +8,7 @@ use crate::{
     MaxSubnets, MinSubnetMinStake, MinSubnetNodeReputation, MinSubnetNodes, MinSubnetReputation,
     NodeSubnetStake, PeerInfo, PendingAdmittedNodeRemovals,
     PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
-    PendingOwnerU128Update, ProbationRounds, QueueImmunityEpochs, QueuedSubnetNodesData,
+    PendingU128Update, ProbationRounds, QueueImmunityEpochs, QueuedSubnetNodesData,
     RewardsData, SubnetConsensusAttestorWeights, SubnetConsensusSubmission, SubnetData,
     SubnetElectedValidator, SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification,
     SubnetNodeConsensusData, SubnetNodeElectionSlots,
@@ -1273,7 +1273,7 @@ fn test_consensus_snapshot_uses_pending_owner_controls_at_effective_subnet_epoch
         ConsensusValidatorStakeWeightPower::<Test>::insert(subnet_id, percentage_factor);
         PendingConsensusValidatorNodeCountDecay::<Test>::insert(
             subnet_id,
-            PendingOwnerU128Update::<Test> {
+            PendingU128Update::<Test> {
                 value: 0,
                 effective_subnet_epoch,
                 owner: account(1),
@@ -1308,7 +1308,7 @@ fn test_consensus_snapshot_uses_pending_owner_controls_at_effective_subnet_epoch
 
         PendingConsensusValidatorStakeWeightPower::<Test>::insert(
             subnet_id,
-            PendingOwnerU128Update::<Test> {
+            PendingU128Update::<Test> {
                 value: 0,
                 effective_subnet_epoch,
                 owner: account(1),

@@ -39,6 +39,15 @@ endorsed omission resets it. Other non-qualifying rounds leave it unchanged.
 A zero-score entry still counts in a nonzero-total-score round. Promotion additionally
 requires full reputation. Probation nodes earn no node-related rewards and cannot vote.
 
+For `queued` nodes, `classification.startEpoch` is a logical queue epoch, not an ordinary
+subnet epoch. At the same queried block, freeze the block number at `NetworkPauseStartBlock`
+if present, subtract `TotalNetworkPausedBlocks`, then apply the subnet slot offset and epoch
+length. Paused blocks contribute no queue age. Admission maturity and removal immunity are
+evaluated at subnet-slot boundaries, not at later proposal blocks within the round.
+Admission replaces this timestamp with the ordinary subnet epoch for `probation`/`active`.
+The cumulative pause counter includes only actual paused blocks, excluding registration's
+extra grace epoch; historical reads must use the counter and marker at the requested block.
+
 `totalAdmittedNodes` counts Probation and Active nodes occupying subnet capacity.
 `totalElectableNodes` is the separate physical election-candidate count; eligibility resolution
 excludes pending removals. Bootnode results expose `admittedNodes`, and historical proposal
@@ -157,9 +166,10 @@ submission stage, not a payout outcome; `ConsensusRoundCancelled` events identif
 cancelled settlement. New elections resume at each eligible subnet's next slot.
 
 For pending subnets, `registrationEpoch` is a logical timing anchor. Global resume shifts it
-by the general epoch boundaries crossed during the pause, preserving the remaining minimum
-activation wait and registration/enactment epochs. Re-read it after resume before calculating
-deadlines. A pause entirely within one epoch does not change these epoch-based windows.
+by `resume_epoch - pause_epoch + 1`, including an extra epoch for partial-epoch time even on
+a same-block pause/unpause. This shifts the minimum activation time and both registration/enactment
+deadlines and can restore a recently expired window. Re-read it after resume before calculating
+deadlines. Unpause while already running adds no extension.
 
 ## Errors
 

@@ -7,6 +7,7 @@ pub fn staking<T: Config>(
 ) -> Result<Vec<u8>, Error> {
     use abi::IStaking::IStakingCalls as C;
     let (reads, bytes) = match input {
+        C::getRunningBlock(_) => (3, 32),
         C::getUnbondings(_) => (
             1,
             1024u32.saturating_add(T::MaxUnbondingsUpperBound::get().saturating_mul(128)),
@@ -21,6 +22,10 @@ pub fn staking<T: Config>(
     };
     charge::<T>(env, reads, bytes)?;
     Ok(match input {
+        C::getRunningBlock(_) => {
+            n::Pallet::<T>::running_block_at(n::Pallet::<T>::get_current_block_as_u32())
+                .abi_encode()
+        }
         C::getNodeStake(a) => n::NodeSubnetStake::<T>::get(a.subnetNodeId, a.subnetId).abi_encode(),
         C::getOverwatchStake(a) => {
             n::OverwatchNodeStakeBalance::<T>::get(a.overwatchNodeId).abi_encode()
@@ -70,7 +75,7 @@ pub fn staking<T: Config>(
             let info = item
                 .map(|v| abi::QueuedSwapInfo {
                     call: convert::queued_swap_out(v.call),
-                    queuedAtBlock: v.queued_at_block,
+                    queuedAtRunningBlock: v.queued_at_running_block,
                     executeAfterBlocks: v.execute_after_blocks,
                 })
                 .unwrap_or_default();

@@ -447,6 +447,9 @@ impl<T: Config> Pallet<T> {
         if prioritize_queue_node_id.is_some() || remove_queue_node_id.is_some() {
             let queue = SubnetNodeQueue::<T>::get(subnet_id);
             let immunity_epochs = policy.queue_immunity_epochs;
+            // The resume guard above guarantees no completed pause has occurred since this
+            // election. Pin immunity to its slot so it cannot expire ahead of queue admission.
+            let queue_epoch = Self::queue_epoch_at_subnet_slot(subnet_id, subnet_epoch);
 
             let mut prioritize_exists = prioritize_queue_node_id.is_none();
             let mut remove_allowed = remove_queue_node_id.is_none(); // Rename for clarity
@@ -465,7 +468,7 @@ impl<T: Config> Pallet<T> {
                         remove_allowed = Self::has_epoch_period_elapsed(
                             node.classification.start_epoch,
                             immunity_epochs,
-                            subnet_epoch,
+                            queue_epoch,
                         );
                     }
                 }

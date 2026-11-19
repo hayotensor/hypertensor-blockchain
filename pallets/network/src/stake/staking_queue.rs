@@ -19,7 +19,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Description
     ///
-    /// Queues a swap call to be executed after a certain number of blocks.
+    /// Queues a swap with a cooldown and deadline measured in running blocks.
     ///
     /// Used after source principal has been removed by one of the four transactional
     /// subnet/validator swap paths.
@@ -40,7 +40,7 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotKeyOwner
         );
 
-        let queued_at_block = Self::get_current_block_as_u32();
+        let queued_at_running_block = Self::running_block_at(Self::get_current_block_as_u32());
         let source_cooldown_epochs = match source {
             QueuedSwapSource::SubnetDelegate => DelegateStakeCooldownEpochs::<T>::get(),
             QueuedSwapSource::ValidatorDelegate => NodeDelegateStakeCooldownEpochs::<T>::get(),
@@ -53,11 +53,11 @@ impl<T: Config> Pallet<T> {
         // pool's withdrawal cooldown. Store the value on the item so later governance changes do
         // not retroactively alter already-debited principal.
         let execute_after_blocks = T::EpochLength::get().max(source_cooldown_blocks);
-        let earliest_execution_block = queued_at_block
+        let earliest_execution_block = queued_at_running_block
             .checked_add(execute_after_blocks)
             .ok_or(Error::<T>::InvalidSwapDeadline)?;
         ensure!(
-            call.get_execute_before_block() >= earliest_execution_block,
+            call.get_execute_before_running_block() >= earliest_execution_block,
             Error::<T>::InvalidSwapDeadline
         );
         ensure!(
@@ -85,7 +85,7 @@ impl<T: Config> Pallet<T> {
         let queued_item = QueuedSwapItem {
             id,
             call: call.clone(),
-            queued_at_block,
+            queued_at_running_block,
             execute_after_blocks,
         };
 
@@ -121,10 +121,10 @@ impl<T: Config> Pallet<T> {
             );
             let call_balance = item.call.get_queue_balance();
             let earliest_execution_block = item
-                .queued_at_block
+                .queued_at_running_block
                 .checked_add(item.execute_after_blocks)
                 .ok_or(Error::<T>::InvalidSwapDeadline)?;
-            let next_block = Self::get_current_block_as_u32()
+            let next_block = Self::running_block_at(Self::get_current_block_as_u32())
                 .checked_add(1)
                 .ok_or(Error::<T>::InvalidSwapDeadline)?;
 
@@ -134,13 +134,13 @@ impl<T: Config> Pallet<T> {
                     to_subnet_id,
                     balance: _,
                     min_shares_out,
-                    execute_before_block,
+                    execute_before_running_block,
                 } => {
                     ensure!(&account_id == &key, Error::<T>::NotKeyOwner);
                     ensure!(min_shares_out > 0, Error::<T>::InvalidSwapMinimumShares);
                     ensure!(
-                        execute_before_block >= earliest_execution_block
-                            && execute_before_block >= next_block,
+                        execute_before_running_block >= earliest_execution_block
+                            && execute_before_running_block >= next_block,
                         Error::<T>::InvalidSwapDeadline
                     );
                     ensure!(
@@ -154,7 +154,7 @@ impl<T: Config> Pallet<T> {
                         to_subnet_id,
                         balance: call_balance,
                         min_shares_out,
-                        execute_before_block,
+                        execute_before_running_block,
                     };
 
                     Self::deposit_event(Event::SwapCallQueueUpdated {
@@ -168,13 +168,13 @@ impl<T: Config> Pallet<T> {
                     to_validator_id,
                     balance: _,
                     min_shares_out,
-                    execute_before_block,
+                    execute_before_running_block,
                 } => {
                     ensure!(&account_id == &key, Error::<T>::NotKeyOwner);
                     ensure!(min_shares_out > 0, Error::<T>::InvalidSwapMinimumShares);
                     ensure!(
-                        execute_before_block >= earliest_execution_block
-                            && execute_before_block >= next_block,
+                        execute_before_running_block >= earliest_execution_block
+                            && execute_before_running_block >= next_block,
                         Error::<T>::InvalidSwapDeadline
                     );
                     ensure!(
@@ -188,7 +188,7 @@ impl<T: Config> Pallet<T> {
                         to_validator_id,
                         balance: call_balance,
                         min_shares_out,
-                        execute_before_block,
+                        execute_before_running_block,
                     };
 
                     Self::deposit_event(Event::SwapCallQueueUpdated {

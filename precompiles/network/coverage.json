@@ -916,7 +916,7 @@
         "u128"
       ],
       [
-        "execute_before_block",
+        "execute_before_running_block",
         "u32"
       ]
     ],
@@ -1066,7 +1066,7 @@
         "u128"
       ],
       [
-        "execute_before_block",
+        "execute_before_running_block",
         "u32"
       ]
     ],
@@ -1101,7 +1101,7 @@
         "u128"
       ],
       [
-        "execute_before_block",
+        "execute_before_running_block",
         "u32"
       ]
     ],
@@ -1136,7 +1136,7 @@
         "u128"
       ],
       [
-        "execute_before_block",
+        "execute_before_running_block",
         "u32"
       ]
     ],

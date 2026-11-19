@@ -372,9 +372,6 @@ fn quarantined_and_removed_probation_nodes_never_progress_or_receive_rewards() {
             let stake_before = NodeSubnetStake::<Test>::get(NEW_NODE, subnet);
             if remove {
                 assert!(Network::remove_admitted_subnet_node(subnet, NEW_NODE));
-                assert!(!SubnetNodeProbationProgress::<Test>::contains_key(
-                    subnet, NEW_NODE
-                ));
             } else {
                 PendingAdmittedNodeRemovals::<Test>::mutate(subnet, |pending| {
                     pending.try_insert(NEW_NODE).unwrap();
@@ -384,10 +381,16 @@ fn quarantined_and_removed_probation_nodes_never_progress_or_receive_rewards() {
             assert_eq!(NodeSubnetStake::<Test>::get(NEW_NODE, subnet), stake_before);
             assert_eq!(
                 SubnetNodeProbationProgress::<Test>::get(subnet, NEW_NODE),
-                if remove { 0 } else { 1 }
+                1
             );
             assert!(!NodeSlotIndex::<Test>::contains_key(subnet, NEW_NODE));
             assert_eq!(promotion_events(subnet), 0);
+            if remove {
+                Network::cleanup_deferred_node_metadata(&mut WeightMeter::new());
+                assert!(!SubnetNodeProbationProgress::<Test>::contains_key(
+                    subnet, NEW_NODE
+                ));
+            }
         });
     }
 }

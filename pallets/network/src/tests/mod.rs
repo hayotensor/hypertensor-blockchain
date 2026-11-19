@@ -29,6 +29,7 @@ mod overwatch_nodes_commit_reveal;
 mod owner;
 mod pending_consensus_operations;
 mod pending_removals;
+mod queue_clock;
 mod queue_maturity;
 mod randomization;
 mod registration_queue;

@@ -31,21 +31,28 @@ impl<T: Config> Pallet<T> {
             // to the old network session, even if the pause lasted less than one subnet epoch.
             LastNetworkUnpauseBlock::<T>::put(Self::get_current_block_as_u32());
             if let Some(pause_start_block) = NetworkPauseStartBlock::<T>::take() {
-                // Lifecycle windows use general epochs. Count crossed epoch boundaries,
-                // including a short pause straddling one, rather than rounding elapsed blocks.
+                // Always grant an extra epoch so paused blocks within a partial epoch cannot
+                // consume the remaining window. This also covers same-block pause/unpause.
                 let paused_epochs = Self::get_current_epoch_as_u32()
-                    .saturating_sub(Self::get_current_epoch_with_block_as_u32(pause_start_block));
-                if paused_epochs != 0 {
-                    // This map contains only pending registrations: activation and removal
-                    // both clear it. Its cardinality is bounded by MaxPhysicalSubnetsUpperBound.
-                    // Shift the shared anchor so activation, node admission, owner controls,
-                    // maintenance, and RPC all observe the same extended windows.
-                    SubnetRegistrationEpoch::<T>::translate::<u32, _>(|_, registered_epoch| {
-                        Some(registered_epoch.saturating_add(paused_epochs))
-                    });
-                }
+                    .saturating_sub(Self::get_current_epoch_with_block_as_u32(pause_start_block))
+                    .saturating_add(1);
+                // This map contains only pending registrations: activation and removal
+                // both clear it. Its cardinality is bounded by MaxPhysicalSubnetsUpperBound.
+                // Shift the shared anchor so activation, node admission, owner controls,
+                // maintenance, and RPC all observe the same extended windows.
+                SubnetRegistrationEpoch::<T>::translate::<u32, _>(|_, registered_epoch| {
+                    Some(registered_epoch.saturating_add(paused_epochs))
+                });
+                // Preserve the activation cooldown before capacity-based subnet removal,
+                // including when no subnet is currently in registration.
+                PrevSubnetActivationEpoch::<T>::mutate(|epoch| {
+                    *epoch = epoch.saturating_add(paused_epochs);
+                });
                 let pause_duration =
                     Self::get_current_block_as_u32().saturating_sub(pause_start_block);
+                TotalNetworkPausedBlocks::<T>::mutate(|total| {
+                    *total = total.saturating_add(pause_duration);
+                });
                 let resumed_start_block = OverwatchEpochStartBlock::<T>::mutate(|start_block| {
                     *start_block = (*start_block).saturating_add(pause_duration);
                     *start_block

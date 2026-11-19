@@ -88,7 +88,8 @@ struct QueuedSwap {
     uint32 destinationId;
     uint128 balance;
     uint128 minSharesOut;
-    uint32 executeBeforeBlock;
+    // Inclusive deadline on IStaking.getRunningBlock(), excluding global paused blocks.
+    uint32 executeBeforeRunningBlock;
 }
 
 struct NodeScore {
@@ -138,7 +139,8 @@ struct Unbonding {
 
 struct QueuedSwapInfo {
     QueuedSwap call;
-    uint32 queuedAtBlock;
+    // Queue entry time on IStaking.getRunningBlock().
+    uint32 queuedAtRunningBlock;
     uint32 executeAfterBlocks;
 }
 
@@ -174,6 +176,7 @@ struct SubnetNodeInfo {
     bytes32 hotkey;
     /// 0 = Queued, 1 = Probation, 2 = Active.
     uint8 nodeClass;
+    // Queued: logical queue epoch excluding global paused blocks. Probation/Active: subnet epoch.
     uint32 classStartEpoch;
     OptionalPeerInfo peerInfo;
     OptionalPeerInfo bootnodePeerInfo;

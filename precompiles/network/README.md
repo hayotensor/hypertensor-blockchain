@@ -54,6 +54,12 @@ IStaking(NetworkAddresses.STAKING).addValidatorDelegateStake(
 - `QueuedSwap.kind` is 0 for subnet delegation and 1 for validator delegation.
   Its account field is checked by the existing swap-queue ownership rules; it
   does not select the dispatch origin.
+- Swap deadlines use `executeBeforeRunningBlock`, an inclusive deadline on
+  `IStaking.getRunningBlock()`. Add the desired window to this clock, allowing at
+  least the source-pool cooldown. Global pauses freeze both the cooldown and expiry.
+  `getQueuedSwap` returns the same clock in `queuedAtRunningBlock` and its deadline;
+  updates also use this clock, including while paused. Ordinary unbonding unlock
+  blocks remain chain block numbers.
 - Use canonical Solidity ABI encoding (`abi.encodeCall` or equivalent): overlapping
   dynamic tails, gaps, dirty padding and trailing bytes are rejected. Unknown
   selectors and malformed ABI revert with `Network: unknown selector` and

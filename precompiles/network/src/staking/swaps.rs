@@ -8,7 +8,7 @@ pub(super) fn convert<T: Config>(input: &Calls) -> Result<Option<pallet_network:
             delegate_stake_shares_to_swap: args.delegateStakeSharesToSwap,
             min_balance_out: args.minBalanceOut,
             min_shares_out: args.minSharesOut,
-            execute_before_block: args.executeBeforeBlock,
+            execute_before_running_block: args.executeBeforeRunningBlock,
         },
         Calls::swapFromValidatorToValidator(args) => {
             pallet_network::Call::swap_from_validator_to_validator {
@@ -17,7 +17,7 @@ pub(super) fn convert<T: Config>(input: &Calls) -> Result<Option<pallet_network:
                 stake_to_be_removed: args.stakeToBeRemoved,
                 min_balance_out: args.minBalanceOut,
                 min_shares_out: args.minSharesOut,
-                execute_before_block: args.executeBeforeBlock,
+                execute_before_running_block: args.executeBeforeRunningBlock,
             }
         }
         Calls::swapFromValidatorToSubnet(args) => {
@@ -27,7 +27,7 @@ pub(super) fn convert<T: Config>(input: &Calls) -> Result<Option<pallet_network:
                 node_delegate_stake_shares_to_swap: args.nodeDelegateStakeSharesToSwap,
                 min_balance_out: args.minBalanceOut,
                 min_shares_out: args.minSharesOut,
-                execute_before_block: args.executeBeforeBlock,
+                execute_before_running_block: args.executeBeforeRunningBlock,
             }
         }
         Calls::swapFromSubnetToValidator(args) => {
@@ -37,7 +37,7 @@ pub(super) fn convert<T: Config>(input: &Calls) -> Result<Option<pallet_network:
                 subnet_delegate_stake_shares_to_swap: args.subnetDelegateStakeSharesToSwap,
                 min_balance_out: args.minBalanceOut,
                 min_shares_out: args.minSharesOut,
-                execute_before_block: args.executeBeforeBlock,
+                execute_before_running_block: args.executeBeforeRunningBlock,
             }
         }
         Calls::updateSwapQueue(args) => pallet_network::Call::update_swap_queue {

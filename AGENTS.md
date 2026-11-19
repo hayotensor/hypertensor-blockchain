@@ -240,6 +240,15 @@ for discovery. An archive node may be necessary for older block hashes.
    and available capacity govern admission; accepted-round progression governs promotion.
    Merely waiting a fixed number of blocks does not guarantee validator eligibility.
 
+Queued nodes use a logical queue clock: subtract `TotalNetworkPausedBlocks` from the
+chain block, freezing at `NetworkPauseStartBlock` during an ongoing global pause, then
+apply the subnet's slot offset and epoch length. Their `classification.start_epoch` is
+in this clock. Both admission maturity and removal immunity use its value at the evaluated
+subnet slot, so neither ages during a pause or expires midway through a consensus round.
+Resume updates one global counter of actual paused blocks and never rewrites queued nodes.
+This clock excludes the extra grace epoch used for subnet registration and capacity removal.
+Admission replaces the logical timestamp with an ordinary subnet epoch for Probation/Active.
+
 Coldkeys use `update_node_hotkey(subnet_id, subnet_node_id, new_hotkey)` to set
 or clear an override, and the `update_node_peer_info`,
 `update_node_bootnode_peer_info`, `update_node_client_peer_info`,
@@ -409,11 +418,14 @@ evidence also cancels the processed round and retains its recorded allocation. P
 settlement status prevents duplicate outcomes but never blocks a new election or subnet removal.
 Missing balance-time records restart with zero historical credit. Epoch-status RPC hides
 globally invalidated work. Global resume shifts each pending `SubnetRegistrationEpoch` forward
-by `resume_epoch - pause_epoch`, preserving its remaining minimum activation wait and
-registration/enactment epochs. This counts general epoch boundaries, including a short pause
-that crosses one; a pause entirely within one epoch leaves these epoch-based windows unchanged.
+by `resume_epoch - pause_epoch + 1`. The extra epoch protects partial-epoch time and is granted
+even for a same-block pause/unpause. The shared anchor shifts the minimum activation time and
+both registration/enactment deadlines; the extra grace can move a subnet back into registration
+or restore an activation window that was only one epoch past expiry before the pause.
+The same adjustment advances `PrevSubnetActivationEpoch`, preserving the activation cooldown
+before capacity-based subnet removal; the global removal-check cadence stays unchanged.
 Repeated pause calls retain the original pause start; unpause while running adds no extension.
-Subnets already expired before the pause remain expired. Re-read registration anchors after resume.
+Re-read registration anchors after resume.
 
 Election candidates, policy, and all attestor weights freeze together at the
 subnet's assigned-slot election, before that block's extrinsics. Delegation,
@@ -543,6 +555,16 @@ Some node operations first clear a pending-removal marker and return success
 without applying the requested top-up/withdrawal/update. Re-read the node and
 position, then decide whether the intended operation is still appropriate.
 
+Node removal clears live membership, election/queue lists, reputation,
+counts, and validator allocations immediately. It preserves `SubnetNodeValidatorId` and
+`NodeSubnetStake` for future coldkey withdrawals. Metadata and its unique/peer/address
+reverse indexes, hotkey overrides, probation progress, and the removed node's `NodeSlotIndex`
+wait in the bounded `NodeMetadataCleanupQueue` for `on_idle`; unique/peer/address values
+remain reserved until cleanup. A surviving node moved in the election list has its slot index
+updated immediately. A full queue falls back to synchronous residual cleanup.
+Whole-subnet deletion drains its residual entries with separately reserved weight. Deferred
+cleanup never changes stake, ownership, membership counts, or historical consensus rounds.
+
 ### Transfer shares or swap pools
 
 Share transfers stay in the same pool:
@@ -554,10 +576,21 @@ Cross-pool movement uses `swap_from_subnet_to_subnet`,
 `swap_from_validator_to_validator`, `swap_from_validator_to_subnet`, or
 `swap_from_subnet_to_validator`. Read exact source-share argument names from the
 call inventory. Every swap includes `min_balance_out`, `min_shares_out`, and
-`execute_before_block`.
+`execute_before_running_block`.
+
+Swap deadlines use the shared running-block clock, not chain block numbers. Compute
+`min(block, NetworkPauseStartBlock if present) - TotalNetworkPausedBlocks` with saturating
+subtraction, reading all values at the same block. Contracts can use
+`IStaking.getRunningBlock()`. Set `execute_before_running_block` to that clock plus
+the desired window, allowing at least the source cooldown. Stored swap timestamps and
+events use this clock too; `queued_at_running_block` records when the swap entered it.
+Global pauses freeze both the cooldown and the deadline without rewriting queue entries.
+Updates remain callable while paused and validate against the frozen clock. Deadlines
+are inclusive; only running blocks after the deadline expire a swap. Pauses grant no
+extra grace and do not automatically revive swaps that were already expired.
 
 Swaps withdraw source shares into queued principal; destination shares arrive
-later. The queue snapshots the source cooldown with a one-epoch minimum.
+later. The queue snapshots the source cooldown in running blocks with a one-epoch minimum.
 Inspect `SwapCallQueue`, queue events, and the eventual destination balance.
 Choose a deadline that allows maturation and execution. `update_swap_queue(id,
 new_call)` allows permitted owner changes; it is not an arbitrary withdrawal

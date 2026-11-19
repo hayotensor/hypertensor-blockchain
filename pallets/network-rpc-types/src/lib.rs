@@ -407,7 +407,8 @@ pub struct PeerInfo {
 #[serde(rename_all = "camelCase")]
 pub struct SubnetNodeClassification {
     pub node_class: SubnetNodeClass,
-    /// First subnet-local epoch in which this classification is effective.
+    /// Queued: first logical queue epoch, excluding global paused blocks.
+    /// Probation/Active: first ordinary subnet-local epoch for this classification.
     pub start_epoch: u32,
 }
 

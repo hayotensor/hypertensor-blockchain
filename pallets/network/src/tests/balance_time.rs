@@ -746,7 +746,7 @@ fn balance_time_queued_swap_excludes_transit_and_refunds_never_credit_destinatio
         let moved = first.call.get_queue_balance();
         let refunded = second.call.get_queue_balance();
         let source_balance = TotalSubnetDelegateStakeBalance::<Test>::get(1);
-        let ready = first.queued_at_block + first.execute_after_blocks;
+        let ready = first.queued_at_running_block + first.execute_after_blocks;
         System::set_block_number(ready);
         Network::execute_ready_swap_calls_with_limit(ready, 2, &mut WeightMeter::new());
         assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), 0);
