@@ -1471,8 +1471,8 @@ pub mod pallet {
     ///   network-wide cap on admitted Probation and Active nodes in each subnet.
     /// * `owner` - Optional account ID of the subnet owner who created and manages the subnet.
     /// * `pending_owner` - Optional account ID of a pending new owner during ownership transfer.
-    /// * `registration_epoch` - Optional epoch when the subnet was registered. Present during
-    ///   the enactment period before activation.
+    /// * `registration_epoch` - Optional logical registration epoch, shifted forward on global
+    ///   resume. Present throughout registration and enactment; removed on activation.
     /// * `slot_index` - Optional slot index if the subnet is scheduled for consensus operations
     ///   in a specific slot rotation.
     /// * `bootnode_access` - Set of coldkey accounts that are authorized to register and operate
@@ -3628,8 +3628,10 @@ pub mod pallet {
     #[pallet::storage] // subnet_id => data struct
     pub type SubnetsData<T> = StorageMap<_, Identity, u32, SubnetData>;
 
-    /// Epoch subnet registered on
-    #[pallet::storage] // subnet_id => blocks
+    /// Logical registration epoch for a pending subnet. Global unpause shifts this anchor
+    /// by the number of general epoch boundaries crossed while paused, preserving the
+    /// minimum activation wait and both registration/enactment windows. Removed on activation.
+    #[pallet::storage] // subnet_id => epoch
     pub type SubnetRegistrationEpoch<T> = StorageMap<_, Identity, u32, u32>;
 
     /// Owner of subnet (defaulted to registerer of subnet)
@@ -4629,10 +4631,15 @@ pub mod pallet {
     #[pallet::storage]
     pub type NetworkPaused<T> = StorageValue<_, bool, ValueQuery, DefaultBoolFalse>;
 
+    /// First block of the current global pause. Repeated pause calls preserve this marker.
+    /// Resume uses it to shift pending subnet windows and the active Overwatch epoch.
+    #[pallet::storage]
+    pub type NetworkPauseStartBlock<T> = StorageValue<_, u32, OptionQuery>;
+
     /// Latest real global unpause. Rounds elected at or before this block cannot accept new
     /// proposals/attestations. The preceding epoch is cancelled at the next subnet slot;
     /// older skipped rounds expire with consensus history and never block elections.
-    /// Keeping one cutoff makes unpause O(1), independently of subnet and node counts.
+    /// Keeping one cutoff makes consensus invalidation O(1), independently of node counts.
     #[pallet::storage]
     pub type LastNetworkUnpauseBlock<T> = StorageValue<_, u32, OptionQuery>;
 
@@ -5106,10 +5113,6 @@ pub mod pallet {
     /// Global transaction pause shifts this anchor forward to freeze elapsed round time.
     #[pallet::storage]
     pub type OverwatchEpochStartBlock<T> = StorageValue<_, u32, ValueQuery, DefaultZeroU32>;
-
-    /// Block at which global transaction pause froze the active Overwatch epoch.
-    #[pallet::storage]
-    pub type OverwatchTxPauseStartBlock<T> = StorageValue<_, u32, OptionQuery>;
 
     /// The closed epoch awaiting reward and score finalization.
     #[pallet::storage]

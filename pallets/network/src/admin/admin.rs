@@ -19,7 +19,7 @@ use frame_support::pallet_prelude::DispatchResultWithPostInfo;
 impl<T: Config> Pallet<T> {
     pub fn do_pause() -> DispatchResult {
         if !NetworkPaused::<T>::get() {
-            OverwatchTxPauseStartBlock::<T>::put(Self::get_current_block_as_u32());
+            NetworkPauseStartBlock::<T>::put(Self::get_current_block_as_u32());
         }
         NetworkPaused::<T>::put(true);
         Self::deposit_event(Event::SetTxPause());
@@ -30,7 +30,20 @@ impl<T: Config> Pallet<T> {
             // Hooks ran before this extrinsic. Every election at or before this block belongs
             // to the old network session, even if the pause lasted less than one subnet epoch.
             LastNetworkUnpauseBlock::<T>::put(Self::get_current_block_as_u32());
-            if let Some(pause_start_block) = OverwatchTxPauseStartBlock::<T>::take() {
+            if let Some(pause_start_block) = NetworkPauseStartBlock::<T>::take() {
+                // Lifecycle windows use general epochs. Count crossed epoch boundaries,
+                // including a short pause straddling one, rather than rounding elapsed blocks.
+                let paused_epochs = Self::get_current_epoch_as_u32()
+                    .saturating_sub(Self::get_current_epoch_with_block_as_u32(pause_start_block));
+                if paused_epochs != 0 {
+                    // This map contains only pending registrations: activation and removal
+                    // both clear it. Its cardinality is bounded by MaxPhysicalSubnetsUpperBound.
+                    // Shift the shared anchor so activation, node admission, owner controls,
+                    // maintenance, and RPC all observe the same extended windows.
+                    SubnetRegistrationEpoch::<T>::translate::<u32, _>(|_, registered_epoch| {
+                        Some(registered_epoch.saturating_add(paused_epochs))
+                    });
+                }
                 let pause_duration =
                     Self::get_current_block_as_u32().saturating_sub(pause_start_block);
                 let resumed_start_block = OverwatchEpochStartBlock::<T>::mutate(|start_block| {

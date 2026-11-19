@@ -156,6 +156,11 @@ elections and proposals. Its `Elected`/`Proposed` status describes the recorded
 submission stage, not a payout outcome; `ConsensusRoundCancelled` events identify
 cancelled settlement. New elections resume at each eligible subnet's next slot.
 
+For pending subnets, `registrationEpoch` is a logical timing anchor. Global resume shifts it
+by the general epoch boundaries crossed during the pause, preserving the remaining minimum
+activation wait and registration/enactment epochs. Re-read it after resume before calculating
+deadlines. A pause entirely within one epoch does not change these epoch-based windows.
+
 ## Errors
 
 | Code | Meaning |

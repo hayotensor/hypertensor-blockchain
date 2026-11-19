@@ -408,7 +408,12 @@ retried and expire with consensus history; skipped allocations are not recreated
 evidence also cancels the processed round and retains its recorded allocation. Per-round
 settlement status prevents duplicate outcomes but never blocks a new election or subnet removal.
 Missing balance-time records restart with zero historical credit. Epoch-status RPC hides
-globally invalidated work. Global resume does not extend registration or enactment deadlines.
+globally invalidated work. Global resume shifts each pending `SubnetRegistrationEpoch` forward
+by `resume_epoch - pause_epoch`, preserving its remaining minimum activation wait and
+registration/enactment epochs. This counts general epoch boundaries, including a short pause
+that crosses one; a pause entirely within one epoch leaves these epoch-based windows unchanged.
+Repeated pause calls retain the original pause start; unpause while running adds no extension.
+Subnets already expired before the pause remain expired. Re-read registration anchors after resume.
 
 Election candidates, policy, and all attestor weights freeze together at the
 subnet's assigned-slot election, before that block's extrinsics. Delegation,

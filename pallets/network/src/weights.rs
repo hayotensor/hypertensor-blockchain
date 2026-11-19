@@ -50,6 +50,8 @@
 //! Three-state node lifecycle: removed obsolete methods and renamed storage annotations.
 //! Existing weight coefficients are retained; promotion and mixed-population benchmarks
 //! still require measured weight regeneration; fixture updates and tests are complete.
+//! GLOBAL PAUSE REGISTRATION WINDOWS REGENERATED: 2026-11-18 (America/New_York), CLI 60.0.0,
+//! STEPS: `20`, REPEAT: `20`, ANALYSIS: `max`. Unpause covers all 17 supported physical subnets.
 //! GLOBAL CONSENSUS RESUME: cancellation, unpause and selector measured with CLI 60.0.0,
 //! STEPS: `20`, REPEAT: `20`, ANALYSIS: `max`. See .maintain/benchmark-global-pause.sh.
 //! REWARDS CAPACITOR: conservative DB, arithmetic and proof allowances are composed below.
@@ -4102,8 +4104,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::OverwatchTxPauseStartBlock` (r:0 w:1)
-	/// Proof: `Network::OverwatchTxPauseStartBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NetworkPauseStartBlock` (r:0 w:1)
+	/// Proof: `Network::NetworkPauseStartBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn pause() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `100`
@@ -4117,8 +4119,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::OverwatchTxPauseStartBlock` (r:1 w:1)
-	/// Proof: `Network::OverwatchTxPauseStartBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NetworkPauseStartBlock` (r:1 w:1)
+	/// Proof: `Network::NetworkPauseStartBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetRegistrationEpoch` (r:18 w:17)
+	/// Proof: `Network::SubnetRegistrationEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::OverwatchEpochStartBlock` (r:1 w:1)
 	/// Proof: `Network::OverwatchEpochStartBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::CurrentOverwatchEpoch` (r:1 w:0)
@@ -4133,12 +4137,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::LastNetworkUnpauseBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn unpause() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `184`
-		//  Estimated: `1669`
-		// Minimum execution time: 27_108_000 picoseconds.
-		Weight::from_parts(29_111_000, 1669)
-			.saturating_add(T::DbWeight::get().reads(8_u64))
-			.saturating_add(T::DbWeight::get().writes(6_u64))
+		//  Measured:  `436`
+		//  Estimated: `45976`
+		// Minimum execution time: 102_795_000 picoseconds.
+		Weight::from_parts(107_901_000, 45976)
+			.saturating_add(T::DbWeight::get().reads(26_u64))
+			.saturating_add(T::DbWeight::get().writes(23_u64))
 	}
 	/// Storage: `Network::SubnetsData` (r:1 w:1)
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -12402,8 +12406,8 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::OverwatchTxPauseStartBlock` (r:0 w:1)
-	/// Proof: `Network::OverwatchTxPauseStartBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NetworkPauseStartBlock` (r:0 w:1)
+	/// Proof: `Network::NetworkPauseStartBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn pause() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `100`
@@ -12417,8 +12421,10 @@ impl WeightInfo for () {
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::OverwatchTxPauseStartBlock` (r:1 w:1)
-	/// Proof: `Network::OverwatchTxPauseStartBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NetworkPauseStartBlock` (r:1 w:1)
+	/// Proof: `Network::NetworkPauseStartBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetRegistrationEpoch` (r:18 w:17)
+	/// Proof: `Network::SubnetRegistrationEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::OverwatchEpochStartBlock` (r:1 w:1)
 	/// Proof: `Network::OverwatchEpochStartBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::CurrentOverwatchEpoch` (r:1 w:0)
@@ -12433,12 +12439,12 @@ impl WeightInfo for () {
 	/// Proof: `Network::LastNetworkUnpauseBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	fn unpause() -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `184`
-		//  Estimated: `1669`
-		// Minimum execution time: 27_108_000 picoseconds.
-		Weight::from_parts(29_111_000, 1669)
-			.saturating_add(RocksDbWeight::get().reads(8_u64))
-			.saturating_add(RocksDbWeight::get().writes(6_u64))
+		//  Measured:  `436`
+		//  Estimated: `45976`
+		// Minimum execution time: 102_795_000 picoseconds.
+		Weight::from_parts(107_901_000, 45976)
+			.saturating_add(RocksDbWeight::get().reads(26_u64))
+			.saturating_add(RocksDbWeight::get().writes(23_u64))
 	}
 	/// Storage: `Network::SubnetsData` (r:1 w:1)
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)

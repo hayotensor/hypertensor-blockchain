@@ -19,17 +19,17 @@ use crate::{
     MinDelegateStakePercentage, MinMaxRegisteredNodes, MinMinSubnetNodeReputation, MinNodeBurnRate,
     MinNodeReputationFactor, MinProbationRounds, MinQueueEpochs, MinRegistrationCost,
     MinSubnetDelegateStakeBalance, MinSubnetMinStake, MinSubnetNodes, MinSubnetRegistrationEpochs,
-    MinSubnetReputation, NetworkMaxStakeBalance, NewRegistrationCostMultiplier,
-    NodeDelegateStakeCooldownEpochs, NodeRewardRateUpdatePeriod,
+    MinSubnetReputation, NetworkMaxStakeBalance, NetworkPauseStartBlock,
+    NewRegistrationCostMultiplier, NodeDelegateStakeCooldownEpochs, NodeRewardRateUpdatePeriod,
     NotInConsensusSubnetReputationFactor, OverwatchCommitCutoffPercent,
     OverwatchEpochLengthMultiplier, OverwatchEpochStartBlock, OverwatchMinStakeBalance,
-    OverwatchStakeWeightFactor, OverwatchTxPauseStartBlock, OverwatchValidatorWhitelist,
-    OverwatchWeightFactor, RegistrationCostAlpha, RegistrationCostDecayBlocks,
-    RequireSubnetRegistrationWhitelist, StakeCooldownEpochs, StrongRejectionThreshold,
-    SubnetDelegateStakeRewardsUpdatePeriod, SubnetDistributionPower, SubnetEnactmentEpochs,
-    SubnetName, SubnetNodeValidatorId, SubnetOwnerPercentage, SubnetRegistrationEpochs,
-    SubnetRegistrationWhitelist, SubnetRemovalActivationCooldown, SubnetRemovalCheckInterval,
-    SubnetWeightFactors, SubnetWeightFactorsData, SubnetsData, TotalValidatorNodes, TxRateLimit,
+    OverwatchStakeWeightFactor, OverwatchValidatorWhitelist, OverwatchWeightFactor,
+    RegistrationCostAlpha, RegistrationCostDecayBlocks, RequireSubnetRegistrationWhitelist,
+    StakeCooldownEpochs, StrongRejectionThreshold, SubnetDelegateStakeRewardsUpdatePeriod,
+    SubnetDistributionPower, SubnetEnactmentEpochs, SubnetName, SubnetNodeValidatorId,
+    SubnetOwnerPercentage, SubnetRegistrationEpochs, SubnetRegistrationWhitelist,
+    SubnetRemovalActivationCooldown, SubnetRemovalCheckInterval, SubnetWeightFactors,
+    SubnetWeightFactorsData, SubnetsData, TotalValidatorNodes, TxRateLimit,
     ValidatorAbsentSubnetReputationFactor, ValidatorNodeDelegateStakeWeightUpdateInterval,
     ValidatorNodeDelegateStakeWeights, ValidatorRewardK, ValidatorRewardMidpoint,
     ValidatorSubnetNodes,
@@ -151,7 +151,7 @@ fn test_collective_pause() {
             pallet_collective::RawOrigin::Members(2, 3)
         )));
 
-        assert_eq!(OverwatchTxPauseStartBlock::<Test>::get(), Some(1));
+        assert_eq!(NetworkPauseStartBlock::<Test>::get(), Some(1));
 
         // Verify event emitted
         assert_eq!(*network_events().last().unwrap(), Event::SetTxPause {});
@@ -187,7 +187,7 @@ fn test_collective_unpause() {
         )));
 
         assert_eq!(OverwatchEpochStartBlock::<Test>::get(), 10);
-        assert_eq!(OverwatchTxPauseStartBlock::<Test>::get(), None);
+        assert_eq!(NetworkPauseStartBlock::<Test>::get(), None);
         let events = network_events();
         assert_eq!(
             events.get(events.len() - 2),

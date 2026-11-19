@@ -6,6 +6,244 @@ use sp_std::collections::btree_map::BTreeMap;
 const TOKEN: u128 = 1_000_000_000_000_000_000;
 const NODES: u32 = 4;
 
+fn registered_subnet(subnet: u32, registration_epoch: u32) {
+    MinSubnetRegistrationEpochs::<Test>::put(2);
+    SubnetRegistrationEpochs::<Test>::put(4);
+    SubnetEnactmentEpochs::<Test>::put(3);
+    insert_subnet(subnet, SubnetState::Registered, registration_epoch);
+    SubnetRegistrationEpoch::<Test>::insert(subnet, registration_epoch);
+    SubnetOwner::<Test>::insert(subnet, account(0));
+    SubnetReputation::<Test>::insert(subnet, TOKEN);
+    TotalAdmittedSubnetNodes::<Test>::insert(subnet, MinSubnetNodes::<Test>::get());
+    TotalSubnetDelegateStakeBalance::<Test>::insert(
+        subnet,
+        MinSubnetDelegateStakeBalance::<Test>::get(),
+    );
+}
+
+#[test]
+fn resume_preserves_registration_and_enactment_activation_windows() {
+    // Include the minimum activation epoch and both inclusive phase deadlines.
+    for elapsed_epochs in [2, 4, 5, 7] {
+        new_test_ext().execute_with(|| {
+            registered_subnet(1, 10);
+            set_epoch(10 + elapsed_epochs, 0);
+            resume_after(20 * EpochLength::get());
+
+            assert_ok!(Network::activate_subnet(
+                RuntimeOrigin::signed(account(0)),
+                1
+            ));
+            assert_eq!(
+                SubnetsData::<Test>::get(1).unwrap().state,
+                SubnetState::Active
+            );
+            assert!(!SubnetRegistrationEpoch::<Test>::contains_key(1));
+            assert_eq!(
+                network_events().last(),
+                Some(&Event::SubnetActivated { subnet_id: 1 })
+            );
+        });
+    }
+}
+
+#[test]
+fn resume_preserves_minimum_activation_wait() {
+    new_test_ext().execute_with(|| {
+        registered_subnet(1, 10);
+        set_epoch(11, 0);
+        resume_after(20 * EpochLength::get());
+        assert_noop!(
+            Network::activate_subnet(RuntimeOrigin::signed(account(0)), 1),
+            Error::<Test>::MinSubnetRegistrationEpochsNotMet
+        );
+        set_epoch(32, 0);
+        assert_ok!(Network::activate_subnet(
+            RuntimeOrigin::signed(account(0)),
+            1
+        ));
+        assert_eq!(
+            SubnetsData::<Test>::get(1).unwrap().state,
+            SubnetState::Active
+        );
+    });
+}
+
+#[test]
+fn resume_preserves_registration_through_hooks_and_expires_at_shifted_deadline() {
+    for remove_via_activation in [false, true] {
+        new_test_ext().execute_with(|| {
+            registered_subnet(1, 10);
+            // No nodes or funding yet: premature enactment would remove this subnet.
+            TotalAdmittedSubnetNodes::<Test>::remove(1);
+            TotalSubnetDelegateStakeBalance::<Test>::remove(1);
+            set_epoch(12, 0);
+            resume_after(20 * EpochLength::get());
+            set_epoch(33, NETWORK_EPOCH_PRELIMINARIES_SLOT);
+            Network::on_initialize(System::block_number());
+            assert!(SubnetsData::<Test>::contains_key(1));
+            assert!(Network::is_subnet_registering(
+                1,
+                SubnetState::Registered,
+                33
+            ));
+            assert_noop!(
+                Network::activate_subnet(RuntimeOrigin::signed(account(0)), 1),
+                Error::<Test>::SubnetActivationConditionsNotMetYet
+            );
+
+            // Enactment allows time to fund delegation once the nodes are present.
+            TotalAdmittedSubnetNodes::<Test>::insert(1, MinSubnetNodes::<Test>::get());
+            set_epoch(37, NETWORK_EPOCH_PRELIMINARIES_SLOT);
+            Network::on_initialize(System::block_number());
+            assert!(Network::is_subnet_in_enactment(
+                1,
+                SubnetState::Registered,
+                37
+            ));
+            assert!(!Network::is_subnet_registering(
+                1,
+                SubnetState::Registered,
+                37
+            ));
+            assert_noop!(
+                Network::activate_subnet(RuntimeOrigin::signed(account(0)), 1),
+                Error::<Test>::SubnetActivationConditionsNotMetYet
+            );
+
+            set_epoch(38, NETWORK_EPOCH_PRELIMINARIES_SLOT);
+            if remove_via_activation {
+                assert_ok!(Network::activate_subnet(
+                    RuntimeOrigin::signed(account(0)),
+                    1
+                ));
+            } else {
+                Network::on_initialize(System::block_number());
+            }
+            assert!(!SubnetsData::<Test>::contains_key(1));
+            assert!(!SubnetRegistrationEpoch::<Test>::contains_key(1));
+            assert!(network_events().contains(&Event::SubnetDeactivated {
+                subnet_id: 1,
+                reason: SubnetRemovalReason::EnactmentPeriod,
+            }));
+        });
+    }
+}
+
+#[test]
+fn resume_does_not_revive_registration_that_expired_before_pause() {
+    new_test_ext().execute_with(|| {
+        registered_subnet(1, 10);
+        set_epoch(18, 0);
+        resume_after(20 * EpochLength::get());
+        assert_ok!(Network::activate_subnet(
+            RuntimeOrigin::signed(account(0)),
+            1
+        ));
+        assert!(!SubnetsData::<Test>::contains_key(1));
+        assert_eq!(
+            network_events().last(),
+            Some(&Event::SubnetDeactivated {
+                subnet_id: 1,
+                reason: SubnetRemovalReason::EnactmentPeriod,
+            })
+        );
+    });
+}
+
+#[test]
+fn resume_counts_epoch_boundaries_for_short_pauses_without_reopening_registration() {
+    let length = EpochLength::get();
+    for (offset, duration, extension) in [(0, 0, 0), (0, 1, 0), (length - 1, 1, 1)] {
+        new_test_ext().execute_with(|| {
+            registered_subnet(1, 10);
+            // First enactment epoch must stay enactment, even for a pause within one epoch.
+            set_epoch(15, offset);
+            resume_after(duration);
+            let epoch = Network::get_current_epoch_as_u32();
+            assert_eq!(
+                SubnetRegistrationEpoch::<Test>::get(1),
+                Some(10 + extension)
+            );
+            assert!(!Network::is_subnet_registering(
+                1,
+                SubnetState::Registered,
+                epoch
+            ));
+            assert!(Network::is_subnet_in_enactment(
+                1,
+                SubnetState::Registered,
+                epoch
+            ));
+            assert_ok!(Network::activate_subnet(
+                RuntimeOrigin::signed(account(0)),
+                1
+            ));
+            assert!(SubnetsData::<Test>::contains_key(1));
+        });
+    }
+}
+
+#[test]
+fn repeated_pauses_shift_all_pending_anchors_once_and_leave_active_subnets_unchanged() {
+    new_test_ext().execute_with(|| {
+        // Exercise the full physical bound, reserving one entry for an active subnet.
+        let active_id = NetworkMaxPhysicalSubnetsUpperBound::get();
+        for subnet_id in 1..active_id {
+            registered_subnet(subnet_id, 10 + subnet_id % 2);
+        }
+        insert_subnet(active_id, SubnetState::Active, 8);
+        let active = SubnetsData::<Test>::get(active_id);
+        set_epoch(12, 0);
+        assert_ok!(Network::do_pause());
+        set_epoch(20, 0);
+        assert_ok!(Network::do_pause());
+        set_epoch(32, 0);
+        assert_ok!(Network::do_unpause());
+        set_epoch(33, 0);
+        assert_ok!(Network::do_unpause());
+        resume_after(3 * EpochLength::get());
+
+        for subnet_id in 1..active_id {
+            let expected = Some(33 + subnet_id % 2);
+            assert_eq!(SubnetRegistrationEpoch::<Test>::get(subnet_id), expected);
+            assert_eq!(
+                Network::rpc_get_subnet_info(subnet_id)
+                    .unwrap()
+                    .registration_epoch,
+                expected
+            );
+        }
+        assert_eq!(SubnetsData::<Test>::get(active_id), active);
+        assert!(!SubnetRegistrationEpoch::<Test>::contains_key(active_id));
+        assert_eq!(NetworkPauseStartBlock::<Test>::get(), None);
+    });
+}
+
+#[test]
+fn registrations_created_after_resume_start_in_current_epoch() {
+    new_test_ext().execute_with(|| {
+        set_epoch(10, 0);
+        resume_after(20 * EpochLength::get());
+        build_registered_subnet(
+            b"after-resume".to_vec(),
+            0,
+            0,
+            10_000 * TOKEN,
+            100 * TOKEN,
+            false,
+            None,
+        );
+        let subnet = SubnetName::<Test>::get(b"after-resume".to_vec()).unwrap();
+        assert_eq!(SubnetRegistrationEpoch::<Test>::get(subnet), Some(30));
+        assert!(Network::is_subnet_registering(
+            subnet,
+            SubnetState::Registered,
+            30
+        ));
+    });
+}
+
 #[test]
 fn resume_cutoff_respects_assigned_slots_including_the_first_epoch() {
     new_test_ext().execute_with(|| {

@@ -7914,7 +7914,7 @@ mod benchmarks {
         // Verify the network is now paused
         assert!(NetworkPaused::<T>::get());
         assert_eq!(
-            OverwatchTxPauseStartBlock::<T>::get(),
+            NetworkPauseStartBlock::<T>::get(),
             Some(get_current_block_as_u32::<T>())
         );
     }
@@ -7924,8 +7924,16 @@ mod benchmarks {
         // sanity check
         assert!(!NetworkPaused::<T>::get());
 
+        // Charge the full supported physical subnet domain, including the rotation subnet,
+        // even when this runtime configures a smaller bound or fewer registrations are pending.
+        let registrations = MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN;
+        for subnet_id in 1..=registrations {
+            SubnetRegistrationEpoch::<T>::insert(subnet_id, 0);
+        }
+        frame_system::Pallet::<T>::set_block_number(T::EpochLength::get().into());
         assert_ok!(Network::<T>::do_pause());
         assert!(NetworkPaused::<T>::get());
+        frame_system::Pallet::<T>::set_block_number((3 * T::EpochLength::get()).into());
 
         let origin = T::MajorityCollectiveOrigin::try_successful_origin()
             .expect("try_successful_origin failed");
@@ -7934,11 +7942,14 @@ mod benchmarks {
         unpause(origin as T::RuntimeOrigin);
 
         assert!(!NetworkPaused::<T>::get());
-        assert!(OverwatchTxPauseStartBlock::<T>::get().is_none());
+        assert!(NetworkPauseStartBlock::<T>::get().is_none());
         assert_eq!(
             LastNetworkUnpauseBlock::<T>::get(),
             Some(get_current_block_as_u32::<T>())
         );
+        for subnet_id in 1..=registrations {
+            assert_eq!(SubnetRegistrationEpoch::<T>::get(subnet_id), Some(2));
+        }
     }
 
     /// The resume selector must measure the nonempty cutoff and assigned-slot reads.
