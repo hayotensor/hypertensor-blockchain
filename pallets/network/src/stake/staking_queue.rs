@@ -14,6 +14,8 @@
 // limitations under the License.
 
 use super::*;
+use frame_support::pallet_prelude::DispatchError;
+
 impl<T: Config> Pallet<T> {
     /// Queue a swap call
     ///
@@ -23,6 +25,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// Used after source principal has been removed by one of the four transactional
     /// subnet/validator swap paths.
+    /// Returns the assigned queue ID so source events can reference the same swap.
     ///
     /// # Arguments
     ///
@@ -34,7 +37,7 @@ impl<T: Config> Pallet<T> {
         account_id: T::AccountId,
         source: QueuedSwapSource,
         call: QueuedSwapCall<T::AccountId>,
-    ) -> DispatchResult {
+    ) -> Result<u32, DispatchError> {
         ensure!(
             call.get_queue_account() == &account_id,
             Error::<T>::NotKeyOwner
@@ -105,7 +108,7 @@ impl<T: Config> Pallet<T> {
             call: call.clone(),
         });
 
-        Ok(())
+        Ok(id)
     }
 
     pub(crate) fn do_update_swap_queue(

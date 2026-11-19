@@ -66,7 +66,11 @@ impl<T: Config> Pallet<T> {
 
         Self::increase_overwatch_node_stake(overwatch_node_id, stake_to_be_added)?;
 
-        // Self::deposit_event(Event::StakeAdded(subnet_id, coldkey, hotkey, stake_to_be_added));
+        Self::deposit_event(Event::OverwatchNodeStakeAdded {
+            overwatch_node_id,
+            coldkey,
+            amount: stake_to_be_added,
+        });
 
         Ok(())
     }
@@ -143,7 +147,11 @@ impl<T: Config> Pallet<T> {
             UnbondingSource::Overwatch,
         )?;
 
-        // Self::deposit_event(Event::StakeRemoved(subnet_id, coldkey, hotkey, stake_to_be_removed));
+        Self::deposit_event(Event::OverwatchNodeStakeRemoved {
+            overwatch_node_id,
+            coldkey,
+            amount: stake_to_be_removed,
+        });
 
         Ok(())
     }

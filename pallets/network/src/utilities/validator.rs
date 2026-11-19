@@ -14,6 +14,7 @@
 // limitations under the License.
 
 use super::*;
+use frame_support::pallet_prelude::DispatchError;
 
 impl<T: Config> Pallet<T> {
     pub fn do_update_validator_delegate_reward_rate(
@@ -102,26 +103,30 @@ impl<T: Config> Pallet<T> {
         delegate_account_id: Option<T::AccountId>,
         delegate_rate: Option<u128>,
     ) -> DispatchResult {
-        ValidatorsData::<T>::try_mutate_exists(validator_id, |maybe_params| -> DispatchResult {
-            Self::perform_update_validator_delegate_account(
-                validator_id,
-                validator_coldkey,
-                maybe_params,
-                delegate_account_id,
-                delegate_rate,
-            )
-        })?;
+        let delegate_account =
+            ValidatorsData::<T>::try_mutate_exists(validator_id, |maybe_params| {
+                Self::perform_update_validator_delegate_account(
+                    validator_coldkey,
+                    maybe_params,
+                    delegate_account_id,
+                    delegate_rate,
+                )
+            })?;
+
+        Self::deposit_event(Event::ValidatorDelegateAccountUpdated {
+            validator_id,
+            delegate_account,
+        });
 
         Ok(())
     }
 
     fn perform_update_validator_delegate_account(
-        validator_id: u32,
         validator_coldkey: T::AccountId,
         maybe_params: &mut Option<ValidatorData<T>>,
         delegate_account_id: Option<T::AccountId>,
         delegate_rate: Option<u128>,
-    ) -> DispatchResult {
+    ) -> Result<DelegateAccount<T::AccountId>, DispatchError> {
         let params = maybe_params
             .as_mut()
             .ok_or(Error::<T>::InvalidValidatorId)?;
@@ -131,42 +136,33 @@ impl<T: Config> Pallet<T> {
             Error::<T>::InvalidDelegateAccountParameters
         );
 
-        if delegate_account_id.is_some() || delegate_rate.is_some() {
-            let account_id = if let Some(id) = delegate_account_id {
-                id
-            } else if let Some(existing_delegate_account) = &params.delegate_account {
-                existing_delegate_account.account_id.clone()
-            } else {
-                return Err(Error::<T>::DelegateAccountIdIsNone.into());
-            };
-
-            let rate = if let Some(r) = delegate_rate {
-                r
-            } else if let Some(existing_delegate_account) = &params.delegate_account {
-                existing_delegate_account.rate
-            } else {
-                return Err(Error::<T>::DelegateAccountRateIsNone.into());
-            };
-
-            let delegate_account = DelegateAccount { account_id, rate };
-
-            Self::validate_validator_delegate_account(
-                &delegate_account,
-                &params.hotkey,
-                &validator_coldkey,
-            )?;
-
-            params.delegate_account = Some(delegate_account);
+        let account_id = if let Some(id) = delegate_account_id {
+            id
+        } else if let Some(existing_delegate_account) = &params.delegate_account {
+            existing_delegate_account.account_id.clone()
         } else {
-            params.delegate_account = None;
-        }
+            return Err(Error::<T>::DelegateAccountIdIsNone.into());
+        };
 
-        // Self::deposit_event(Event::SubnetNodeUpdateDelegateAccount {
-        //     validator_id,
-        //     delegate_account: params.delegate_account.clone(),
-        // });
+        let rate = if let Some(r) = delegate_rate {
+            r
+        } else if let Some(existing_delegate_account) = &params.delegate_account {
+            existing_delegate_account.rate
+        } else {
+            return Err(Error::<T>::DelegateAccountRateIsNone.into());
+        };
 
-        Ok(())
+        let delegate_account = DelegateAccount { account_id, rate };
+
+        Self::validate_validator_delegate_account(
+            &delegate_account,
+            &params.hotkey,
+            &validator_coldkey,
+        )?;
+
+        params.delegate_account = Some(delegate_account.clone());
+
+        Ok(delegate_account)
     }
 
     pub fn validate_validator_delegate_account(
@@ -186,60 +182,6 @@ impl<T: Config> Pallet<T> {
             delegate_account.rate <= Self::percentage_factor_as_u128() && delegate_account.rate > 0,
             Error::<T>::InvalidDelegateAccountRate
         );
-
-        Ok(())
-    }
-
-    fn perform_update_delegate_account(
-        validator_id: u32,
-        maybe_params: &mut Option<ValidatorData<T>>,
-        delegate_account_id: Option<T::AccountId>,
-        delegate_rate: Option<u128>,
-    ) -> DispatchResult {
-        let params = maybe_params
-            .as_mut()
-            .ok_or(Error::<T>::InvalidSubnetNodeId)?;
-
-        ensure!(
-            delegate_account_id.is_some() || delegate_rate.is_some(),
-            Error::<T>::InvalidDelegateAccountParameters
-        );
-
-        if delegate_account_id.is_some() || delegate_rate.is_some() {
-            let account_id = if let Some(id) = delegate_account_id {
-                id
-            } else if let Some(existing_delegate_account) = &params.delegate_account {
-                existing_delegate_account.account_id.clone()
-            } else {
-                return Err(Error::<T>::DelegateAccountIdIsNone.into());
-            };
-
-            let rate = if let Some(r) = delegate_rate {
-                r
-            } else if let Some(existing_delegate_account) = &params.delegate_account {
-                existing_delegate_account.rate
-            } else {
-                return Err(Error::<T>::DelegateAccountRateIsNone.into());
-            };
-
-            let delegate_account = DelegateAccount { account_id, rate };
-
-            Self::validate_delegate_account(
-                &delegate_account,
-                &params.hotkey,
-                &ValidatorColdkey::<T>::get(validator_id).unwrap(),
-            )?;
-
-            params.delegate_account = Some(delegate_account);
-        } else {
-            params.delegate_account = None;
-        }
-
-        // Self::deposit_event(Event::SubnetNodeUpdateDelegateAccount {
-        //     subnet_id,
-        //     subnet_node_id,
-        //     delegate_account: params.delegate_account.clone(),
-        // });
 
         Ok(())
     }

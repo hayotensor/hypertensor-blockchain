@@ -1715,10 +1715,15 @@ fn test_overwatch_subnet_churn_during_commit_keeps_full_revealers_eligible() {
         );
         Network::calculate_overwatch_rewards();
         assert!(crate::PendingOverwatchSettlement::<Test>::get().is_none());
-        assert_eq!(crate::LastFinalizedOverwatchEpoch::<Test>::get(), Some(epoch));
+        assert_eq!(
+            crate::LastFinalizedOverwatchEpoch::<Test>::get(),
+            Some(epoch)
+        );
         assert!(crate::OverwatchNodeStakeBalance::<Test>::get(a) > stake_a);
         assert!(crate::OverwatchNodeStakeBalance::<Test>::get(b) > stake_b);
-        assert!(!crate::OverwatchSubnetWeights::<Test>::contains_key(epoch, 1));
+        assert!(!crate::OverwatchSubnetWeights::<Test>::contains_key(
+            epoch, 1
+        ));
 
         // The next rollover is not blocked by a stuck settlement.
         System::set_block_number(start + 2 * len);

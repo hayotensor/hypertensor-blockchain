@@ -10,10 +10,9 @@ use crate::{
     InConsensusSubnetReputationFactor, LastFinalizedOverwatchEpoch, LatestEffectiveOverwatchSignal,
     LatestFinalizedOverwatchSignalInputs, NotInConsensusSubnetReputationFactor, OverwatchCommit,
     OverwatchCommitCutoffPercent, OverwatchCommits, OverwatchEpochLengthMultiplier,
-    OverwatchEpochSnapshots, OverwatchEpochStartBlock, OverwatchNodeWeights,
-    OverwatchReveal, OverwatchReveals, OverwatchSubnetWeights, PendingOverwatchSettlement,
-    SubnetElectedValidator, SubnetNodeElectionSlots,
-    SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeValidatorId,
+    OverwatchEpochSnapshots, OverwatchEpochStartBlock, OverwatchNodeWeights, OverwatchReveal,
+    OverwatchReveals, OverwatchSubnetWeights, PendingOverwatchSettlement, SubnetElectedValidator,
+    SubnetNodeElectionSlots, SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeValidatorId,
     SubnetReputationFactorSchedules, SubnetReputationFactors, SubnetSlot, SubnetState,
     NETWORK_OVERWATCH_SETTLEMENT_SLOT, NETWORK_SUBNET_EMISSION_SLOT,
 };
@@ -495,8 +494,14 @@ fn partial_reveal_close_preserves_opening_cohort_and_counts_only_revealed_record
         assert!(effective.valid);
         assert_eq!(effective.source_epoch, epoch);
         assert!(effective.subnet_weights.is_empty());
-        assert_eq!(crate::OverwatchNodeStakeBalance::<Test>::get(revealing_node_id), 100);
-        assert_eq!(crate::OverwatchNodeStakeBalance::<Test>::get(commit_only_node_id), 200);
+        assert_eq!(
+            crate::OverwatchNodeStakeBalance::<Test>::get(revealing_node_id),
+            100
+        );
+        assert_eq!(
+            crate::OverwatchNodeStakeBalance::<Test>::get(commit_only_node_id),
+            200
+        );
     });
 }
 
@@ -521,13 +526,7 @@ fn pending_settlement_blocks_rollover_without_consuming_active_round_state() {
             node_id,
             vec![OverwatchCommit {
                 subnet_id,
-                weight: make_commit(
-                    node_id,
-                    subnet_id,
-                    active_epoch,
-                    weight,
-                    salt.clone(),
-                ),
+                weight: make_commit(node_id, subnet_id, active_epoch, weight, salt.clone(),),
             }],
         ));
         assert_ok!(Network::perform_reveal_overwatch_subnet_weights(
@@ -566,7 +565,10 @@ fn pending_settlement_blocks_rollover_without_consuming_active_round_state() {
             reveals_before
         );
         assert_eq!(ActiveOverwatchRevealStats::<Test>::get(), stats_before);
-        assert_eq!(OverwatchEpochSnapshots::<Test>::get(active_epoch), opening_before);
+        assert_eq!(
+            OverwatchEpochSnapshots::<Test>::get(active_epoch),
+            opening_before
+        );
 
         // Once the older settlement is consumed, retrying the exact same boundary closes the
         // untouched active round and preserves its reveal for finalization.

@@ -76,6 +76,9 @@ pub const NETWORK_EPOCH_PRELIMINARIES_SLOT: u32 = 0;
 /// General epoch slot for finalizing a previously queued Overwatch settlement.
 pub const NETWORK_OVERWATCH_SETTLEMENT_SLOT: u32 = NETWORK_EPOCH_PRELIMINARIES_SLOT + 1;
 
+/// Atomic units per whole native unit used to express the net-flow softmax parameter K.
+pub const NET_FLOW_ATOMIC_UNITS_PER_UNIT: u128 = 1_000_000_000_000_000_000;
+
 /// General epoch slot for calculating global subnet-emission allocations.
 pub const NETWORK_SUBNET_EMISSION_SLOT: u32 = NETWORK_OVERWATCH_SETTLEMENT_SLOT + 1;
 
@@ -380,6 +383,14 @@ pub mod pallet {
     #[pallet::event]
     #[pallet::generate_deposit(pub(super) fn deposit_event)]
     pub enum Event<T: Config> {
+        ValidatorRegistered {
+            validator_id: u32,
+            coldkey: T::AccountId,
+            hotkey: T::AccountId,
+            delegate_reward_rate: u128,
+            delegate_account: Option<DelegateAccount<T::AccountId>>,
+            burn_amount: u128,
+        },
         // Subnets
         SubnetRegistered {
             owner: T::AccountId,
@@ -398,9 +409,12 @@ pub mod pallet {
         SubnetNodeRegistered {
             subnet_id: u32,
             subnet_node_id: u32,
+            validator_id: u32,
             coldkey: T::AccountId,
-            hotkey: T::AccountId,
-            data: SubnetNodeRegistrationData<T>,
+            /// Optional node override; `None` uses the validator's hotkey.
+            hotkey: Option<T::AccountId>,
+            stake: u128,
+            burn_amount: u128,
         },
         SubnetNodeAdmitted {
             subnet_id: u32,
@@ -415,11 +429,6 @@ pub mod pallet {
             admitted_subnet_node_ids: BoundedVec<u32, T::MaxSubnetNodesUpperBound>,
             queued_subnet_node_ids: BoundedVec<u32, T::MaxRegisteredNodesUpperBound>,
         },
-        SubnetNodeUpdateDelegateRewardRate {
-            subnet_id: u32,
-            subnet_node_id: u32,
-            delegate_reward_rate: u128,
-        },
         ValidatorUpdateDelegateRewardRate {
             validator_id: u32,
             delegate_reward_rate: u128,
@@ -428,11 +437,6 @@ pub mod pallet {
             subnet_id: u32,
             subnet_node_id: u32,
             peer_info: Option<PeerInfo<T>>,
-        },
-        SubnetNodeUpdateBootnode {
-            subnet_id: u32,
-            subnet_node_id: u32,
-            bootnode: Option<NetworkBytes<T>>,
         },
         SubnetNodeUpdateBootnodePeerInfo {
             subnet_id: u32,
@@ -454,18 +458,105 @@ pub mod pallet {
             subnet_node_id: u32,
             non_unique: Option<NetworkBytes<T>>,
         },
-        SubnetNodeUpdateDelegateAccount {
-            subnet_id: u32,
-            subnet_node_id: u32,
-            delegate_account: Option<DelegateAccount<T::AccountId>>,
-        },
         UpdateColdkey {
+            validator_id: u32,
             coldkey: T::AccountId,
             new_coldkey: T::AccountId,
         },
         UpdateHotkey {
+            validator_id: u32,
             hotkey: T::AccountId,
             new_hotkey: T::AccountId,
+        },
+        NodeHotkeyUpdated {
+            subnet_id: u32,
+            subnet_node_id: u32,
+            hotkey: Option<T::AccountId>,
+        },
+        ValidatorDelegateAccountUpdated {
+            validator_id: u32,
+            delegate_account: DelegateAccount<T::AccountId>,
+        },
+        SubnetDelegateStakeTransferred {
+            subnet_id: u32,
+            from_account: T::AccountId,
+            to_account: T::AccountId,
+            shares: u128,
+        },
+        ValidatorDelegateStakeTransferred {
+            validator_id: u32,
+            from_account: T::AccountId,
+            to_account: T::AccountId,
+            shares: u128,
+        },
+        /// One matured ledger entry was credited in full to the coldkey's wallet.
+        UnbondingClaimed {
+            coldkey: T::AccountId,
+            claim_block: u32,
+            network_amount: u128,
+            overwatch_amount: u128,
+        },
+        /// The account's queued-swap refund was credited in full to its wallet.
+        SwapRefundClaimed {
+            account_id: T::AccountId,
+            amount: u128,
+        },
+        OverwatchNodeRegistered {
+            overwatch_node_id: u32,
+            validator_id: u32,
+            coldkey: T::AccountId,
+            stake: u128,
+        },
+        /// Voluntary exit removed active membership; historical ownership and stake remain.
+        OverwatchNodeRemoved {
+            overwatch_node_id: u32,
+            validator_id: u32,
+        },
+        OverwatchNodeHotkeyUpdated {
+            overwatch_node_id: u32,
+            hotkey: Option<T::AccountId>,
+        },
+        OverwatchNodePeerIdUpdated {
+            subnet_id: u32,
+            overwatch_node_id: u32,
+            peer_id: PeerId,
+        },
+        /// Only the filtered commitments accepted by this call are included.
+        OverwatchWeightsCommitted {
+            overwatch_node_id: u32,
+            overwatch_epoch: u32,
+            commits: Vec<OverwatchCommit<T::Hash>>,
+        },
+        /// Accepted subnet weights, deduplicated by subnet ID. Salts are omitted.
+        OverwatchWeightsRevealed {
+            overwatch_node_id: u32,
+            overwatch_epoch: u32,
+            weights: Vec<(u32, u128)>,
+        },
+        SubnetRegistrationWhitelistRequired {
+            required: bool,
+        },
+        SubnetRegistrantUpdated {
+            coldkey: T::AccountId,
+            subnet_id: u32,
+            approved: bool,
+        },
+        ConsensusValidatorElected {
+            subnet_id: u32,
+            subnet_epoch: u32,
+            subnet_node_id: u32,
+            validator_id: u32,
+        },
+        NodeBurnRateUpdated {
+            subnet_id: u32,
+            previous_rate: u128,
+            new_rate: u128,
+        },
+        /// The allocation is available in `FinalSubnetEmissionWeights(epoch)`, even when empty.
+        SubnetEmissionWeightsFinalized {
+            epoch: u32,
+            subnets_emissions: u128,
+            subnet_count: u32,
         },
         QueuedNodePrioritized {
             subnet_id: u32,
@@ -482,8 +573,32 @@ pub mod pallet {
         },
 
         // Stake
-        StakeAdded(u32, T::AccountId, T::AccountId, u128),
-        StakeRemoved(u32, T::AccountId, T::AccountId, u128),
+        /// The coldkey added native balance to a subnet node's direct stake.
+        StakeAdded {
+            subnet_id: u32,
+            subnet_node_id: u32,
+            coldkey: T::AccountId,
+            amount: u128,
+        },
+        /// Direct node stake moved to the coldkey's unbonding ledger, not its wallet.
+        StakeRemoved {
+            subnet_id: u32,
+            subnet_node_id: u32,
+            coldkey: T::AccountId,
+            amount: u128,
+        },
+        /// The coldkey added native balance to an Overwatch node's direct stake.
+        OverwatchNodeStakeAdded {
+            overwatch_node_id: u32,
+            coldkey: T::AccountId,
+            amount: u128,
+        },
+        /// Overwatch stake moved to the coldkey's unbonding ledger, not its wallet.
+        OverwatchNodeStakeRemoved {
+            overwatch_node_id: u32,
+            coldkey: T::AccountId,
+            amount: u128,
+        },
         SubnetDelegateStakeAdded {
             subnet_id: u32,
             account_id: T::AccountId,
@@ -495,41 +610,6 @@ pub mod pallet {
             account_id: T::AccountId,
             balance: u128,
             shares_burned: u128,
-        },
-        SubnetDelegateStakeSwapped(u32, u32, T::AccountId, u128),
-        DelegateNodeStakeAdded {
-            account_id: T::AccountId,
-            subnet_id: u32,
-            subnet_node_id: u32,
-            amount: u128,
-        },
-        DelegateNodeStakeRemoved {
-            account_id: T::AccountId,
-            subnet_id: u32,
-            subnet_node_id: u32,
-            amount: u128,
-        },
-        DelegateNodeStakeSwapped {
-            account_id: T::AccountId,
-            from_subnet_id: u32,
-            from_subnet_node_id: u32,
-            to_subnet_id: u32,
-            to_subnet_node_id: u32,
-            amount: u128,
-        },
-        DelegateNodeToSubnetDelegateStakeSwapped {
-            account_id: T::AccountId,
-            from_subnet_id: u32,
-            from_subnet_node_id: u32,
-            to_subnet_id: u32,
-            amount: u128,
-        },
-        SubnetDelegateToNodeDelegateStakeSwapped {
-            account_id: T::AccountId,
-            from_subnet_id: u32,
-            to_subnet_id: u32,
-            to_subnet_node_id: u32,
-            amount: u128,
         },
         DelegateBalanceRemoved {
             account_id: T::AccountId,
@@ -556,8 +636,6 @@ pub mod pallet {
         SetMaxBootnodes(u32),
         SetMaxSubnetBootnodeAccess(u32),
         SetSubnetEnactmentEpochs(u32),
-        SetMinSubnetRegistrationFee(u128),
-        SetMaxSubnetRegistrationFee(u128),
         SetMinRegistrationCost(u128),
         SetRegistrationCostDecayBlocks(u32),
         SetRegistrationCostAlpha(u128),
@@ -566,8 +644,6 @@ pub mod pallet {
         SetChurnLimits(u32, u32),
         SetChurnLimitMultipliers(u32, u32),
         SetQueueEpochs(u32, u32),
-        SetMinActivationGraceEpochs(u32),
-        SetMaxActivationGraceEpochs(u32),
         SetProbationRounds(u32, u32),
         SetSubnetStakesLimits(u128, u128),
         SetDelegateStakePercentages(u128, u128),
@@ -580,7 +656,6 @@ pub mod pallet {
         SetStrongRejectionThreshold {
             threshold: u128,
         },
-        SetNetworkMinStakeBalance(u128),
         SetNetworkMaxStakeBalance(u128),
         SetMinActiveNodeStakeEpochs(u32),
         SetMinDelegateStakeDeposit(u128),
@@ -614,6 +689,9 @@ pub mod pallet {
         SetOverwatchWeightFactor(u128),
         SetOverwatchStakeWeightFactor(u128),
         SetSubnetWeightFactors(SubnetWeightFactorsData),
+        SetSubnetDelegateStakeSmoothingAlpha(u128),
+        SetSubnetNetFlowSmoothingAlpha(u128),
+        SetSubnetNetFlowK(u128),
         SetDefaultOverwatchSubnetWeight(u128),
         SetOverwatchValidatorWhitelist(u32, bool),
         SetValidatorRewardMidpoint(u128),
@@ -629,6 +707,7 @@ pub mod pallet {
         },
         SetSubnetOwnerPercentage(u128),
         SetSubnetRewardCapacitorReleasePercentage(u128),
+        SetMaxSubnetNodeConsensusWeight(u128),
         SetDelegateStakeCooldownEpochs(u32),
         SetNodeDelegateStakeCooldownEpochs(u32),
         SetStakeCooldownEpochs(u32),
@@ -638,7 +717,6 @@ pub mod pallet {
         SetMinSubnetRegistrationEpochs(u32),
         SetSubnetRegistrationEpochs(u32),
         SetMinMaxSubnetNodes(u32, u32),
-        SetMinStakeBalance(u128),
         SetTxRateLimit(u32),
 
         // Consensus / Validation and Attestation
@@ -803,11 +881,6 @@ pub mod pallet {
             min: u128,
             max: u128,
         },
-        SubnetDelegateStakeRewardsPercentageUpdate {
-            subnet_id: u32,
-            owner: T::AccountId,
-            value: u128,
-        },
         SubnetDelegateStakeRewardsPercentageUpdateScheduled {
             subnet_id: u32,
             owner: T::AccountId,
@@ -852,11 +925,6 @@ pub mod pallet {
             owner: T::AccountId,
             value: u128,
         },
-        QueueImmunityEpochsUpdate {
-            subnet_id: u32,
-            owner: T::AccountId,
-            value: u32,
-        },
         QueueImmunityEpochsUpdateScheduled {
             subnet_id: u32,
             owner: T::AccountId,
@@ -875,21 +943,11 @@ pub mod pallet {
             value: u128,
             effective_subnet_epoch: u32,
         },
-        SubnetNodeMinWeightDecreaseReputationThresholdUpdate {
-            subnet_id: u32,
-            owner: T::AccountId,
-            value: u128,
-        },
         SubnetNodeMinWeightDecreaseReputationThresholdUpdateScheduled {
             subnet_id: u32,
             owner: T::AccountId,
             value: u128,
             effective_subnet_epoch: u32,
-        },
-        MinSubnetNodeReputationUpdate {
-            subnet_id: u32,
-            owner: T::AccountId,
-            value: u128,
         },
         MinSubnetNodeReputationUpdateScheduled {
             subnet_id: u32,
@@ -906,6 +964,46 @@ pub mod pallet {
         IdentityUpdated {
             validator_id: u32,
             identity: Option<IdentityData<T>>,
+        },
+        /// Validator pool shares were burned and their balance queued for a subnet pool.
+        /// `id` links to the queue lifecycle events; destination shares are not yet credited.
+        ValidatorToSubnetQueuedSwapCall {
+            id: u32,
+            account_id: T::AccountId,
+            from_validator_id: u32,
+            to_subnet_id: u32,
+            balance: u128,
+            shares_burned: u128,
+        },
+        /// Subnet pool shares were burned and their balance queued for a validator pool.
+        /// `id` links to the queue lifecycle events; destination shares are not yet credited.
+        SubnetToValidatorQueuedSwapCall {
+            id: u32,
+            account_id: T::AccountId,
+            from_subnet_id: u32,
+            to_validator_id: u32,
+            balance: u128,
+            shares_burned: u128,
+        },
+        /// Subnet pool shares were burned and their balance queued for a subnet pool.
+        /// `id` links to the queue lifecycle events; destination shares are not yet credited.
+        SubnetToSubnetQueuedSwapCall {
+            id: u32,
+            account_id: T::AccountId,
+            from_subnet_id: u32,
+            to_subnet_id: u32,
+            balance: u128,
+            shares_burned: u128,
+        },
+        /// Validator pool shares were burned and their balance queued for a validator pool.
+        /// `id` links to the queue lifecycle events; destination shares are not yet credited.
+        ValidatorToValidatorQueuedSwapCall {
+            id: u32,
+            account_id: T::AccountId,
+            from_validator_id: u32,
+            to_validator_id: u32,
+            balance: u128,
+            shares_burned: u128,
         },
         SwapCallQueued {
             id: u32,
@@ -963,7 +1061,6 @@ pub mod pallet {
         SubnetNodeIdOccupied,
         /// Validator identity is missing or invalid.
         InvalidValidatorId,
-        InvalidElectedSubnetNode,
         InvalidSubnetNodeClassification,
         /// Not subnet owner
         NotSubnetOwner,
@@ -979,24 +1076,14 @@ pub mod pallet {
         PeerIdExist,
         /// Max subnet nodes reached
         MaxSubnetNodes,
-        /// Bootnode peer ID already in use in subnet
-        BootnodePeerIdExist,
-        /// Client peer ID already in use in subnet
-        ClientPeerIdExist,
-        /// Invalid client peer ID
-        InvalidClientPeerId,
         /// Bootnode already in use in subnet
         MultiaddrExist,
-        /// Hotkey doesn't have a subnet node
-        InvalidHotkeySubnetNodeId,
         /// Subnet name already exists
         SubnetNameExist,
         /// Subnet repository already exists
         SubnetRepoExist,
         /// Subnet doesn't exist
         InvalidSubnetId,
-        /// Subnet state must be active to perform this action
-        SubnetMustBeActive,
         /// Transaction rate limiter exceeded
         TxRateLimitExceeded,
         /// PeerId format invalid
@@ -1007,8 +1094,6 @@ pub mod pallet {
         /// Coldkey not whitelisted to register
         ColdkeyRegistrationWhitelist,
         ValidatorIdNotInWhitelist,
-        /// Validator ID not whitelisted to register
-        NotInitialValidatorRegistrationWhitelist,
         MaxRegisteredNodes,
         MaxQueuedNodes,
         /// A validator identity already owns the maximum cumulative number of subnet nodes.
@@ -1055,8 +1140,6 @@ pub mod pallet {
         InvalidValidatorNodeDelegateStakeWeightTotal,
         /// The distance between the current rate and new rate is too large, see MaxSubnetDelegateStakeRewardsPercentageChange
         DelegateStakePercentageAbsDiffTooLarge,
-        /// Must unstake to register
-        MustUnstakeToRegister,
 
         // Admin
         /// Invalid maximimum subnets, must not exceed maximum allowable
@@ -1067,14 +1150,11 @@ pub mod pallet {
         NoAvailableSlots,
         /// The monotonically increasing subnet identifier space has been exhausted.
         SubnetIdExhausted,
-        /// The subnet already owns an epoch slot and cannot be assigned another one.
-        SubnetSlotAlreadyAssigned,
-        /// Invalid min subnet nodes, must not be less than minimum allowable
-        InvalidMinSubnetNodes,
         /// Invalid maximimum subnet nodes, must not exceed maximimum allowable
         InvalidMaxSubnetNodes,
         /// Invalid percent number, must be in 1e18 format. Used for elements that only require correct format
         InvalidPercent,
+        InvalidSubnetNetFlowK,
         MinSubnetNodeReputation,
         InvalidAbsentDecreaseReputationFactor,
         InvalidIncludedIncreaseReputationFactor,
@@ -1090,8 +1170,6 @@ pub mod pallet {
         InvalidValues,
         /// Global unpause discarded this round; wait for the next assigned-slot election.
         ConsensusRoundCancelled,
-        InvalidMinNodeBurnRate,
-        InvalidMaxNodeBurnRate,
         InvalidDelegateStakeSubnetRemovalInterval,
         InvalidSubnetRemovalCheckInterval,
         InvalidMinSubnetRegistrationEpochs,
@@ -1107,8 +1185,6 @@ pub mod pallet {
         InvalidAmount,
         /// Not enough balance on Account to stake and keep alive
         NotEnoughBalanceToStake,
-        /// Not enough balance on Account to remove balance and keep alive
-        NotEnoughBalance,
         /// Amount will kill account
         BalanceWithdrawalError,
         /// Burn failed, amount will kill account
@@ -1118,7 +1194,6 @@ pub mod pallet {
         TransferToSelfNotAllowed,
         MaxStakeReached,
         MinDelegateStakeDepositNotReached,
-        MinNodeDelegateStakeDepositNotReached,
         // if min stake not met on both stake and unstake
         MinStakeNotReached,
         // delegate staking
@@ -1148,10 +1223,8 @@ pub mod pallet {
         /// The execution deadline must include the complete mandatory queue delay.
         InvalidSwapDeadline,
         NoStakeUnbondingsOrCooldownNotMet,
-        MinDelegateStake,
         /// Elected validator on current epoch cannot remove to ensure they are able to be rewarded or penalized
         ElectedValidatorCannotRemove,
-        MinActiveNodeStakeEpochs,
         /// Shares entered is zero, must be greater than
         SharesZero,
         /// Amount entered is zero, must be greater than
@@ -1160,8 +1233,6 @@ pub mod pallet {
         /// Consensus submission doesn't exist on this epoch
         InvalidSubnetConsensusSubmission,
         SubnetActivatedAlready,
-        /// Subnet not qualified for removal
-        InvalidSubnetRemoval,
 
         // Validation and Attestation
         /// Subnet rewards data already submitted by validator
@@ -1175,8 +1246,8 @@ pub mod pallet {
         AlreadyAttested,
         /// Score overflow
         ScoreOverflow,
-        /// Attestor weight overflow
-        AttestorWeightOverflow,
+        /// A node's normalized Q18 score exceeds the network consensus weight cap.
+        MaxSubnetNodeConsensusWeightExceeded,
         /// Election-time voting weights are missing or inconsistent with the elected round.
         InvalidConsensusAttestorWeightSnapshot,
         ElectionSlotInsertFail,
@@ -1184,16 +1255,8 @@ pub mod pallet {
         NotKeyOwner,
         /// Subnet Node param A must be unique
         SubnetNodeUniqueParamTaken,
-        // Hotkey already registered to coldkey
-        HotkeyAlreadyRegisteredToColdkey,
         /// Burn amount exceeds maximum burn amount allowable
         MaxBurnAmountExceeded,
-        // Hotkey not registered to coldkey
-        OldHotkeyNotRegistered,
-        /// Identity is taken by another coldkey
-        IdentityTaken,
-        /// Identity field cannot be empty
-        IdentityFieldEmpty,
         /// No change between current and new delegate reward rate, make sure to increase or decrease it
         NoDelegateRewardRateChange,
         /// Invalid delegate reward rate above 100%
@@ -1205,8 +1268,6 @@ pub mod pallet {
         DelegateAccountRateIsNone,
         DelegateAccountCannotBeHotkey,
         DelegateAccountCannotBeColdkey,
-        NotDelegateAccountOwner,
-        NoDelegateAccountSet,
         /// Rate of change to great for decreasing reward rate, see MaxRewardRateDecrease
         SurpassesMaxRewardRateDecrease,
         /// Too many updates to reward rate in the NodeRewardRateUpdatePeriod
@@ -1218,7 +1279,6 @@ pub mod pallet {
         /// Hotkey has an owner and hotkeys must be unique to each node. If you're the owner, use a fresh hotkey
         HotkeyHasOwner,
         ColdkeyMatchesHotkey,
-        PeerIdsMustBeUnique,
         NoCommitFound,
         /// Reveal doesn't match commit or no commit
         RevealMismatch,
@@ -1239,8 +1299,6 @@ pub mod pallet {
         /// Overwatch registration is disabled during the bootstrap Overwatch epoch (epoch zero)
         OverwatchEpochIsZero,
         MissingOverwatchEpochSnapshot,
-        /// An extant subnet must have explicit balance-time accounting from registration.
-        MissingSubnetBalanceTime,
         OverwatchNodeNotEligibleForEpoch,
         /// Account already in bootnode access list
         InBootnodeAccessList,
@@ -1753,33 +1811,6 @@ pub mod pallet {
     pub struct PeerInfo<T: Config> {
         pub peer_id: PeerId,
         pub multiaddr: Option<NetworkBytes<T>>,
-    }
-
-    /// Full payload of the public `SubnetNodeRegistered` event.
-    /// Field order and encoding are independent of the compact operational storage record.
-    #[derive(
-        Default,
-        Encode,
-        Decode,
-        codec::DecodeWithMemTracking,
-        Clone,
-        PartialEq,
-        Eq,
-        DebugNoBound,
-        PartialOrd,
-        Ord,
-        scale_info::TypeInfo,
-    )]
-    #[scale_info(skip_type_params(T))]
-    pub struct SubnetNodeRegistrationData<T: Config> {
-        pub id: u32,
-        pub validator_id: u32,
-        pub peer_info: Option<PeerInfo<T>>,
-        pub bootnode_peer_info: Option<PeerInfo<T>>,
-        pub client_peer_info: Option<PeerInfo<T>>,
-        pub classification: SubnetNodeClassification,
-        pub unique: Option<NetworkBytes<T>>,
-        pub non_unique: Option<NetworkBytes<T>>,
     }
 
     /// Live operational state shared by admitted storage, queued storage, and the queue.
@@ -2418,7 +2449,7 @@ pub mod pallet {
 
     /// This struct represents the breakdown of how total subnet rewards are allocated
     /// across different participants in the subnet ecosystem. It is generated during
-    /// the `calculate_rewards` process and provides a complete view of reward distribution
+    /// the `calculate_rewards_with_policy` process and provides a complete view of reward distribution
     /// for a single epoch.
     ///
     /// # Fields
@@ -3143,6 +3174,11 @@ pub mod pallet {
         // 10%, in Q18.
         100_000_000_000_000_000
     }
+    #[pallet::type_value]
+    pub fn DefaultMaxSubnetNodeConsensusWeight() -> u128 {
+        // 50%, in Q18.
+        500_000_000_000_000_000
+    }
     /// This type value is referenced in:
     /// - ChurnLimit
     #[pallet::type_value]
@@ -3568,8 +3604,23 @@ pub mod pallet {
         return SubnetWeightFactorsData {
             delegate_stake: 400000000000000000,
             node_count: 400000000000000000,
-            time_weighted_stake: 200000000000000000,
+            net_flow: 200000000000000000,
         };
+    }
+    /// Approximately ten general epochs of half-life: 1 - 2^(-1/10), in Q18.
+    #[pallet::type_value]
+    pub fn DefaultSubnetNetFlowSmoothingAlpha() -> u128 {
+        66_967_008_463_192_584
+    }
+    /// Initial softmax sensitivity K, in whole native units.
+    #[pallet::type_value]
+    pub fn DefaultSubnetNetFlowK() -> u128 {
+        500
+    }
+    /// Per-block EMA response: approximately 63% of a balance gap over ten general epochs.
+    #[pallet::type_value]
+    pub fn DefaultSubnetDelegateStakeSmoothingAlpha<T: Config>() -> u128 {
+        PERCENTAGE_FACTOR_U128 / (10 * u128::from(T::EpochLength::get().max(1)))
     }
     #[pallet::type_value]
     pub fn DefaultOverwatchSubnetWeightValue() -> u128 {
@@ -3585,7 +3636,7 @@ pub mod pallet {
     pub type TotalSubnetUids<T: Config> =
         StorageValue<_, u32, ValueQuery, <T as Config>::InitialSubnetUid>;
 
-    /// Lazy balance-time accounting. The epoch is derived from `last_updated_block`.
+    /// Signed Q18-scaled atomic token amount. Magnitude supports the full u128 balance range.
     #[derive(
         Default,
         Encode,
@@ -3599,15 +3650,70 @@ pub mod pallet {
         scale_info::TypeInfo,
         MaxEncodedLen,
     )]
-    pub struct SubnetBalanceTime {
-        pub last_updated_block: u32,
-        pub current_epoch_area: U256,
-        pub previous_epoch_area: U256,
+    pub struct SignedNetFlow {
+        pub negative: bool,
+        pub magnitude: U256,
+    }
+
+    /// Pending external flow for `epoch` and the EMA through the preceding completed epoch.
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
+        MaxEncodedLen,
+    )]
+    pub struct SubnetNetFlow {
+        pub epoch: u32,
+        pub flow: SignedNetFlow,
+        pub ema: SignedNetFlow,
     }
 
     #[pallet::storage]
-    pub type SubnetBalanceTimes<T: Config> =
-        StorageMap<_, Identity, u32, SubnetBalanceTime, OptionQuery>;
+    pub type SubnetNetFlows<T: Config> = StorageMap<_, Identity, u32, SubnetNetFlow, OptionQuery>;
+
+    /// Per-general-epoch Q18 EMA response: 0 < alpha <= 1e18.
+    #[pallet::storage]
+    pub type SubnetNetFlowSmoothingAlpha<T: Config> =
+        StorageValue<_, u128, ValueQuery, DefaultSubnetNetFlowSmoothingAlpha>;
+
+    /// Positive softmax sensitivity K, in whole native units; never relative to pool balance.
+    #[pallet::storage]
+    pub type SubnetNetFlowK<T: Config> = StorageValue<_, u128, ValueQuery, DefaultSubnetNetFlowK>;
+
+    /// Q18-scaled pool balance at `last_updated_block`, exclusively for `delegate_stake`.
+    #[derive(
+        Default,
+        Encode,
+        Decode,
+        codec::DecodeWithMemTracking,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        DebugNoBound,
+        scale_info::TypeInfo,
+        MaxEncodedLen,
+    )]
+    pub struct SubnetDelegateStakeEma {
+        pub balance: U256,
+        pub last_updated_block: u32,
+    }
+
+    #[pallet::storage]
+    pub type SubnetDelegateStakeEmas<T: Config> =
+        StorageMap<_, Identity, u32, SubnetDelegateStakeEma, OptionQuery>;
+
+    /// Per-block Q18 EMA coefficient, strictly between zero and one. Smaller means smoother.
+    #[pallet::storage]
+    pub type SubnetDelegateStakeSmoothingAlpha<T: Config> =
+        StorageValue<_, u128, ValueQuery, DefaultSubnetDelegateStakeSmoothingAlpha<T>>;
 
     /// For informational purposes only, not used in conditinal logic
     /// Subnet Id -> Friendly UID
@@ -4076,7 +4182,7 @@ pub mod pallet {
     pub struct SubnetWeightFactorsData {
         pub delegate_stake: u128,
         pub node_count: u128,
-        pub time_weighted_stake: u128,
+        pub net_flow: u128,
     }
 
     #[pallet::storage]
@@ -4748,6 +4854,13 @@ pub mod pallet {
     #[pallet::storage]
     pub type SubnetRewardCapacitorReleasePercentage<T> =
         StorageValue<_, u128, ValueQuery, DefaultSubnetRewardCapacitorReleasePercentage>;
+
+    /// Maximum normalized Q18 score of one node in a proposal, across all subnets.
+    /// Defaults to 50%. Checked after filtering and deduplication at submission time;
+    /// updates do not change already accepted proposals. Empty/zero-score proposals are valid.
+    #[pallet::storage]
+    pub type MaxSubnetNodeConsensusWeight<T> =
+        StorageValue<_, u128, ValueQuery, DefaultMaxSubnetNodeConsensusWeight>;
 
     #[derive(
         Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo, MaxEncodedLen,
@@ -5934,7 +6047,13 @@ pub mod pallet {
             ValidatorColdkeyHotkey::<T>::remove(&coldkey);
             ColdkeyValidatorId::<T>::insert(new_coldkey.clone(), validator_id);
             ValidatorColdkey::<T>::insert(validator_id, new_coldkey.clone());
-            ValidatorColdkeyHotkey::<T>::insert(new_coldkey, current_hotkey);
+            ValidatorColdkeyHotkey::<T>::insert(&new_coldkey, current_hotkey);
+
+            Self::deposit_event(Event::UpdateColdkey {
+                validator_id,
+                coldkey,
+                new_coldkey,
+            });
 
             Ok(())
         }
@@ -5985,7 +6104,13 @@ pub mod pallet {
                     Ok(())
                 },
             )?;
-            HotkeyValidatorId::<T>::insert(new_hotkey, validator_id);
+            HotkeyValidatorId::<T>::insert(&new_hotkey, validator_id);
+
+            Self::deposit_event(Event::UpdateHotkey {
+                validator_id,
+                hotkey: current_hotkey,
+                new_hotkey,
+            });
 
             Ok(())
         }
@@ -6509,11 +6634,17 @@ pub mod pallet {
                 Error::<T>::InvalidSubnetNodeId
             );
 
-            if let Some(new_hotkey) = new_hotkey {
+            if let Some(new_hotkey) = &new_hotkey {
                 SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, new_hotkey);
             } else {
                 SubnetNodeIdHotkey::<T>::remove(subnet_id, subnet_node_id);
             }
+
+            Self::deposit_event(Event::NodeHotkeyUpdated {
+                subnet_id,
+                subnet_node_id,
+                hotkey: new_hotkey,
+            });
 
             Ok(())
         }
@@ -7148,8 +7279,9 @@ pub mod pallet {
         // Consensus
         // ==============================================
 
-        /// Validator extrinsic for submitting incentives protocol data of the validators view of of the subnet
-        /// This is used t oscore each Subnet Node for allocation of emissions
+        /// Submit the elected validator's node scores for consensus and emissions.
+        /// After filtering and deduplication, each normalized Q18 score must be at most
+        /// `MaxSubnetNodeConsensusWeight` (50% by default). Empty/all-zero scores are valid.
         ///
         /// # Arguments
         ///
@@ -8035,6 +8167,8 @@ pub mod pallet {
         ) -> DispatchResult {
             T::MajorityCollectiveOrigin::ensure_origin(origin)?;
             RequireSubnetRegistrationWhitelist::<T>::set(value);
+            Self::deposit_event(Event::SubnetRegistrationWhitelistRequired { required: value });
+
             Ok(())
         }
 
@@ -8047,7 +8181,13 @@ pub mod pallet {
             value: bool,
         ) -> DispatchResult {
             T::MajorityCollectiveOrigin::ensure_origin(origin)?;
-            SubnetRegistrationWhitelist::<T>::insert(coldkey, subnet_id, value);
+            SubnetRegistrationWhitelist::<T>::insert(&coldkey, subnet_id, value);
+            Self::deposit_event(Event::SubnetRegistrantUpdated {
+                coldkey,
+                subnet_id,
+                approved: value,
+            });
+
             Ok(())
         }
 
@@ -8174,6 +8314,54 @@ pub mod pallet {
             T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
             Self::do_set_subnet_reward_capacitor_release_percentage(value)
         }
+
+        /// Set the maximum Q18 score weight per node (0 < value <= 1e18).
+        /// Effective for subsequent proposals, including rounds already elected.
+        #[pallet::call_index(184)]
+        #[pallet::weight(T::WeightInfo::set_max_subnet_node_consensus_weight())]
+        pub fn set_max_subnet_node_consensus_weight(
+            origin: OriginFor<T>,
+            value: u128,
+        ) -> DispatchResult {
+            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_max_subnet_node_consensus_weight(value)
+        }
+
+        /// Change the delegate-stake EMA speed prospectively, checkpointing under the old alpha.
+        #[pallet::call_index(185)]
+        #[pallet::weight(T::WeightInfo::set_subnet_delegate_stake_smoothing_alpha(
+            T::MaxPhysicalSubnetsUpperBound::get()
+        ))]
+        pub fn set_subnet_delegate_stake_smoothing_alpha(
+            origin: OriginFor<T>,
+            value: u128,
+        ) -> DispatchResult {
+            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_subnet_delegate_stake_smoothing_alpha(value)
+        }
+
+        /// Set the per-epoch Q18 net-flow EMA alpha (0 < value <= 1e18).
+        /// Completed epochs are checkpointed under the old alpha; the open epoch uses the new one.
+        #[pallet::call_index(186)]
+        #[pallet::weight(T::WeightInfo::set_subnet_net_flow_smoothing_alpha(
+            T::MaxPhysicalSubnetsUpperBound::get()
+        ))]
+        pub fn set_subnet_net_flow_smoothing_alpha(
+            origin: OriginFor<T>,
+            value: u128,
+        ) -> DispatchResult {
+            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_subnet_net_flow_smoothing_alpha(value)
+        }
+
+        /// Set positive net-flow softmax sensitivity K, in whole native units.
+        /// Effective at the next allocation; existing finalized allocations stay unchanged.
+        #[pallet::call_index(187)]
+        #[pallet::weight(T::WeightInfo::set_subnet_net_flow_k())]
+        pub fn set_subnet_net_flow_k(origin: OriginFor<T>, value: u128) -> DispatchResult {
+            T::MajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_subnet_net_flow_k(value)
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -8244,7 +8432,7 @@ pub mod pallet {
         ///
         /// # Slot Assignment
         ///
-        /// - **Unique Slot**: Each subnet is assigned a unique slot in the epoch schedule via `assign_subnet_slot()`
+        /// - **Unique Slot**: Each subnet is assigned a unique slot in the epoch schedule using `get_available_subnet_slot()` and `insert_subnet_slot_assignment()`
         /// - **Friendly UID**: Human-readable ID calculated as: `slot - DesignatedEpochSlots + 1`
         /// - **Designated Slots**: The first `NETWORK_DESIGNATED_EPOCH_SLOTS` slots are reserved for:
         ///   - `NETWORK_EPOCH_PRELIMINARIES_SLOT`: Overwatch rollover and epoch preliminaries
@@ -8471,9 +8659,16 @@ pub mod pallet {
 
             // Store subnet data
             SubnetsData::<T>::insert(subnet_id, &subnet_data);
-            SubnetBalanceTimes::<T>::insert(
+            SubnetNetFlows::<T>::insert(
                 subnet_id,
-                SubnetBalanceTime {
+                SubnetNetFlow {
+                    epoch: Self::get_current_block_as_u32() / T::EpochLength::get().max(1),
+                    ..Default::default()
+                },
+            );
+            SubnetDelegateStakeEmas::<T>::insert(
+                subnet_id,
+                SubnetDelegateStakeEma {
                     last_updated_block: Self::get_current_block_as_u32(),
                     ..Default::default()
                 },
@@ -9072,7 +9267,8 @@ pub mod pallet {
             SubnetNodeMinWeightDecreaseReputationThreshold::<T>::remove(subnet_id);
             PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::remove(subnet_id);
             SubnetReputationFactorSchedules::<T>::remove(subnet_id);
-            SubnetBalanceTimes::<T>::remove(subnet_id);
+            SubnetNetFlows::<T>::remove(subnet_id);
+            SubnetDelegateStakeEmas::<T>::remove(subnet_id);
             SubnetRewardCapacitor::<T>::remove(subnet_id);
 
             if let Some(friendly_uid) = SubnetIdFriendlyUid::<T>::take(subnet_id) {
@@ -9080,9 +9276,9 @@ pub mod pallet {
                 weight = weight.saturating_add(T::DbWeight::get().writes(1));
             }
 
-            // The cleanup above removes 48 keyed values. `take` additionally reads and removes
+            // The cleanup above removes 49 keyed values. `take` additionally reads and removes
             // SubnetIdFriendlyUid; the reverse FriendlyUidSubnetId write remains conditional.
-            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 49));
+            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 50));
 
             // Remove from slot
             Self::free_slot_of_subnet(subnet_id);
@@ -9281,7 +9477,7 @@ pub mod pallet {
                 hotkey: hotkey.clone(),
                 delegate_reward_rate: delegate_reward_rate,
                 last_delegate_reward_rate_update: 0,
-                delegate_account: delegate_account,
+                delegate_account: delegate_account.clone(),
             };
 
             ValidatorIdHotkey::<T>::insert(validator_id, hotkey.clone());
@@ -9293,6 +9489,15 @@ pub mod pallet {
             ValidatorColdkey::<T>::insert(validator_id, coldkey.clone());
             ValidatorColdkeyHotkey::<T>::insert(coldkey.clone(), hotkey.clone());
             HotkeyValidatorId::<T>::insert(hotkey.clone(), validator_id);
+
+            Self::deposit_event(Event::ValidatorRegistered {
+                validator_id,
+                coldkey,
+                hotkey,
+                delegate_reward_rate,
+                delegate_account,
+                burn_amount: T::Economics::get().validator_registration_burn,
+            });
 
             Ok(())
         }
@@ -9678,6 +9883,16 @@ pub mod pallet {
                 SubnetNodeIdHotkey::<T>::insert(subnet_id, subnet_node_id, node_hotkey);
             }
 
+            Self::deposit_event(Event::SubnetNodeRegistered {
+                subnet_id,
+                subnet_node_id,
+                validator_id,
+                coldkey,
+                hotkey,
+                stake: stake_to_be_added,
+                burn_amount,
+            });
+
             Ok(())
         }
 
@@ -9814,7 +10029,7 @@ pub mod pallet {
                 weight_factors
                     .delegate_stake
                     .saturating_add(weight_factors.node_count)
-                    .saturating_add(weight_factors.time_weighted_stake),
+                    .saturating_add(weight_factors.net_flow),
                 percentage_factor,
                 "default subnet emission weight factors must total exactly 100%"
             );

@@ -2308,7 +2308,7 @@ fn test_set_subnet_weight_factors() {
         let value = SubnetWeightFactorsData {
             delegate_stake: test_percent(2, 5),
             node_count: test_percent(3, 10),
-            time_weighted_stake: test_percent(3, 10),
+            net_flow: test_percent(3, 10),
         };
 
         assert_ok!(Network::set_subnet_weight_factors(
@@ -2331,10 +2331,10 @@ fn test_subnet_weight_factors_require_exactly_one_hundred_percent() {
         let full = Network::percentage_factor_as_u128();
         let original = SubnetWeightFactors::<Test>::get();
         assert_eq!(
-            original.delegate_stake + original.node_count + original.time_weighted_stake,
+            original.delegate_stake + original.node_count + original.net_flow,
             full
         );
-        for (delegate_stake, node_count, time_weighted_stake) in [
+        for (delegate_stake, node_count, net_flow) in [
             (0, 0, 0),
             (full * 2 / 5, full * 2 / 5, 0),
             (full / 2, full / 2 - 1, 0),
@@ -2348,7 +2348,7 @@ fn test_subnet_weight_factors_require_exactly_one_hundred_percent() {
                     SubnetWeightFactorsData {
                         delegate_stake,
                         node_count,
-                        time_weighted_stake
+                        net_flow
                     },
                 ),
                 Error::<Test>::InvalidPercent
@@ -2356,7 +2356,7 @@ fn test_subnet_weight_factors_require_exactly_one_hundred_percent() {
             assert_eq!(SubnetWeightFactors::<Test>::get(), original);
         }
         // Individual factors may be zero; only the combined total must equal 100%.
-        for (delegate_stake, node_count, time_weighted_stake) in [
+        for (delegate_stake, node_count, net_flow) in [
             (full, 0, 0),
             (0, full, 0),
             (0, 0, full),
@@ -2365,7 +2365,7 @@ fn test_subnet_weight_factors_require_exactly_one_hundred_percent() {
             let value = SubnetWeightFactorsData {
                 delegate_stake,
                 node_count,
-                time_weighted_stake,
+                net_flow,
             };
             assert_ok!(Network::set_subnet_weight_factors(
                 RuntimeOrigin::from(pallet_collective::RawOrigin::Members(2, 3)),

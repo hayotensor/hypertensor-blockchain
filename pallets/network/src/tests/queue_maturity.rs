@@ -1,7 +1,7 @@
 use super::mock::*;
 use crate::tests::test_utils::*;
 use crate::{
-    ChurnLimit, MinSubnetMinStake, PendingU32Update, PendingSubnetNodeQueueEpochs,
+    ChurnLimit, MinSubnetMinStake, PendingSubnetNodeQueueEpochs, PendingU32Update,
     QueueImmunityEpochs, QueuedSubnetNodesData, SubnetConsensusSubmission, SubnetElectedValidator,
     SubnetName, SubnetNodeClass, SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetNodesData,
 };
@@ -94,7 +94,10 @@ fn default_queue_immunity_covers_activation_boundary() {
             .iter()
             .any(|node| node.id == queued_node.id));
         let active_node = SubnetNodesData::<Test>::get(subnet_id, queued_node.id);
-        assert_eq!(active_node.classification.node_class, SubnetNodeClass::Probation);
+        assert_eq!(
+            active_node.classification.node_class,
+            SubnetNodeClass::Probation
+        );
 
         // Once activated, it cannot be selected as a queue removal even if a
         // validator supplies the old queue ID later in the epoch.

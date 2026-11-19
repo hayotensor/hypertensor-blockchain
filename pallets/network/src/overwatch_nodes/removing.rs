@@ -125,6 +125,11 @@ impl<T: Config> Pallet<T> {
         // Exit ends authentication immediately. Preserve commitments until rollover so exit
         // cannot hide an incomplete submission; fully revealed work retains its opening stake.
         Self::clear_overwatch_active_membership(overwatch_node_id, validator_id);
+        Self::deposit_event(Event::OverwatchNodeRemoved {
+            overwatch_node_id,
+            validator_id,
+        });
+
         Ok(())
     }
 

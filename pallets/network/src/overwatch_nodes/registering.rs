@@ -99,6 +99,13 @@ impl<T: Config> Pallet<T> {
 
         TotalOverwatchNodes::<T>::mutate(|n: &mut u32| *n += 1);
 
+        Self::deposit_event(Event::OverwatchNodeRegistered {
+            overwatch_node_id: current_uid,
+            validator_id,
+            coldkey,
+            stake: stake_to_be_added,
+        });
+
         Ok(())
     }
 
@@ -113,13 +120,18 @@ impl<T: Config> Pallet<T> {
 
         ensure!(validator_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
-        if let Some(new_hotkey) = new_hotkey {
+        if let Some(new_hotkey) = &new_hotkey {
             OverwatchNodeIdHotkey::<T>::insert(overwatch_node_id, new_hotkey);
         } else {
             // Remove overwatch hotkey if None, the node will use the
             // validator hotkey for all hotkey features
             OverwatchNodeIdHotkey::<T>::remove(overwatch_node_id);
         }
+
+        Self::deposit_event(Event::OverwatchNodeHotkeyUpdated {
+            overwatch_node_id,
+            hotkey: new_hotkey,
+        });
 
         Ok(())
     }
@@ -172,8 +184,14 @@ impl<T: Config> Pallet<T> {
         PeerIdOverwatchNodeId::<T>::insert(subnet_id, &peer_id, overwatch_node_id);
 
         // Add or replace PeerID under subnet ID
-        peer_ids.insert(subnet_id, peer_id);
+        peer_ids.insert(subnet_id, peer_id.clone());
         OverwatchNodeIndex::<T>::insert(overwatch_node_id, peer_ids);
+
+        Self::deposit_event(Event::OverwatchNodePeerIdUpdated {
+            subnet_id,
+            overwatch_node_id,
+            peer_id,
+        });
 
         Ok(Pays::No.into())
     }

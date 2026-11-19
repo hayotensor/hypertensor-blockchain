@@ -1051,7 +1051,7 @@ fn seed_max_prior_overwatch_signal<T: Config>(source_epoch: u32) {
     let max_nodes = T::MaxOverwatchNodesUpperBound::get();
     let max_subnets = T::MaxPhysicalSubnetsUpperBound::get();
     assert_eq!(max_nodes, MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN);
-    assert_eq!(max_subnets, MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN);
+    assert!(max_subnets <= MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN);
 
     let percentage_factor = Network::<T>::percentage_factor_as_u128();
     let base_stake = OverwatchMinStakeBalance::<T>::get();
@@ -1298,34 +1298,33 @@ fn assert_overwatch_reward_benchmark_result<T: Config>(
 pub fn insert_subnet<T: Config>(id: u32, state: SubnetState, epoch: u32) {
     let data = new_subnet_data::<T>(id, state, epoch);
     SubnetsData::<T>::insert(id, data);
-    SubnetBalanceTimes::<T>::insert(
+    SubnetNetFlows::<T>::insert(
         id,
-        SubnetBalanceTime {
+        SubnetNetFlow {
+            epoch: (get_current_block_as_u32::<T>()) / T::EpochLength::get().max(1),
+            ..Default::default()
+        },
+    );
+    SubnetDelegateStakeEmas::<T>::insert(
+        id,
+        SubnetDelegateStakeEma {
             last_updated_block: get_current_block_as_u32::<T>(),
             ..Default::default()
         },
     );
 }
 
-/// Seed a coherent checkpoint for a pool whose current balance has remained constant. A
-/// one-boundary checkpoint includes the accumulated partial epoch; a longer gap covers the
-/// constant-time catch-up branch without adding elapsed epochs to the benchmark domain.
-fn seed_subnet_balance_time_checkpoint<T: Config>(subnet_id: u32, epochs_ago: u32) {
-    let epoch_length = T::EpochLength::get();
+/// Seed nonzero signed flow and EMA to exercise completion and skipped-epoch decay.
+fn seed_subnet_net_flow_checkpoint<T: Config>(subnet_id: u32, epochs_ago: u32) {
     let current_epoch = Network::<T>::get_current_epoch_as_u32();
     assert!(epochs_ago > 0 && current_epoch >= epochs_ago);
-    let elapsed_in_checkpoint_epoch = epoch_length / 2;
-    let last_updated_block = (current_epoch - epochs_ago)
-        .checked_mul(epoch_length)
-        .and_then(|block| block.checked_add(elapsed_in_checkpoint_epoch))
-        .expect("benchmark checkpoint block fits u32");
-    let balance = U256::from(TotalSubnetDelegateStakeBalance::<T>::get(subnet_id));
-    SubnetBalanceTimes::<T>::insert(
+    let amount = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
+    SubnetNetFlows::<T>::insert(
         subnet_id,
-        SubnetBalanceTime {
-            last_updated_block,
-            current_epoch_area: balance * U256::from(elapsed_in_checkpoint_epoch),
-            previous_epoch_area: balance * U256::from(epoch_length),
+        SubnetNetFlow {
+            epoch: current_epoch - epochs_ago,
+            flow: SignedNetFlow::from_amount(true, amount),
+            ema: SignedNetFlow::from_amount(false, amount / 2),
         },
     );
 }
@@ -1577,7 +1576,7 @@ fn seed_max_overwatch_removal_lifecycle<T: Config>(
     let max_nodes = T::MaxOverwatchNodesUpperBound::get();
     let max_subnets = T::MaxPhysicalSubnetsUpperBound::get();
     assert_eq!(max_nodes, MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN);
-    assert_eq!(max_subnets, MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN);
+    assert!(max_subnets <= MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN);
 
     let source_epoch = 0u32;
     let pending_epoch = 1u32;
@@ -3038,7 +3037,7 @@ fn prepare_mixed_swap_benchmark<T: Config>(
     frame_system::Pallet::<T>::set_block_number(u32_to_block::<T>(block_number));
 
     for subnet_id in subnet_ids.iter().copied() {
-        seed_subnet_balance_time_checkpoint::<T>(subnet_id, 1);
+        seed_subnet_net_flow_checkpoint::<T>(subnet_id, 1);
     }
 
     let missing_subnet_id = u32::MAX;
@@ -3710,9 +3709,9 @@ mod benchmarks {
 
         let subnet_id = SubnetName::<T>::get(&expected_name).unwrap();
         assert_eq!(
-            SubnetBalanceTimes::<T>::get(subnet_id),
-            Some(SubnetBalanceTime {
-                last_updated_block: get_current_block_as_u32::<T>(),
+            SubnetNetFlows::<T>::get(subnet_id),
+            Some(SubnetNetFlow {
+                epoch: (get_current_block_as_u32::<T>()) / T::EpochLength::get().max(1),
                 ..Default::default()
             }),
         );
@@ -5242,7 +5241,7 @@ mod benchmarks {
         );
         let starting_delegator_balance = T::Currency::free_balance(&delegate_account.clone());
 
-        seed_subnet_balance_time_checkpoint::<T>(subnet_id, 1);
+        seed_subnet_net_flow_checkpoint::<T>(subnet_id, 1);
 
         #[extrinsic_call]
         add_subnet_delegate_stake(
@@ -5337,7 +5336,7 @@ mod benchmarks {
         let prev_next_id = NextSwapQueueId::<T>::get();
         let queued_principal_before = TotalQueuedSwapPrincipal::<T>::get();
 
-        seed_subnet_balance_time_checkpoint::<T>(from_subnet_id, 1);
+        seed_subnet_net_flow_checkpoint::<T>(from_subnet_id, 1);
 
         #[extrinsic_call]
         swap_from_subnet_to_subnet(
@@ -5508,7 +5507,7 @@ mod benchmarks {
             .expect("target claim block is seeded");
         let total_network_unbonding_before = TotalNetworkUnbondingBalance::<T>::get();
 
-        seed_subnet_balance_time_checkpoint::<T>(subnet_id, 1);
+        seed_subnet_net_flow_checkpoint::<T>(subnet_id, 1);
 
         #[extrinsic_call]
         remove_delegate_stake(
@@ -5880,7 +5879,7 @@ mod benchmarks {
         let prev_next_id = NextSwapQueueId::<T>::get();
         let queued_principal_before = TotalQueuedSwapPrincipal::<T>::get();
 
-        seed_subnet_balance_time_checkpoint::<T>(from_subnet_id, 1);
+        seed_subnet_net_flow_checkpoint::<T>(from_subnet_id, 1);
 
         #[extrinsic_call]
         swap_from_subnet_to_validator(
@@ -5976,6 +5975,7 @@ mod benchmarks {
 
     #[benchmark]
     fn propose_attestation() {
+        MaxSubnetNodeConsensusWeight::<T>::put(Network::<T>::percentage_factor_as_u128() / 2);
         MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let end = max_subnet_nodes;
@@ -6037,8 +6037,13 @@ mod benchmarks {
         let (prioritize_queue_node_id, remove_queue_node_id) =
             capacity::max_queue::<T>(subnet_id, end);
 
-        let subnet_node_data_vec =
+        let mut subnet_node_data_vec =
             get_subnet_node_consensus_data::<T>(subnet_id, max_subnet_nodes, 0, end);
+        // Exercise full-width Q18 normalization without overflowing the canonical sum.
+        let score = u128::MAX / subnet_node_data_vec.len() as u128;
+        for entry in &mut subnet_node_data_vec {
+            entry.score = score;
+        }
 
         let max_args: ValidatorArgs<T> = vec![0xff; T::ValidatorArgsLimit::get() as usize]
             .try_into()
@@ -7596,7 +7601,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn commit_overwatch_subnet_weights(x: Linear<1, { MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN }>) {
+    fn commit_overwatch_subnet_weights(x: Linear<1, { T::MaxPhysicalSubnetsUpperBound::get() }>) {
         let coldkey_n = 1;
 
         let end = 4;
@@ -7694,7 +7699,7 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn reveal_overwatch_subnet_weights(x: Linear<1, { MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN }>) {
+    fn reveal_overwatch_subnet_weights(x: Linear<1, { T::MaxPhysicalSubnetsUpperBound::get() }>) {
         // ENSURE EPOCH LENGTH IS BOAVE MAX LINEAR
         /// x: subnets
         // overwatch nodes
@@ -8284,6 +8289,21 @@ mod benchmarks {
         assert_eq!(
             SubnetRewardCapacitorReleasePercentage::<T>::get(),
             new_value
+        );
+    }
+
+    #[benchmark]
+    fn set_max_subnet_node_consensus_weight() {
+        let new_value = Network::<T>::percentage_factor_as_u128();
+        let origin = T::SuperMajorityCollectiveOrigin::try_successful_origin()
+            .expect("try_successful_origin failed");
+
+        #[extrinsic_call]
+        set_max_subnet_node_consensus_weight(origin as T::RuntimeOrigin, new_value);
+
+        assert_eq!(MaxSubnetNodeConsensusWeight::<T>::get(), new_value);
+        frame_system::Pallet::<T>::assert_last_event(
+            Event::<T>::SetMaxSubnetNodeConsensusWeight(new_value).into(),
         );
     }
 
@@ -9380,7 +9400,7 @@ mod benchmarks {
         let new_value = SubnetWeightFactorsData {
             delegate_stake: 300_000_000_000_000_000u128,
             node_count: 300_000_000_000_000_000u128,
-            time_weighted_stake: 400_000_000_000_000_000u128,
+            net_flow: 400_000_000_000_000_000u128,
         };
         let origin = T::MajorityCollectiveOrigin::try_successful_origin()
             .expect("try_successful_origin failed");
@@ -9389,6 +9409,141 @@ mod benchmarks {
         set_subnet_weight_factors(origin as T::RuntimeOrigin, new_value.clone());
 
         assert_eq!(SubnetWeightFactors::<T>::get(), new_value);
+    }
+
+    /// Reserve the longest possible gap, slowest decay, full-width balances, and largest
+    /// subnet proof. This isolated cost is composed into every balance-changing path.
+    #[benchmark]
+    fn checkpoint_subnet_delegate_stake_ema() {
+        insert_subnet::<T>(1, SubnetState::Active, 0);
+        max_fill_benchmark_subnet_data::<T>(1);
+        SubnetDelegateStakeSmoothingAlpha::<T>::put(1);
+        let balance =
+            U256::from(u128::MAX / 2) * U256::from(Network::<T>::percentage_factor_as_u128());
+        SubnetDelegateStakeEmas::<T>::insert(
+            1,
+            SubnetDelegateStakeEma {
+                balance,
+                last_updated_block: 0,
+            },
+        );
+        #[block]
+        {
+            let checkpoint =
+                Network::<T>::prepare_subnet_delegate_stake_ema(1, u128::MAX, u32::MAX).unwrap();
+            SubnetDelegateStakeEmas::<T>::insert(1, checkpoint);
+        }
+        let checkpoint = SubnetDelegateStakeEmas::<T>::get(1).unwrap();
+        assert_eq!(checkpoint.last_updated_block, u32::MAX);
+        assert!(checkpoint.balance > balance);
+    }
+
+    /// Largest epoch gap and full-width signed arithmetic, plus a nontrivial softmax pair.
+    #[benchmark]
+    fn checkpoint_subnet_net_flow() {
+        frame_system::Pallet::<T>::set_block_number(0u32.into());
+        insert_subnet::<T>(1, SubnetState::Active, 0);
+        max_fill_benchmark_subnet_data::<T>(1);
+        SubnetNetFlowSmoothingAlpha::<T>::put(1);
+        SubnetNetFlows::<T>::insert(
+            1,
+            SubnetNetFlow {
+                epoch: 0,
+                flow: SignedNetFlow::from_amount(true, u128::MAX),
+                ema: SignedNetFlow::from_amount(false, u128::MAX / 2),
+            },
+        );
+        frame_system::Pallet::<T>::set_block_number(u32::MAX.into());
+        #[block]
+        {
+            let checkpoint = Network::<T>::prepare_subnet_net_flow(1, u128::MAX, true)
+                .unwrap()
+                .unwrap();
+            SubnetNetFlows::<T>::insert(1, checkpoint);
+            let lower = checkpoint
+                .ema
+                .checked_add(SignedNetFlow::from_amount(
+                    true,
+                    500 * NET_FLOW_ATOMIC_UNITS_PER_UNIT,
+                ))
+                .unwrap();
+            let weights = Network::<T>::normalize_subnet_net_flows(
+                BTreeMap::from([(1, checkpoint.ema), (2, lower)]),
+                SubnetNetFlowK::<T>::get(),
+            );
+            assert!(weights[&1] > weights[&2] && weights[&2] > 0);
+        }
+        assert_eq!(
+            SubnetNetFlows::<T>::get(1).unwrap().flow,
+            SignedNetFlow::from_amount(true, u128::MAX)
+        );
+    }
+
+    #[benchmark]
+    fn set_subnet_net_flow_smoothing_alpha(
+        x: Linear<0, { T::MaxPhysicalSubnetsUpperBound::get() }>,
+    ) {
+        frame_system::Pallet::<T>::set_block_number(0u32.into());
+        SubnetNetFlowSmoothingAlpha::<T>::put(1);
+        for id in 1..=x {
+            insert_subnet::<T>(id, SubnetState::Registered, 0);
+            max_fill_benchmark_subnet_data::<T>(id);
+            SubnetNetFlows::<T>::insert(
+                id,
+                SubnetNetFlow {
+                    epoch: 0,
+                    flow: SignedNetFlow::from_amount(true, u128::MAX),
+                    ema: SignedNetFlow::from_amount(false, u128::MAX / 2),
+                },
+            );
+        }
+        frame_system::Pallet::<T>::set_block_number(u32::MAX.into());
+        let value = Network::<T>::percentage_factor_as_u128() / 4;
+        let origin =
+            T::MajorityCollectiveOrigin::try_successful_origin().expect("collective origin");
+        #[extrinsic_call]
+        set_subnet_net_flow_smoothing_alpha(origin as T::RuntimeOrigin, value);
+        assert_eq!(SubnetNetFlowSmoothingAlpha::<T>::get(), value);
+        for id in 1..=x {
+            assert_eq!(
+                SubnetNetFlows::<T>::get(id).unwrap().epoch,
+                u32::MAX / T::EpochLength::get()
+            );
+        }
+    }
+
+    #[benchmark]
+    fn set_subnet_net_flow_k() {
+        let origin =
+            T::MajorityCollectiveOrigin::try_successful_origin().expect("collective origin");
+        #[extrinsic_call]
+        set_subnet_net_flow_k(origin as T::RuntimeOrigin, 500);
+        assert_eq!(SubnetNetFlowK::<T>::get(), 500);
+    }
+
+    #[benchmark]
+    fn set_subnet_delegate_stake_smoothing_alpha(
+        x: Linear<0, { T::MaxPhysicalSubnetsUpperBound::get() }>,
+    ) {
+        frame_system::Pallet::<T>::set_block_number(0u32.into());
+        SubnetDelegateStakeSmoothingAlpha::<T>::put(1);
+        for id in 1..=x {
+            insert_subnet::<T>(id, SubnetState::Registered, 0);
+            max_fill_benchmark_subnet_data::<T>(id);
+            TotalSubnetDelegateStakeBalance::<T>::insert(id, u128::MAX);
+        }
+        frame_system::Pallet::<T>::set_block_number(u32::MAX.into());
+        let value = Network::<T>::percentage_factor_as_u128() / 200;
+        let origin = T::MajorityCollectiveOrigin::try_successful_origin()
+            .expect("try_successful_origin failed");
+        #[extrinsic_call]
+        set_subnet_delegate_stake_smoothing_alpha(origin as T::RuntimeOrigin, value);
+        assert_eq!(SubnetDelegateStakeSmoothingAlpha::<T>::get(), value);
+        for id in 1..=x {
+            let checkpoint = SubnetDelegateStakeEmas::<T>::get(id).unwrap();
+            assert_eq!(checkpoint.last_updated_block, u32::MAX);
+            assert!(!checkpoint.balance.is_zero());
+        }
     }
 
     #[benchmark]
@@ -9697,7 +9852,7 @@ mod benchmarks {
 
         insert_subnet::<T>(subnet_id, SubnetState::Registered, 0);
         increase_epochs::<T>(2);
-        seed_subnet_balance_time_checkpoint::<T>(subnet_id, 1);
+        seed_subnet_net_flow_checkpoint::<T>(subnet_id, 1);
 
         // Sanity check
         assert_eq!(
@@ -9834,7 +9989,7 @@ mod benchmarks {
             let _ = Network::<T>::do_remove_subnet(subnet_id, SubnetRemovalReason::MinReputation);
         }
 
-        assert!(!SubnetBalanceTimes::<T>::contains_key(subnet_id));
+        assert!(!SubnetNetFlows::<T>::contains_key(subnet_id));
         assert!(!SubnetRewardCapacitor::<T>::contains_key(subnet_id));
         assert_eq!(SubnetsData::<T>::try_get(subnet_id), Err(()));
         assert_eq!(SubnetNodesData::<T>::iter_prefix(subnet_id).count(), 0);
@@ -10891,7 +11046,7 @@ mod benchmarks {
 
     // Informational purposes only
     #[benchmark]
-    fn handle_subnet_emission_weights(x: Linear<1, { MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN }>) {
+    fn handle_subnet_emission_weights(x: Linear<1, { T::MaxPhysicalSubnetsUpperBound::get() }>) {
         NewRegistrationCostMultiplier::<T>::set(1000000000000000000);
         let end = MinSubnetNodes::<T>::get();
 
@@ -10939,8 +11094,8 @@ mod benchmarks {
                 },
             );
             effective_subnet_weights.insert(subnet_id, Network::<T>::percentage_factor_as_u128());
-            // Include both epoch-crossing branches; each uses a nonzero retained balance.
-            seed_subnet_balance_time_checkpoint::<T>(subnet_id, 1 + s % 2);
+            // Include single-epoch completion and skipped-epoch flow decay.
+            seed_subnet_net_flow_checkpoint::<T>(subnet_id, 1 + s % 2);
         }
         seed_max_effective_overwatch_cache::<T>(
             finalized_overwatch_epoch,
@@ -11107,7 +11262,7 @@ mod benchmarks {
             max_fill_benchmark_subnet_data::<T>(subnet_id);
         }
         for subnet_id in subnet_ids.iter().copied() {
-            seed_subnet_balance_time_checkpoint::<T>(subnet_id, 1);
+            seed_subnet_net_flow_checkpoint::<T>(subnet_id, 1);
         }
         let block_number = get_current_block_as_u32::<T>();
         let balance = DEFAULT_DELEGATE_STAKE_TO_BE_ADDED;
@@ -11738,7 +11893,7 @@ mod benchmarks {
             T::MaxPhysicalSubnetsUpperBound::get()
         );
 
-        seed_subnet_balance_time_checkpoint::<T>(subnet_id, 1);
+        seed_subnet_net_flow_checkpoint::<T>(subnet_id, 1);
 
         #[block]
         {
@@ -12218,7 +12373,6 @@ mod benchmarks {
         );
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
         increase_epochs::<T>(1);
-        let current_epoch = Network::<T>::get_current_epoch_as_u32();
         let current_subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
         let previous_subnet_epoch = current_subnet_epoch.saturating_sub(1);
         let validator_subnet_node_id = 1;
@@ -12263,6 +12417,13 @@ mod benchmarks {
         assert_eq!(stored_round.eligible_subnet_node_ids.len() as u32, x);
         assert_eq!(stored_round.eligible_validator_identity_ids.len() as u32, x);
         assert!(stored_round.policy.base_slash_percentage > 0);
+        let expected_slash = Network::<T>::get_slash_amount_with_policy(
+            stored_round.validator_node_stake_balance,
+            percentage_factor,
+            stored_round.policy.base_slash_percentage,
+            stored_round.policy.max_slash_amount,
+        );
+        assert!(expected_slash > 0);
         ConsensusRoundSettlementStatus::<T>::insert(subnet_id, previous_subnet_epoch, false);
 
         SubnetConsensusSubmission::<T>::remove(subnet_id, previous_subnet_epoch);
@@ -12271,7 +12432,7 @@ mod benchmarks {
             subnet_weights.insert(100_000 + index, u128::MAX.saturating_sub(index as u128));
         }
         FinalSubnetEmissionWeights::<T>::insert(
-            current_epoch,
+            previous_subnet_epoch.saturating_add(1),
             DistributionData {
                 subnets_emissions: DEFAULT_SCORE,
                 subnet_weights,
@@ -12291,7 +12452,14 @@ mod benchmarks {
             SubnetRewardCapacitor::<T>::get(subnet_id),
             2 * DEFAULT_SCORE,
         );
-        assert!(ValidatorDelegateStakeBalance::<T>::get(validator_id) < delegate_pool_balance);
+        assert_eq!(
+            NodeSubnetStake::<T>::get(validator_subnet_node_id, subnet_id),
+            stored_round.validator_node_stake_balance - expected_slash,
+        );
+        assert_eq!(
+            ValidatorDelegateStakeBalance::<T>::get(validator_id),
+            delegate_pool_balance
+        );
         assert_eq!(
             ConsensusRoundSettlementStatus::<T>::get(subnet_id, previous_subnet_epoch),
             Some(true),
@@ -12299,9 +12467,9 @@ mod benchmarks {
     }
 
     // Informational purposes only
-    // x is capped by available subnet slots: EpochLength - DesignatedEpochSlots.
+    // Match the actual runtime's physical capacity, including the registration slot limit.
     #[benchmark]
-    fn calculate_subnet_weights(x: Linear<0, { MAX_PHYSICAL_SUBNETS_BENCHMARK_DOMAIN }>) {
+    fn calculate_subnet_weights(x: Linear<0, { T::MaxPhysicalSubnetsUpperBound::get() }>) {
         // Activate subnets
         let end = MinSubnetNodes::<T>::get();
         NewRegistrationCostMultiplier::<T>::set(1000000000000000000);
@@ -12330,8 +12498,8 @@ mod benchmarks {
             let subnet_id = SubnetName::<T>::get::<Vec<u8>>(path.clone().into()).unwrap();
 
             effective_subnet_weights.insert(subnet_id, 500000000000000000);
-            // Include both epoch-crossing branches; each uses a nonzero retained balance.
-            seed_subnet_balance_time_checkpoint::<T>(subnet_id, 1 + s % 2);
+            // Include single-epoch completion and skipped-epoch flow decay.
+            seed_subnet_net_flow_checkpoint::<T>(subnet_id, 1 + s % 2);
             SubnetElectedValidator::<T>::insert(
                 subnet_id,
                 epoch.saturating_sub(1),

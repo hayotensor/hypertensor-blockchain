@@ -2619,5 +2619,61 @@
     "domain": "Governance",
     "status": "deferred",
     "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_max_subnet_node_consensus_weight",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 184,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_delegate_stake_smoothing_alpha",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 185,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_net_flow_smoothing_alpha",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 186,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "set_subnet_net_flow_k",
+    "args": [
+      [
+        "value",
+        "u128"
+      ]
+    ],
+    "origin": "majority",
+    "index": 187,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 2/3 of members in this runtime"
   }
 ]

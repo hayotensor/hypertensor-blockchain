@@ -89,14 +89,6 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    pub fn do_update_peer_info(
-        subnet_id: u32,
-        subnet_node_id: u32,
-        new_peer_info: Option<PeerInfo<T>>,
-    ) -> DispatchResult {
-        Self::do_update_node_peer_info(subnet_id, subnet_node_id, new_peer_info)
-    }
-
     pub fn do_update_node_bootnode_peer_info(
         subnet_id: u32,
         subnet_node_id: u32,
@@ -143,14 +135,6 @@ impl<T: Config> Pallet<T> {
 
             Ok(())
         })
-    }
-
-    pub fn do_update_bootnode_peer_info(
-        subnet_id: u32,
-        subnet_node_id: u32,
-        new_peer_info: Option<PeerInfo<T>>,
-    ) -> DispatchResult {
-        Self::do_update_node_bootnode_peer_info(subnet_id, subnet_node_id, new_peer_info)
     }
 
     pub fn do_update_node_client_peer_info(
@@ -200,14 +184,6 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    pub fn do_update_client_peer_info(
-        subnet_id: u32,
-        subnet_node_id: u32,
-        new_peer_info: Option<PeerInfo<T>>,
-    ) -> DispatchResult {
-        Self::do_update_node_client_peer_info(subnet_id, subnet_node_id, new_peer_info)
-    }
-
     pub fn do_update_node_unique(
         subnet_id: u32,
         subnet_node_id: u32,
@@ -244,14 +220,6 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    pub fn do_update_unique(
-        subnet_id: u32,
-        subnet_node_id: u32,
-        unique: Option<NetworkBytes<T>>,
-    ) -> DispatchResult {
-        Self::do_update_node_unique(subnet_id, subnet_node_id, unique)
-    }
-
     pub fn do_update_node_non_unique(
         subnet_id: u32,
         subnet_node_id: u32,
@@ -268,14 +236,6 @@ impl<T: Config> Pallet<T> {
 
             Ok(())
         })
-    }
-
-    pub fn do_update_non_unique(
-        subnet_id: u32,
-        subnet_node_id: u32,
-        non_unique: Option<NetworkBytes<T>>,
-    ) -> DispatchResult {
-        Self::do_update_node_non_unique(subnet_id, subnet_node_id, non_unique)
     }
 
     pub fn validate_peer_info(
@@ -760,19 +720,6 @@ impl<T: Config> Pallet<T> {
         branch_weight
     }
 
-    // pub fn get_subnet_node(subnet_id: u32, subnet_node_id: u32) -> Option<SubnetNode> {
-    //     if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
-    //         Some(SubnetNodesData::<T>::get(subnet_id, subnet_node_id))
-    //     } else if QueuedSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
-    //         Some(QueuedSubnetNodesData::<T>::get(
-    //             subnet_id,
-    //             subnet_node_id,
-    //         ))
-    //     } else {
-    //         None
-    //     }
-    // }
-
     pub fn get_active_classified_subnet_node(
         subnet_id: u32,
         subnet_node_id: u32,
@@ -1090,6 +1037,13 @@ impl<T: Config> Pallet<T> {
         CurrentNodeBurnRate::<T>::insert(subnet_id, clamped_rate);
         // Reset
         NodeRegistrationsThisEpoch::<T>::insert(subnet_id, 0);
+        if clamped_rate != previous_burn_rate {
+            Self::deposit_event(Event::NodeBurnRateUpdated {
+                subnet_id,
+                previous_rate: previous_burn_rate,
+                new_rate: clamped_rate,
+            });
+        }
     }
 
     fn calculate_target_burn_rate(registrations: u32, target: u32) -> u128 {
@@ -1119,74 +1073,6 @@ impl<T: Config> Pallet<T> {
             return Some(hotkey);
         }
         None
-    }
-
-    pub fn is_subnet_node_keys_owner(
-        subnet_id: u32,
-        subnet_node_id: u32,
-        key: T::AccountId,
-    ) -> bool {
-        match Self::get_subnet_node_associated_coldkey_and_hotkey(subnet_id, subnet_node_id) {
-            Ok((coldkey, hotkey)) => key == hotkey || key == coldkey,
-            Err(_) => false,
-        }
-    }
-
-    pub fn get_subnet_node_associated_coldkey_and_hotkey(
-        subnet_id: u32,
-        subnet_node_id: u32,
-    ) -> Result<(T::AccountId, T::AccountId), DispatchError> {
-        let validator_id = SubnetNodeValidatorId::<T>::try_get(subnet_id, subnet_node_id)
-            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
-
-        let validator_coldkey = ValidatorColdkey::<T>::try_get(validator_id)
-            .map_err(|_| Error::<T>::InvalidValidatorId)?;
-
-        // A subnet-node-specific hotkey overrides the validator hotkey when present.
-        if let Some(subnet_node_hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node_id) {
-            return Ok((validator_coldkey, subnet_node_hotkey));
-        }
-
-        let validator_hotkey =
-            ValidatorIdHotkey::<T>::get(validator_id).ok_or(Error::<T>::InvalidValidator)?;
-
-        Ok((validator_coldkey, validator_hotkey))
-    }
-
-    /// Get a hotkeys associated subnet node.
-    /// The first check is to see if the subnet node has a hotkey which overrides the validator hotkey.
-    /// If there is no hotkey associated with the subnet node, then we check if the validator ID has a
-    /// hotkey and if it matches the caller's hotkey.
-    pub fn get_hotkey_associated_subnet_node(
-        subnet_id: u32,
-        subnet_node_id: u32,
-        validator_id: u32,
-        hotkey: T::AccountId,
-    ) -> Result<u32, DispatchError> {
-        let subnet_node = SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
-            .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
-
-        ensure!(
-            subnet_node.validator_id == validator_id,
-            Error::<T>::InvalidValidator
-        );
-
-        // A subnet node-specific hotkey overrides the validator hotkey when present.
-        if let Some(subnet_node_hotkey) = SubnetNodeIdHotkey::<T>::get(subnet_id, subnet_node_id) {
-            ensure!(
-                subnet_node_hotkey == hotkey,
-                Error::<T>::InvalidHotkeySubnetNodeId
-            );
-
-            return Ok(subnet_node_id);
-        }
-
-        let validator_hotkey =
-            ValidatorIdHotkey::<T>::get(validator_id).ok_or(Error::<T>::InvalidValidator)?;
-
-        ensure!(validator_hotkey == hotkey, Error::<T>::InvalidValidator);
-
-        Ok(subnet_node_id)
     }
 
     pub fn ensure_hotkey_owns_subnet_node(

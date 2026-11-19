@@ -987,7 +987,7 @@ fn test_register_validator_subnet_node() {
 }
 
 #[test]
-fn test_get_hotkey_associated_subnet_node_prefers_subnet_node_hotkey_override() {
+fn test_ensure_hotkey_owns_subnet_node_prefers_subnet_node_hotkey_override() {
     new_test_ext().execute_with(|| {
         let subnet_id = 1;
         let subnet_node_id = 7;
@@ -995,6 +995,7 @@ fn test_get_hotkey_associated_subnet_node_prefers_subnet_node_hotkey_override() 
         let validator_hotkey = account(1100);
         let subnet_node_hotkey = account(1101);
 
+        SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
         ValidatorIdHotkey::<Test>::insert(validator_id, validator_hotkey.clone());
         SubnetNodeMetadata::<Test>::insert(
             subnet_id,
@@ -1024,33 +1025,28 @@ fn test_get_hotkey_associated_subnet_node_prefers_subnet_node_hotkey_override() 
         );
         SubnetNodeIdHotkey::<Test>::insert(subnet_id, subnet_node_id, &subnet_node_hotkey);
 
-        assert_ok!(Network::get_hotkey_associated_subnet_node(
+        assert_ok!(Network::ensure_hotkey_owns_subnet_node(
             subnet_id,
             subnet_node_id,
-            validator_id,
-            subnet_node_hotkey,
+            &subnet_node_hotkey,
         ));
 
         assert_err!(
-            Network::get_hotkey_associated_subnet_node(
-                subnet_id,
-                subnet_node_id,
-                validator_id,
-                validator_hotkey,
-            ),
-            Error::<Test>::InvalidHotkeySubnetNodeId
+            Network::ensure_hotkey_owns_subnet_node(subnet_id, subnet_node_id, &validator_hotkey,),
+            Error::<Test>::InvalidValidator
         );
     })
 }
 
 #[test]
-fn test_get_hotkey_associated_subnet_node_uses_validator_hotkey_without_override() {
+fn test_ensure_hotkey_owns_subnet_node_uses_validator_hotkey_without_override() {
     new_test_ext().execute_with(|| {
         let subnet_id = 1;
         let subnet_node_id = 8;
         let validator_id = 12;
         let validator_hotkey = account(1200);
 
+        SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
         ValidatorIdHotkey::<Test>::insert(validator_id, validator_hotkey.clone());
         SubnetNodeMetadata::<Test>::insert(
             subnet_id,
@@ -1079,11 +1075,10 @@ fn test_get_hotkey_associated_subnet_node_uses_validator_hotkey_without_override
             },
         );
 
-        assert_ok!(Network::get_hotkey_associated_subnet_node(
+        assert_ok!(Network::ensure_hotkey_owns_subnet_node(
             subnet_id,
             subnet_node_id,
-            validator_id,
-            validator_hotkey,
+            &validator_hotkey,
         ));
     })
 }

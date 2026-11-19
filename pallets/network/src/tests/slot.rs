@@ -8,15 +8,13 @@ use crate::{
     NewRegistrationCostMultiplier, OverwatchEpochLengthMultiplier, OverwatchNodeStakeBalance,
     OverwatchNodeValidatorId, OverwatchNodeWeights, OverwatchStakeWeightFactor,
     OverwatchSubnetWeights, OverwatchValidatorWhitelist, OverwatchWeightFactor,
-    PendingOverwatchSettlement, PendingSubnetDelegateStakeRewardsPercentage,
-    PendingSubnetDelegateStakeRewardsPercentageUpdate, QueueImmunityEpochs, QueuedSubnetNodesData,
-    RewardsData, SubnetBalanceTime, SubnetBalanceTimes, SubnetConsensusSubmission,
-    SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator, SubnetName, SubnetNodeQueue,
-    SubnetOwnerPercentage, SubnetRemovalReason, SubnetWeightFactors, SubnetWeightFactorsData,
-    SubnetsData, TotalActiveSubnets, TotalDelegateStake, TotalElectableNodes,
-    TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeCirculatingShares,
-    TotalSubnetDelegateStakeShares, TotalSubnetElectableNodes, NETWORK_OVERWATCH_SETTLEMENT_SLOT,
-    NETWORK_SUBNET_EMISSION_SLOT,
+    PendingOverwatchSettlement, QueueImmunityEpochs, QueuedSubnetNodesData, RewardsData,
+    SubnetConsensusSubmission, SubnetDelegateStakeRewardsPercentage, SubnetElectedValidator,
+    SubnetName, SubnetNetFlow, SubnetNetFlows, SubnetNodeQueue, SubnetRemovalReason,
+    SubnetWeightFactors, SubnetWeightFactorsData, SubnetsData, TotalActiveSubnets,
+    TotalDelegateStake, TotalElectableNodes, TotalSubnetDelegateStakeBalance,
+    TotalSubnetDelegateStakeCirculatingShares, TotalSubnetDelegateStakeShares,
+    TotalSubnetElectableNodes, NETWORK_OVERWATCH_SETTLEMENT_SLOT, NETWORK_SUBNET_EMISSION_SLOT,
 };
 use frame_support::traits::OnInitialize;
 use frame_support::weights::WeightMeter;
@@ -36,7 +34,7 @@ use sp_std::collections::btree_map::BTreeMap;
 // handle_subnet_emission_weights: test_handle_subnet_emission_weights
 // calculate_subnet_weights: test_calculate_subnet_weights
 // precheck_subnet_consensus_submission: test_precheck_subnet_consensus_submission
-// calculate_rewards: test_calculate_rewards
+// calculate_rewards_with_policy: test_calculate_rewards_with_policy
 
 fn build_active_subnet_ids(count: u32) -> Vec<u32> {
     NewRegistrationCostMultiplier::<Test>::set(Network::percentage_factor_as_u128());
@@ -224,6 +222,14 @@ fn test_handle_subnet_emission_weights() {
         let _ = Network::handle_subnet_emission_weights(current_epoch);
 
         let subnet_emission_weights = FinalSubnetEmissionWeights::<Test>::get(current_epoch);
+        System::assert_last_event(
+            crate::Event::SubnetEmissionWeightsFinalized {
+                epoch: current_epoch,
+                subnets_emissions: subnet_emission_weights.subnets_emissions,
+                subnet_count: max_subnets,
+            }
+            .into(),
+        );
 
         for s in 0..max_subnets {
             let subnet_name: Vec<u8> = format!("subnet-name-{s}").into();
@@ -258,7 +264,7 @@ fn effective_signal_change_preserves_written_allocation_and_changes_next_epoch()
             SubnetWeightFactors::<Test>::put(SubnetWeightFactorsData {
                 delegate_stake: 0,
                 node_count: percentage_factor,
-                time_weighted_stake: 0,
+                net_flow: 0,
             });
             DefaultOverwatchSubnetWeight::<Test>::put(percentage_factor);
             OverwatchWeightFactor::<Test>::put(percentage_factor);
@@ -368,7 +374,7 @@ fn test_calculate_subnet_weights_distinguishes_default_from_explicit_zero() {
         SubnetWeightFactors::<Test>::put(SubnetWeightFactorsData {
             delegate_stake: 0,
             node_count: percentage_factor,
-            time_weighted_stake: 0,
+            net_flow: 0,
         });
         DefaultOverwatchSubnetWeight::<Test>::put(percentage_factor);
         OverwatchWeightFactor::<Test>::put(percentage_factor);
@@ -464,7 +470,7 @@ fn test_calculate_subnet_weights_never_exceeds_full_allocation() {
         SubnetWeightFactors::<Test>::put(SubnetWeightFactorsData {
             delegate_stake: 0,
             node_count: Network::percentage_factor_as_u128(),
-            time_weighted_stake: 0,
+            net_flow: 0,
         });
 
         let current_epoch = Network::get_current_epoch_as_u32();
@@ -730,12 +736,25 @@ fn test_ineligible_subnet_totals_do_not_dilute_eligible_weights() {
         TotalElectableNodes::<Test>::set(4);
 
         for subnet_id in subnet_ids.iter().copied() {
-            SubnetBalanceTimes::<Test>::insert(
+            SubnetNetFlows::<Test>::insert(
                 subnet_id,
-                SubnetBalanceTime {
-                    last_updated_block: System::block_number(),
-                    current_epoch_area: Default::default(),
-                    previous_epoch_area: Default::default(),
+                SubnetNetFlow {
+                    epoch: (System::block_number()) / EpochLength::get(),
+                    flow: Default::default(),
+                    ema: Default::default(),
+                },
+            );
+        }
+
+        // Seed steady-state EMAs matching this fixture's explicitly assigned pool balances.
+        for subnet_id in subnet_ids.iter().copied() {
+            crate::SubnetDelegateStakeEmas::<Test>::insert(
+                subnet_id,
+                crate::SubnetDelegateStakeEma {
+                    balance: sp_core::U256::from(TotalSubnetDelegateStakeBalance::<Test>::get(
+                        subnet_id,
+                    )) * sp_core::U256::from(Network::percentage_factor_as_u128()),
+                    last_updated_block: 0,
                 },
             );
         }
@@ -753,6 +772,14 @@ fn test_ineligible_subnet_totals_do_not_dilute_eligible_weights() {
         TotalSubnetDelegateStakeBalance::<Test>::insert(
             ineligible_subnet_id,
             ineligible_delegate_stake,
+        );
+        crate::SubnetDelegateStakeEmas::<Test>::insert(
+            ineligible_subnet_id,
+            crate::SubnetDelegateStakeEma {
+                balance: sp_core::U256::from(ineligible_delegate_stake)
+                    * sp_core::U256::from(Network::percentage_factor_as_u128()),
+                last_updated_block: 0,
+            },
         );
         TotalDelegateStake::<Test>::set(400 + ineligible_delegate_stake);
         TotalSubnetElectableNodes::<Test>::insert(ineligible_subnet_id, ineligible_electable_nodes);
@@ -961,7 +988,7 @@ fn test_precheck_queue_removal_uses_saturating_immunity_epoch() {
 }
 
 #[test]
-fn test_calculate_rewards() {
+fn test_calculate_rewards_with_policy() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -992,10 +1019,11 @@ fn test_calculate_rewards() {
         let delegate_stake_rewards_percentage =
             SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id);
 
-        let (rewards_data, rewards_block_weight) = Network::calculate_rewards(
-            subnet_id,
+        let round = SubnetElectedValidator::<Test>::get(subnet_id, current_epoch - 1).unwrap();
+        let (rewards_data, rewards_block_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &round.policy,
         );
 
         let overall_subnet_reward = rewards_data.overall_subnet_reward;
@@ -1014,95 +1042,6 @@ fn test_calculate_rewards() {
         assert!(subnet_rewards > 0);
         assert_eq!(delegate_stake_rewards, expected_delegate_stake_rewards);
         assert_eq!(subnet_node_rewards, expected_subnet_node_rewards);
-    });
-}
-
-#[test]
-fn calculate_rewards_clamps_corrupt_live_percentages_and_ignores_invalid_pending_updates() {
-    new_test_ext().execute_with(|| {
-        let subnet_id = 999;
-        let percentage_factor = Network::percentage_factor_as_u128();
-        let invalid_percentage = percentage_factor.checked_add(1).unwrap();
-        let overall_rewards = u128::MAX;
-        let current_subnet_epoch = 2;
-        let valid_owner_percentage = percentage_factor / 10;
-        let valid_delegate_percentage = percentage_factor / 4;
-        let issuance_before = Balances::total_issuance();
-
-        SubnetDelegateStakeRewardsPercentage::<Test>::insert(subnet_id, valid_delegate_percentage);
-        SubnetOwnerPercentage::<Test>::set(invalid_percentage);
-        let (invalid_owner_rewards, _) = Network::calculate_rewards_for_epoch(
-            subnet_id,
-            overall_rewards,
-            percentage_factor,
-            current_subnet_epoch,
-        );
-        assert_eq!(
-            invalid_owner_rewards,
-            RewardsData {
-                overall_subnet_reward: overall_rewards,
-                subnet_owner_reward: overall_rewards,
-                ..Default::default()
-            }
-        );
-        assert_eq!(SubnetOwnerPercentage::<Test>::get(), invalid_percentage);
-
-        SubnetOwnerPercentage::<Test>::set(valid_owner_percentage);
-        SubnetDelegateStakeRewardsPercentage::<Test>::insert(subnet_id, invalid_percentage);
-        let (invalid_delegate_rewards, _) = Network::calculate_rewards_for_epoch(
-            subnet_id,
-            overall_rewards,
-            percentage_factor,
-            current_subnet_epoch,
-        );
-        let owner_reward = overall_rewards / 10;
-        let subnet_rewards = overall_rewards - owner_reward;
-        assert_eq!(
-            invalid_delegate_rewards,
-            RewardsData {
-                overall_subnet_reward: overall_rewards,
-                subnet_owner_reward: owner_reward,
-                subnet_rewards,
-                delegate_stake_rewards: subnet_rewards,
-                subnet_node_rewards: 0,
-            }
-        );
-
-        SubnetDelegateStakeRewardsPercentage::<Test>::insert(subnet_id, valid_delegate_percentage);
-        let pending = PendingSubnetDelegateStakeRewardsPercentageUpdate::<Test> {
-            value: invalid_percentage,
-            effective_subnet_epoch: current_subnet_epoch.saturating_sub(1),
-            owner: account(999),
-        };
-        PendingSubnetDelegateStakeRewardsPercentage::<Test>::insert(subnet_id, pending.clone());
-        let (invalid_pending_rewards, _) = Network::calculate_rewards_for_epoch(
-            subnet_id,
-            overall_rewards,
-            percentage_factor,
-            current_subnet_epoch,
-        );
-        assert_eq!(
-            invalid_pending_rewards,
-            RewardsData {
-                overall_subnet_reward: overall_rewards,
-                subnet_owner_reward: owner_reward,
-                subnet_rewards,
-                delegate_stake_rewards: subnet_rewards / 4,
-                subnet_node_rewards: subnet_rewards - subnet_rewards / 4,
-            },
-            "an invalid pending value must leave the valid active rate in use"
-        );
-        assert_eq!(
-            SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id),
-            valid_delegate_percentage,
-            "an invalid pending value must not be promoted to active storage"
-        );
-        assert_eq!(
-            PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id),
-            Some(pending),
-            "the malformed pending value remains visible for governance repair"
-        );
-        assert_eq!(Balances::total_issuance(), issuance_before);
     });
 }
 

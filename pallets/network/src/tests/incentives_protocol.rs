@@ -8,15 +8,14 @@ use crate::{
     MaxSubnets, MinSubnetMinStake, MinSubnetNodeReputation, MinSubnetNodes, MinSubnetReputation,
     NodeSubnetStake, PeerInfo, PendingAdmittedNodeRemovals,
     PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
-    PendingU128Update, ProbationRounds, QueueImmunityEpochs, QueuedSubnetNodesData,
-    RewardsData, SubnetConsensusAttestorWeights, SubnetConsensusSubmission, SubnetData,
-    SubnetElectedValidator, SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification,
-    SubnetNodeConsensusData, SubnetNodeElectionSlots,
-    SubnetNodeMinWeightDecreaseReputationThreshold, SubnetNodeProbationProgress, SubnetNodeQueue,
-    SubnetNodeQueueEpochs, SubnetNodeReputation, SubnetNodeValidatorId, SubnetNodesData,
-    SubnetOwner, SubnetRemovalReason, SubnetReputation, SubnetReputationFactorSchedules,
-    SubnetState, SubnetsData, TotalActiveSubnets, TotalDelegateStake,
-    TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeCirculatingShares,
+    PendingU128Update, ProbationRounds, QueueImmunityEpochs, QueuedSubnetNodesData, RewardsData,
+    SubnetConsensusAttestorWeights, SubnetConsensusSubmission, SubnetData, SubnetElectedValidator,
+    SubnetName, SubnetNode, SubnetNodeClass, SubnetNodeClassification, SubnetNodeConsensusData,
+    SubnetNodeElectionSlots, SubnetNodeMinWeightDecreaseReputationThreshold,
+    SubnetNodeProbationProgress, SubnetNodeQueue, SubnetNodeQueueEpochs, SubnetNodeReputation,
+    SubnetNodeValidatorId, SubnetNodesData, SubnetOwner, SubnetRemovalReason, SubnetReputation,
+    SubnetReputationFactorSchedules, SubnetState, SubnetsData, TotalActiveSubnets,
+    TotalDelegateStake, TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeCirculatingShares,
     TotalSubnetDelegateStakeShares, TotalSubnetNodeUids, TotalSubnetNodes, TotalSubnetUids,
     TotalValidatorDelegateStakeBalance, TotalValidatorNodes, ValidatorAbsentSubnetReputationFactor,
     ValidatorColdkey, ValidatorDelegateStakeBalance, ValidatorDelegateStakeCirculatingShares,
@@ -1057,12 +1056,22 @@ fn test_proposal_summaries_cover_empty_zero_filtered_and_max_scores() {
                     0,
                 ),
                 _ => (
-                    vec![SubnetNodeConsensusData {
-                        subnet_node_id: data[0].subnet_node_id,
-                        score: u128::MAX,
-                    }],
+                    vec![
+                        SubnetNodeConsensusData {
+                            subnet_node_id: data[0].subnet_node_id,
+                            score: u128::MAX / 2,
+                        },
+                        SubnetNodeConsensusData {
+                            subnet_node_id: data[1].subnet_node_id,
+                            score: u128::MAX / 2,
+                        },
+                        SubnetNodeConsensusData {
+                            subnet_node_id: data[2].subnet_node_id,
+                            score: 1,
+                        },
+                    ],
                     u128::MAX,
-                    1,
+                    3,
                 ),
             };
             assert_ok!(Network::propose_attestation(
@@ -4025,10 +4034,10 @@ fn test_distribute_rewards() {
         assert_eq!(consensus_submission_data.clone().remove_queue_node_id, None);
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let subnet_rewards = rewards_data.subnet_rewards;
@@ -4240,10 +4249,10 @@ fn test_distribute_rewards_node_gets_reward_after_removal() {
         assert_eq!(consensus_submission_data.clone().remove_queue_node_id, None);
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let subnet_rewards = rewards_data.subnet_rewards;
@@ -4506,10 +4515,10 @@ fn test_distribute_rewards_delegate_account_50_percent() {
         assert_eq!(consensus_submission_data.clone().remove_queue_node_id, None);
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let subnet_rewards = rewards_data.subnet_rewards;
@@ -4727,10 +4736,10 @@ fn test_distribute_rewards_fork() {
         assert_eq!(consensus_submission_data.clone().remove_queue_node_id, None);
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let subnet_rewards = rewards_data.subnet_rewards;
@@ -5278,10 +5287,10 @@ fn test_distribute_rewards_non_consensus_reputation() {
         );
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let mut stake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
@@ -5818,10 +5827,10 @@ fn test_distribute_rewards_absent_consensus_reputation() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let hotkey =
@@ -5941,10 +5950,10 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let prev_reputation =
@@ -6039,10 +6048,10 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let prev_reputation =
@@ -6174,10 +6183,10 @@ fn test_distribute_rewards_below_min_weight_reputation() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let prev_reputation =
@@ -7248,10 +7257,10 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let mut stake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
@@ -7414,10 +7423,10 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation_remove_node() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let mut stake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
@@ -7705,10 +7714,10 @@ fn test_distribute_rewards_under_min_attest_slash_subnet_node() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let mut stake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
@@ -7879,10 +7888,10 @@ fn test_distribute_rewards_fork_under_min_attest_slash_subnet_node() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let mut stake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
@@ -8069,10 +8078,10 @@ fn test_distribute_rewards_fork_remove_node_at_min_reputation() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, _) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, _) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let min_attestation_percentage = <Test as crate::Config>::MinAttestationPercentage::get();
@@ -8186,10 +8195,10 @@ fn test_distribute_rewards_fork_no_score_submitted_decrease_reputation() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, _) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, _) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let mut stake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
@@ -8328,10 +8337,10 @@ fn test_distribute_rewards_late_validator_and_attestors() {
         );
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let subnet_rewards = rewards_data.subnet_rewards;
@@ -8516,10 +8525,10 @@ fn test_distribute_rewards_fork_late_validator_and_attestors() {
         );
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let subnet_rewards = rewards_data.subnet_rewards;
@@ -8702,10 +8711,10 @@ fn test_attest_increase_reputation_when_included() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let mut stake_snapshot: BTreeMap<u32, (u128, u128)> = BTreeMap::new();
@@ -8865,10 +8874,10 @@ fn test_distribute_rewards_node_delegate_stake() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let mut stake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
@@ -9028,10 +9037,10 @@ fn test_distribute_rewards_fork_node_delegate_stake() {
         let consensus_submission_data = result.unwrap();
 
         // ⸺ Calculate subnet distribution of rewards
-        let (rewards_data, rewards_weight) = Network::calculate_rewards(
-            subnet_id,
+        let (rewards_data, rewards_weight) = Network::calculate_rewards_with_policy(
             subnet_emission_weights.subnets_emissions,
             *subnet_weight.unwrap(),
+            &consensus_submission_data.policy,
         );
 
         let mut stake_snapshot: BTreeMap<u32, u128> = BTreeMap::new();
@@ -9850,15 +9859,14 @@ fn test_validator_delegate_rewards_require_circulating_shares() {
 }
 
 #[test]
-fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
-    use crate::{SubnetBalanceTime, SubnetBalanceTimes};
-    use sp_core::U256;
+fn accepted_settlement_preserves_net_flow_and_finalizes_once() {
+    use crate::{SignedNetFlow, SubnetNetFlow, SubnetNetFlows};
 
     for future_timestamp in [false, true] {
         new_test_ext().execute_with(|| {
             let (subnet_id, subnet_epoch, proposer, hotkey, data) =
                 build_elected_subnet_for_consensus_with_setup(
-                    b"balance-time-settlement-recovery".to_vec(),
+                    b"net-flow-settlement-isolation".to_vec(),
                     4,
                     |subnet_id| {
                         set_equal_validator_delegate_weights_before_election(subnet_id, 4);
@@ -9883,20 +9891,12 @@ fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
 
             System::set_block_number(System::block_number() + EpochLength::get());
             let block = System::block_number();
-            let previous = SubnetBalanceTimes::<Test>::get(subnet_id).unwrap();
-            let invalid = if future_timestamp {
-                SubnetBalanceTime {
-                    last_updated_block: block + 1,
-                    ..previous
-                }
-            } else {
-                SubnetBalanceTime {
-                    current_epoch_area: U256::MAX,
-                    previous_epoch_area: U256::MAX,
-                    ..previous
-                }
+            let flow = SubnetNetFlow {
+                epoch: block / EpochLength::get() + u32::from(future_timestamp),
+                flow: SignedNetFlow::from_amount(true, 1000),
+                ema: SignedNetFlow::from_amount(false, 2000),
             };
-            SubnetBalanceTimes::<Test>::insert(subnet_id, invalid);
+            SubnetNetFlows::<Test>::insert(subnet_id, flow);
 
             let owner = SubnetOwner::<Test>::get(subnet_id).unwrap();
             let owner_before = Balances::free_balance(&owner);
@@ -9912,13 +9912,7 @@ fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
 
             assert!(Network::is_consensus_round_settled(subnet_id, subnet_epoch));
 
-            assert_eq!(
-                SubnetBalanceTimes::<Test>::get(subnet_id),
-                Some(SubnetBalanceTime {
-                    last_updated_block: block,
-                    ..Default::default()
-                })
-            );
+            assert_eq!(SubnetNetFlows::<Test>::get(subnet_id), Some(flow));
             assert_eq!(
                 Balances::free_balance(&owner),
                 owner_before + rewards.subnet_owner_reward
@@ -9945,10 +9939,10 @@ fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
 }
 
 #[test]
-fn accepted_settlement_missing_balance_time_recovers_and_finalizes_once() {
+fn accepted_settlement_missing_net_flow_still_finalizes_once() {
     new_test_ext().execute_with(|| {
         let (subnet_id, subnet_epoch, proposer, hotkey, data) =
-            build_elected_subnet_for_consensus(b"balance-time-settlement-recovery".to_vec(), 4);
+            build_elected_subnet_for_consensus(b"net-flow-settlement-isolation".to_vec(), 4);
 
         let additional_attestors: Vec<_> = (1..=4).filter(|id| *id != proposer).collect();
         let submission = propose_and_precheck_identity_gate_round(
@@ -9969,9 +9963,8 @@ fn accepted_settlement_missing_balance_time_recovers_and_finalizes_once() {
         );
         assert!(rewards.delegate_stake_rewards > 0);
         assert!(TotalSubnetDelegateStakeCirculatingShares::<Test>::get(subnet_id) > 0);
-        crate::SubnetBalanceTimes::<Test>::remove(subnet_id);
+        crate::SubnetNetFlows::<Test>::remove(subnet_id);
         System::set_block_number(System::block_number() + EpochLength::get());
-        let block = System::block_number();
         let owner = SubnetOwner::<Test>::get(subnet_id).unwrap();
         let owner_before = Balances::free_balance(&owner);
         let proposer_stake_before = NodeSubnetStake::<Test>::get(proposer, subnet_id);
@@ -9999,13 +9992,7 @@ fn accepted_settlement_missing_balance_time_recovers_and_finalizes_once() {
             TotalDelegateStake::<Test>::get(),
             total_before + rewards.delegate_stake_rewards
         );
-        assert_eq!(
-            crate::SubnetBalanceTimes::<Test>::get(subnet_id),
-            Some(crate::SubnetBalanceTime {
-                last_updated_block: block,
-                ..Default::default()
-            })
-        );
+        assert!(!crate::SubnetNetFlows::<Test>::contains_key(subnet_id));
         frame_support::assert_storage_noop!(distribute_identity_gate_round_with_rewards(
             subnet_id,
             subnet_epoch,

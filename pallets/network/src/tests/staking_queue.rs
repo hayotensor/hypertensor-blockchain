@@ -6,9 +6,8 @@ use crate::{
     DelegateStakeCooldownEpochs, Error, MaxSubnetNodes, MaxSubnets, MaxUnbondings,
     MinDelegateStakeDeposit, MinQueuedSwapBalance, MinSubnetMinStake, NextSwapQueueId,
     NodeDelegateStakeCooldownEpochs, QueuedSwapCall, QueuedSwapItem, QueuedSwapRefundBalance,
-    QueuedSwapSource,
-    StakeUnbondingLedger, SubnetName, SubnetRemovalReason, SubnetsData, SwapCallQueue,
-    SwapQueueCount, SwapQueueOrder, SwapRefundReason, TotalDelegateStake,
+    QueuedSwapSource, StakeUnbondingLedger, SubnetName, SubnetRemovalReason, SubnetsData,
+    SwapCallQueue, SwapQueueCount, SwapQueueOrder, SwapRefundReason, TotalDelegateStake,
     TotalNetworkUnbondingBalance, TotalQueuedSwapPrincipal, TotalQueuedSwapRefundBalance,
     TotalSubnetDelegateStakeBalance, TotalSubnetDelegateStakeCirculatingShares,
     TotalSubnetDelegateStakeShares, TotalValidatorDelegateStakeBalance, TxRateLimit,
@@ -676,7 +675,8 @@ fn test_swap_queue_order_accepts_configured_capacity_and_rejects_overflow() {
 fn test_queue_swap_enforces_minimum_balance() {
     new_test_ext().execute_with(|| {
         // The runtime default is the economics minimum subnet delegate stake; the mock lowers it.
-        let min = <crate::DefaultMinQueuedSwapBalance<Test> as frame_support::traits::Get<u128>>::get();
+        let min =
+            <crate::DefaultMinQueuedSwapBalance<Test> as frame_support::traits::Get<u128>>::get();
         assert_eq!(
             min,
             <Test as crate::Config>::Economics::get().min_subnet_delegate_stake
@@ -1585,7 +1585,9 @@ fn test_total_queued_swap_principal_tracks_all_four_swap_directions() {
             setup_all_swap_sources();
         let mut expected_principal = 0u128;
         let tvl_before_swaps = Network::get_total_network_tvl();
-        let survival_minimum_before = Network::get_subnet_info(subnet_id).unwrap().current_min_delegate_stake;
+        let survival_minimum_before = Network::get_subnet_info(subnet_id)
+            .unwrap()
+            .current_min_delegate_stake;
 
         let queue_id = NextSwapQueueId::<Test>::get();
         assert_ok!(Network::swap_from_subnet_to_subnet(
@@ -1597,6 +1599,26 @@ fn test_total_queued_swap_principal_tracks_all_four_swap_directions() {
             1,
             u32::MAX,
         ));
+        let queued_call = SwapCallQueue::<Test>::get(queue_id).unwrap().call;
+        System::assert_has_event(
+            Event::SwapCallQueued {
+                id: queue_id,
+                account_id: stakers[0].clone(),
+                call: queued_call.clone(),
+            }
+            .into(),
+        );
+        System::assert_last_event(
+            Event::SubnetToSubnetQueuedSwapCall {
+                id: queue_id,
+                account_id: stakers[0].clone(),
+                from_subnet_id: subnet_id,
+                to_subnet_id: subnet_id,
+                balance: queued_call.get_queue_balance(),
+                shares_burned: shares[0],
+            }
+            .into(),
+        );
         expected_principal = expected_principal
             .checked_add(
                 SwapCallQueue::<Test>::get(queue_id)
@@ -1619,6 +1641,26 @@ fn test_total_queued_swap_principal_tracks_all_four_swap_directions() {
             1,
             u32::MAX,
         ));
+        let queued_call = SwapCallQueue::<Test>::get(queue_id).unwrap().call;
+        System::assert_has_event(
+            Event::SwapCallQueued {
+                id: queue_id,
+                account_id: stakers[1].clone(),
+                call: queued_call.clone(),
+            }
+            .into(),
+        );
+        System::assert_last_event(
+            Event::SubnetToValidatorQueuedSwapCall {
+                id: queue_id,
+                account_id: stakers[1].clone(),
+                from_subnet_id: subnet_id,
+                to_validator_id,
+                balance: queued_call.get_queue_balance(),
+                shares_burned: shares[1],
+            }
+            .into(),
+        );
         expected_principal = expected_principal
             .checked_add(
                 SwapCallQueue::<Test>::get(queue_id)
@@ -1641,6 +1683,26 @@ fn test_total_queued_swap_principal_tracks_all_four_swap_directions() {
             1,
             u32::MAX,
         ));
+        let queued_call = SwapCallQueue::<Test>::get(queue_id).unwrap().call;
+        System::assert_has_event(
+            Event::SwapCallQueued {
+                id: queue_id,
+                account_id: stakers[2].clone(),
+                call: queued_call.clone(),
+            }
+            .into(),
+        );
+        System::assert_last_event(
+            Event::ValidatorToSubnetQueuedSwapCall {
+                id: queue_id,
+                account_id: stakers[2].clone(),
+                from_validator_id,
+                to_subnet_id: subnet_id,
+                balance: queued_call.get_queue_balance(),
+                shares_burned: shares[2],
+            }
+            .into(),
+        );
         expected_principal = expected_principal
             .checked_add(
                 SwapCallQueue::<Test>::get(queue_id)
@@ -1663,6 +1725,26 @@ fn test_total_queued_swap_principal_tracks_all_four_swap_directions() {
             1,
             u32::MAX,
         ));
+        let queued_call = SwapCallQueue::<Test>::get(queue_id).unwrap().call;
+        System::assert_has_event(
+            Event::SwapCallQueued {
+                id: queue_id,
+                account_id: stakers[3].clone(),
+                call: queued_call.clone(),
+            }
+            .into(),
+        );
+        System::assert_last_event(
+            Event::ValidatorToValidatorQueuedSwapCall {
+                id: queue_id,
+                account_id: stakers[3].clone(),
+                from_validator_id,
+                to_validator_id,
+                balance: queued_call.get_queue_balance(),
+                shares_burned: shares[3],
+            }
+            .into(),
+        );
         expected_principal = expected_principal
             .checked_add(
                 SwapCallQueue::<Test>::get(queue_id)
@@ -1674,7 +1756,9 @@ fn test_total_queued_swap_principal_tracks_all_four_swap_directions() {
         assert_eq!(TotalQueuedSwapPrincipal::<Test>::get(), expected_principal);
         assert_eq!(Network::get_total_network_tvl(), tvl_before_swaps);
         assert_eq!(
-            Network::get_subnet_info(subnet_id).unwrap().current_min_delegate_stake,
+            Network::get_subnet_info(subnet_id)
+                .unwrap()
+                .current_min_delegate_stake,
             survival_minimum_before
         );
         assert_eq!(SwapQueueCount::<Test>::get(), 4);
@@ -1695,7 +1779,9 @@ fn subnet_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
 
         // A deadline that covered the old one-epoch delay must not debit source principal when
         // the configured source cooldown is longer.
-        let too_early_deadline = queued_at_running_block.checked_add(EpochLength::get()).unwrap();
+        let too_early_deadline = queued_at_running_block
+            .checked_add(EpochLength::get())
+            .unwrap();
         assert_err!(
             Network::swap_from_subnet_to_subnet(
                 RuntimeOrigin::signed(credited_staker.clone()),
@@ -1739,8 +1825,14 @@ fn subnet_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         let credited_item = SwapCallQueue::<Test>::get(credited_id).unwrap();
         let refunded_item = SwapCallQueue::<Test>::get(refunded_id).unwrap();
         let refunded_principal = refunded_item.call.get_queue_balance();
-        assert_eq!(credited_item.queued_at_running_block, queued_at_running_block);
-        assert_eq!(refunded_item.queued_at_running_block, queued_at_running_block);
+        assert_eq!(
+            credited_item.queued_at_running_block,
+            queued_at_running_block
+        );
+        assert_eq!(
+            refunded_item.queued_at_running_block,
+            queued_at_running_block
+        );
         assert_eq!(credited_item.execute_after_blocks, source_cooldown_blocks);
         assert_eq!(refunded_item.execute_after_blocks, source_cooldown_blocks);
         assert_queued_swap_principal_invariant();
@@ -1749,7 +1841,9 @@ fn subnet_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         DelegateStakeCooldownEpochs::<Test>::put(1);
         let wallet_before_claim = Balances::free_balance(refunded_staker);
         let issuance_before_claim = Balances::total_issuance();
-        let one_epoch_block = queued_at_running_block.checked_add(EpochLength::get()).unwrap();
+        let one_epoch_block = queued_at_running_block
+            .checked_add(EpochLength::get())
+            .unwrap();
         System::set_block_number(one_epoch_block);
         Network::execute_ready_swap_calls_with_limit(one_epoch_block, 2, &mut WeightMeter::new());
 
@@ -1773,7 +1867,9 @@ fn subnet_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         assert_eq!(Balances::free_balance(refunded_staker), wallet_before_claim);
         assert_eq!(Balances::total_issuance(), issuance_before_claim);
 
-        let unlock_block = queued_at_running_block.checked_add(source_cooldown_blocks).unwrap();
+        let unlock_block = queued_at_running_block
+            .checked_add(source_cooldown_blocks)
+            .unwrap();
         let block_before_unlock = unlock_block.checked_sub(1).unwrap();
         System::set_block_number(block_before_unlock);
         Network::execute_ready_swap_calls_with_limit(
@@ -1845,7 +1941,9 @@ fn validator_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         let queued_at_running_block = System::block_number();
         let source_cooldown_blocks = COOLDOWN_EPOCHS.checked_mul(EpochLength::get()).unwrap();
 
-        let too_early_deadline = queued_at_running_block.checked_add(EpochLength::get()).unwrap();
+        let too_early_deadline = queued_at_running_block
+            .checked_add(EpochLength::get())
+            .unwrap();
         assert_err!(
             Network::swap_from_validator_to_subnet(
                 RuntimeOrigin::signed(credited_staker.clone()),
@@ -1889,8 +1987,14 @@ fn validator_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         let credited_item = SwapCallQueue::<Test>::get(credited_id).unwrap();
         let refunded_item = SwapCallQueue::<Test>::get(refunded_id).unwrap();
         let refunded_principal = refunded_item.call.get_queue_balance();
-        assert_eq!(credited_item.queued_at_running_block, queued_at_running_block);
-        assert_eq!(refunded_item.queued_at_running_block, queued_at_running_block);
+        assert_eq!(
+            credited_item.queued_at_running_block,
+            queued_at_running_block
+        );
+        assert_eq!(
+            refunded_item.queued_at_running_block,
+            queued_at_running_block
+        );
         assert_eq!(credited_item.execute_after_blocks, source_cooldown_blocks);
         assert_eq!(refunded_item.execute_after_blocks, source_cooldown_blocks);
         assert_queued_swap_principal_invariant();
@@ -1898,7 +2002,9 @@ fn validator_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         NodeDelegateStakeCooldownEpochs::<Test>::put(1);
         let wallet_before_claim = Balances::free_balance(refunded_staker);
         let issuance_before_claim = Balances::total_issuance();
-        let one_epoch_block = queued_at_running_block.checked_add(EpochLength::get()).unwrap();
+        let one_epoch_block = queued_at_running_block
+            .checked_add(EpochLength::get())
+            .unwrap();
         System::set_block_number(one_epoch_block);
         Network::execute_ready_swap_calls_with_limit(one_epoch_block, 2, &mut WeightMeter::new());
 
@@ -1922,7 +2028,9 @@ fn validator_source_swap_snapshots_longer_cooldown_for_credit_and_refund() {
         assert_eq!(Balances::free_balance(refunded_staker), wallet_before_claim);
         assert_eq!(Balances::total_issuance(), issuance_before_claim);
 
-        let unlock_block = queued_at_running_block.checked_add(source_cooldown_blocks).unwrap();
+        let unlock_block = queued_at_running_block
+            .checked_add(source_cooldown_blocks)
+            .unwrap();
         let block_before_unlock = unlock_block.checked_sub(1).unwrap();
         System::set_block_number(block_before_unlock);
         Network::execute_ready_swap_calls_with_limit(

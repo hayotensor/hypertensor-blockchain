@@ -439,6 +439,10 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
                     subnet_node_id: healthy_scored_node_id,
                     score: 1,
                 },
+                SubnetNodeConsensusData {
+                    subnet_node_id: proposer_node_id,
+                    score: 1,
+                },
             ],
             None,
             None,
@@ -450,14 +454,19 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
 
         let stored_submission =
             SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
-        assert_eq!(
-            stored_submission.data,
-            vec![SubnetNodeConsensusData {
+        let mut expected_scores = vec![
+            SubnetNodeConsensusData {
                 subnet_node_id: healthy_scored_node_id,
                 score: 1,
-            }]
-        );
-        assert_eq!(stored_submission.weight_sum, 1);
+            },
+            SubnetNodeConsensusData {
+                subnet_node_id: proposer_node_id,
+                score: 1,
+            },
+        ];
+        expected_scores.sort_by_key(|entry| entry.subnet_node_id);
+        assert_eq!(stored_submission.data, expected_scores);
+        assert_eq!(stored_submission.weight_sum, 2);
         assert_eq!(
             stored_submission.eligible_validator_identity_count,
             stored_submission

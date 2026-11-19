@@ -24,8 +24,10 @@ node removal deletes it. Whole-subnet removal clears the metadata prefix. Direct
 must join the new map with an existing operational record. Metadata alone does not establish
 that a node exists.
 
-Node metadata remains available in RPC and contract responses. The declared
-`SubnetNodeRegistered` event has a separate `SubnetNodeRegistrationData` payload type.
+Node metadata remains available in RPC and contract responses. `SubnetNodeRegistered`
+reports `subnet_id`, `subnet_node_id`, `validator_id`, `coldkey`, the optional `hotkey`
+override, initial `stake`, and actual `burn_amount`. Query the node's metadata at the
+registration block for its networking and descriptive fields.
 Historical `ConsensusSubnetNode` snapshots retain proposal-time classification.
 All classifications use the three-state schema below, with no migration or fallback reader.
 

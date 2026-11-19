@@ -468,6 +468,13 @@ impl<T: Config> Pallet<T> {
             destination_shares,
         );
 
+        Self::deposit_event(Event::ValidatorDelegateStakeTransferred {
+            validator_id,
+            from_account: account_id,
+            to_account: to_account_id,
+            shares: delegate_stake_shares_to_transfer,
+        });
+
         Ok(())
     }
 

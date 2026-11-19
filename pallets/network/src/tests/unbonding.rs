@@ -588,6 +588,7 @@ fn test_full_unbonding_ledger_blocks_node_unstake_without_debit() {
         let total_stake = TotalStake::<Test>::get();
         let validator_subnet_nodes = ValidatorSubnetNodes::<Test>::get(validator_id);
 
+        let events_before = System::events();
         assert_err!(
             Network::remove_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -608,6 +609,7 @@ fn test_full_unbonding_ledger_blocks_node_unstake_without_debit() {
             ValidatorSubnetNodes::<Test>::get(validator_id),
             validator_subnet_nodes
         );
+        assert_eq!(System::events(), events_before);
         assert_eq!(StakeUnbondingLedger::<Test>::get(&coldkey), ledger);
         assert_eq!(TotalNetworkUnbondingBalance::<Test>::get(), total_unbonding);
     });
@@ -652,6 +654,7 @@ fn test_full_unbonding_ledger_blocks_delegate_account_balance_removal_without_de
 #[test]
 fn test_full_unbonding_ledger_blocks_overwatch_unstake_without_debit() {
     new_test_ext().execute_with(|| {
+        System::set_block_number(1);
         let validator_id = 1;
         manual_insert_validator(validator_id, 903, 904);
         let coldkey = account(903);
@@ -665,6 +668,7 @@ fn test_full_unbonding_ledger_blocks_overwatch_unstake_without_debit() {
         let overwatch_stake = OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id);
         let total_overwatch_stake = TotalOverwatchNodeStakeBalance::<Test>::get();
 
+        let events_before = System::events();
         assert_err!(
             Network::remove_overwatch_node_stake(
                 RuntimeOrigin::signed(coldkey.clone()),
@@ -682,6 +686,7 @@ fn test_full_unbonding_ledger_blocks_overwatch_unstake_without_debit() {
             TotalOverwatchNodeStakeBalance::<Test>::get(),
             total_overwatch_stake
         );
+        assert_eq!(System::events(), events_before);
         assert_eq!(StakeUnbondingLedger::<Test>::get(&coldkey), ledger);
         assert_eq!(TotalNetworkUnbondingBalance::<Test>::get(), total_unbonding);
     });

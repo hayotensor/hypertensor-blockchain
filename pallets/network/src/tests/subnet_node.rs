@@ -3515,22 +3515,13 @@ fn test_update_node_hotkey_override_and_clear() {
         );
 
         assert_err!(
-            Network::get_hotkey_associated_subnet_node(
-                subnet_id,
-                subnet_node_id,
-                validator_id,
-                validator_hotkey.clone(),
-            ),
-            Error::<Test>::InvalidHotkeySubnetNodeId
+            Network::ensure_hotkey_owns_subnet_node(subnet_id, subnet_node_id, &validator_hotkey,),
+            Error::<Test>::InvalidValidator
         );
         assert_eq!(
-            Network::get_hotkey_associated_subnet_node(
-                subnet_id,
-                subnet_node_id,
-                validator_id,
-                node_hotkey,
-            )
-            .unwrap(),
+            Network::ensure_hotkey_owns_subnet_node(subnet_id, subnet_node_id, &node_hotkey,)
+                .unwrap()
+                .id,
             subnet_node_id
         );
 
@@ -3545,13 +3536,9 @@ fn test_update_node_hotkey_override_and_clear() {
             None
         );
         assert_eq!(
-            Network::get_hotkey_associated_subnet_node(
-                subnet_id,
-                subnet_node_id,
-                validator_id,
-                validator_hotkey,
-            )
-            .unwrap(),
+            Network::ensure_hotkey_owns_subnet_node(subnet_id, subnet_node_id, &validator_hotkey,)
+                .unwrap()
+                .id,
             subnet_node_id
         );
     });

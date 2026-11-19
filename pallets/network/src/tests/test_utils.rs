@@ -2346,12 +2346,12 @@ pub fn new_subnet_data(id: u32, state: SubnetState, start_epoch: u32) -> SubnetD
 pub fn insert_subnet(id: u32, state: SubnetState, start_epoch: u32) {
     let data = new_subnet_data(id, state, start_epoch);
     SubnetsData::<Test>::insert(id, data);
-    crate::SubnetBalanceTimes::<Test>::insert(
+    crate::SubnetNetFlows::<Test>::insert(
         id,
-        crate::SubnetBalanceTime {
-            last_updated_block: System::block_number(),
-            current_epoch_area: Default::default(),
-            previous_epoch_area: Default::default(),
+        crate::SubnetNetFlow {
+            epoch: (System::block_number()) / EpochLength::get(),
+            flow: Default::default(),
+            ema: Default::default(),
         },
     );
 }

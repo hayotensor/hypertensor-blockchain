@@ -13,7 +13,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 //
-// Enables users to swap bidirectionally subnets <-> nodes
+// Enables users to swap between subnet and validator delegate pools.
 
 use super::*;
 
@@ -22,10 +22,9 @@ impl<T: Config> Pallet<T> {
     ///
     /// # Arguments
     ///
-    /// * `from_subnet_id` - Subnet ID unstaking from.
-    /// * `from_subnet_node_id` - Subnet node ID unstaking from.
-    /// * `to_subnet_id` - Subnet ID staking to in relation to subnet node ID .
-    /// * `delegate_stake_shares_to_swap` - Shares to remove (from node) to (to subnet) then be added as converted balance.
+    /// * `from_validator_id` - Validator pool to redeem shares from.
+    /// * `to_subnet_id` - Subnet pool to credit after the queue cooldown.
+    /// * `delegate_stake_shares_to_swap` - Source shares to redeem into queued balance.
     ///
     #[frame_support::transactional]
     pub(crate) fn do_swap_from_validator_to_subnet(
@@ -41,7 +40,7 @@ impl<T: Config> Pallet<T> {
 
         // Perform removal of stake AND ensure success
         // Return the balance we removed
-        let (result, balance, _) = Self::perform_do_remove_validator_delegate_stake(
+        let (result, balance, shares_burned) = Self::perform_do_remove_validator_delegate_stake(
             &account_id,
             from_validator_id,
             delegate_stake_shares_to_swap,
@@ -60,7 +59,7 @@ impl<T: Config> Pallet<T> {
             execute_before_running_block,
         };
 
-        Self::queue_swap(
+        let id = Self::queue_swap(
             account_id.clone(),
             QueuedSwapSource::ValidatorDelegate,
             call,
@@ -70,12 +69,14 @@ impl<T: Config> Pallet<T> {
         // callers cannot bypass the configured transaction interval through the queued path.
         Self::set_last_tx_block(&account_id, Self::get_current_block_as_u32());
 
-        // Self::deposit_event(Event::ValidatorToSubnetQueuedSwapCall {
-        //     account_id: account_id.clone(),
-        //     from_validator_id: from_validator_id,
-        //     to_subnet_id: to_subnet_id,
-        //     amount: balance,
-        // });
+        Self::deposit_event(Event::ValidatorToSubnetQueuedSwapCall {
+            id,
+            account_id,
+            from_validator_id,
+            to_subnet_id,
+            balance,
+            shares_burned,
+        });
 
         Ok(())
     }
@@ -92,7 +93,7 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let account_id: T::AccountId = ensure_signed(origin)?;
 
-        let (result, balance, _) = Self::perform_do_remove_subnet_delegate_stake(
+        let (result, balance, shares_burned) = Self::perform_do_remove_subnet_delegate_stake(
             &account_id,
             from_subnet_id,
             delegate_stake_shares_to_swap,
@@ -111,16 +112,18 @@ impl<T: Config> Pallet<T> {
             execute_before_running_block,
         };
 
-        Self::queue_swap(account_id.clone(), QueuedSwapSource::SubnetDelegate, call)?;
+        let id = Self::queue_swap(account_id.clone(), QueuedSwapSource::SubnetDelegate, call)?;
 
         Self::set_last_tx_block(&account_id, Self::get_current_block_as_u32());
 
-        // Self::deposit_event(Event::SubnetToValidatorQueuedSwapCall {
-        //     account_id: account_id,
-        //     from_subnet_id: from_subnet_id,
-        //     to_validator_id: to_validator_id,
-        //     amount: balance,
-        // });
+        Self::deposit_event(Event::SubnetToValidatorQueuedSwapCall {
+            id,
+            account_id,
+            from_subnet_id,
+            to_validator_id,
+            balance,
+            shares_burned,
+        });
 
         Ok(())
     }
@@ -139,7 +142,7 @@ impl<T: Config> Pallet<T> {
 
         // Perform removal of stake AND ensure success
         // Return the balance we removed
-        let (result, balance, _) = Self::perform_do_remove_subnet_delegate_stake(
+        let (result, balance, shares_burned) = Self::perform_do_remove_subnet_delegate_stake(
             &account_id,
             from_subnet_id,
             delegate_stake_shares_to_swap,
@@ -158,16 +161,18 @@ impl<T: Config> Pallet<T> {
             execute_before_running_block,
         };
 
-        Self::queue_swap(account_id.clone(), QueuedSwapSource::SubnetDelegate, call)?;
+        let id = Self::queue_swap(account_id.clone(), QueuedSwapSource::SubnetDelegate, call)?;
 
         Self::set_last_tx_block(&account_id, Self::get_current_block_as_u32());
 
-        // Self::deposit_event(Event::SubnetToSubnetQueuedSwapCall {
-        //     account_id: account_id,
-        //     from_subnet_id: from_subnet_id,
-        //     to_validator_id: to_validator_id,
-        //     amount: balance,
-        // });
+        Self::deposit_event(Event::SubnetToSubnetQueuedSwapCall {
+            id,
+            account_id,
+            from_subnet_id,
+            to_subnet_id,
+            balance,
+            shares_burned,
+        });
 
         Ok(())
     }
@@ -186,7 +191,7 @@ impl<T: Config> Pallet<T> {
 
         // Perform removal of stake AND ensure success
         // Return the balance we removed
-        let (result, balance, _) = Self::perform_do_remove_validator_delegate_stake(
+        let (result, balance, shares_burned) = Self::perform_do_remove_validator_delegate_stake(
             &account_id,
             from_validator_id,
             delegate_stake_shares_to_swap,
@@ -205,7 +210,7 @@ impl<T: Config> Pallet<T> {
             execute_before_running_block,
         };
 
-        Self::queue_swap(
+        let id = Self::queue_swap(
             account_id.clone(),
             QueuedSwapSource::ValidatorDelegate,
             call,
@@ -213,12 +218,14 @@ impl<T: Config> Pallet<T> {
 
         Self::set_last_tx_block(&account_id, Self::get_current_block_as_u32());
 
-        // Self::deposit_event(Event::ValidatorToValidatorQueuedSwapCall {
-        //     account_id: account_id,
-        //     from_subnet_id: from_subnet_id,
-        //     to_validator_id: to_validator_id,
-        //     amount: balance,
-        // });
+        Self::deposit_event(Event::ValidatorToValidatorQueuedSwapCall {
+            id,
+            account_id,
+            from_validator_id,
+            to_validator_id,
+            balance,
+            shares_burned,
+        });
 
         Ok(())
     }

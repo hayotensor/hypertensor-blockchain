@@ -60,8 +60,7 @@ fn assigned_slot_snapshots_after_settlement_before_swaps_and_extrinsics() {
                 None
             ));
         }
-        let emission_epoch =
-            epoch.saturating_add(1);
+        let emission_epoch = epoch.saturating_add(1);
         FinalSubnetEmissionWeights::<Test>::insert(
             emission_epoch,
             DistributionData {
@@ -149,7 +148,6 @@ fn election_without_eligible_nodes_publishes_no_snapshot_or_liabilities() {
         assert!(SubnetElectedValidator::<Test>::get(1, 0).is_none());
         assert!(SubnetConsensusAttestorWeights::<Test>::get(1, 0).is_none());
         assert!(ConsensusRoundSettlementStatus::<Test>::get(1, 0).is_none());
-
     });
 }
 
@@ -264,6 +262,5 @@ fn oversized_voting_total_still_publishes_a_complete_election() {
             ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
             Some(false)
         );
-
     });
 }

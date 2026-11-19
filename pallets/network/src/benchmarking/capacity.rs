@@ -149,7 +149,7 @@ fn elected_fixture_with_reputation<T: Config>(
         max_fill_node::<T>(subnet_id, id);
         let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, id).unwrap();
         // Use the real deposit path: a balance and total shares alone do NOT make a pool
-        // reward-bearing. Circulating shares and a consistent balance-time checkpoint matter.
+        // reward-bearing. Circulating shares and a consistent delegate balance EMA checkpoint matter.
         let depositor = get_alice::<T>();
         assert_ok!(Network::<T>::add_validator_delegate_stake(
             RawOrigin::Signed(depositor).into(),
@@ -361,7 +361,7 @@ pub(super) fn settlement_fixture_with_reputation<T: Config>(
             distribution.subnet_weights.insert(100_000 + index, 1);
         }
     });
-    seed_subnet_balance_time_checkpoint::<T>(subnet_id, 1);
+    seed_subnet_net_flow_checkpoint::<T>(subnet_id, 1);
     fixture
 }
 

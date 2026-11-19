@@ -78,7 +78,7 @@ impl<T: Config> Pallet<T> {
 
         // Validate and stage the complete cumulative row before its single storage write. This
         // prevents both prefix writes on failure and repeated-call subnet churn beyond the bound.
-        for commit in commit_weights {
+        for commit in &commit_weights {
             ensure!(
                 !row.contains_key(&commit.subnet_id),
                 Error::<T>::AlreadyCommitted
@@ -88,6 +88,12 @@ impl<T: Config> Pallet<T> {
         }
 
         OverwatchCommits::<T>::insert(overwatch_epoch, overwatch_node_id, row);
+
+        Self::deposit_event(Event::OverwatchWeightsCommitted {
+            overwatch_node_id,
+            overwatch_epoch,
+            commits: commit_weights,
+        });
 
         Ok(Pays::No.into())
     }
@@ -159,7 +165,7 @@ impl<T: Config> Pallet<T> {
 
         let mut stats = ActiveOverwatchRevealStats::<T>::get();
         let mut new_records = 0u32;
-        for (subnet_id, weight) in staged_reveals {
+        for (&subnet_id, &weight) in &staged_reveals {
             if !reveal_row.contains_key(&subnet_id) {
                 new_records = new_records.saturating_add(1);
                 // Removed subnets still complete the reveal but take no distinct-subnet slot.
@@ -191,6 +197,12 @@ impl<T: Config> Pallet<T> {
             ActiveOverwatchRevealStats::<T>::put(stats);
         }
         OverwatchReveals::<T>::insert(overwatch_epoch, overwatch_node_id, reveal_row);
+
+        Self::deposit_event(Event::OverwatchWeightsRevealed {
+            overwatch_node_id,
+            overwatch_epoch,
+            weights: staged_reveals.into_iter().collect(),
+        });
 
         Ok(Pays::No.into())
     }

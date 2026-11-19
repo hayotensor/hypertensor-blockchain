@@ -41,21 +41,6 @@ impl<T: Config> Pallet<T> {
         Ok(free_slot)
     }
 
-    pub fn assign_subnet_slot(subnet_id: u32) -> Result<u32, DispatchError> {
-        // A second assignment would overwrite the forward lookup while leaving the old reverse
-        // lookup and occupied-slot marker behind. Reject it before selecting another free slot so
-        // the three slot indexes remain a bijection.
-        ensure!(
-            !SubnetSlot::<T>::contains_key(subnet_id),
-            Error::<T>::SubnetSlotAlreadyAssigned
-        );
-
-        let free_slot = Self::get_available_subnet_slot()?;
-        Self::insert_subnet_slot_assignment(subnet_id, free_slot);
-
-        Ok(free_slot)
-    }
-
     pub(crate) fn insert_subnet_slot_assignment(subnet_id: u32, free_slot: u32) {
         let mut assigned_slots = AssignedSlots::<T>::get();
 

@@ -1208,10 +1208,11 @@ impl<T: Config> Pallet<T> {
             return 0;
         }
 
-        // The reward checkpoint reads the block, subnet existence and balance-time record,
+        // The balance EMA checkpoint reads the block, subnet existence and EMA record,
         // in addition to the four existing pool/total reads. Charge before a possible error.
-        // Writes update the pool balance, total delegation, and balance-time record.
+        // Writes update the pool balance, total delegation, and balance EMA; never net flow.
         weight_meter.consume(db_weight.reads_writes(7, 3));
+        weight_meter.consume(T::WeightInfo::checkpoint_subnet_delegate_stake_ema());
         if Self::do_increase_delegate_stake(subnet_id, delegate_stake_reward).is_err() {
             weight_meter.consume(db_weight.reads(1));
             Self::defer_consensus_operation(
@@ -1226,19 +1227,5 @@ impl<T: Config> Pallet<T> {
             return 0;
         }
         delegate_stake_reward
-    }
-
-    pub(crate) fn handle_delegate_account(
-        account_reward: u128,
-        delegate_account_id: &T::AccountId,
-        rate: u128,
-    ) -> Result<(u128, u128), DispatchError> {
-        let delegate_account_deposit = Self::percent_mul(account_reward, rate);
-        let updated_account_reward = account_reward
-            .checked_sub(delegate_account_deposit)
-            .ok_or(ArithmeticError::Underflow)?;
-        Self::increase_delegate_account_balance(delegate_account_id, delegate_account_deposit)?;
-
-        Ok((updated_account_reward, delegate_account_deposit))
     }
 }

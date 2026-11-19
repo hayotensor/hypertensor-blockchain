@@ -161,6 +161,12 @@ impl<T: Config> Pallet<T> {
             TotalNetworkUnbondingBalance::<T>::put(total_network_unbonding);
             unbondings_copy.remove(&unbonding_block);
             successful_unbondings += 1;
+            Self::deposit_event(Event::UnbondingClaimed {
+                coldkey: coldkey.clone(),
+                claim_block: *unbonding_block,
+                network_amount: entry.network,
+                overwatch_amount: entry.overwatch,
+            });
         }
 
         if unbondings.len() != unbondings_copy.len() {
@@ -185,6 +191,10 @@ impl<T: Config> Pallet<T> {
                         QueuedSwapRefundBalance::<T>::remove(coldkey);
                         TotalQueuedSwapRefundBalance::<T>::put(remaining_total);
                         successful_unbondings = successful_unbondings.saturating_add(1);
+                        Self::deposit_event(Event::SwapRefundClaimed {
+                            account_id: coldkey.clone(),
+                            amount: swap_refund,
+                        });
                     }
                 }
             }

@@ -238,11 +238,12 @@ impl<T: Config> Pallet<T> {
             next_circulating_shares,
         )?;
 
-        let balance_time = Self::prepare_subnet_balance_time(
+        let net_flow = Self::prepare_subnet_net_flow(subnet_id, delegate_stake_to_be_added, false)?;
+        let ema = Self::prepare_subnet_delegate_stake_ema(
             subnet_id,
             total_subnet_delegated_stake_balance,
             Self::get_current_block_as_u32(),
-        )?;
+        );
 
         Self::set_current_account_subnet_delegate_stake_shares(
             account_id,
@@ -254,8 +255,11 @@ impl<T: Config> Pallet<T> {
         TotalSubnetDelegateStakeCirculatingShares::<T>::insert(subnet_id, next_circulating_shares);
         TotalDelegateStake::<T>::put(total_delegate_stake);
 
-        if let Some(balance_time) = balance_time {
-            SubnetBalanceTimes::<T>::insert(subnet_id, balance_time);
+        if let Some(net_flow) = net_flow {
+            SubnetNetFlows::<T>::insert(subnet_id, net_flow);
+        }
+        if let Some(ema) = ema {
+            SubnetDelegateStakeEmas::<T>::insert(subnet_id, ema);
         }
 
         Ok((
@@ -479,6 +483,13 @@ impl<T: Config> Pallet<T> {
             destination_shares,
         );
 
+        Self::deposit_event(Event::SubnetDelegateStakeTransferred {
+            subnet_id,
+            from_account: account_id,
+            to_account: to_account_id,
+            shares: delegate_stake_shares_to_transfer,
+        });
+
         Ok(())
     }
 
@@ -529,11 +540,12 @@ impl<T: Config> Pallet<T> {
             )?;
             None
         };
-        let balance_time = Self::prepare_subnet_balance_time(
+        let net_flow = Self::prepare_subnet_net_flow(subnet_id, amount, true)?;
+        let ema = Self::prepare_subnet_delegate_stake_ema(
             subnet_id,
             current_balance,
             Self::get_current_block_as_u32(),
-        )?;
+        );
 
         if let Some(new_generation) = next_generation {
             let old_generation = SubnetDelegatePoolGeneration::<T>::get(subnet_id);
@@ -558,14 +570,16 @@ impl<T: Config> Pallet<T> {
             TotalSubnetDelegateStakeCirculatingShares::<T>::insert(subnet_id, circulating_shares);
         }
         TotalDelegateStake::<T>::put(total_delegate_stake);
-        if let Some(balance_time) = balance_time {
-            SubnetBalanceTimes::<T>::insert(subnet_id, balance_time);
+        if let Some(net_flow) = net_flow {
+            SubnetNetFlows::<T>::insert(subnet_id, net_flow);
+        }
+        if let Some(ema) = ema {
+            SubnetDelegateStakeEmas::<T>::insert(subnet_id, ema);
         }
         Ok(())
     }
 
-    /// Rewards are deposited here from `rewards.rs`. Checkpoint first so these funds contribute
-    /// balance-time only from the block in which they are credited.
+    /// Rewards increase pool backing and its balance EMA, but are not external net inflow.
     pub(crate) fn do_increase_delegate_stake(subnet_id: u32, amount: u128) -> DispatchResult {
         if amount == 0 {
             return Ok(());
@@ -589,15 +603,15 @@ impl<T: Config> Pallet<T> {
         let next_total = TotalDelegateStake::<T>::get()
             .checked_add(amount)
             .ok_or(ArithmeticError::Overflow)?;
-        let balance_time = Self::prepare_subnet_balance_time(
+        let ema = Self::prepare_subnet_delegate_stake_ema(
             subnet_id,
             current_balance,
             Self::get_current_block_as_u32(),
-        )?;
+        );
         TotalSubnetDelegateStakeBalance::<T>::insert(subnet_id, next_balance);
         TotalDelegateStake::<T>::put(next_total);
-        if let Some(balance_time) = balance_time {
-            SubnetBalanceTimes::<T>::insert(subnet_id, balance_time);
+        if let Some(ema) = ema {
+            SubnetDelegateStakeEmas::<T>::insert(subnet_id, ema);
         }
         Ok(())
     }

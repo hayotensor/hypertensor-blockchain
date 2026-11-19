@@ -130,40 +130,6 @@ impl<T: Config> Pallet<T> {
         sigmoid.clamp(min, max)
     }
 
-    /// Offset and scale the sigmoid curve
-    ///
-    /// # Parameters
-    /// - `x`: The input value to evaluate the sigmoid at. Should be in the range `[0.0, 1.0]`.
-    /// - `mid`: The midpoint of the sigmoid. The curve is symmetric around this value.
-    /// - `k`: Controls the steepness of the sigmoid. Larger values make the transition sharper.
-    /// - `min`: Minimum value of the output range. The sigmoid will not go below this value.
-    /// - `max`: Maximum value of the output range. The sigmoid will not exceed this value.
-    ///
-    /// # Returns
-    /// - A `f64` representing the value of the scaled sigmoid at `x`. Guaranteed to be within `[min, max]`.
-    pub fn sigmoid_decreasing_v3(x: f64, mid: f64, k: f64, min: f64, max: f64) -> f64 {
-        let c = (x - mid).abs();
-        let d = k * c;
-        let exp = exp(d);
-
-        // Symmetric sigmoid around mid (produces value in [0, 1])
-        // When x < mid: sigmoid approaches 1 (high)
-        // When x > mid: sigmoid approaches 0 (low)
-        let sigmoid = if x > mid {
-            1.0 / (1.0 + exp)
-        } else {
-            exp / (1.0 + exp)
-        };
-
-        // Offset and scale the sigmoid curve
-        // Original sigmoid is in [0, 1]
-        // Scale by (max - min) and shift by min
-        // Result: sigmoid curve operates in range [min, max]
-        // Example: min=0, max=2 → curve goes from 0 to 2 (2x scale)
-        // Example: min=0.5, max=1.5 → curve goes from 0.5 to 1.5 (1x scale, 0.5 offset)
-        min + sigmoid * (max - min)
-    }
-
     pub fn sigmoid_decreasing_asymmetric(
         x: f64,
         mid: f64,

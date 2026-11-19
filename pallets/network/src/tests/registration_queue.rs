@@ -467,7 +467,10 @@ fn test_register_subnet_node_and_admit() {
 
         // Check in activation
         let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-        assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Probation);
+        assert_eq!(
+            subnet_node.classification.node_class,
+            SubnetNodeClass::Probation
+        );
     })
 }
 
@@ -617,7 +620,10 @@ fn test_register_subnet_node_and_admit_max_churn_limit() {
             if _n <= reg_start + churn_limit {
                 // Check in activation
                 let subnet_node = SubnetNodesData::<Test>::get(subnet_id, subnet_node_id);
-                assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Probation);
+                assert_eq!(
+                    subnet_node.classification.node_class,
+                    SubnetNodeClass::Probation
+                );
                 assert_eq!(subnet_node.classification.start_epoch, subnet_epoch);
 
                 // Check out of queue
@@ -976,7 +982,10 @@ fn test_register_subnet_node_admit_up_to_max_nodes() {
             if _n <= reg_start + expected_activated {
                 // Check in activation
                 let subnet_node = SubnetNodesData::<Test>::get(subnet_id, hotkey_subnet_node_id);
-                assert_eq!(subnet_node.classification.node_class, SubnetNodeClass::Probation);
+                assert_eq!(
+                    subnet_node.classification.node_class,
+                    SubnetNodeClass::Probation
+                );
                 // assert_eq!(subnet_node.classification.start_epoch, subnet_epoch + 1);
                 assert_eq!(subnet_node.classification.start_epoch, subnet_epoch);
 

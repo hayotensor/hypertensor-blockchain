@@ -790,6 +790,12 @@ impl<T: Config> Pallet<T> {
             SubnetElectedValidator::<T>::insert(subnet_id, subnet_epoch, &elected_round);
             SubnetConsensusAttestorWeights::<T>::insert(subnet_id, subnet_epoch, attestor_weights);
             ConsensusRoundSettlementStatus::<T>::insert(subnet_id, subnet_epoch, false);
+            Self::deposit_event(Event::ConsensusValidatorElected {
+                subnet_id,
+                subnet_epoch,
+                subnet_node_id: node_id,
+                validator_id,
+            });
         }
     }
 }

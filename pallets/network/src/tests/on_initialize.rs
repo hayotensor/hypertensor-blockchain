@@ -259,14 +259,6 @@ fn test_on_initialize() {
                 else {
                     return None;
                 };
-                let (rewards_data, _) = Network::calculate_rewards(
-                    subnet_id,
-                    subnet_emission_weights.subnets_emissions,
-                    subnet_weight,
-                );
-                if rewards_data.subnet_node_rewards == 0 {
-                    return None;
-                }
                 let prev_subnet_epoch = subnet_epoch.saturating_sub(1);
                 if SubnetConsensusSubmission::<Test>::get(subnet_id, prev_subnet_epoch).is_none() {
                     return None;
@@ -276,6 +268,14 @@ fn test_on_initialize() {
                 let Some(consensus_submission_data) = consensus_submission_data else {
                     return None;
                 };
+                let (rewards_data, _) = Network::calculate_rewards_with_policy(
+                    subnet_emission_weights.subnets_emissions,
+                    subnet_weight,
+                    &consensus_submission_data.policy,
+                );
+                if rewards_data.subnet_node_rewards == 0 {
+                    return None;
+                }
                 if consensus_submission_data.attestation_ratio
                     < <Test as crate::Config>::MinAttestationPercentage::get()
                 {

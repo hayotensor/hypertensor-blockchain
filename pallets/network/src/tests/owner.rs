@@ -2066,6 +2066,7 @@ fn test_owner_delegate_stake_percentage_applies_to_next_consensus_epoch_rewards(
         let current_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         let active_rate = SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id);
         let new_rate = active_rate + 1;
+        let current_policy = Network::consensus_policy_snapshot(subnet_id, current_subnet_epoch);
 
         assert_ok!(Network::owner_update_delegate_stake_percentage(
             RuntimeOrigin::signed(original_owner.clone()),
@@ -2073,11 +2074,17 @@ fn test_owner_delegate_stake_percentage_applies_to_next_consensus_epoch_rewards(
             new_rate
         ));
 
-        let (current_epoch_rewards, _) = Network::calculate_rewards_for_epoch(
-            subnet_id,
+        let pending = PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id).unwrap();
+        let events_after_scheduling = network_events();
+        assert_eq!(
+            Network::consensus_policy_snapshot(subnet_id, current_subnet_epoch),
+            current_policy,
+            "the scheduled rate must not affect the current epoch's policy"
+        );
+        let (current_epoch_rewards, _) = Network::calculate_rewards_with_policy(
             1_000_000_000_000_000_000,
             Network::percentage_factor_as_u128(),
-            current_subnet_epoch.saturating_add(1),
+            &current_policy,
         );
         assert_eq!(
             current_epoch_rewards.delegate_stake_rewards,
@@ -2089,11 +2096,16 @@ fn test_owner_delegate_stake_percentage_applies_to_next_consensus_epoch_rewards(
         );
         assert!(PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id).is_some());
 
-        let (next_epoch_rewards, _) = Network::calculate_rewards_for_epoch(
-            subnet_id,
+        let next_policy =
+            Network::consensus_policy_snapshot(subnet_id, current_subnet_epoch.saturating_add(1));
+        assert_eq!(
+            next_policy.subnet_delegate_stake_rewards_percentage,
+            new_rate
+        );
+        let (next_epoch_rewards, _) = Network::calculate_rewards_with_policy(
             1_000_000_000_000_000_000,
             Network::percentage_factor_as_u128(),
-            current_subnet_epoch.saturating_add(2),
+            &next_policy,
         );
         assert_eq!(
             next_epoch_rewards.delegate_stake_rewards,
@@ -2101,17 +2113,14 @@ fn test_owner_delegate_stake_percentage_applies_to_next_consensus_epoch_rewards(
         );
         assert_eq!(
             SubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id),
-            new_rate
+            active_rate,
+            "production reward calculation reads its snapshot without promoting pending storage"
         );
-        assert!(PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id).is_none());
         assert_eq!(
-            *network_events().last().unwrap(),
-            Event::SubnetDelegateStakeRewardsPercentageUpdate {
-                subnet_id,
-                owner: original_owner,
-                value: new_rate,
-            }
+            PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id),
+            Some(pending)
         );
+        assert_eq!(network_events(), events_after_scheduling);
     });
 }
 

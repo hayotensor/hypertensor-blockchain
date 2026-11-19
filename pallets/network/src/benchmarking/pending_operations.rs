@@ -30,7 +30,7 @@ pub(super) fn subnet_reward<T: Config>() -> ConsensusOperation<T::AccountId> {
     TotalSubnetDelegateStakeShares::<T>::insert(7, 2 * liquidity);
     TotalSubnetDelegateStakeCirculatingShares::<T>::insert(7, liquidity);
     TotalDelegateStake::<T>::put(1_000);
-    // Exercise balance-time checkpoint writes for an existing subnet.
+    // Exercise delegate balance EMA writes for an existing subnet.
     let mut subnet = SubnetData::default();
     subnet.id = 7;
     SubnetsData::<T>::insert(7, subnet);

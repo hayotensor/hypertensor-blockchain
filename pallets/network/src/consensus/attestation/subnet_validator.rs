@@ -271,6 +271,7 @@ impl<T: Config> Pallet<T> {
     ///    - Filtering out Queued peers
     ///    - Collapsing duplicate subnet node IDs to the lowest submitted score
     ///    - Validating scores don't overflow when summed
+    ///    - Rejecting any node whose normalized Q18 score exceeds the network cap
     /// 5. Validates queue operations (prioritize/remove) if specified
     /// 6. Stores the consensus submission with the proposer's automatic attestation
     ///
@@ -280,6 +281,7 @@ impl<T: Config> Pallet<T> {
     /// * `InvalidValidator` - The caller's hotkey doesn't match the elected validator
     /// * `SubnetRewardsAlreadySubmitted` - Consensus has already been submitted for this epoch
     /// * `ScoreOverflow` - The sum of all scores would overflow u128
+    /// * `MaxSubnetNodeConsensusWeightExceeded` - A normalized node score exceeds the cap
     ///
     /// # Returns
     ///
@@ -362,6 +364,16 @@ impl<T: Config> Pallet<T> {
             data,
             &pending_ids,
         )?;
+
+        // Check the final score vector: discarded or duplicate entries must not dilute a
+        // node's weight. The largest score also has the largest normalized weight, so one
+        // Q18 division suffices. percent_div uses U256 intermediates and rounds down, just
+        // like reward normalization; empty and all-zero vectors have zero weight.
+        let max_score = data.iter().map(|entry| entry.score).max().unwrap_or(0);
+        ensure!(
+            Self::percent_div(max_score, weight_sum) <= MaxSubnetNodeConsensusWeight::<T>::get(),
+            Error::<T>::MaxSubnetNodeConsensusWeightExceeded
+        );
 
         let block: u32 = Self::get_current_block_as_u32();
         let attests: BTreeMap<u32, AttestEntry<T>> = BTreeMap::from([(

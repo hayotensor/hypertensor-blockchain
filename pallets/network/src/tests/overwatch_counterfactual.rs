@@ -5,10 +5,9 @@ use crate::tests::test_utils::{
 };
 use crate::{
     ActiveOverwatchEpochLengthMultiplier, CurrentOverwatchEpoch, LastFinalizedOverwatchEpoch,
-    LatestEffectiveOverwatchSignal, OverwatchEpochLengthMultiplier,
-    OverwatchEpochSnapshots, OverwatchEpochStartBlock, OverwatchNodeStakeBalance,
-    OverwatchNodeWeights, OverwatchStakeWeightFactor, OverwatchSubnetWeights,
-    PendingOverwatchSettlement, SubnetState,
+    LatestEffectiveOverwatchSignal, OverwatchEpochLengthMultiplier, OverwatchEpochSnapshots,
+    OverwatchEpochStartBlock, OverwatchNodeStakeBalance, OverwatchNodeWeights,
+    OverwatchStakeWeightFactor, OverwatchSubnetWeights, PendingOverwatchSettlement, SubnetState,
 };
 use frame_support::assert_ok;
 
@@ -89,9 +88,7 @@ fn close_counterfactual_round(epoch: u32, expected_records: u32) {
         .expect("the counterfactual round must close successfully");
     assert_eq!(pending.epoch, epoch);
     assert_eq!(pending.reveal_records, expected_records);
-    assert!(OverwatchEpochSnapshots::<Test>::contains_key(
-        epoch
-    ));
+    assert!(OverwatchEpochSnapshots::<Test>::contains_key(epoch));
     assert_eq!(CurrentOverwatchEpoch::<Test>::get(), epoch + 1);
 }
 
@@ -125,7 +122,7 @@ fn run_finalized_removal_scenario(include_maximum: bool) -> FinalizedRemovalOutc
         let epoch = CurrentOverwatchEpoch::<Test>::get();
         let participants = seed_counterfactual_participants(include_maximum);
         super::test_utils::snapshot_overwatch_epoch();
-    submit_counterfactual_weights(epoch, &participants);
+        submit_counterfactual_weights(epoch, &participants);
         close_counterfactual_round(epoch, if include_maximum { 6 } else { 4 });
         Network::calculate_overwatch_rewards();
 
@@ -153,7 +150,7 @@ fn run_pending_removal_scenario(include_maximum: bool) -> PendingRemovalOutcome 
         let epoch = CurrentOverwatchEpoch::<Test>::get();
         let participants = seed_counterfactual_participants(include_maximum);
         super::test_utils::snapshot_overwatch_epoch();
-    submit_counterfactual_weights(epoch, &participants);
+        submit_counterfactual_weights(epoch, &participants);
         close_counterfactual_round(epoch, if include_maximum { 6 } else { 4 });
 
         if let Some(maximum) = participants.maximum {

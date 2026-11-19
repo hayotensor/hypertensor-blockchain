@@ -126,7 +126,7 @@ fn assert_indexes(subnet: u32, node: u32, m: &NodeMetadata<Test>, present: bool)
 }
 
 #[test]
-fn operational_and_event_encodings_keep_their_intended_shapes() {
+fn operational_and_metadata_encodings_keep_their_intended_shapes() {
     let core = SubnetNode {
         id: 7,
         validator_id: 9,
@@ -139,31 +139,6 @@ fn operational_and_event_encodings_keep_their_intended_shapes() {
     assert_eq!(ConsensusSubnetNode::from(&core).encode(), core.encode());
     let m = maximum(42);
     assert_eq!(m.encode().len(), 5528);
-    let payload = SubnetNodeRegistrationData::<Test> {
-        id: core.id,
-        validator_id: core.validator_id,
-        peer_info: m.peer_info.clone(),
-        bootnode_peer_info: m.bootnode_peer_info.clone(),
-        client_peer_info: m.client_peer_info.clone(),
-        classification: core.classification.clone(),
-        unique: m.unique.clone(),
-        non_unique: m.non_unique.clone(),
-    };
-    assert_eq!(payload.encode().len(), 5541);
-    assert_eq!(
-        payload.encode(),
-        (
-            core.id,
-            core.validator_id,
-            m.peer_info,
-            m.bootnode_peer_info,
-            m.client_peer_info,
-            core.classification,
-            m.unique,
-            m.non_unique
-        )
-            .encode()
-    );
 }
 
 #[test]
@@ -364,7 +339,7 @@ fn errors_preserve_metadata_indexes_and_events() {
             );
             // The internal entry point is transactional too, not only the extrinsic wrapper.
             assert_noop!(
-                Network::do_update_unique(subnet, node, Some(conflict)),
+                Network::do_update_node_unique(subnet, node, Some(conflict)),
                 Error::<Test>::UniqueParameterTaken
             );
             assert_indexes(subnet, node, &m, true);

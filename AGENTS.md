@@ -148,8 +148,9 @@ await withChain(async (api) => {
 });
 ```
 
-There is currently no `ValidatorRegistered` event. Resolve the ID with
-`ColdkeyValidatorId` or `network_getValidatorByColdkey` after finalization.
+`ValidatorRegistered` reports the assigned ID, coldkey, hotkey, reward settings,
+and registration burn. Resolve or verify the ID with `ColdkeyValidatorId` or
+`network_getValidatorByColdkey` after finalization.
 For another call, use the exact argument names; for example, an authorized
 node-stake top-up is:
 
@@ -228,9 +229,9 @@ for discovery. An archive node may be necessary for older block hashes.
    `ip4|ip6|dns4|dns6|dnsaddr`, optional `tcp|udp`, optional `ws|wss`, then `p2p`.
    DNS and peer payloads must be nonempty; their contents are not validated.
    Repeated/reordered protocols, trailing bytes, and noncanonical varints fail.
-4. Discover the node through `ValidatorSubnetNodes(validator_id)` or
-   `network_getValidatorNodes`, then query its details. The current registration
-   path does not emit `SubnetNodeRegistered`, despite that event being declared.
+4. Read `SubnetNodeRegistered` for the subnet/node IDs, validator ID, coldkey,
+   optional hotkey override, initial stake, and actual burn. Verify through
+   `ValidatorSubnetNodes(validator_id)` or `network_getValidatorNodes`.
    Initial nodes registered while the subnet is `Registered` fast-track to
    `Active` and emit `SubnetNodeAdmitted`. Nodes joining an active subnet enter
    `Queued`, are admitted as `Probation`, and become `Active` after qualifying
@@ -257,6 +258,12 @@ Resolve current ownership before signing; an old hotkey ceases to be authoritati
 after rotation. `update_validator_hotkey` changes the default for nodes without
 overrides. `update_validator_coldkey` transfers identity control; it does not
 move the old account's wallet balance, delegation positions, or unbonding ledger.
+Key changes emit `UpdateColdkey`/`UpdateHotkey` with the validator ID and both keys,
+or `NodeHotkeyUpdated` with the node IDs and optional override. A cleared override
+is recorded as `None`. `ValidatorDelegateAccountUpdated` reports the complete
+resulting beneficiary configuration, including fields retained by partial updates.
+Governance registration access changes emit `SubnetRegistrationWhitelistRequired`
+and `SubnetRegistrantUpdated` for the affected policy or account/subnet-ID pair.
 
 ## Build and launch a subnet
 
@@ -378,7 +385,15 @@ For each open round:
    not sum to Q18. Avoid overflow. Submit unique IDs with justified scores.
    The runtime filters scores to eligible `Probation`-or-higher nodes and excludes
    pending removals. Duplicate IDs collapse to their lowest score. Queued nodes
-   cannot be made score-eligible by listing them. Usually leave queue actions
+   cannot be made score-eligible by listing them. After filtering and deduplication,
+   each node's Q18 weight `floor(score * 1e18 / total_score)` must be at most
+   `MaxSubnetNodeConsensusWeight` (50% by default), or the proposal fails with
+   `MaxSubnetNodeConsensusWeightExceeded`. Scores remain in their submitted units;
+   exactly the cap is allowed, and empty/all-zero vectors have zero weight.
+   The supermajority collective can change the network-wide cap with
+   `set_max_subnet_node_consensus_weight(value)`, where `0 < value <= 1e18`.
+   Changes apply to subsequent submissions, including already elected rounds,
+   without altering accepted proposals. Usually leave queue actions
    `None`; use them only when the subnet's rules justify prioritization/removal.
 3. Each eligible attestor independently checks the recorded proposal and signs
    `attest(subnet_id, subnet_node_id, data)` using that node's effective hotkey.
@@ -416,7 +431,7 @@ retried and expire with consensus history; skipped allocations are not recreated
 `ConsensusRoundCancelled` reports processed cancellations. Unusable election, voting, or proposal
 evidence also cancels the processed round and retains its recorded allocation. Per-round
 settlement status prevents duplicate outcomes but never blocks a new election or subnet removal.
-Missing balance-time records restart with zero historical credit. Epoch-status RPC hides
+Missing net-flow records restart without invented history; reward credits never count as inflow. Epoch-status RPC hides
 globally invalidated work. Global resume shifts each pending `SubnetRegistrationEpoch` forward
 by `resume_epoch - pause_epoch + 1`. The extra epoch protects partial-epoch time and is granted
 even for a same-block pause/unpause. The shared anchor shifts the minimum activation time and
@@ -427,9 +442,26 @@ before capacity-based subnet removal; the global removal-check cadence stays unc
 Repeated pause calls retain the original pause start; unpause while running adds no extension.
 Re-read registration anchors after resume.
 
+Subnet reward allocation combines the delegate-balance EMA, elected-node count, and `net_flow`.
+The net-flow factor uses a signed EMA of external subnet-pool deposits minus withdrawals per
+completed general epoch; it does not divide by pool balance. Rewards and same-pool share transfers
+are excluded. Outgoing swaps count at debit and incoming swaps at successful credit. Softmax
+with `SubnetNetFlowK` (default `500`) gives the least negative EMA the highest flow share even
+when all subnets have outflows. `SubnetNetFlowSmoothingAlpha` defaults to Q18
+`66_967_008_463_192_584` (about ten epochs of half-life). Majority-collective calls
+`set_subnet_net_flow_smoothing_alpha(value)` and `set_subnet_net_flow_k(value)` configure
+`0 < alpha <= 1e18` and positive `K`. K is expressed in whole native units; stake is converted
+from its atomic denomination for this calculation. Alpha changes complete past epochs under
+the old policy and apply to the currently open epoch when it completes. See
+[pallets/network/REWARDS.md](pallets/network/REWARDS.md).
+
 Election candidates, policy, and all attestor weights freeze together at the
 subnet's assigned-slot election, before that block's extrinsics. Delegation,
 allocation, and node-count changes after election affect voting power only in future rounds.
+`ConsensusValidatorElected` identifies each newly stored round and proposer.
+`SubnetEmissionWeightsFinalized` identifies the global epoch's stored allocation,
+budget, and subnet count, including an empty allocation. `NodeBurnRateUpdated`
+reports automatic registration-rate changes with the previous and new rates.
 Proposal submission excludes currently quarantined nodes from effective quorum,
 using the surviving nodes' original frozen weights and their sum; it does not
 recompute weights or alter the election snapshot. Later quarantine does not
@@ -465,6 +497,12 @@ and Active nodes; election counters are separate. Inspect
 | Validator delegate pool | Any account: `add_validator_delegate_stake(validator_id, delegate_stake_to_be_added, min_shares_out)` | Share owner: `remove_validator_delegate_stake(validator_id, validator_delegate_stake_shares_to_be_removed, min_balance_out)` |
 | Reward beneficiary balance | Accrues according to validator `delegate_account` configuration | Beneficiary: `remove_delegate_account_balance(amount_to_remove)` |
 | Overwatch direct stake | Owner coldkey: `add_overwatch_node_stake(overwatch_node_id, stake_to_be_added)` | Owner coldkey: `remove_overwatch_node_stake(overwatch_node_id, stake_to_be_removed)` |
+
+Successful direct-node stake changes emit `StakeAdded`/`StakeRemoved` with
+`subnet_id`, `subnet_node_id`, `coldkey`, and the atomic `amount`. Overwatch uses
+`OverwatchNodeStakeAdded`/`OverwatchNodeStakeRemoved` with `overwatch_node_id`,
+`coldkey`, and `amount`. Removal events record movement into the unbonding ledger;
+wallet credit requires claiming after maturity.
 
 Pool deposits take **balances**; pool withdrawals, transfers, and swaps take
 **shares**. `swap_from_validator_to_validator` misleadingly names its source
@@ -547,6 +585,11 @@ corresponding stake/balance removal and unbonding claim path.
    removed and the wallet credited. Future entries remain. Removal calls do not
    automatically claim mature entries; claim first if `MaxUnbondings` is full.
 
+Each successfully paid ledger entry emits `UnbondingClaimed` with its claim block
+and separate network/Overwatch amounts. A paid queued-swap refund emits
+`SwapRefundClaimed`. Failed or immature entries remain stored and emit no claim
+event, so one call can report only a subset of the account's liabilities.
+
 Read `StakeCooldownEpochs`, `DelegateStakeCooldownEpochs`, and
 `NodeDelegateStakeCooldownEpochs` for direct/beneficiary/Overwatch, subnet-pool,
 and validator-pool cooldowns, respectively; multiply by `EpochLength` for blocks.
@@ -572,6 +615,10 @@ Share transfers stay in the same pool:
 - `transfer_delegate_stake(subnet_id, to_account_id, delegate_stake_shares_to_transfer)`
 - `transfer_validator_delegate_stake(validator_id, to_account_id, validator_delegate_stake_shares_to_transfer)`
 
+`SubnetDelegateStakeTransferred` and `ValidatorDelegateStakeTransferred` identify
+the pool, sender, recipient, and transferred shares; these are ownership transfers
+and do not mint shares or credit wallet balances.
+
 Cross-pool movement uses `swap_from_subnet_to_subnet`,
 `swap_from_validator_to_validator`, `swap_from_validator_to_subnet`, or
 `swap_from_subnet_to_validator`. Read exact source-share argument names from the
@@ -592,6 +639,12 @@ extra grace and do not automatically revive swaps that were already expired.
 Swaps withdraw source shares into queued principal; destination shares arrive
 later. The queue snapshots the source cooldown in running blocks with a one-epoch minimum.
 Inspect `SwapCallQueue`, queue events, and the eventual destination balance.
+Each swap also emits its direction-specific event:
+`SubnetToSubnetQueuedSwapCall`, `SubnetToValidatorQueuedSwapCall`,
+`ValidatorToSubnetQueuedSwapCall`, or `ValidatorToValidatorQueuedSwapCall`.
+These record the source/destination IDs, caller, actual redeemed `balance`, and
+`shares_burned`. Their `id` matches `SwapCallQueued` and the later
+`SwapCallQueueUpdated`, `SwapCallCredited`, or `SwapCallRefunded` events.
 Choose a deadline that allows maturation and execution. `update_swap_queue(id,
 new_call)` allows permitted owner changes; it is not an arbitrary withdrawal
 or cancellation mechanism. Failed/expired execution credits principal to
@@ -627,9 +680,13 @@ The registered `validator_id` must be whitelisted in `OverwatchValidatorWhitelis
 its canonical coldkey signs registration.
 Call `register_overwatch_node(stake_to_be_added)` after Overwatch epoch zero,
 with sufficient stake and available membership capacity. An identity may have
-one active Overwatch node. Resolve its ID through `ValidatorOverwatchNodeId`.
+one active Overwatch node. Read its ID and initial stake from `OverwatchNodeRegistered`
+and verify through `ValidatorOverwatchNodeId`.
 `update_overwatch_hotkey` sets an optional override; otherwise its validator
 hotkey is used. `set_overwatch_node_peer_id` advertises a subnet-specific peer.
+They emit `OverwatchNodeHotkeyUpdated` and `OverwatchNodePeerIdUpdated` with the
+resulting override or peer. Voluntary exit emits `OverwatchNodeRemoved`, identifying
+the node and validator while preserving historical ownership and residual stake.
 
 Use active Overwatch epoch/phase storage, not subnet epoch timing. A node joining
 mid-epoch must wait for membership in the next epoch-opening snapshot. During
@@ -638,6 +695,9 @@ commit, its effective hotkey calls `commit_overwatch_subnet_weights` with
 `reveal_overwatch_subnet_weights` with `{ subnet_id, weight: u128, salt }` entries.
 Revealed weights must be in `0..=Q18`. An accepted commitment cannot be replaced
 for the same subnet and epoch.
+`OverwatchWeightsCommitted` contains only the filtered commitments accepted by the
+call. `OverwatchWeightsRevealed` contains the verified, deduplicated subnet weights
+without salts. Both identify the Overwatch node and epoch; failed batches emit neither.
 Commitment hashing is the runtime hash of this SCALE tuple:
 
 ```text

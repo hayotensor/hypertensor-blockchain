@@ -52,10 +52,24 @@ For each eligible subnet `s`, the inputs are:
 
 | Input | What is measured |
 | --- | --- |
-| Delegate-stake share `D_s` | The subnet's `TotalSubnetDelegateStakeBalance` divided by the total for eligible subnets. This is delegation to the subnet, separate from delegation to validator identities or direct node stake. |
+| Delegate-stake share `D_s` | The subnet's elapsed-block EMA of `TotalSubnetDelegateStakeBalance`, divided by the sum of those EMAs for eligible subnets. This is delegation to the subnet, separate from delegation to validator identities or direct node stake. |
 | Node-count share `C_s` | The number of eligible node IDs in the stored election round divided by their total across eligible subnets. This is the election's candidate count, not every Queued or admitted node. |
-| Smoothed net-flow weight `F_s` | A relative, smoothed measure of deposits into minus withdrawals from subnet delegate stake. Reward credits do not count as new inflow. |
+| Net-flow share `F_s` | Softmax of each subnet's signed EMA of external deposits minus withdrawals, measured in units, with sensitivity `K`. Pool balances do not normalize this signal; reward credits are excluded. |
 | Overwatch multiplier `O_s` | The latest valid effective Overwatch subnet signal, scaled by `OverwatchWeightFactor` and capped at 100%; otherwise `DefaultOverwatchSubnetWeight`. An explicit zero signal stays zero. |
+
+The `delegate_stake` input tracks the pool balance with an elapsed-block exponential moving
+average: `S_new = S_old × (1 - alpha)^blocks + balance × (1 - (1 - alpha)^blocks)`.
+Deposits, withdrawals, swap debits/credits, and pool rewards checkpoint the old balance first;
+allocation advances idle pools as well. Same-block changes earn no elapsed-time credit, and
+withdrawn stake fades gradually. The default closes approximately 63% of a sustained balance
+gap over ten general epochs. Time uses chain blocks, including blocks during a network pause.
+
+`set_subnet_delegate_stake_smoothing_alpha(value)` requires majority-collective authorization
+and `0 < value < 1e18`. It checkpoints every existing subnet under the old setting before the
+new one takes effect. `SubnetDelegateStakeEmas` stores each checkpoint's Q18-scaled balance
+and block. New or missing records start at zero without backdated credit; draining a pool
+preserves its decaying history, while subnet removal clears it. This accounting affects only
+`delegate_stake`, independently of the separate signed `net_flow` factor.
 
 Using ordinary fractions, the allocation formula is:
 
@@ -75,10 +89,12 @@ The current storage defaults are:
 
 | Parameter | Default | Effect |
 | --- | ---: | --- |
-| `SubnetWeightFactors.delegate_stake` | 40% | Contribution of relative subnet delegation. |
+| `SubnetWeightFactors.delegate_stake` | 40% | Contribution of relative smoothed subnet delegation. |
+| `SubnetDelegateStakeSmoothingAlpha` | `1e18 / (10 × EpochLength)` | Per-block Q18 EMA response; smaller values adjust more slowly. |
 | `SubnetWeightFactors.node_count` | 40% | Contribution of the eligible node count. |
-| `SubnetWeightFactors.net_flow` | 20% | Contribution of smoothed relative delegation flow. |
-| `SubnetNetFlowSmoothingAlpha` | 25% | Blend 25% of this epoch's flow weight with 75% of its previous smoothed weight. |
+| `SubnetWeightFactors.net_flow` | 20% | Contribution of the normalized signed net-flow EMA. |
+| `SubnetNetFlowSmoothingAlpha` | `66_967_008_463_192_584` (Q18) | Per-general-epoch EMA alpha, approximately a ten-epoch half-life. |
+| `SubnetNetFlowK` | `500` | Softmax sensitivity `K`; larger values spread the flow component more evenly. |
 | `OverwatchWeightFactor` | 50% | Scale an available raw Overwatch signal before applying it. |
 | `DefaultOverwatchSubnetWeight` | 50% | Use directly when the effective signal is missing, invalid, or has no entry for this subnet. |
 | `SubnetDistributionPower` | 0.75 | Compress differences between positive combined weights before normalization. |
@@ -86,16 +102,51 @@ The current storage defaults are:
 These are configurable defaults, not fixed percentages of the final token budget. For example, the same positive Overwatch multiplier applied to every subnet cancels during normalization;
 relative differences between subnets affect their allocations.
 
-Net flow is calculated relative to the same eligible cohort. The pallet subtracts the lowest eligible subnet's raw flow from every eligible flow, normalizes those shifted values, and blends
-the resulting weight with its previous smoothed weight:
+Net flow is measured in token units, not as a percentage of pool balance. For general epoch `e`:
 
 ```text
-shifted_s      = flow_s - min(eligible flows)
-current_flow_s = shifted_s / sum(shifted flows)       # zero if the sum is zero
-F_s            = alpha * current_flow_s + (1 - alpha) * previous_F_s
+flow_s[e] = external_deposits_s[e] - withdrawals_s[e]
+ema_s[e]  = alpha * flow_s[e] + (1 - alpha) * ema_s[e - 1]
+positive_s = exp((ema_s - max(eligible EMAs)) / K)
+F_s        = positive_s / sum(eligible positive scores)
 ```
 
-Thus even a net withdrawal can score above a larger net withdrawal elsewhere. Equal flows produce zero current weights and decay previous smoothed weights. Raw flow counters reset at allocation; ineligible subnets also lose their stored smoothed weight.
+Allocation in general epoch `G` uses completed flows through `G - 1`. The open epoch never
+changes that observation. Updates within an epoch accumulate signed deltas rather than repeatedly
+advancing the EMA. Idle epochs contribute zero flow and decay the previous EMA, including epochs
+elapsed during a global pause. Skipped epochs are handled with bounded binary exponentiation;
+Q18 arithmetic introduces truncation toward zero, with fixed-point rounding in the decay factor.
+
+Only external deposits and completed incoming swaps count as inflow. Withdrawals (including
+withdrawn rewards) and outgoing swaps count as outflow when principal leaves the pool. Queued
+principal counts for neither destination nor source while in transit; refunds never count as
+destination inflow. Rewards credited to a pool and share transfers within a pool record no flow.
+A deposit and equal withdrawal in the same epoch cancel exactly. Reward claims may therefore
+produce negative flow even if the withdrawn funds originated as protocol rewards.
+
+`SubnetNetFlows` stores the open epoch, its pending signed flow, and the completed-epoch EMA.
+Signed magnitudes retain Q18 fractional atomic-unit precision and support the full u128 balance
+range. A new or missing record starts at the current epoch with no invented history. Pool resets
+preserve the signed history; permanent subnet removal deletes it, and residual withdrawals do
+not recreate it. Reward settlement neither requires nor creates flow records.
+
+`SubnetNetFlowK` stores `K` as a positive integer in whole native units; the calculation converts
+it to the same 18-decimal atomic denomination as stake before using it. Its default is `500`.
+This is a sensitivity parameter, not a balance threshold or an emission budget. The collective
+call `set_subnet_net_flow_k(value)` requires `value > 0` and affects subsequent allocations.
+
+`set_subnet_net_flow_smoothing_alpha(value)` requires `0 < value <= 1e18` (Q18). It finalizes
+all completed observations for every existing subnet under the old alpha, then updates the
+storage value. The current open epoch uses the new alpha when it completes. Both calls require
+the majority collective (at least 2/3 in this runtime), emit the resulting configuration, and
+leave previously finalized emission allocations unchanged. Alpha `1e18` uses only the most
+recent completed epoch; the default approximates `1 - 2^(-1/10)`.
+
+Softmax retains the ordering of negative EMAs: when every subnet has outflow, the least negative
+EMA gets the highest flow share. Equal EMAs, including all zeros, split this component equally.
+Only eligible subnets participate in normalization. Shares are rounded down to Q18, so negligible
+shares can become zero; subtraction of the maximum prevents exponential overflow. This ordering
+applies to the flow component; the other factors can still change the final reward ranking.
 
 The raw Overwatch signal aggregates revealed subnet weights using normalized Overwatch-node stake weights, with their own `OverwatchStakeWeightFactor` exponent. It uses the retained close-time inputs of finalized Overwatch work. Future allocations read the latest effective signal; allocations already stored in `FinalSubnetEmissionWeights` are not recalculated. See [Overwatch epochs](CONSENSUS.md#overwatch-epochs) for settlement details.
 
@@ -135,6 +186,22 @@ gross_node_reward = node_budget * node_score_share * node_reward_factor
 ```
 
 The implementation represents shares and factors at `1e18` precision and rounds down at each division or multiplication. Consensus attestation weights determine whether the proposal passes; the accepted node scores determine each node's share of rewards.
+
+At proposal submission, every node's normalized score must satisfy
+`floor(score * 1e18 / canonical_score_sum) <= MaxSubnetNodeConsensusWeight`.
+The network-wide cap defaults to **50%** (`500_000_000_000_000_000`); exactly
+50% passes. Filtering ineligible/pending-removal nodes and collapsing duplicate
+IDs to their lowest score happen before this check, so discarded entries cannot
+dilute a node's weight. Scores retain their original units. The calculation uses
+U256 intermediates; a canonical sum exceeding `u128` still fails with `ScoreOverflow`.
+Empty and all-zero proposals have zero normalized weight.
+
+The supermajority-collective call `set_max_subnet_node_consensus_weight(value)`
+accepts `0 < value <= 1e18` and emits `SetMaxSubnetNodeConsensusWeight(value)`.
+Changes apply to subsequent submissions, including rounds already elected, and
+do not change accepted proposals. A proposal exceeding the cap fails with
+`MaxSubnetNodeConsensusWeightExceeded` before proposal or automatic-attestation
+state is written, allowing the proposer to submit corrected scores.
 
 Voting weights freeze at the assigned-slot election with the candidate set and policy. The
 snapshot includes each node's delegated allocation after node-count decay and stake-weight
@@ -249,8 +316,8 @@ after existing active reservations.
 Unusable historical consensus evidence also terminates the round: its recorded allocation is
 retained in the capacitor and `ConsensusRoundCancelled` is
 emitted without rewards, penalties, or probation progression. Stored allocation percentages are
-bounded to Q18 before multiplication. Accepted rewards rebuild a missing balance-time checkpoint
-at the current block with zero historical credit; the missing record does not hold consensus open.
+bounded to Q18 before multiplication. Accepted rewards do not touch net-flow accounting;
+a missing flow record does not hold consensus open.
 
 An accepted round with a nonzero score total releases up to `SubnetRewardCapacitorReleasePercentage` of its normal allocation, rounded down in atomic units and limited by the stored capacitor and remaining `u128` reward-budget capacity. The global percentage defaults to 10% and is updated through the supermajority-collective call `set_subnet_reward_capacitor_release_percentage(value)`, using Q18 (`1e18 = 100%`, `1e17 = 10%`). Values must be between 0% and 100%; zero disables releases. Updates apply at the next settlement. The combined budget follows the successful round's existing owner, subnet-delegate, and node reward split. At the default rate, a normal allocation of 100 tokens and a capacitor containing 100 tokens produce a budget of 110 tokens and leave 90 in the capacitor. A zero allocation or zero-score round leaves the capacitor untouched. Permanent subnet removal clears its remaining capacitor.
 
@@ -260,7 +327,8 @@ Allocation remains a ceiling, not a guaranteed payout: existing eligibility, tim
 
 - [Annual emissions and foundation split](src/supply/inflation.rs): `get_epoch_emissions`.
 - [Subnet weights and reward budgets](src/utilities/slot.rs): `calculate_subnet_weights`,
-  `get_time_weighted_stake_weights_for_eligible`, `subnet_reward_split`, and `emission_settlement_step`.
+  `get_net_flow_weights_for_eligible`, `subnet_reward_split`, and `emission_settlement_step`.
+- [Signed net-flow EMA and softmax](src/utilities/subnet_net_flow.rs): epoch accounting and normalization.
 - [Consensus reward distribution](src/bank/rewards.rs): `distribute_rewards_for_round`,
   `settle_subnet_owner_reward`, and `handle_subnet_delegate_stake_reward`.
 - [Pending financial operations](src/bank/pending_operations.rs): frozen node reward splits,

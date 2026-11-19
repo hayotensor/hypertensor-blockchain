@@ -89,6 +89,16 @@ impl<T: Config> Pallet<T> {
         Ok(())
     }
 
+    pub fn do_set_max_subnet_node_consensus_weight(value: u128) -> DispatchResult {
+        ensure!(
+            value > 0 && value <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+        MaxSubnetNodeConsensusWeight::<T>::put(value);
+        Self::deposit_event(Event::SetMaxSubnetNodeConsensusWeight(value));
+        Ok(())
+    }
+
     pub fn do_set_max_subnets(value: u32) -> DispatchResult {
         // Account for designated general-chain work and the temporary rotation capacity.
         let available_slots = T::EpochLength::get()
@@ -856,7 +866,7 @@ impl<T: Config> Pallet<T> {
         let sum: u128 = value
             .delegate_stake
             .saturating_add(value.node_count)
-            .saturating_add(value.time_weighted_stake);
+            .saturating_add(value.net_flow);
 
         ensure!(
             sum == Self::percentage_factor_as_u128(),
@@ -867,6 +877,52 @@ impl<T: Config> Pallet<T> {
 
         Self::deposit_event(Event::SetSubnetWeightFactors(value));
 
+        Ok(())
+    }
+
+    pub fn do_set_subnet_delegate_stake_smoothing_alpha(value: u128) -> DispatchResult {
+        ensure!(
+            value > 0 && value < Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+        let block = Self::get_current_block_as_u32();
+        let old_alpha = SubnetDelegateStakeSmoothingAlpha::<T>::get();
+        // Physical subnet capacity bounds this scan, including registering/ineligible pools.
+        // Finish every old-policy interval before publishing the new coefficient.
+        for subnet_id in SubnetsData::<T>::iter_keys() {
+            let checkpoint = Self::read_subnet_delegate_stake_ema(
+                subnet_id,
+                TotalSubnetDelegateStakeBalance::<T>::get(subnet_id),
+                block,
+                old_alpha,
+            );
+            SubnetDelegateStakeEmas::<T>::insert(subnet_id, checkpoint);
+        }
+        SubnetDelegateStakeSmoothingAlpha::<T>::put(value);
+        Self::deposit_event(Event::SetSubnetDelegateStakeSmoothingAlpha(value));
+        Ok(())
+    }
+
+    pub fn do_set_subnet_net_flow_smoothing_alpha(value: u128) -> DispatchResult {
+        ensure!(
+            value > 0 && value <= Self::percentage_factor_as_u128(),
+            Error::<T>::InvalidPercent
+        );
+        let epoch = Self::get_current_block_as_u32() / T::EpochLength::get().max(1);
+        let old_alpha = SubnetNetFlowSmoothingAlpha::<T>::get();
+        for subnet_id in SubnetsData::<T>::iter_keys() {
+            let checkpoint = Self::read_subnet_net_flow(subnet_id, epoch, old_alpha);
+            SubnetNetFlows::<T>::insert(subnet_id, checkpoint);
+        }
+        SubnetNetFlowSmoothingAlpha::<T>::put(value);
+        Self::deposit_event(Event::SetSubnetNetFlowSmoothingAlpha(value));
+        Ok(())
+    }
+
+    pub fn do_set_subnet_net_flow_k(value: u128) -> DispatchResult {
+        ensure!(value > 0, Error::<T>::InvalidSubnetNetFlowK);
+        SubnetNetFlowK::<T>::put(value);
+        Self::deposit_event(Event::SetSubnetNetFlowK(value));
         Ok(())
     }
 
