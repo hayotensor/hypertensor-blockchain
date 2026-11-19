@@ -56,8 +56,9 @@ and election.
 
 The normal flow at a subnet's slot is:
 
-1. The outstanding completed round is prechecked using its original emission epoch. A missing
-   allocation is zero; a missing proposal receives the normal absence outcome.
+1. The immediately preceding subnet epoch is prechecked. Settlement in subnet epoch `S` uses
+   `FinalSubnetEmissionWeights[S]` for round `S - 1`; the lookup never uses the current global
+   epoch. A missing allocation is zero; a missing proposal receives the normal absence outcome.
 2. For a present proposal, attestation ratios are calculated from its stored snapshots.
 3. Valid rounds receive their rewards or penalties. Unusable historical election, voting, or
    proposal evidence cancels the round without inventing a consensus decision or penalty.
@@ -76,16 +77,14 @@ proposal.
 
 A successful step 4 stores the epoch-keyed elected node, candidate set, and round policy snapshots.
 Outcome-dependent subnet and node reputation updates occur when that round reaches settlement;
-a missing proposal follows step 1, while a submitted proposal follows steps 2 and 3. Normally,
-settlement in epoch `E` evaluates epoch `E - 1`. An older outstanding round retains its original
-allocation if processing was delayed.
+a missing proposal follows step 1, while a submitted proposal follows steps 2 and 3. Settlement
+in epoch `E` evaluates only epoch `E - 1`. Skipped older rounds are not retried, do not block
+elections, and expire with the bounded consensus history.
 
-A completed round cannot retain the pending-settlement marker because of unusable evidence.
-Cancellation preserves its bounded allocation in the reward capacitor, releases its node stake
-liability, and emits `ConsensusRoundCancelled` exactly once. The compact
-`PendingConsensusRoundSlashLiabilityNode` identifies the lock independently of the large election
-snapshot. Replaying old settlement never releases a newer round's lock, and a repeated call in
-the same slot does not settle a freshly elected round. The hook reserves weight for settlement,
+Cancellation preserves the processed round's bounded allocation in the reward capacitor and
+emits `ConsensusRoundCancelled` exactly once. Per-round settlement status prevents duplicate
+rewards and penalties; it never gates a new election or subnet removal. A repeated call in the
+same slot does not settle a freshly elected round. The hook reserves weight for settlement,
 recovery, and election before optional maintenance.
 
 Voting-weight totals use wide intermediate arithmetic. If a raw total exceeds `u128`, the linear
@@ -479,7 +478,9 @@ node_score_share = node_score / total_score
 node_reward = subnet_node_rewards * node_score_share * reward_factor
 ```
 
-If the canonical score sum is zero but consensus is reached, the proposer reward has already been handled, but normal owner, delegate, and node rewards are forfeited for that epoch. No rewards are carried into a future epoch.
+If the canonical score sum is zero but consensus is reached, the round can still pay its eligible
+proposer bonus, owner reward, and active subnet delegate pool. It pays no score-based node rewards.
+Failed financial credits enter the shared retry queue; the round itself still finalizes.
 
 ## Reputation Updates
 
@@ -607,12 +608,17 @@ The supermajority collective can update the reputation threshold with
 `set_strong_rejection_threshold(threshold)`. The threshold must remain above zero and below
 `MinAttestationPercentage`; each elected round retains its own immutable policy snapshot.
 
-Election locks only the elected node's direct principal until that round settles. Validator
-delegate-pool deposits, withdrawals, transfers, and swaps remain available under their normal
-staking rules, and cannot change the round's already frozen attestor weights.
+Election creates no stake withdrawal lock. Direct node withdrawals remain subject to ownership,
+live-node minimum stake, rate limits, and unbonding rules. Slashes use the election-time principal
+and are capped by the stake still present at settlement. Validator delegate-pool operations
+remain available and cannot change the round's already frozen attestor weights.
 
-If a node slash cannot be applied safely, its deduction rolls back and the economic penalty is
-waived. `SubnetNodeSlashFailed` records the reason; reputation processing and settlement continue.
+If a node slash cannot be applied safely, its deduction rolls back and the fixed penalty enters
+`PendingConsensusOperations`. Only that unpaid amount is reserved against withdrawal until it
+is paid or expires. New slashes exclude existing active reservations. `SubnetNodeSlashFailed`
+records the reason; reputation processing and settlement continue. The shared queue retries
+financial operations during `on_idle`, after history cleanup, with a fixed 100,800-block deadline.
+Retries do not re-evaluate consensus or apply reputation penalties again. See [REWARDS.md](REWARDS.md).
 
 Only a strongly identity-rejected submitted proposal decreases the subnet, the proposer node under
 `validator_non_consensus_decrease`, and each recorded attestor under

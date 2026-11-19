@@ -121,8 +121,6 @@ fn test_register_node_on_active_subnet_then_admit_to_probation() {
         // Trigger queue admission
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );
@@ -1314,8 +1312,6 @@ fn test_admit_subnet_node_post_subnet_activation_v2() {
         // Trigger queue admission
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );
@@ -1540,8 +1536,6 @@ fn test_remove_queued_subnet_node() {
         // Trigger queue admission
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );
@@ -1683,8 +1677,6 @@ fn test_remove_queued_subnet_node() {
         // Trigger queue admission
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );
@@ -1827,8 +1819,6 @@ fn test_remove_queued_subnet_node() {
         // Trigger queue admission
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );

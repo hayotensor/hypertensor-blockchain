@@ -3,18 +3,16 @@ use crate::tests::test_utils::*;
 use crate::{
     AccountSubnetDelegateStakeShares, AccountValidatorDelegateStakeGeneration,
     AccountValidatorDelegateStakeShares, BaseSlashPercentage, BaseValidatorReward,
-    ConsensusRoundSettlementEmissionEpoch, ConsensusRoundSettlementStatus, ConsensusSubmissionData,
-    DelegateStakeCooldownEpochs, DistributionData, ElectedConsensusRound, Error, Event,
-    FinalSubnetEmissionWeights, MaxSlashAmount, MaxSubnetNodes, MinDelegateStakeDeposit,
-    MinSubnetMinStake, NextSwapQueueId, NodeDelegateStakeCooldownEpochs,
-    NodeStakePendingSlashLiabilityCount, NodeSubnetStake, PendingConsensusRoundSettlementEpoch,
-    QueuedSwapCall, RewardsData, StakeUnbondingLedger, StrongRejectionThreshold,
-    SubnetElectedValidator, SubnetName, SubnetNodeElectionSlots, SubnetNodeReputation,
-    SubnetNodeValidatorId, SubnetReputation, SwapCallQueue, SwapQueueOrder, TotalActiveSubnets,
-    TotalStake, TotalSubnetDelegateStakeBalance, TotalSubnetNodes, TotalSubnetStake,
-    TotalValidatorDelegateStakeBalance, TxRateLimit, ValidatorDelegatePoolGeneration,
-    ValidatorDelegateStakeBalance, ValidatorDelegateStakeCirculatingShares,
-    ValidatorDelegateStakeShares,
+    ConsensusRoundSettlementStatus, ConsensusSubmissionData, DelegateStakeCooldownEpochs,
+    DistributionData, ElectedConsensusRound, Error, Event, FinalSubnetEmissionWeights,
+    MaxSlashAmount, MaxSubnetNodes, MinDelegateStakeDeposit, MinSubnetMinStake, NextSwapQueueId,
+    NodeDelegateStakeCooldownEpochs, NodeSubnetStake, QueuedSwapCall, RewardsData,
+    StakeUnbondingLedger, StrongRejectionThreshold, SubnetElectedValidator, SubnetName,
+    SubnetNodeElectionSlots, SubnetNodeReputation, SubnetNodeValidatorId, SubnetReputation,
+    SwapCallQueue, SwapQueueOrder, TotalActiveSubnets, TotalStake, TotalSubnetDelegateStakeBalance,
+    TotalSubnetNodes, TotalSubnetStake, TotalValidatorDelegateStakeBalance, TxRateLimit,
+    ValidatorDelegatePoolGeneration, ValidatorDelegateStakeBalance,
+    ValidatorDelegateStakeCirculatingShares, ValidatorDelegateStakeShares,
 };
 use frame_support::traits::Currency;
 use frame_support::weights::WeightMeter;
@@ -54,7 +52,7 @@ fn build_pending_node_slash_round(
     seed_equal_validator_delegate_stake_for_subnet(subnet_id);
 
     let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-    Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+    Network::elect_validator(subnet_id, subnet_epoch);
     let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch)
         .expect("the slashable fixture must elect a validator");
     (subnet_id, subnet_epoch, round)
@@ -186,10 +184,7 @@ fn pending_round_allows_validator_pool_operations_and_keeps_frozen_voting_weight
         let shares = AccountValidatorDelegateStakeShares::<Test>::get(&delegator, validator_id);
         let weights_before =
             crate::SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch);
-        assert!(Network::is_node_stake_slash_locked(
-            subnet_id,
-            round.validator_subnet_node_id
-        ));
+
         TxRateLimit::<Test>::put(0);
 
         assert_ok!(Network::add_validator_delegate_stake(
@@ -239,10 +234,6 @@ fn pending_round_allows_validator_pool_operations_and_keeps_frozen_voting_weight
             ConsensusRoundSettlementStatus::<Test>::get(subnet_id, subnet_epoch),
             Some(false)
         );
-        assert!(Network::is_node_stake_slash_locked(
-            subnet_id,
-            round.validator_subnet_node_id
-        ));
     });
 }
 
@@ -287,10 +278,7 @@ fn full_pending_removal_set_does_not_block_rejected_round_settlement() {
         let node_stake_before = NodeSubnetStake::<Test>::get(node_id, subnet_id);
         let pool_before = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
         let events_before = network_events().len();
-        assert_eq!(
-            NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, node_id),
-            1
-        );
+
         let settle = || {
             Network::distribute_rewards(
                 &mut WeightMeter::new(),
@@ -322,12 +310,7 @@ fn full_pending_removal_set_does_not_block_rejected_round_settlement() {
             ConsensusRoundSettlementStatus::<Test>::get(subnet_id, subnet_epoch),
             Some(true)
         );
-        assert!(PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id).is_none());
-        assert_eq!(
-            NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, node_id),
-            0
-        );
-        assert!(!Network::is_node_stake_slash_locked(subnet_id, node_id));
+
         assert!(!network_events()[events_before..]
             .iter()
             .any(|event| matches!(event, Event::SubnetNodesPendingRemoval { .. })));
@@ -388,7 +371,7 @@ fn full_pending_removal_event_list_leaves_no_partial_marker() {
 }
 
 #[test]
-fn failed_economic_slashes_finalize_rounds_without_locks_or_retry() {
+fn failed_economic_slashes_finalize_rounds_without_replaying_consensus() {
     // Exercise every storage failure for both submitted rejection and missing-proposal callers.
     for fault in 0..2 {
         for submitted in [false, true] {
@@ -401,9 +384,7 @@ fn failed_economic_slashes_finalize_rounds_without_locks_or_retry() {
                 let validator_id = round.validator_id;
                 let node_id = round.validator_subnet_node_id;
                 let rejected = rejected_round_submission(subnet_id, &round);
-                let emission_epoch =
-                    ConsensusRoundSettlementEmissionEpoch::<Test>::get(subnet_id, subnet_epoch)
-                        .unwrap();
+                let emission_epoch = subnet_epoch.saturating_add(1);
                 let reward_budget = 100;
                 FinalSubnetEmissionWeights::<Test>::insert(
                     emission_epoch,
@@ -452,10 +433,6 @@ fn failed_economic_slashes_finalize_rounds_without_locks_or_retry() {
                     SubnetNodeReputation::<Test>::get(subnet_id, node_id).unwrap();
                 let subnet_reputation = SubnetReputation::<Test>::get(subnet_id);
                 let events_before = network_events().len();
-                assert_eq!(
-                    NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, node_id),
-                    1
-                );
 
                 let settle = || {
                     if submitted {
@@ -470,11 +447,8 @@ fn failed_economic_slashes_finalize_rounds_without_locks_or_retry() {
                             },
                         );
                     } else {
-                        let (submission, _) = Network::precheck_subnet_consensus_submission(
-                            subnet_id,
-                            subnet_epoch,
-                            Network::get_current_epoch_as_u32(),
-                        );
+                        let (submission, _) =
+                            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
                         assert!(submission.is_none());
                     }
                 };
@@ -496,12 +470,7 @@ fn failed_economic_slashes_finalize_rounds_without_locks_or_retry() {
                     ConsensusRoundSettlementStatus::<Test>::get(subnet_id, subnet_epoch),
                     Some(true)
                 );
-                assert!(PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id).is_none());
-                assert_eq!(
-                    NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, node_id),
-                    0
-                );
-                assert!(!Network::is_node_stake_slash_locked(subnet_id, node_id));
+
                 let events = network_events();
                 let failures: Vec<_> = events[events_before..]
                     .iter()
@@ -521,7 +490,7 @@ fn failed_economic_slashes_finalize_rounds_without_locks_or_retry() {
                 )));
                 frame_support::assert_storage_noop!(settle());
 
-                // Repairing the corrupt storage cannot resurrect the forfeited penalty.
+                // Repairing accounting permits the financial retry without replaying the round.
                 TotalSubnetStake::<Test>::insert(subnet_id, subnet_stake);
                 TotalStake::<Test>::put(total_stake);
                 TotalValidatorDelegateStakeBalance::<Test>::put(pool_aggregate);
@@ -530,22 +499,43 @@ fn failed_economic_slashes_finalize_rounds_without_locks_or_retry() {
                 SubnetNodeValidatorId::<Test>::insert(subnet_id, node_id, validator_id);
                 frame_support::assert_storage_noop!(settle());
 
-                Network::elect_validator(subnet_id, subnet_epoch + 1, System::block_number());
+                Network::elect_validator(subnet_id, subnet_epoch + 1);
                 assert!(SubnetElectedValidator::<Test>::contains_key(
                     subnet_id,
                     subnet_epoch + 1
                 ));
-                assert_eq!(
-                    PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
-                    Some(subnet_epoch + 1)
+                let reserved = Network::pending_node_slash_locked_amount(subnet_id, node_id);
+                assert!(reserved > 0);
+                let node_reputation = SubnetNodeReputation::<Test>::get(subnet_id, node_id);
+                let subnet_reputation = SubnetReputation::<Test>::get(subnet_id);
+                Network::retry_pending_consensus_operations(
+                    System::block_number(),
+                    &mut WeightMeter::new(),
                 );
+                assert_eq!(
+                    NodeSubnetStake::<Test>::get(node_id, subnet_id),
+                    before.0 - reserved
+                );
+                assert_eq!(
+                    Network::pending_node_slash_locked_amount(subnet_id, node_id),
+                    0
+                );
+                assert_eq!(
+                    SubnetNodeReputation::<Test>::get(subnet_id, node_id),
+                    node_reputation
+                );
+                assert_eq!(SubnetReputation::<Test>::get(subnet_id), subnet_reputation);
+                frame_support::assert_storage_noop!(Network::retry_pending_consensus_operations(
+                    System::block_number(),
+                    &mut WeightMeter::new()
+                ));
             });
         }
     }
 }
 
 #[test]
-fn submitted_round_slash_and_liability_release_are_exact_once_after_nominal_unlock() {
+fn submitted_round_slash_is_exact_once_after_the_round_ends() {
     new_test_ext().execute_with(|| {
         let threshold = test_percent(1, 2);
         StrongRejectionThreshold::<Test>::put(threshold);
@@ -575,13 +565,14 @@ fn submitted_round_slash_and_liability_release_are_exact_once_after_nominal_unlo
 
         let election_block = System::block_number();
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch, election_block);
+        Network::elect_validator(subnet_id, subnet_epoch);
         let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
         let validator_id = round.validator_id;
         let pool_before = ValidatorDelegateStakeBalance::<Test>::get(validator_id);
 
         System::set_block_number(
-            crate::NodeStakeSlashLockUntil::<Test>::get(subnet_id, round.validator_subnet_node_id)
+            election_block
+                .saturating_add(EpochLength::get())
                 .saturating_add(5),
         );
 
@@ -633,7 +624,7 @@ fn submitted_round_slash_and_liability_release_are_exact_once_after_nominal_unlo
 }
 
 #[test]
-fn finalized_zero_weight_submitted_round_settles_and_unlocks_exactly_once() {
+fn finalized_zero_weight_submitted_round_settles_exactly_once() {
     // Every representation of a definitive zero allocation must settle: a missing record when
     // the earlier allocation slot did not fit, an omitted subnet key, and explicit zero factors.
     for allocation_shape in 0..4 {
@@ -668,14 +659,12 @@ fn finalized_zero_weight_submitted_round_settles_and_unlocks_exactly_once() {
 
             let election_block = System::block_number();
             let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-            Network::elect_validator(subnet_id, subnet_epoch, election_block);
+            Network::elect_validator(subnet_id, subnet_epoch);
             let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
             let validator_id = round.validator_id;
             run_subnet_consensus_step_v2(subnet_id, None, None);
 
-            let emission_epoch =
-                ConsensusRoundSettlementEmissionEpoch::<Test>::get(subnet_id, subnet_epoch)
-                    .expect("a live election records its immutable funding epoch");
+            let emission_epoch = subnet_epoch.saturating_add(1);
             match allocation_shape {
                 0 => FinalSubnetEmissionWeights::<Test>::remove(emission_epoch),
                 1 => FinalSubnetEmissionWeights::<Test>::insert(
@@ -706,11 +695,9 @@ fn finalized_zero_weight_submitted_round_settles_and_unlocks_exactly_once() {
             }
 
             System::set_block_number(
-                crate::NodeStakeSlashLockUntil::<Test>::get(
-                    subnet_id,
-                    round.validator_subnet_node_id,
-                )
-                .saturating_add(5),
+                election_block
+                    .saturating_add(EpochLength::get())
+                    .saturating_add(5),
             );
 
             let node_stake_before =
@@ -726,8 +713,6 @@ fn finalized_zero_weight_submitted_round_settles_and_unlocks_exactly_once() {
 
             Network::emission_settlement_step(
                 &mut WeightMeter::new(),
-                System::block_number(),
-                emission_epoch,
                 subnet_epoch.saturating_add(1),
                 subnet_id,
             );
@@ -736,10 +721,7 @@ fn finalized_zero_weight_submitted_round_settles_and_unlocks_exactly_once() {
                 ConsensusRoundSettlementStatus::<Test>::get(subnet_id, subnet_epoch),
                 Some(true)
             );
-            assert_eq!(
-                PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
-                None
-            );
+
             assert_eq!(
                 NodeSubnetStake::<Test>::get(round.validator_subnet_node_id, subnet_id),
                 node_stake_before
@@ -766,8 +748,6 @@ fn finalized_zero_weight_submitted_round_settles_and_unlocks_exactly_once() {
             // A retained submission cannot issue or release the same round twice.
             Network::emission_settlement_step(
                 &mut WeightMeter::new(),
-                System::block_number(),
-                emission_epoch,
                 subnet_epoch.saturating_add(1),
                 subnet_id,
             );

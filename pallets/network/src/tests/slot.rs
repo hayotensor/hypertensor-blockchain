@@ -792,13 +792,7 @@ fn test_emission_step_elects_live_subnet_without_final_emission_weights() {
             .is_empty());
         assert!(get_elected_subnet_node_id(subnet_id, current_subnet_epoch).is_none());
 
-        Network::emission_step(
-            &mut WeightMeter::new(),
-            block,
-            current_epoch,
-            current_subnet_epoch,
-            subnet_id,
-        );
+        Network::emission_step(&mut WeightMeter::new(), current_subnet_epoch, subnet_id);
 
         assert!(get_elected_subnet_node_id(subnet_id, current_subnet_epoch).is_some());
     });
@@ -864,7 +858,7 @@ fn test_precheck_subnet_consensus_submission() {
 
         seed_equal_validator_delegate_stake_for_subnet(subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+        Network::elect_validator(subnet_id, subnet_epoch);
         let validator_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(validator_id != None, "Validator is None");
         assert!(validator_id != Some(0), "Validator is 0");
@@ -900,7 +894,6 @@ fn test_precheck_subnet_consensus_submission() {
             Network::precheck_subnet_consensus_submission(
                 subnet_id,
                 Network::get_current_epoch_as_u32() - 1,
-                Network::get_current_epoch_as_u32(),
             );
 
         let consensus_results = consensus_submission_data.unwrap();
@@ -953,7 +946,7 @@ fn test_precheck_queue_removal_uses_saturating_immunity_epoch() {
         set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         assert!(subnet_epoch > 10);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+        Network::elect_validator(subnet_id, subnet_epoch);
         let validator_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(validator_id.is_some());
 

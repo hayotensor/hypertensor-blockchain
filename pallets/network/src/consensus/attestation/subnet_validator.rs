@@ -17,7 +17,6 @@ use crate::*;
 use frame_support::pallet_prelude::Pays;
 use frame_support::pallet_prelude::Weight;
 use frame_support::pallet_prelude::{DispatchError, DispatchResultWithPostInfo};
-use frame_support::storage::{with_transaction, TransactionOutcome};
 use sp_runtime::ArithmeticError;
 
 const MIN_VALIDATOR_REWARD_MULTIPLIER: f64 = 0.0;
@@ -876,8 +875,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Slash only this subnet node's direct stake using its election-time principal.
-    /// A failed deduction rolls back, emits SubnetNodeSlashFailed, and returns zero so settlement
-    /// can continue and release the round's node liability. Validator delegate pools are unaffected.
+    /// A failed deduction rolls back and queues only the financial penalty. Reserved direct
+    /// stake remains available to that retry while consensus and reputation processing continue.
     pub(crate) fn apply_subnet_node_slash(
         subnet_id: u32,
         subnet_node_id: u32,
@@ -887,60 +886,49 @@ impl<T: Config> Pallet<T> {
         max_slash_amount: u128,
         snapshotted_node_stake_balance: u128,
     ) -> (u128, Weight) {
-        let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
-        let result = with_transaction::<u128, DispatchError, _>(|| {
-            let result = (|| -> Result<u128, DispatchError> {
-                let amount = if attestation_percentage < slash_threshold {
-                    let shortfall = Self::percentage_factor_as_u128().saturating_sub(
-                        Self::percent_div(attestation_percentage, slash_threshold)
-                            .min(Self::percentage_factor_as_u128()),
-                    );
-                    let current_stake = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
-                    weight = weight.saturating_add(db_weight.reads(1));
-                    let amount = Self::get_slash_amount_with_policy(
-                        snapshotted_node_stake_balance,
-                        shortfall,
-                        base_slash_percentage,
-                        max_slash_amount,
-                    )
-                    .min(current_stake);
-                    if amount > 0 {
-                        weight = weight.saturating_add(db_weight.reads(3));
-                        Self::decrease_node_stake(subnet_node_id, subnet_id, amount)?;
-                        weight = weight.saturating_add(db_weight.writes(3));
-                    }
-                    amount
-                } else {
-                    0
-                };
-                Self::deposit_event(Event::SubnetNodeSlashApplied {
-                    subnet_id,
-                    subnet_node_id,
-                    attestation_percentage,
-                    node_stake_amount: amount,
-                });
-                weight = weight.saturating_add(db_weight.reads_writes(4, 2));
-                Ok(amount)
-            })();
-            match result {
-                Ok(amount) => TransactionOutcome::Commit(Ok(amount)),
-                Err(error) => TransactionOutcome::Rollback(Err(error)),
-            }
-        });
-        let amount = match result {
-            Ok(amount) => amount,
-            Err(error) => {
-                Self::deposit_event(Event::SubnetNodeSlashFailed {
-                    subnet_id,
-                    subnet_node_id,
-                    error,
-                });
-                weight = weight.saturating_add(db_weight.reads_writes(4, 2));
-                0
-            }
+        let mut weight =
+            T::WeightInfo::pending_node_slash_lock_read().saturating_add(db_weight.reads(1));
+        let current_stake = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
+        let available = current_stake.saturating_sub(Self::pending_node_slash_locked_amount(
+            subnet_id,
+            subnet_node_id,
+        ));
+        let amount = if attestation_percentage < slash_threshold {
+            let shortfall = Self::percentage_factor_as_u128().saturating_sub(
+                Self::percent_div(attestation_percentage, slash_threshold)
+                    .min(Self::percentage_factor_as_u128()),
+            );
+            Self::get_slash_amount_with_policy(
+                snapshotted_node_stake_balance,
+                shortfall,
+                base_slash_percentage,
+                max_slash_amount,
+            )
+            .min(available)
+        } else {
+            0
         };
-        (amount, weight)
+        weight = weight.saturating_add(db_weight.reads_writes(7, 5));
+        let operation = ConsensusOperation::NodeSlash {
+            subnet_id,
+            subnet_node_id,
+            amount,
+            attestation_percentage,
+        };
+        if let Err(error) = Self::try_apply_consensus_operation(&operation) {
+            Self::deposit_event(Event::SubnetNodeSlashFailed {
+                subnet_id,
+                subnet_node_id,
+                error,
+            });
+            let mut retry_weight = WeightMeter::new();
+            Self::defer_consensus_operation(&mut retry_weight, subnet_id, operation);
+            weight = weight.saturating_add(retry_weight.consumed());
+            (0, weight)
+        } else {
+            (amount, weight)
+        }
     }
 
     pub fn get_slash_amount(account_subnet_stake: u128, attestation_delta: u128) -> u128 {

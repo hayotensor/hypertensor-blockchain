@@ -113,7 +113,7 @@ fn nonempty_attributable_pool_elects_during_babe_bootstrap() {
         for node_id in &candidates {
             crate::SubnetNodeValidatorId::<Test>::insert(subnet_id, *node_id, *node_id);
         }
-        Network::elect_validator(subnet_id, 0, System::block_number());
+        Network::elect_validator(subnet_id, 0);
         let elected = crate::SubnetElectedValidator::<Test>::get(subnet_id, 0)
             .expect("bootstrap randomness does not suppress an otherwise eligible election");
         assert!(candidates.contains(&elected.validator_subnet_node_id));
@@ -170,7 +170,7 @@ fn electing_the_same_round_at_another_block_does_not_change_the_draw() {
             for node_id in [10u32, 20, 30, 40] {
                 crate::SubnetNodeValidatorId::<Test>::insert(subnet_id, node_id, node_id);
             }
-            Network::elect_validator(subnet_id, subnet_epoch, block);
+            Network::elect_validator(subnet_id, subnet_epoch);
             crate::SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch)
                 .expect("a nonempty attributable candidate pool elects a validator")
                 .validator_subnet_node_id

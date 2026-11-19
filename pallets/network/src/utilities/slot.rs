@@ -421,11 +421,21 @@ impl<T: Config> Pallet<T> {
                 ),
             )
             .saturating_add(T::WeightInfo::emission_step_accepted_below_min_weight_reputation(h))
+            .saturating_add(
+                T::WeightInfo::pending_consensus_operation_enqueue()
+                    .saturating_mul(u64::from(h) + 3),
+            )
+            .saturating_add(
+                T::WeightInfo::consensus_node_reward_snapshot().saturating_mul(u64::from(h)),
+            )
             .saturating_add(non_attestor_reputation);
+        let pending_slash = T::WeightInfo::pending_node_slash_lock_read()
+            .saturating_add(T::WeightInfo::pending_node_slash_reservation_update())
+            .saturating_add(T::WeightInfo::pending_consensus_operation_enqueue());
         let settlement_branch = if historical_items == 0 {
-            T::WeightInfo::emission_step_missing()
+            T::WeightInfo::emission_step_missing().saturating_add(pending_slash)
         } else {
-            accepted.max(T::WeightInfo::emission_step_rejected(h))
+            accepted.max(T::WeightInfo::emission_step_rejected(h).saturating_add(pending_slash))
         };
         let settlement = settlement_branch
             .max(T::WeightInfo::emission_step_cancelled())
@@ -460,8 +470,8 @@ impl<T: Config> Pallet<T> {
 
     /// The caller pays the generated fixed selector envelope before these bounded reads.
     fn select_subnet_slot_mandatory_weight(subnet_id: u32, subnet_epoch: u32) -> Weight {
-        let historical_items = PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id)
-            .or_else(|| subnet_epoch.checked_sub(1))
+        let historical_items = subnet_epoch
+            .checked_sub(1)
             .map(|epoch| SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, epoch))
             .unwrap_or(0);
         let admitted_nodes = TotalAdmittedSubnetNodes::<T>::get(subnet_id);
@@ -473,8 +483,7 @@ impl<T: Config> Pallet<T> {
     /// At its assigned block the subnet epoch equals the general epoch by the schedule invariant.
     pub(crate) fn run_assigned_subnet_slot(
         weight_meter: &mut WeightMeter,
-        block: u32,
-        current_epoch: u32,
+        current_subnet_epoch: u32,
         subnet_id: u32,
     ) -> bool {
         let selectors = T::WeightInfo::emission_step_selectors();
@@ -482,12 +491,12 @@ impl<T: Config> Pallet<T> {
             return false;
         }
         weight_meter.consume(selectors);
-        let mandatory = Self::select_subnet_slot_mandatory_weight(subnet_id, current_epoch);
+        let mandatory = Self::select_subnet_slot_mandatory_weight(subnet_id, current_subnet_epoch);
         if !weight_meter.can_consume(mandatory) {
             return false;
         }
         weight_meter.consume(mandatory);
-        Self::emission_step_prepaid(weight_meter, block, current_epoch, current_epoch, subnet_id);
+        Self::emission_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
         true
     }
 
@@ -499,8 +508,6 @@ impl<T: Config> Pallet<T> {
     /// - Updates burn rate EMA: `update_burn_rate_for_epoch`
     pub fn emission_step(
         weight_meter: &mut WeightMeter,
-        block: u32,
-        current_epoch: u32,
         current_subnet_epoch: u32,
         subnet_id: u32,
     ) {
@@ -514,45 +521,24 @@ impl<T: Config> Pallet<T> {
             return;
         }
         weight_meter.consume(mandatory);
-        Self::emission_step_prepaid(
-            weight_meter,
-            block,
-            current_epoch,
-            current_subnet_epoch,
-            subnet_id,
-        );
+        Self::emission_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
     }
 
     /// The complete bounded settlement and election work was charged by the caller. Internal
     /// settlement accounting is diagnostic; only optional maintenance consumes the outer meter.
     fn emission_step_prepaid(
         weight_meter: &mut WeightMeter,
-        block: u32,
-        current_epoch: u32,
         current_subnet_epoch: u32,
         subnet_id: u32,
     ) {
-        Self::emission_settlement_step(
-            &mut WeightMeter::new(),
-            block,
-            current_epoch,
-            current_subnet_epoch,
-            subnet_id,
-        );
-        Self::emission_operational_step_prepaid(
-            weight_meter,
-            block,
-            current_subnet_epoch,
-            subnet_id,
-        );
+        Self::emission_settlement_step(&mut WeightMeter::new(), current_subnet_epoch, subnet_id);
+        Self::emission_operational_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
     }
 
     /// Settle the prior subnet epoch under a reward-core envelope that is independent from
     /// election, physical cleanup, registration, and burn maintenance.
     pub fn emission_settlement_step(
         weight_meter: &mut WeightMeter,
-        _block: u32,
-        current_epoch: u32,
         current_subnet_epoch: u32,
         subnet_id: u32,
     ) {
@@ -561,19 +547,11 @@ impl<T: Config> Pallet<T> {
         // We know the subnet exists because to call this function `SlotAssignment` must exist
         // for the given subnet_id called in `on_initialize` on this block step.
 
-        // A skipped prior round remains the settlement target on later assigned slots. Live
-        // election permits only one pending round per subnet, so selection is O(1); hand-built
-        // benchmark state falls back to the immediately previous epoch.
-        weight_meter.consume(db_weight.reads(1));
-        let settlement_subnet_epoch = PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id)
-            .or_else(|| current_subnet_epoch.checked_sub(1));
-        let Some(settlement_subnet_epoch) = settlement_subnet_epoch else {
+        // Each slot processes only its preceding epoch. Old unfinished rounds never become a
+        // retry backlog and cannot hold up election of the current round.
+        let Some(settlement_subnet_epoch) = current_subnet_epoch.checked_sub(1) else {
             return;
         };
-        // Repeated hook/helper calls must never settle a round elected in this same slot.
-        if settlement_subnet_epoch == current_subnet_epoch {
-            return;
-        }
 
         let historical_items =
             SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, settlement_subnet_epoch)
@@ -591,42 +569,27 @@ impl<T: Config> Pallet<T> {
             return;
         }
 
-        if settlement_subnet_epoch > current_subnet_epoch {
-            // A future pending epoch is inconsistent with the assigned-slot lifecycle.
-            weight_meter.consume(precheck_weight);
-            // Cancellation is covered by the recovery envelope reserved in precheck_weight.
-            Self::cancel_pending_consensus_round(subnet_id, settlement_subnet_epoch);
-            return;
-        }
-
         // Missing proposals can be economically settled even when the emission allocation was
         // omitted. Submitted rounds use the same definitive-zero rule below once the earlier
         // global allocation slot has passed.
-        let (consensus_submission_data, _) = Self::precheck_subnet_consensus_submission(
-            subnet_id,
-            settlement_subnet_epoch,
-            current_epoch,
-        );
+        let (consensus_submission_data, _) =
+            Self::precheck_subnet_consensus_submission(subnet_id, settlement_subnet_epoch);
         weight_meter.consume(precheck_weight);
         let Some(mut consensus_submission_data) = consensus_submission_data else {
             // Every admitted old round must terminate. This also covers future precheck exits
             // without turning unusable evidence into an absence penalty.
             // Cancellation is covered by the recovery envelope reserved in precheck_weight.
-            Self::cancel_pending_consensus_round(subnet_id, settlement_subnet_epoch);
+            Self::cancel_consensus_round(subnet_id, settlement_subnet_epoch);
             return;
         };
 
         weight_meter.consume(db_weight.reads(1));
-        let settlement_emission_epoch =
-            ConsensusRoundSettlementEmissionEpoch::<T>::get(subnet_id, settlement_subnet_epoch)
-                .unwrap_or_else(|| settlement_subnet_epoch.saturating_add(1));
-        weight_meter.consume(db_weight.reads(1));
         // The global allocation slot precedes every subnet settlement slot. Consequently, by the
         // time this code runs, either a missing epoch record or an omitted subnet key definitively
-        // means zero allocation; neither is a reason to retain liabilities forever. Explicit empty
+        // means zero allocation; settlement still finishes normally. Explicit empty
         // records are still written by `handle_subnet_emission_weights` to make this state visible.
         let (subnets_emissions, subnet_weight, has_reward_allocation) =
-            match FinalSubnetEmissionWeights::<T>::try_get(settlement_emission_epoch) {
+            match FinalSubnetEmissionWeights::<T>::try_get(current_subnet_epoch) {
                 Ok(subnet_emission_weights) => {
                     match subnet_emission_weights.subnet_weights.get(&subnet_id) {
                         Some(weight) => {
@@ -642,7 +605,7 @@ impl<T: Config> Pallet<T> {
         if !has_reward_allocation {
             // The proposer base reward is a separate stake credit and is not derived from
             // `RewardsData`. Preserve the historical no-allocation semantics by suppressing that
-            // credit too; quorum, slash, reputation, and liability finalization still run.
+            // credit too; quorum, slash, reputation, and finalization still run.
             consensus_submission_data.policy.base_validator_reward = 0;
         }
 
@@ -660,16 +623,14 @@ impl<T: Config> Pallet<T> {
             consensus_submission_data,
             rewards_data,
         );
-        // Finalization normally removed this pointer already. If reward preparation could not
-        // complete, cancel this exact old round so the following election can still proceed.
-        // Its work was reserved in precheck_weight, including the final pending-pointer read.
-        Self::cancel_pending_consensus_round(subnet_id, settlement_subnet_epoch);
+        // If reward preparation could not complete, give this round a terminal cancellation.
+        // Its work was reserved in precheck_weight. Election is independent of this outcome.
+        Self::cancel_consensus_round(subnet_id, settlement_subnet_epoch);
     }
 
     /// Direct operational entry point for callers that have not prepaid the complete subnet slot.
     pub fn emission_operational_step(
         weight_meter: &mut WeightMeter,
-        block: u32,
         current_subnet_epoch: u32,
         subnet_id: u32,
     ) {
@@ -689,19 +650,13 @@ impl<T: Config> Pallet<T> {
             return;
         }
         weight_meter.consume(mandatory);
-        Self::emission_operational_step_prepaid(
-            weight_meter,
-            block,
-            current_subnet_epoch,
-            subnet_id,
-        );
+        Self::emission_operational_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
     }
 
     /// Election has already been admitted together with settlement. Its execution cannot be
     /// skipped by a second weight check; cleanup and maintenance use only the unreserved balance.
     fn emission_operational_step_prepaid(
         weight_meter: &mut WeightMeter,
-        block: u32,
         current_subnet_epoch: u32,
         subnet_id: u32,
     ) {
@@ -713,7 +668,7 @@ impl<T: Config> Pallet<T> {
             if subnet.state == SubnetState::Active
                 && Self::_is_subnet_active_and_live(&subnet, current_subnet_epoch)
             {
-                Self::elect_validator(subnet_id, current_subnet_epoch, block);
+                Self::elect_validator(subnet_id, current_subnet_epoch);
             }
 
             // Drain quarantined physical state only after the conditional election. This preserves
@@ -1012,7 +967,7 @@ impl<T: Config> Pallet<T> {
 
         // Store weights and handle foundation. Even an all-zero/all-ineligible epoch gets an
         // explicit empty record so settlement can distinguish "finalized with no allocation"
-        // from "finalization has not run yet" and release pending slash liabilities.
+        // from "finalization has not run yet" when inspecting the historical allocation.
         if !subnet_weights.is_empty() {
             let (subnets_emissions, foundation_emissions_as_u128) =
                 Self::get_epoch_emissions(epoch);
@@ -1334,27 +1289,16 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Give an unusable or globally cancelled round a terminal outcome without inventing a
-    /// consensus decision. Retain its allocation, release its liability, and permit the next
-    /// election. Missing allocation is zero; invalid percentages cannot exceed the epoch budget.
-    fn cancel_pending_consensus_round(subnet_id: u32, subnet_epoch: u32) -> Weight {
+    /// consensus decision. Retain its allocation. Missing allocation is zero; invalid percentages
+    /// cannot exceed the epoch budget. Cancellation has no effect on later elections.
+    fn cancel_consensus_round(subnet_id: u32, subnet_epoch: u32) -> Weight {
         let db_weight = T::DbWeight::get();
         let mut weight = db_weight.reads(1);
-        if PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id) != Some(subnet_epoch) {
+        if ConsensusRoundSettlementStatus::<T>::get(subnet_id, subnet_epoch) != Some(false) {
             return weight;
         }
-        weight = weight.saturating_add(db_weight.reads(1));
-        if Self::is_consensus_round_settled(subnet_id, subnet_epoch) {
-            // Repair a stale pointer without repeating capacitor credits or cancellation events.
-            return weight.saturating_add(Self::finalize_consensus_round_slash_liability(
-                subnet_id,
-                subnet_epoch,
-            ));
-        }
-        weight = weight.saturating_add(db_weight.reads(1));
         // Elections occur at slot + epoch * EpochLength; their allocation is epoch + 1.
-        let emission_epoch =
-            ConsensusRoundSettlementEmissionEpoch::<T>::get(subnet_id, subnet_epoch)
-                .unwrap_or_else(|| subnet_epoch.saturating_add(1));
+        let emission_epoch = subnet_epoch.saturating_add(1);
         let allocation = FinalSubnetEmissionWeights::<T>::get(emission_epoch);
         weight = weight.saturating_add(db_weight.reads(1));
         let subnet_weight = allocation
@@ -1371,10 +1315,7 @@ impl<T: Config> Pallet<T> {
             Some(SubnetRewardCapacitor::<T>::get(subnet_id).saturating_add(reward))
         };
 
-        weight = weight.saturating_add(Self::finalize_consensus_round_slash_liability(
-            subnet_id,
-            subnet_epoch,
-        ));
+        weight = weight.saturating_add(Self::finalize_consensus_round(subnet_id, subnet_epoch));
         if let Some(balance) = next_capacitor {
             SubnetRewardCapacitor::<T>::insert(subnet_id, balance);
             weight = weight.saturating_add(db_weight.writes(1));
@@ -1389,40 +1330,30 @@ impl<T: Config> Pallet<T> {
     pub fn precheck_subnet_consensus_submission(
         subnet_id: u32,
         prev_subnet_epoch: u32,
-        current_epoch: u32,
     ) -> (Option<ConsensusSubmissionData<T>>, Weight) {
         let mut weight = Weight::zero();
         let db_weight = T::DbWeight::get();
 
         weight = weight.saturating_add(db_weight.reads(1));
         if Self::is_consensus_round_settled(subnet_id, prev_subnet_epoch) {
-            return (
-                None,
-                weight.saturating_add(Self::finalize_consensus_round_slash_liability(
-                    subnet_id,
-                    prev_subnet_epoch,
-                )),
-            );
+            return (None, weight);
         }
         weight = weight.saturating_add(db_weight.reads(2));
         if Self::consensus_round_precedes_network_resume(subnet_id, prev_subnet_epoch) {
             return (
                 None,
-                weight.saturating_add(Self::cancel_pending_consensus_round(
-                    subnet_id,
-                    prev_subnet_epoch,
-                )),
+                weight.saturating_add(Self::cancel_consensus_round(subnet_id, prev_subnet_epoch)),
             );
         }
 
         // Unusable historical evidence cancels the round without assigning an absence penalty.
-        // Its compact liability record is sufficient to release stake and advance consensus.
+        // The per-round status still prevents duplicate cancellation credits.
         let Some(round) = SubnetElectedValidator::<T>::get(subnet_id, prev_subnet_epoch) else {
             return (
                 None,
-                weight.saturating_add(db_weight.reads(1)).saturating_add(
-                    Self::cancel_pending_consensus_round(subnet_id, prev_subnet_epoch),
-                ),
+                weight
+                    .saturating_add(db_weight.reads(1))
+                    .saturating_add(Self::cancel_consensus_round(subnet_id, prev_subnet_epoch)),
             );
         };
         weight = weight.saturating_add(db_weight.reads(1));
@@ -1433,10 +1364,7 @@ impl<T: Config> Pallet<T> {
         else {
             return (
                 None,
-                weight.saturating_add(Self::cancel_pending_consensus_round(
-                    subnet_id,
-                    prev_subnet_epoch,
-                )),
+                weight.saturating_add(Self::cancel_consensus_round(subnet_id, prev_subnet_epoch)),
             );
         };
 
@@ -1445,10 +1373,7 @@ impl<T: Config> Pallet<T> {
         {
             return (
                 None,
-                weight.saturating_add(Self::cancel_pending_consensus_round(
-                    subnet_id,
-                    prev_subnet_epoch,
-                )),
+                weight.saturating_add(Self::cancel_consensus_round(subnet_id, prev_subnet_epoch)),
             );
         }
 
@@ -1460,12 +1385,10 @@ impl<T: Config> Pallet<T> {
             Ok(submission) => submission,
             Err(()) => {
                 // Missing proposals retain the allocation belonging to this exact round,
-                // including when settlement is retried in a later global epoch.
-                let emission_epoch =
-                    ConsensusRoundSettlementEmissionEpoch::<T>::get(subnet_id, prev_subnet_epoch)
-                        .unwrap_or_else(|| prev_subnet_epoch.saturating_add(1));
+                // without borrowing another round's allocation.
+                let emission_epoch = prev_subnet_epoch.saturating_add(1);
                 let allocation = FinalSubnetEmissionWeights::<T>::get(emission_epoch);
-                weight = weight.saturating_add(db_weight.reads(2));
+                weight = weight.saturating_add(db_weight.reads(1));
                 let subnet_weight = allocation
                     .subnet_weights
                     .get(&subnet_id)
@@ -1498,10 +1421,8 @@ impl<T: Config> Pallet<T> {
                     SubnetRewardCapacitor::<T>::insert(subnet_id, balance);
                     weight = weight.saturating_add(db_weight.writes(1));
                 }
-                weight = weight.saturating_add(Self::finalize_consensus_round_slash_liability(
-                    subnet_id,
-                    prev_subnet_epoch,
-                ));
+                weight = weight
+                    .saturating_add(Self::finalize_consensus_round(subnet_id, prev_subnet_epoch));
 
                 //
                 // Update subnet rep
@@ -1569,19 +1490,15 @@ impl<T: Config> Pallet<T> {
             if !eligible_ids.insert(*node_id) {
                 return (
                     None,
-                    weight.saturating_add(Self::cancel_pending_consensus_round(
-                        subnet_id,
-                        prev_subnet_epoch,
-                    )),
+                    weight
+                        .saturating_add(Self::cancel_consensus_round(subnet_id, prev_subnet_epoch)),
                 );
             }
             let Some(node_weight) = attestor_weight_snapshot.weights.get(node_id) else {
                 return (
                     None,
-                    weight.saturating_add(Self::cancel_pending_consensus_round(
-                        subnet_id,
-                        prev_subnet_epoch,
-                    )),
+                    weight
+                        .saturating_add(Self::cancel_consensus_round(subnet_id, prev_subnet_epoch)),
                 );
             };
             eligible_weight += U256::from(*node_weight);
@@ -1591,10 +1508,8 @@ impl<T: Config> Pallet<T> {
             if !eligible_ids.contains(node_id) {
                 return (
                     None,
-                    weight.saturating_add(Self::cancel_pending_consensus_round(
-                        subnet_id,
-                        prev_subnet_epoch,
-                    )),
+                    weight
+                        .saturating_add(Self::cancel_consensus_round(subnet_id, prev_subnet_epoch)),
                 );
             }
             attested_weight += U256::from(attestor_weight_snapshot.weights[node_id]);

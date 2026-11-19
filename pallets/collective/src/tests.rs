@@ -177,6 +177,7 @@ impl pallet_network::Config for Test {
     type SuperMajorityCollectiveOrigin =
         pallet_collective::EnsureProportionAtLeast<AccountId, Instance1, 4, 5>;
     type EpochLength = EpochLength;
+    type ConsensusOperationRetryPeriod = ConstU64<100_800>;
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = ConstU32<0>;
     type Economics = TestEconomics;

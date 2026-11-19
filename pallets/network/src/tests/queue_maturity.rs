@@ -60,7 +60,7 @@ fn default_queue_immunity_covers_activation_boundary() {
         set_block_to_subnet_slot_epoch(boundary_epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         assert_eq!(subnet_epoch, boundary_epoch);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+        Network::elect_validator(subnet_id, subnet_epoch);
         assert!(SubnetElectedValidator::<Test>::contains_key(
             subnet_id,
             subnet_epoch
@@ -89,13 +89,7 @@ fn default_queue_immunity_covers_activation_boundary() {
         // Run the real assigned-slot lifecycle: settle the boundary round, elect the
         // eligible-epoch validator, and then process queue maintenance. A direct election here
         // would correctly be suppressed while the prior round still awaits settlement.
-        Network::emission_step(
-            &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
-            subnet_epoch,
-            subnet_id,
-        );
+        Network::emission_step(&mut WeightMeter::new(), subnet_epoch, subnet_id);
         assert!(!SubnetNodeQueue::<Test>::get(subnet_id)
             .iter()
             .any(|node| node.id == queued_node.id));

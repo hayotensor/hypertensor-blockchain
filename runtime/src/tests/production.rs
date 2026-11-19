@@ -62,27 +62,91 @@ fn maximum_network_slot_reservation() -> Weight {
     type W = <Runtime as pallet_network::Config>::WeightInfo;
     let nodes = NetworkMaxSubnetNodesUpperBound::get();
     let queued = NetworkMaxRegisteredNodesUpperBound::get();
+    let minimum_attestors = Network::min_identity_attestors_for_ratio(
+        3,
+        <Runtime as pallet_network::Config>::SuperMajorityAttestationRatio::get(),
+    );
     let accepted = W::emission_step(nodes)
         .saturating_add(
             W::emission_step_accepted_queue_mutations(queued)
                 .max(W::emission_step_accepted_queue_mutations_front(queued)),
         )
         .saturating_add(W::emission_step_accepted_below_min_weight_reputation(nodes))
-        .saturating_add(W::emission_step_accepted_non_attestor_reputation(nodes - 3));
+        .saturating_add(
+            W::pending_consensus_operation_enqueue().saturating_mul(u64::from(nodes) + 3),
+        )
+        .saturating_add(W::consensus_node_reward_snapshot().saturating_mul(u64::from(nodes)))
+        .saturating_add(W::emission_step_accepted_non_attestor_reputation(
+            nodes - minimum_attestors,
+        ));
     let db = <Runtime as frame_system::Config>::DbWeight::get();
+    let pending_slash = W::pending_node_slash_lock_read()
+        .saturating_add(W::pending_node_slash_reservation_update())
+        .saturating_add(W::pending_consensus_operation_enqueue());
     let settlement = accepted
-        .max(W::emission_step_rejected(nodes))
-        .max(W::emission_step_missing())
+        .max(W::emission_step_rejected(nodes).saturating_add(pending_slash))
+        .max(W::emission_step_missing().saturating_add(pending_slash))
         .max(W::emission_step_cancelled())
+        .saturating_add(W::consensus_settlement_recovery())
         .saturating_add(db.reads_writes(3, 3))
         .saturating_add(Weight::from_parts(0, 8192 + 4 * u64::from(nodes + queued)));
+    let metadata_proof = 3 * u64::from(<Runtime as pallet_network::Config>::MaxVectorLength::get())
+        + u64::from(<Runtime as pallet_network::Config>::MaxUrlLength::get())
+        + 1_024
+        + 4_096;
     W::on_initialize_base()
         .saturating_add(W::advance_overwatch_epoch_noop())
         .saturating_add(W::emission_slot_selector())
         .saturating_add(W::emission_step_selectors())
         .saturating_add(settlement)
-        .saturating_add(db.reads(2))
+        .saturating_add(db.reads(1))
+        .saturating_add(Weight::from_parts(0, metadata_proof))
         .saturating_add(W::elect_validator(nodes))
+}
+
+#[test]
+fn pending_owner_reward_uses_seven_day_expiry_and_metered_idle_payment() {
+    use frame_support::traits::Currency;
+    use pallet_network::weights::WeightInfo;
+    type W = <Runtime as pallet_network::Config>::WeightInfo;
+    assert_eq!(ConsensusOperationRetryPeriod::get(), 100_800);
+    assert_eq!(ConsensusOperationRetryPeriod::get(), 7 * DAYS);
+    crate::tests::npos::ext().execute_with(|| {
+        System::set_block_number(1);
+        let recipient = AccountId::new([96; 32]);
+        drop(Balances::deposit_creating(&recipient, EXISTENTIAL_DEPOSIT));
+        pallet_network::PendingConsensusOperations::<Runtime>::insert(
+            0,
+            pallet_network::PendingConsensusOperation {
+                operation: pallet_network::ConsensusOperation::OwnerReward {
+                    recipient: recipient.clone(),
+                    amount: 123,
+                },
+                expires_at: 100_801,
+            },
+        );
+        pallet_network::PendingConsensusOperationsQueue::<Runtime>::put(
+            pallet_network::ConsensusOperationQueueState { head: 0, tail: 1 },
+        );
+        let db = <Runtime as frame_system::Config>::DbWeight::get();
+        let limit = db
+            .reads(1)
+            .saturating_add(W::pending_consensus_operations_empty())
+            .saturating_add(W::pending_consensus_operation_read())
+            .saturating_add(
+                W::pending_consensus_operation_paid()
+                    .max(W::pending_consensus_operation_retry())
+                    .max(W::pending_consensus_operation_expired()),
+            );
+        assert!(Network::on_idle(1, Weight::zero()).all_lte(Weight::zero()));
+        assert_eq!(Balances::free_balance(&recipient), EXISTENTIAL_DEPOSIT);
+        assert!(Network::on_idle(1, limit).all_lte(limit));
+        assert_eq!(
+            Balances::free_balance(&recipient),
+            EXISTENTIAL_DEPOSIT + 123
+        );
+        assert!(!pallet_network::PendingConsensusOperationsQueue::<Runtime>::exists());
+    });
 }
 
 #[test]
@@ -165,7 +229,7 @@ fn signed_extrinsics_remain_admissible_after_network_and_scheduler_reservations(
                 n::ValidatorNodeDelegateStakeWeights::<Runtime>::insert(node, BTreeMap::from([((subnet, node), TENSOR)]));
             }
             n::SubnetNodeElectionSlots::<Runtime>::insert(subnet, (1..=nodes).collect::<Vec<_>>());
-            Network::elect_validator(subnet, 0, block);
+            Network::elect_validator(subnet, 0);
             let proposer = n::SubnetElectedValidator::<Runtime>::get(subnet, 0).unwrap().validator_subnet_node_id;
 
             let bob_before = Balances::free_balance(account("Bob"));

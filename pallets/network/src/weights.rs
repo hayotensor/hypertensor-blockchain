@@ -1,3 +1,5 @@
+// Consensus stake locks, the pending-round gate, and funding-epoch storage are removed. Their existing
+// weights retain conservative upper bounds; those removals do not claim new benchmark measurements.
 // Node-only slashing removes storage accesses. Existing measured weight bounds are retained
 // conservatively; regenerate benchmarks before reducing the numerical estimates.
 
@@ -38,6 +40,9 @@
 //! See .maintain/benchmark-node-metadata-weights.sh; existing manual safety additions retained.
 //! CAPACITOR RELEASE SETTER AND ACCEPTED SETTLEMENT REGENERATED: 2026-11-15, CLI 60.0.0,
 //! STEPS: `20`, REPEAT: `10`, ANALYSIS: `max`; prior safety allowances retained.
+//! PENDING OWNER REWARDS REGENERATED: 2026-11-18, CLI 60.0.0, STEPS: `20`, REPEAT: `10`,
+//! TIME/POV ANALYSIS: `max`, WASM: `compiled`. FIFO enqueue, idle selector, payment, retry, expiry.
+//! The paid envelope also covers the separately measured new-account/nonempty-queue path.
 //! WORST CASE MAP SIZE: `1000000`
 //! HOSTNAME: `Bob`, CPU: `11th Gen Intel(R) Core(TM) i7-11800H @ 2.30GHz`
 //! WASM-EXECUTION: `Compiled`, CHAIN: `None`, DB CACHE: `1024`
@@ -58,7 +63,7 @@
 //! Election combines distinct-identity and nonlinear multi-node measurements using Weight::max.
 //! See .maintain/benchmark-election-snapshots.sh and .maintain/merge-election-snapshot-weights.py.
 //! TERMINAL SETTLEMENT RECOVERY: compose the measured cancellation precheck with normal
-//! settlement, plus conservative compact-liability storage and boundary-check allowances.
+//! settlement, plus conservative storage and boundary-check allowances retained as conservative upper bounds.
 //! These additions are not regenerated benchmark measurements.
 
 // Executed Command:
@@ -100,14 +105,13 @@ fn settlement_pending_marker_envelope() -> Weight {
 	)
 }
 
-// Conservative proof-size additions for small pending-liability maps introduced after the last
-// benchmark run. DB read/write ref-time is added at each affected function below. These margins
-// must be replaced by regenerated measurements on the next runtime-weight refresh.
-fn pending_liability_key_proof() -> Weight {
+// Conservative proof-size margins retained from the existing measured envelopes.
+// Regenerate benchmarks before reducing these allowances.
+fn conservative_storage_key_proof() -> Weight {
 	Weight::from_parts(0, 4_096)
 }
 
-fn consensus_round_liability_proof() -> Weight {
+fn consensus_round_settlement_proof() -> Weight {
 	Weight::from_parts(0, 32_768)
 }
 
@@ -118,7 +122,8 @@ fn rewards_capacitor_envelope() -> Weight {
 	Weight::from_parts(10_000_000, 4_096)
 }
 
-// Missing proposals additionally read the historical emission epoch and its allocation map.
+// Missing proposals read the allocation for the next subnet epoch. The previous two-key
+// allowance is retained conservatively until benchmarks are regenerated.
 // The enforced physical-subnet ceiling is 17, so DistributionData encodes at most
 // 16 + 1 + 17 * (4 + 16) = 357 bytes. Two 4096-byte key allowances also cover trie proofs.
 fn rewards_capacitor_missing_allocation_envelope() -> Weight {
@@ -337,6 +342,23 @@ pub trait WeightInfo {
 	fn remove_queued_subnet_node(n: u32, r: u32, ) -> Weight;
 	fn remove_queued_subnet_node_dispatch(n: u32, r: u32, ) -> Weight;
 	fn add_balance_to_coldkey_account() -> Weight;
+	fn pending_consensus_operation_enqueue() -> Weight;
+	fn pending_node_slash_lock_read() -> Weight;
+	fn pending_node_slash_reservation_update() -> Weight;
+	fn pending_consensus_operation_slash_expired() -> Weight;
+	fn consensus_node_reward_snapshot() -> Weight;
+
+	fn pending_consensus_operation_read() -> Weight;
+	fn pending_consensus_operation_node_reward() -> Weight;
+	fn pending_consensus_operation_validator_reward() -> Weight;
+	fn pending_consensus_operation_subnet_delegate_reward() -> Weight;
+	fn pending_consensus_operation_node_slash() -> Weight;
+
+	fn pending_consensus_operations_empty() -> Weight;
+	fn pending_consensus_operation_paid() -> Weight;
+	fn pending_consensus_operation_retry() -> Weight;
+	fn pending_consensus_operation_expired() -> Weight;
+
 
 	fn insert_node_into_election_slot() -> Weight;
 	fn on_initialize_base() -> Weight;
@@ -370,7 +392,7 @@ pub trait WeightInfo {
 	fn emission_step_queue(q: u32, ) -> Weight;
 	fn emission_step_missing() -> Weight;
 	fn emission_step_cancelled() -> Weight;
-	/// Additional bounded recovery after a normal settlement attempt, including compact liability cleanup.
+	/// Additional bounded recovery after a normal settlement attempt, including terminal cancellation.
 	fn consensus_settlement_recovery() -> Weight;
 	fn emission_step_rejected(h: u32, ) -> Weight;
 	fn precheck_subnet_consensus_submission(x: u32, ) -> Weight;
@@ -676,8 +698,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::MinSubnetDelegateStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetEnactmentEpochs` (r:1 w:0)
 	/// Proof: `Network::SubnetEnactmentEpochs` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:0)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetIdFriendlyUid` (r:1 w:1)
 	/// Proof: `Network::SubnetIdFriendlyUid` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::AssignedSlots` (r:1 w:1)
@@ -829,8 +849,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetsData` (r:1 w:1)
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:0)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetIdFriendlyUid` (r:1 w:1)
 	/// Proof: `Network::SubnetIdFriendlyUid` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::AssignedSlots` (r:1 w:1)
@@ -985,7 +1003,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(12_899_771_000, 4024607)
 			.saturating_add(T::DbWeight::get().reads(4180_u64))
 			.saturating_add(T::DbWeight::get().writes(4225_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(T::DbWeight::get().writes(1))
 			.saturating_add(rewards_capacitor_removal_proof())
 	}
@@ -2051,7 +2069,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(178_288_000, 14775)
 			.saturating_add(T::DbWeight::get().reads(19_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
-			.saturating_add(pending_liability_key_proof().saturating_mul(2))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2305,7 +2323,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(133_378_000, 4192)
 			.saturating_add(T::DbWeight::get().reads(20_u64))
 			.saturating_add(T::DbWeight::get().writes(11_u64))
-			.saturating_add(pending_liability_key_proof().saturating_mul(2))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2352,7 +2370,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(113_157_000, 10760)
 			.saturating_add(T::DbWeight::get().reads(23_u64))
 			.saturating_add(T::DbWeight::get().writes(14_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2413,7 +2431,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(83_472_000, 13367)
 			.saturating_add(T::DbWeight::get().reads(21_u64))
 			.saturating_add(T::DbWeight::get().writes(12_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -2462,7 +2480,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(159_978_000, 12162)
 			.saturating_add(T::DbWeight::get().reads(24_u64))
 			.saturating_add(T::DbWeight::get().writes(14_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -4122,8 +4140,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(8_u64))
 			.saturating_add(T::DbWeight::get().writes(6_u64))
 	}
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:0)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetsData` (r:1 w:1)
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetIdFriendlyUid` (r:1 w:1)
@@ -4282,7 +4298,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(12_766_179_000, 4024547)
 			.saturating_add(T::DbWeight::get().reads(4178_u64))
 			.saturating_add(T::DbWeight::get().writes(4225_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(T::DbWeight::get().writes(1))
 			.saturating_add(rewards_capacitor_removal_proof())
 	}
@@ -5874,8 +5890,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetElectedValidator` (r:1 w:1)
 	/// Proof: `Network::SubnetElectedValidator` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:0)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:0)
@@ -5950,16 +5964,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorDelegateStakeBalance` (r:512 w:0)
 	/// Proof: `Network::ValidatorDelegateStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorNodeDelegateStakeWeights` (r:512 w:0)
 	/// Proof: `Network::ValidatorNodeDelegateStakeWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:512 w:0)
 	/// Proof: `Network::ValidatorSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:1 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:0 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:0 w:1)
 	/// Proof: `Network::ConsensusRoundSettlementStatus` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusAttestorWeights` (r:0 w:1)
@@ -5986,7 +5994,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(0, 9731).saturating_mul(x.into()));
 		let measured = measured.max(shared_identities)
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(Self::pending_admitted_removal_scan(MAX_PENDING_ADMITTED_REMOVALS))
 			.saturating_add(Self::pending_queued_removal_scan(MAX_PENDING_QUEUED_REMOVALS))
 			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
@@ -6013,7 +6021,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(0, 9731).saturating_mul(x.into()));
 		let measured = measured.max(shared_identities)
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
 		;
 		// Preserve the complete prior envelope, including its safety allowances.
@@ -6029,7 +6037,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads((1_u64).saturating_mul(x.into())))
 			.saturating_add(T::DbWeight::get().writes(8_u64))
 			.saturating_add(Weight::from_parts(0, 2491).saturating_mul(x.into()))
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 		};
 		measured.max(baseline)
 		}
@@ -6041,7 +6049,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(73_210_141, 0).saturating_mul(x.into()))
 			// Compact proposer lookup survives a missing large election record.
 			.saturating_add(T::DbWeight::get().writes(1))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 	}
 	/// Storage: `Network::MinDelegateStakeDeposit` (r:1 w:0)
 	/// Proof: `Network::MinDelegateStakeDeposit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -6090,12 +6098,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(15_818_000, 3802)
 			.saturating_add(T::DbWeight::get().reads(11_u64))
 			.saturating_add(T::DbWeight::get().writes(7_u64))
-			.saturating_add(pending_liability_key_proof().saturating_mul(2))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TotalOverwatchNodes` (r:1 w:0)
 	/// Proof: `Network::TotalOverwatchNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:0)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetsData` (r:1 w:1)
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetIdFriendlyUid` (r:1 w:1)
@@ -6272,7 +6278,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(0, 12608).saturating_mul(a.into()))
 			.saturating_add(Weight::from_parts(0, 2631).saturating_mul(o.into()))
 			.saturating_add(Weight::from_parts(0, 12544).saturating_mul(r.into()))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(T::DbWeight::get().writes(1))
 			.saturating_add(rewards_capacitor_removal_proof())
 	}
@@ -6752,6 +6758,295 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(0, 28).saturating_mul(n.into()))
 			.saturating_add(Weight::from_parts(0, 348).saturating_mul(r.into()))
 	}
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:0)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_read() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `384`
+		//  Estimated: `3849`
+		// Minimum execution time: 16_378_000 picoseconds.
+		Weight::from_parts(17_614_000, 3849)
+			.saturating_add(T::DbWeight::get().reads(1_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegatePoolGeneration` (r:1 w:0)
+	/// Proof: `Network::ValidatorDelegatePoolGeneration` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegateStakeBalance` (r:1 w:1)
+	/// Proof: `Network::ValidatorDelegateStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegateStakeShares` (r:1 w:0)
+	/// Proof: `Network::ValidatorDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegateStakeCirculatingShares` (r:1 w:0)
+	/// Proof: `Network::ValidatorDelegateStakeCirculatingShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalValidatorDelegateStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalValidatorDelegateStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::DelegateAccountStake` (r:1 w:1)
+	/// Proof: `Network::DelegateAccountStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalAccountDelegateStake` (r:1 w:1)
+	/// Proof: `Network::TotalAccountDelegateStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetStake` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalStake` (r:1 w:1)
+	/// Proof: `Network::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_node_reward() -> Weight {
+		// Component-wise envelope of success and `pending_consensus_operation_node_reward_retry` measurements.
+		Weight::from_parts(167_670_000, 4212)
+			.saturating_add(T::DbWeight::get().reads(16_u64))
+			.saturating_add(T::DbWeight::get().writes(11_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetStake` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalStake` (r:1 w:1)
+	/// Proof: `Network::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_validator_reward() -> Weight {
+		// Component-wise envelope of success and `pending_consensus_operation_validator_reward_retry` measurements.
+		Weight::from_parts(102_451_000, 3856)
+			.saturating_add(T::DbWeight::get().reads(9_u64))
+			.saturating_add(T::DbWeight::get().writes(7_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetDelegatePoolGeneration` (r:1 w:0)
+	/// Proof: `Network::SubnetDelegatePoolGeneration` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetDelegateStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetDelegateStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetDelegateStakeShares` (r:1 w:0)
+	/// Proof: `Network::TotalSubnetDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetDelegateStakeCirculatingShares` (r:1 w:0)
+	/// Proof: `Network::TotalSubnetDelegateStakeCirculatingShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalDelegateStake` (r:1 w:1)
+	/// Proof: `Network::TotalDelegateStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetsData` (r:1 w:0)
+	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetBalanceTimes` (r:1 w:1)
+	/// Proof: `Network::SubnetBalanceTimes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_subnet_delegate_reward() -> Weight {
+		// Component-wise envelope of success and `pending_consensus_operation_subnet_delegate_reward_retry` measurements.
+		Weight::from_parts(143_000_000, 4065)
+			.saturating_add(T::DbWeight::get().reads(13_u64))
+			.saturating_add(T::DbWeight::get().writes(7_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetStake` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalStake` (r:1 w:1)
+	/// Proof: `Network::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingNodeSlashReservations` (r:1 w:1)
+	/// Proof: `Network::PendingNodeSlashReservations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_node_slash() -> Weight {
+		// Component-wise envelope of success and `pending_consensus_operation_node_slash_retry` measurements.
+		Weight::from_parts(199_438_000, 104907)
+			.saturating_add(T::DbWeight::get().reads(10_u64))
+			.saturating_add(T::DbWeight::get().writes(8_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingNodeSlashReservations` (r:1 w:0)
+	/// Proof: `Network::PendingNodeSlashReservations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn pending_node_slash_lock_read() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `101071`
+		//  Estimated: `104536`
+		// Minimum execution time: 145_768_000 picoseconds.
+		Weight::from_parts(172_194_000, 104536)
+			.saturating_add(T::DbWeight::get().reads(2_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingNodeSlashReservations` (r:1 w:1)
+	/// Proof: `Network::PendingNodeSlashReservations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:0)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn pending_node_slash_reservation_update() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `101099`
+		//  Estimated: `104564`
+		// Minimum execution time: 202_703_000 picoseconds.
+		Weight::from_parts(216_362_000, 104564)
+			.saturating_add(T::DbWeight::get().reads(3_u64))
+			.saturating_add(T::DbWeight::get().writes(1_u64))
+	}
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingNodeSlashReservations` (r:1 w:1)
+	/// Proof: `Network::PendingNodeSlashReservations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_slash_expired() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `101283`
+		//  Estimated: `104748`
+		// Minimum execution time: 145_637_000 picoseconds.
+		Weight::from_parts(175_040_000, 104748)
+			.saturating_add(T::DbWeight::get().reads(7_u64))
+			.saturating_add(T::DbWeight::get().writes(5_u64))
+	}
+	/// Storage: `Network::ValidatorsData` (r:1 w:0)
+	/// Proof: `Network::ValidatorsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegateStakeCirculatingShares` (r:1 w:0)
+	/// Proof: `Network::ValidatorDelegateStakeCirculatingShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegatePoolGeneration` (r:1 w:0)
+	/// Proof: `Network::ValidatorDelegatePoolGeneration` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn consensus_node_reward_snapshot() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `394`
+		//  Estimated: `3859`
+		// Minimum execution time: 30_760_000 picoseconds.
+		Weight::from_parts(34_172_000, 3859)
+			.saturating_add(T::DbWeight::get().reads(3_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:0 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_enqueue() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `446`
+		//  Estimated: `1931`
+		// Minimum execution time: 32_178_000 picoseconds.
+		Weight::from_parts(34_792_000, 1931)
+			.saturating_add(T::DbWeight::get().reads(5_u64))
+			.saturating_add(T::DbWeight::get().writes(4_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:0)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operations_empty() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `114`
+		//  Estimated: `1599`
+		// Minimum execution time: 6_078_000 picoseconds.
+		Weight::from_parts(6_600_000, 1599)
+			.saturating_add(T::DbWeight::get().reads(2_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
+	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_paid() -> Weight {
+		// Component-wise envelope of success and `pending_consensus_operation_paid_new_account` measurements.
+		Weight::from_parts(164_051_000, 4224)
+			.saturating_add(T::DbWeight::get().reads(8_u64))
+			.saturating_add(T::DbWeight::get().writes(6_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:2)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Balances::TotalIssuance` (r:1 w:0)
+	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
+	/// Storage: `System::Account` (r:1 w:0)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	fn pending_consensus_operation_retry() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `417`
+		//  Estimated: `3882`
+		// Minimum execution time: 49_260_000 picoseconds.
+		Weight::from_parts(55_355_000, 3882)
+			.saturating_add(T::DbWeight::get().reads(5_u64))
+			.saturating_add(T::DbWeight::get().writes(3_u64))
+	}
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_expired() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `551`
+		//  Estimated: `4016`
+		// Minimum execution time: 63_507_000 picoseconds.
+		Weight::from_parts(68_970_000, 4016)
+			.saturating_add(T::DbWeight::get().reads(6_u64))
+			.saturating_add(T::DbWeight::get().writes(4_u64))
+	}
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(116), added: 2591, mode: `MaxEncodedLen`)
 	/// Storage: `System::Number` (r:1 w:0)
@@ -7027,7 +7322,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(4_u64))
 			.saturating_add(T::DbWeight::get().writes((6_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 2610).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
+			.saturating_add(conservative_storage_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:1000 w:1000)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -7175,7 +7470,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(3_u64))
 			.saturating_add(T::DbWeight::get().writes((6_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 2610).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
+			.saturating_add(conservative_storage_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:999 w:999)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -7243,7 +7538,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(76_u64))
 			.saturating_add(T::DbWeight::get().writes((3_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 2577).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof().saturating_mul(2))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:999 w:999)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -7311,7 +7606,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(15_u64))
 			.saturating_add(T::DbWeight::get().writes((2_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 2642).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof().saturating_mul(2))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TotalAdmittedSubnetNodes` (r:16 w:0)
 	/// Proof: `Network::TotalAdmittedSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -7366,7 +7661,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads((7_u64).saturating_mul(x.into())))
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 6679).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof().saturating_mul(x.into()))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(x.into()))
 	}
 	/// Storage: `Network::PendingOverwatchSettlement` (r:1 w:1)
 	/// Proof: `Network::PendingOverwatchSettlement` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -7566,7 +7861,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		// Minimum execution time: 37_006_000 picoseconds.
 		Weight::from_parts(41_245_000, 4549)
 			.saturating_add(T::DbWeight::get().reads(6_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 	}
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:0)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -7600,8 +7895,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `Network::SubnetSlot` (r:1 w:0)
 	/// Proof: `Network::SubnetSlot` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmissionMaxItems` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmissionMaxItems` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:2)
@@ -7614,8 +7907,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetConsensusAttestorWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:2)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:0)
@@ -7634,8 +7925,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetBalanceTimes` (r:1 w:1)
 	/// Proof: `Network::SubnetBalanceTimes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:2 w:2)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeValidatorId` (r:512 w:0)
 	/// Proof: `Network::SubnetNodeValidatorId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:512 w:512)
@@ -7750,8 +8039,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::ValidatorNodeDelegateStakeWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:512 w:0)
 	/// Proof: `Network::ValidatorSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:1 w:2)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusHistoryPruneCursor` (r:1 w:1)
 	/// Proof: `Network::ConsensusHistoryPruneCursor` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetNodes` (r:1 w:0)
@@ -7798,7 +8085,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -7822,7 +8109,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -7845,7 +8132,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes((4_u64).saturating_mul(h.into())))
 			.saturating_add(Weight::from_parts(0, 3388).saturating_mul(h.into()))
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -7984,8 +8271,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmissionMaxItems` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmissionMaxItems` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:1)
@@ -7998,8 +8283,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetConsensusAttestorWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetRewardCapacitor` (r:1 w:1)
@@ -8028,16 +8311,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:0 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn emission_step_missing() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `240588`
@@ -8049,7 +8328,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -8068,7 +8347,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().reads(23_u64))
 			.saturating_add(T::DbWeight::get().writes(20_u64))
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -8080,8 +8359,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmissionMaxItems` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmissionMaxItems` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:1)
@@ -8090,24 +8367,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::LastNetworkUnpauseBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetSlot` (r:1 w:0)
 	/// Proof: `Network::SubnetSlot` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetRewardCapacitor` (r:1 w:1)
 	/// Proof: `Network::SubnetRewardCapacitor` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetElectedValidator` (r:1 w:0)
 	/// Proof: `Network::SubnetElectedValidator` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
 	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
 	/// Storage: `System::EventCount` (r:1 w:1)
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:0 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn emission_step_cancelled() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `217418`
@@ -8120,16 +8391,14 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	fn consensus_settlement_recovery() -> Weight {
 		// Recovery may follow a complete validation scan, so callers add this envelope rather
 		// than selecting its maximum with the normal branch. The measured cancellation path
-		// covers fixed finalization and event work. Add the new compact node key and the final
-		// pending-pointer check independently; no old snapshot-read savings are assumed.
+		// covers fixed finalization and event work. Retain its existing storage allowance
+		// conservatively until the next benchmark run.
 		Self::precheck_subnet_consensus_submission_cancelled()
 			.saturating_add(T::DbWeight::get().reads_writes(2, 1))
 			.saturating_add(Weight::from_parts(10_000_000, 4_096))
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmissionMaxItems` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmissionMaxItems` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:1)
@@ -8142,8 +8411,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetConsensusAttestorWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
@@ -8176,10 +8443,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:511 w:511)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:0 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `h` is `[3, 512]`.
 	fn emission_step_rejected(h: u32, ) -> Weight {
 		// Proof Size summary in bytes:
@@ -8197,7 +8460,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -8219,7 +8482,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes((1_u64).saturating_mul(h.into())))
 			.saturating_add(Weight::from_parts(0, 2970).saturating_mul(h.into()))
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -8250,7 +8513,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(0, 130).saturating_mul(x.into()));
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(consensus_resume_check_envelope())
 			.saturating_add(Weight::from_parts(250_000_000, 0))
@@ -8269,7 +8532,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(0, 130).saturating_mul(x.into()));
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(consensus_resume_check_envelope())
 			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
@@ -8285,7 +8548,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(Weight::from_parts(399_691, 0).saturating_mul(x.into()))
 			.saturating_add(T::DbWeight::get().reads(4_u64))
 			.saturating_add(Weight::from_parts(0, 130).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(T::DbWeight::get().reads(2))
 			.saturating_add(consensus_resume_check_envelope())
 		};
@@ -8304,8 +8567,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetConsensusAttestorWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetRewardCapacitor` (r:1 w:1)
@@ -8334,16 +8595,10 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:0 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn precheck_subnet_consensus_submission_missing() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `236239`
@@ -8354,7 +8609,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 			.saturating_add(T::DbWeight::get().writes(17_u64));
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -8372,7 +8627,7 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 		Weight::from_parts(516_107_000, 171988)
 			.saturating_add(T::DbWeight::get().reads(20_u64))
 			.saturating_add(T::DbWeight::get().writes(16_u64))
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(T::DbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(T::DbWeight::get().reads(2))
@@ -8388,18 +8643,12 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::LastNetworkUnpauseBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetSlot` (r:1 w:0)
 	/// Proof: `Network::SubnetSlot` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetRewardCapacitor` (r:1 w:1)
 	/// Proof: `Network::SubnetRewardCapacitor` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetElectedValidator` (r:1 w:0)
 	/// Proof: `Network::SubnetElectedValidator` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -8408,8 +8657,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:0 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn precheck_subnet_consensus_submission_cancelled() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `217382`
@@ -8751,8 +8998,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::MinSubnetDelegateStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetEnactmentEpochs` (r:1 w:0)
 	/// Proof: `Network::SubnetEnactmentEpochs` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:0)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetIdFriendlyUid` (r:1 w:1)
 	/// Proof: `Network::SubnetIdFriendlyUid` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::AssignedSlots` (r:1 w:1)
@@ -8904,8 +9149,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetsData` (r:1 w:1)
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:0)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetIdFriendlyUid` (r:1 w:1)
 	/// Proof: `Network::SubnetIdFriendlyUid` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::AssignedSlots` (r:1 w:1)
@@ -9060,7 +9303,7 @@ impl WeightInfo for () {
 		Weight::from_parts(12_899_771_000, 4024607)
 			.saturating_add(RocksDbWeight::get().reads(4180_u64))
 			.saturating_add(RocksDbWeight::get().writes(4225_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(RocksDbWeight::get().writes(1))
 			.saturating_add(rewards_capacitor_removal_proof())
 	}
@@ -10126,7 +10369,7 @@ impl WeightInfo for () {
 		Weight::from_parts(178_288_000, 14775)
 			.saturating_add(RocksDbWeight::get().reads(19_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
-			.saturating_add(pending_liability_key_proof().saturating_mul(2))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -10380,7 +10623,7 @@ impl WeightInfo for () {
 		Weight::from_parts(133_378_000, 4192)
 			.saturating_add(RocksDbWeight::get().reads(20_u64))
 			.saturating_add(RocksDbWeight::get().writes(11_u64))
-			.saturating_add(pending_liability_key_proof().saturating_mul(2))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -10427,7 +10670,7 @@ impl WeightInfo for () {
 		Weight::from_parts(113_157_000, 10760)
 			.saturating_add(RocksDbWeight::get().reads(23_u64))
 			.saturating_add(RocksDbWeight::get().writes(14_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -10488,7 +10731,7 @@ impl WeightInfo for () {
 		Weight::from_parts(83_472_000, 13367)
 			.saturating_add(RocksDbWeight::get().reads(21_u64))
 			.saturating_add(RocksDbWeight::get().writes(12_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -10537,7 +10780,7 @@ impl WeightInfo for () {
 		Weight::from_parts(159_978_000, 12162)
 			.saturating_add(RocksDbWeight::get().reads(24_u64))
 			.saturating_add(RocksDbWeight::get().writes(14_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 	}
 	/// Storage: `Network::NetworkPaused` (r:1 w:0)
 	/// Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -12197,8 +12440,6 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(8_u64))
 			.saturating_add(RocksDbWeight::get().writes(6_u64))
 	}
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:0)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetsData` (r:1 w:1)
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetIdFriendlyUid` (r:1 w:1)
@@ -12357,7 +12598,7 @@ impl WeightInfo for () {
 		Weight::from_parts(12_766_179_000, 4024547)
 			.saturating_add(RocksDbWeight::get().reads(4178_u64))
 			.saturating_add(RocksDbWeight::get().writes(4225_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(RocksDbWeight::get().writes(1))
 			.saturating_add(rewards_capacitor_removal_proof())
 	}
@@ -13949,8 +14190,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetElectedValidator` (r:1 w:1)
 	/// Proof: `Network::SubnetElectedValidator` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:0)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:0)
@@ -14025,16 +14264,10 @@ impl WeightInfo for () {
 	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorDelegateStakeBalance` (r:512 w:0)
 	/// Proof: `Network::ValidatorDelegateStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorNodeDelegateStakeWeights` (r:512 w:0)
 	/// Proof: `Network::ValidatorNodeDelegateStakeWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:512 w:0)
 	/// Proof: `Network::ValidatorSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:1 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:0 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:0 w:1)
 	/// Proof: `Network::ConsensusRoundSettlementStatus` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusAttestorWeights` (r:0 w:1)
@@ -14061,7 +14294,7 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(0, 9731).saturating_mul(x.into()));
 		let measured = measured.max(shared_identities)
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(Self::pending_admitted_removal_scan(MAX_PENDING_ADMITTED_REMOVALS))
 			.saturating_add(Self::pending_queued_removal_scan(MAX_PENDING_QUEUED_REMOVALS))
 			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
@@ -14088,7 +14321,7 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(0, 9731).saturating_mul(x.into()));
 		let measured = measured.max(shared_identities)
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
 		;
 		// Preserve the complete prior envelope, including its safety allowances.
@@ -14104,7 +14337,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads((1_u64).saturating_mul(x.into())))
 			.saturating_add(RocksDbWeight::get().writes(8_u64))
 			.saturating_add(Weight::from_parts(0, 2491).saturating_mul(x.into()))
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 		};
 		measured.max(baseline)
 		}
@@ -14116,7 +14349,7 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(73_210_141, 0).saturating_mul(x.into()))
 			// Compact proposer lookup survives a missing large election record.
 			.saturating_add(RocksDbWeight::get().writes(1))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 	}
 	/// Storage: `Network::MinDelegateStakeDeposit` (r:1 w:0)
 	/// Proof: `Network::MinDelegateStakeDeposit` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -14165,12 +14398,10 @@ impl WeightInfo for () {
 		Weight::from_parts(15_818_000, 3802)
 			.saturating_add(RocksDbWeight::get().reads(11_u64))
 			.saturating_add(RocksDbWeight::get().writes(7_u64))
-			.saturating_add(pending_liability_key_proof().saturating_mul(2))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TotalOverwatchNodes` (r:1 w:0)
 	/// Proof: `Network::TotalOverwatchNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:0)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetsData` (r:1 w:1)
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetIdFriendlyUid` (r:1 w:1)
@@ -14347,7 +14578,7 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(0, 12608).saturating_mul(a.into()))
 			.saturating_add(Weight::from_parts(0, 2631).saturating_mul(o.into()))
 			.saturating_add(Weight::from_parts(0, 12544).saturating_mul(r.into()))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(RocksDbWeight::get().writes(1))
 			.saturating_add(rewards_capacitor_removal_proof())
 	}
@@ -14827,6 +15058,295 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(0, 28).saturating_mul(n.into()))
 			.saturating_add(Weight::from_parts(0, 348).saturating_mul(r.into()))
 	}
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:0)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_read() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `384`
+		//  Estimated: `3849`
+		// Minimum execution time: 16_378_000 picoseconds.
+		Weight::from_parts(17_614_000, 3849)
+			.saturating_add(RocksDbWeight::get().reads(1_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegatePoolGeneration` (r:1 w:0)
+	/// Proof: `Network::ValidatorDelegatePoolGeneration` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegateStakeBalance` (r:1 w:1)
+	/// Proof: `Network::ValidatorDelegateStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegateStakeShares` (r:1 w:0)
+	/// Proof: `Network::ValidatorDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegateStakeCirculatingShares` (r:1 w:0)
+	/// Proof: `Network::ValidatorDelegateStakeCirculatingShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalValidatorDelegateStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalValidatorDelegateStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::DelegateAccountStake` (r:1 w:1)
+	/// Proof: `Network::DelegateAccountStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalAccountDelegateStake` (r:1 w:1)
+	/// Proof: `Network::TotalAccountDelegateStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetStake` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalStake` (r:1 w:1)
+	/// Proof: `Network::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_node_reward() -> Weight {
+		// Component-wise envelope of success and `pending_consensus_operation_node_reward_retry` measurements.
+		Weight::from_parts(167_670_000, 4212)
+			.saturating_add(RocksDbWeight::get().reads(16_u64))
+			.saturating_add(RocksDbWeight::get().writes(11_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetStake` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalStake` (r:1 w:1)
+	/// Proof: `Network::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_validator_reward() -> Weight {
+		// Component-wise envelope of success and `pending_consensus_operation_validator_reward_retry` measurements.
+		Weight::from_parts(102_451_000, 3856)
+			.saturating_add(RocksDbWeight::get().reads(9_u64))
+			.saturating_add(RocksDbWeight::get().writes(7_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetDelegatePoolGeneration` (r:1 w:0)
+	/// Proof: `Network::SubnetDelegatePoolGeneration` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetDelegateStakeBalance` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetDelegateStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetDelegateStakeShares` (r:1 w:0)
+	/// Proof: `Network::TotalSubnetDelegateStakeShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetDelegateStakeCirculatingShares` (r:1 w:0)
+	/// Proof: `Network::TotalSubnetDelegateStakeCirculatingShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalDelegateStake` (r:1 w:1)
+	/// Proof: `Network::TotalDelegateStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetsData` (r:1 w:0)
+	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetBalanceTimes` (r:1 w:1)
+	/// Proof: `Network::SubnetBalanceTimes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_subnet_delegate_reward() -> Weight {
+		// Component-wise envelope of success and `pending_consensus_operation_subnet_delegate_reward_retry` measurements.
+		Weight::from_parts(143_000_000, 4065)
+			.saturating_add(RocksDbWeight::get().reads(13_u64))
+			.saturating_add(RocksDbWeight::get().writes(7_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:1)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetStake` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalStake` (r:1 w:1)
+	/// Proof: `Network::TotalStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingNodeSlashReservations` (r:1 w:1)
+	/// Proof: `Network::PendingNodeSlashReservations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_node_slash() -> Weight {
+		// Component-wise envelope of success and `pending_consensus_operation_node_slash_retry` measurements.
+		Weight::from_parts(199_438_000, 104907)
+			.saturating_add(RocksDbWeight::get().reads(10_u64))
+			.saturating_add(RocksDbWeight::get().writes(8_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingNodeSlashReservations` (r:1 w:0)
+	/// Proof: `Network::PendingNodeSlashReservations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn pending_node_slash_lock_read() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `101071`
+		//  Estimated: `104536`
+		// Minimum execution time: 145_768_000 picoseconds.
+		Weight::from_parts(172_194_000, 104536)
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingNodeSlashReservations` (r:1 w:1)
+	/// Proof: `Network::PendingNodeSlashReservations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeSubnetStake` (r:1 w:0)
+	/// Proof: `Network::NodeSubnetStake` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn pending_node_slash_reservation_update() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `101099`
+		//  Estimated: `104564`
+		// Minimum execution time: 202_703_000 picoseconds.
+		Weight::from_parts(216_362_000, 104564)
+			.saturating_add(RocksDbWeight::get().reads(3_u64))
+			.saturating_add(RocksDbWeight::get().writes(1_u64))
+	}
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingNodeSlashReservations` (r:1 w:1)
+	/// Proof: `Network::PendingNodeSlashReservations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_slash_expired() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `101283`
+		//  Estimated: `104748`
+		// Minimum execution time: 145_637_000 picoseconds.
+		Weight::from_parts(175_040_000, 104748)
+			.saturating_add(RocksDbWeight::get().reads(7_u64))
+			.saturating_add(RocksDbWeight::get().writes(5_u64))
+	}
+	/// Storage: `Network::ValidatorsData` (r:1 w:0)
+	/// Proof: `Network::ValidatorsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegateStakeCirculatingShares` (r:1 w:0)
+	/// Proof: `Network::ValidatorDelegateStakeCirculatingShares` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::ValidatorDelegatePoolGeneration` (r:1 w:0)
+	/// Proof: `Network::ValidatorDelegatePoolGeneration` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn consensus_node_reward_snapshot() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `394`
+		//  Estimated: `3859`
+		// Minimum execution time: 30_760_000 picoseconds.
+		Weight::from_parts(34_172_000, 3859)
+			.saturating_add(RocksDbWeight::get().reads(3_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:0 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_enqueue() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `446`
+		//  Estimated: `1931`
+		// Minimum execution time: 32_178_000 picoseconds.
+		Weight::from_parts(34_792_000, 1931)
+			.saturating_add(RocksDbWeight::get().reads(5_u64))
+			.saturating_add(RocksDbWeight::get().writes(4_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:0)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operations_empty() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `114`
+		//  Estimated: `1599`
+		// Minimum execution time: 6_078_000 picoseconds.
+		Weight::from_parts(6_600_000, 1599)
+			.saturating_add(RocksDbWeight::get().reads(2_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Balances::TotalIssuance` (r:1 w:1)
+	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
+	/// Storage: `System::Account` (r:1 w:1)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_paid() -> Weight {
+		// Component-wise envelope of success and `pending_consensus_operation_paid_new_account` measurements.
+		Weight::from_parts(164_051_000, 4224)
+			.saturating_add(RocksDbWeight::get().reads(8_u64))
+			.saturating_add(RocksDbWeight::get().writes(6_u64))
+	}
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:2)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Balances::TotalIssuance` (r:1 w:0)
+	/// Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
+	/// Storage: `System::Account` (r:1 w:0)
+	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+	fn pending_consensus_operation_retry() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `417`
+		//  Estimated: `3882`
+		// Minimum execution time: 49_260_000 picoseconds.
+		Weight::from_parts(55_355_000, 3882)
+			.saturating_add(RocksDbWeight::get().reads(5_u64))
+			.saturating_add(RocksDbWeight::get().writes(3_u64))
+	}
+	/// Storage: `Network::PendingConsensusOperationsQueue` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperationsQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::PendingConsensusOperations` (r:1 w:1)
+	/// Proof: `Network::PendingConsensusOperations` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `System::Number` (r:1 w:0)
+	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::ExecutionPhase` (r:1 w:0)
+	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+	/// Storage: `System::EventCount` (r:1 w:1)
+	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+	/// Storage: `System::Events` (r:1 w:1)
+	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+	fn pending_consensus_operation_expired() -> Weight {
+		// Proof Size summary in bytes:
+		//  Measured:  `551`
+		//  Estimated: `4016`
+		// Minimum execution time: 63_507_000 picoseconds.
+		Weight::from_parts(68_970_000, 4016)
+			.saturating_add(RocksDbWeight::get().reads(6_u64))
+			.saturating_add(RocksDbWeight::get().writes(4_u64))
+	}
 	/// Storage: `System::Account` (r:1 w:1)
 	/// Proof: `System::Account` (`max_values`: None, `max_size`: Some(116), added: 2591, mode: `MaxEncodedLen`)
 	/// Storage: `System::Number` (r:1 w:0)
@@ -15102,7 +15622,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes(4_u64))
 			.saturating_add(RocksDbWeight::get().writes((6_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 2610).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
+			.saturating_add(conservative_storage_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:1000 w:1000)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -15250,7 +15770,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes(3_u64))
 			.saturating_add(RocksDbWeight::get().writes((6_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 2610).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
+			.saturating_add(conservative_storage_key_proof().saturating_mul((2_u64).saturating_mul(x.into())))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:999 w:999)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -15318,7 +15838,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes(76_u64))
 			.saturating_add(RocksDbWeight::get().writes((3_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 2577).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof().saturating_mul(2))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::SwapCallQueue` (r:999 w:999)
 	/// Proof: `Network::SwapCallQueue` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -15386,7 +15906,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes(15_u64))
 			.saturating_add(RocksDbWeight::get().writes((2_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 2642).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof().saturating_mul(2))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(2))
 	}
 	/// Storage: `Network::TotalAdmittedSubnetNodes` (r:16 w:0)
 	/// Proof: `Network::TotalAdmittedSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -15441,7 +15961,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads((7_u64).saturating_mul(x.into())))
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(x.into())))
 			.saturating_add(Weight::from_parts(0, 6679).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof().saturating_mul(x.into()))
+			.saturating_add(conservative_storage_key_proof().saturating_mul(x.into()))
 	}
 	/// Storage: `Network::PendingOverwatchSettlement` (r:1 w:1)
 	/// Proof: `Network::PendingOverwatchSettlement` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
@@ -15641,7 +16161,7 @@ impl WeightInfo for () {
 		// Minimum execution time: 37_006_000 picoseconds.
 		Weight::from_parts(41_245_000, 4549)
 			.saturating_add(RocksDbWeight::get().reads(6_u64))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 	}
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:0)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
@@ -15675,8 +16195,6 @@ impl WeightInfo for () {
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `Network::SubnetSlot` (r:1 w:0)
 	/// Proof: `Network::SubnetSlot` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmissionMaxItems` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmissionMaxItems` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:2)
@@ -15689,8 +16207,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetConsensusAttestorWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:2)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:0)
@@ -15709,8 +16225,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetBalanceTimes` (r:1 w:1)
 	/// Proof: `Network::SubnetBalanceTimes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:2 w:2)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeValidatorId` (r:512 w:0)
 	/// Proof: `Network::SubnetNodeValidatorId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:512 w:512)
@@ -15825,8 +16339,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::ValidatorNodeDelegateStakeWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:512 w:0)
 	/// Proof: `Network::ValidatorSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:1 w:2)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusHistoryPruneCursor` (r:1 w:1)
 	/// Proof: `Network::ConsensusHistoryPruneCursor` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetNodes` (r:1 w:0)
@@ -15873,7 +16385,7 @@ impl WeightInfo for () {
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(RocksDbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(RocksDbWeight::get().reads(2))
@@ -15897,7 +16409,7 @@ impl WeightInfo for () {
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(RocksDbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(RocksDbWeight::get().reads(2))
@@ -15920,7 +16432,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes((4_u64).saturating_mul(h.into())))
 			.saturating_add(Weight::from_parts(0, 3388).saturating_mul(h.into()))
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(RocksDbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(RocksDbWeight::get().reads(2))
@@ -16059,8 +16571,6 @@ impl WeightInfo for () {
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmissionMaxItems` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmissionMaxItems` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:1)
@@ -16073,8 +16583,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetConsensusAttestorWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetRewardCapacitor` (r:1 w:1)
@@ -16103,16 +16611,12 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:0 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn emission_step_missing() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `240588`
@@ -16124,7 +16628,7 @@ impl WeightInfo for () {
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(RocksDbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(RocksDbWeight::get().reads(2))
@@ -16143,7 +16647,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().reads(23_u64))
 			.saturating_add(RocksDbWeight::get().writes(20_u64))
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(RocksDbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(RocksDbWeight::get().reads(2))
@@ -16155,8 +16659,6 @@ impl WeightInfo for () {
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmissionMaxItems` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmissionMaxItems` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:1)
@@ -16165,24 +16667,18 @@ impl WeightInfo for () {
 	/// Proof: `Network::LastNetworkUnpauseBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetSlot` (r:1 w:0)
 	/// Proof: `Network::SubnetSlot` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetRewardCapacitor` (r:1 w:1)
 	/// Proof: `Network::SubnetRewardCapacitor` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetElectedValidator` (r:1 w:0)
 	/// Proof: `Network::SubnetElectedValidator` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
 	/// Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
 	/// Storage: `System::EventCount` (r:1 w:1)
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:0 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn emission_step_cancelled() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `217418`
@@ -16194,15 +16690,13 @@ impl WeightInfo for () {
 	}
 	fn consensus_settlement_recovery() -> Weight {
 		// Match the runtime composition: normal validation plus terminal recovery, compact
-		// liability cleanup, and the boundary's final pending-pointer check.
+		// finalization and the boundary's settlement-status check.
 		Self::precheck_subnet_consensus_submission_cancelled()
 			.saturating_add(RocksDbWeight::get().reads_writes(2, 1))
 			.saturating_add(Weight::from_parts(10_000_000, 4_096))
 	}
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmissionMaxItems` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmissionMaxItems` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:1)
@@ -16215,8 +16709,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetConsensusAttestorWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
@@ -16249,10 +16741,6 @@ impl WeightInfo for () {
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:511 w:511)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:0 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// The range of component `h` is `[3, 512]`.
 	fn emission_step_rejected(h: u32, ) -> Weight {
 		// Proof Size summary in bytes:
@@ -16270,7 +16758,7 @@ impl WeightInfo for () {
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(RocksDbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(RocksDbWeight::get().reads(2))
@@ -16292,7 +16780,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes((1_u64).saturating_mul(h.into())))
 			.saturating_add(Weight::from_parts(0, 2970).saturating_mul(h.into()))
 			.saturating_add(settlement_pending_marker_envelope())
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(RocksDbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(RocksDbWeight::get().reads(2))
@@ -16323,7 +16811,7 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(0, 130).saturating_mul(x.into()));
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(RocksDbWeight::get().reads(2))
 			.saturating_add(consensus_resume_check_envelope())
 			.saturating_add(Weight::from_parts(250_000_000, 0))
@@ -16342,7 +16830,7 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(0, 130).saturating_mul(x.into()));
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(RocksDbWeight::get().reads(2))
 			.saturating_add(consensus_resume_check_envelope())
 			// END ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
@@ -16358,7 +16846,7 @@ impl WeightInfo for () {
 			.saturating_add(Weight::from_parts(399_691, 0).saturating_mul(x.into()))
 			.saturating_add(RocksDbWeight::get().reads(4_u64))
 			.saturating_add(Weight::from_parts(0, 130).saturating_mul(x.into()))
-			.saturating_add(pending_liability_key_proof())
+			.saturating_add(conservative_storage_key_proof())
 			.saturating_add(RocksDbWeight::get().reads(2))
 			.saturating_add(consensus_resume_check_envelope())
 		};
@@ -16377,8 +16865,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetConsensusAttestorWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetConsensusSubmission` (r:1 w:0)
 	/// Proof: `Network::SubnetConsensusSubmission` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetRewardCapacitor` (r:1 w:1)
@@ -16407,16 +16893,10 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:0 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn precheck_subnet_consensus_submission_missing() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `236239`
@@ -16427,7 +16907,7 @@ impl WeightInfo for () {
 			.saturating_add(RocksDbWeight::get().writes(17_u64));
 		let measured = measured
 			// BEGIN ELECTION_SNAPSHOT_MANUAL_ALLOWANCES
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(RocksDbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(RocksDbWeight::get().reads(2))
@@ -16445,7 +16925,7 @@ impl WeightInfo for () {
 		Weight::from_parts(516_107_000, 171988)
 			.saturating_add(RocksDbWeight::get().reads(20_u64))
 			.saturating_add(RocksDbWeight::get().writes(16_u64))
-			.saturating_add(consensus_round_liability_proof())
+			.saturating_add(consensus_round_settlement_proof())
 			.saturating_add(RocksDbWeight::get().reads_writes(1, 1))
 			.saturating_add(rewards_capacitor_envelope())
 			.saturating_add(RocksDbWeight::get().reads(2))
@@ -16461,18 +16941,12 @@ impl WeightInfo for () {
 	/// Proof: `Network::LastNetworkUnpauseBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetSlot` (r:1 w:0)
 	/// Proof: `Network::SubnetSlot` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::PendingConsensusRoundSettlementEpoch` (r:1 w:1)
-	/// Proof: `Network::PendingConsensusRoundSettlementEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::ConsensusRoundSettlementEmissionEpoch` (r:1 w:1)
-	/// Proof: `Network::ConsensusRoundSettlementEmissionEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::FinalSubnetEmissionWeights` (r:1 w:0)
 	/// Proof: `Network::FinalSubnetEmissionWeights` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetRewardCapacitor` (r:1 w:1)
 	/// Proof: `Network::SubnetRewardCapacitor` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetElectedValidator` (r:1 w:0)
 	/// Proof: `Network::SubnetElectedValidator` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakePendingSlashLiabilityCount` (r:1 w:1)
-	/// Proof: `Network::NodeStakePendingSlashLiabilityCount` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `System::Number` (r:1 w:0)
 	/// Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::ExecutionPhase` (r:1 w:0)
@@ -16481,8 +16955,6 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeStakeSlashLockUntil` (r:0 w:1)
-	/// Proof: `Network::NodeStakeSlashLockUntil` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn precheck_subnet_consensus_submission_cancelled() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `217382`

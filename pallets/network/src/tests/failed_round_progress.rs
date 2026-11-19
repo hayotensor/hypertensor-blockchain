@@ -138,7 +138,7 @@ fn valid_failed_rounds_close_once_and_the_next_proposer_can_submit() {
                     let hotkey = Network::get_subnet_node_associated_hotkey(subnet, node).unwrap();
                     assert_ok!(Network::attest(RuntimeOrigin::signed(hotkey), subnet, node, None));
                 }
-                let (submission, _) = Network::precheck_subnet_consensus_submission(subnet, epoch, epoch + 1);
+                let (submission, _) = Network::precheck_subnet_consensus_submission(subnet, epoch);
                 let submission = submission.unwrap();
                 let stake_passes = submission.attestation_ratio >= submission.policy.min_attestation_percentage;
                 let identity_passes = submission.identity_attestation_count >= Network::min_consensus_identity_attestation_count(
@@ -190,11 +190,10 @@ fn valid_failed_rounds_close_once_and_the_next_proposer_can_submit() {
                 assert_eq!(TotalSubnetStake::<Test>::get(subnet), subnet_stake_before + score_total);
             }
             assert_eq!(ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch), Some(true), "{outcome:?}");
-            assert_eq!(PendingConsensusRoundSettlementEpoch::<Test>::get(subnet), Some(epoch + 1), "{outcome:?}");
+
             let next = SubnetElectedValidator::<Test>::get(subnet, epoch + 1).unwrap();
             assert_eq!(ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch + 1), Some(false));
-            assert_eq!(NodeStakePendingSlashLiabilityCount::<Test>::iter_prefix(subnet).collect::<Vec<_>>(),
-                vec![(next.validator_subnet_node_id, 1)]);
+
             let expected_capacitor = if matches!(outcome, Outcome::ZeroScores | Outcome::ZeroAllocation | Outcome::AllowedBaseRewardOverflow) { 0 } else { ALLOCATION };
             assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), expected_capacitor, "{outcome:?}");
             assert!(!network_events().iter().any(|event| matches!(event,

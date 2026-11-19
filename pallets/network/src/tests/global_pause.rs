@@ -39,8 +39,8 @@ fn fixture() -> (u32, u32) {
     seed_equal_validator_delegate_stake_for_subnet(subnet);
     StrongRejectionThreshold::<Test>::put(TOKEN / 2);
     let epoch = Network::get_current_subnet_epoch_as_u32(subnet);
-    Network::elect_validator(subnet, epoch, System::block_number());
-    let emission_epoch = ConsensusRoundSettlementEmissionEpoch::<Test>::get(subnet, epoch).unwrap();
+    Network::elect_validator(subnet, epoch);
+    let emission_epoch = epoch.saturating_add(1);
     FinalSubnetEmissionWeights::<Test>::insert(
         emission_epoch,
         DistributionData {
@@ -103,13 +103,7 @@ fn resume_after(blocks: u32) {
 
 fn settle(subnet: u32, epoch: u32) {
     set_block_to_subnet_slot_epoch(epoch, subnet);
-    Network::emission_settlement_step(
-        &mut WeightMeter::new(),
-        System::block_number(),
-        Network::get_current_epoch_as_u32(),
-        epoch,
-        subnet,
-    );
+    Network::emission_settlement_step(&mut WeightMeter::new(), epoch, subnet);
 }
 
 fn cancellation_count(subnet: u32, epoch: u32) -> usize {
@@ -137,22 +131,14 @@ fn global_resume_cancels_missing_partial_and_quorate_rounds() {
             let issuance = Balances::total_issuance();
             let subnet_delegation = TotalSubnetDelegateStakeBalance::<Test>::get(subnet);
             SubnetRewardCapacitor::<Test>::insert(subnet, TOKEN);
-            resume_after(2 * EpochLength::get());
-            settle(subnet, epoch + 3);
+            resume_after(1);
+            settle(subnet, epoch + 1);
 
             assert_eq!(
                 ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
                 Some(true)
             );
-            assert_eq!(
-                PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
-                None
-            );
-            assert!(!ConsensusRoundSettlementEmissionEpoch::<Test>::contains_key(subnet, epoch));
-            assert!(!Network::is_node_stake_slash_locked(
-                subnet,
-                round.validator_subnet_node_id
-            ));
+
             assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), 11 * TOKEN);
             assert_eq!(Balances::free_balance(owner), owner_balance);
             assert_eq!(Balances::total_issuance(), issuance);
@@ -184,16 +170,13 @@ fn global_resume_cancels_missing_partial_and_quorate_rounds() {
                 submission
             );
             assert_eq!(cancellation_count(subnet, epoch), 1);
-            settle(subnet, epoch + 3);
+            settle(subnet, epoch + 1);
             assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), 11 * TOKEN);
             assert_eq!(cancellation_count(subnet, epoch), 1);
 
             Network::on_initialize(System::block_number());
-            assert_eq!(
-                PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
-                Some(epoch + 3)
-            );
-            assert_ok!(propose(subnet, epoch + 3));
+
+            assert_ok!(propose(subnet, epoch + 1));
         });
     }
 }
@@ -230,10 +213,7 @@ fn same_block_and_short_pauses_reject_old_consensus_and_rpc_work() {
                 set_block_to_subnet_slot_epoch(epoch + 1, subnet);
                 Network::on_initialize(System::block_number());
                 assert_eq!(cancellation_count(subnet, epoch), 1);
-                assert_eq!(
-                    PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
-                    Some(epoch + 1)
-                );
+
                 assert_ok!(propose(subnet, epoch + 1));
             });
         }
@@ -241,14 +221,14 @@ fn same_block_and_short_pauses_reject_old_consensus_and_rpc_work() {
 }
 
 #[test]
-fn resume_also_discards_older_unsettled_rounds_but_noop_unpause_keeps_fresh_rounds() {
+fn resume_leaves_skipped_history_inert_and_noop_unpause_keeps_fresh_rounds() {
     new_test_ext().execute_with(|| {
         let (subnet, epoch) = fixture();
-        // Simulate deferred settlement before governance pauses. Fresh start includes this debt.
+        // Skipped history is not retried after resume and cannot block a fresh election.
         set_block_to_subnet_slot_epoch(epoch + 2, subnet);
         resume_after(1);
         settle(subnet, epoch + 3);
-        assert_eq!(cancellation_count(subnet, epoch), 1);
+        assert_eq!(cancellation_count(subnet, epoch), 0);
         assert_eq!(NodeSubnetStake::<Test>::get(1, subnet), 100 * TOKEN);
         Network::on_initialize(System::block_number());
         let cutoff = LastNetworkUnpauseBlock::<Test>::get();
@@ -262,26 +242,20 @@ fn resume_also_discards_older_unsettled_rounds_but_noop_unpause_keeps_fresh_roun
 fn repeated_pauses_cancel_once_and_missing_allocation_never_creates_rewards() {
     new_test_ext().execute_with(|| {
         let (subnet, epoch) = fixture();
-        let emission_epoch =
-            ConsensusRoundSettlementEmissionEpoch::<Test>::get(subnet, epoch).unwrap();
+        let emission_epoch = epoch.saturating_add(1);
         FinalSubnetEmissionWeights::<Test>::remove(emission_epoch);
         resume_after(1);
-        resume_after(2 * EpochLength::get());
-        settle(subnet, epoch + 3);
+        resume_after(1);
+        settle(subnet, epoch + 1);
         assert_eq!(cancellation_count(subnet, epoch), 1);
         assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), 0);
-        assert_eq!(
-            PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
-            None
-        );
     });
 }
 
 #[test]
-fn cancellation_overflow_saturates_and_releases_liabilities() {
+fn cancellation_overflow_saturates_and_finalizes_once() {
     new_test_ext().execute_with(|| {
         let (subnet, epoch) = fixture();
-        let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
         SubnetRewardCapacitor::<Test>::insert(subnet, u128::MAX);
         resume_after(1);
         settle(subnet, epoch + 1);
@@ -289,15 +263,9 @@ fn cancellation_overflow_saturates_and_releases_liabilities() {
             ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
             Some(true)
         );
-        assert_eq!(
-            PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
-            None
-        );
+
         assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), u128::MAX);
-        assert!(!Network::is_node_stake_slash_locked(
-            subnet,
-            round.validator_subnet_node_id
-        ));
+
         assert_eq!(cancellation_count(subnet, epoch), 1);
         settle(subnet, epoch + 2);
         assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), u128::MAX);
@@ -314,11 +282,7 @@ fn global_resume_does_not_reprocess_settled_history() {
         let capacitor = SubnetRewardCapacitor::<Test>::get(subnet);
         let reputation = SubnetReputation::<Test>::get(subnet);
         resume_after(1);
-        Network::precheck_subnet_consensus_submission(
-            subnet,
-            epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        Network::precheck_subnet_consensus_submission(subnet, epoch);
         assert_eq!(TotalSubnetStake::<Test>::get(subnet), stake);
         assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), capacitor);
         assert_eq!(SubnetReputation::<Test>::get(subnet), reputation);

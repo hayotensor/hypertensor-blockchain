@@ -33,7 +33,7 @@ fn subnet_owner_reward_reports_total_issuance_overflow_without_crediting() {
         let owner_balance_before = Balances::free_balance(&owner);
         let issuance_before = Balances::total_issuance();
         assert_err!(
-            Network::handle_subnet_owner_reward(&mut WeightMeter::new(), subnet_id, reward,),
+            Network::handle_subnet_owner_reward(&mut WeightMeter::new(), &owner, reward,),
             ArithmeticError::Overflow
         );
         assert_eq!(Balances::free_balance(&owner), owner_balance_before);

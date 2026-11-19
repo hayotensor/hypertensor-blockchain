@@ -258,6 +258,7 @@ parameter_types! {
     pub const NetworkValidatorArgsLimit: u32 = 4096;
     pub const NetworkMaxOverwatchRevealSaltLength: u32 = 64;
     pub const NetworkMaxSwapQueueLength: u32 = 1000;
+    pub const ConsensusOperationRetryPeriod: BlockNumber = 7 * DAYS;
 }
 
 impl Config for Test {
@@ -269,6 +270,7 @@ impl Config for Test {
     type SuperMajorityCollectiveOrigin =
         pallet_collective::EnsureProportionAtLeast<AccountId, CouncilCollective, 4, 5>;
     type EpochLength = NetworkEpochLength;
+    type ConsensusOperationRetryPeriod = ConsensusOperationRetryPeriod;
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = ConstU32<0>;
     type Economics = TestEconomics;

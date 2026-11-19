@@ -61,7 +61,7 @@ fn assigned_slot_snapshots_after_settlement_before_swaps_and_extrinsics() {
             ));
         }
         let emission_epoch =
-            ConsensusRoundSettlementEmissionEpoch::<Test>::get(subnet, epoch).unwrap();
+            epoch.saturating_add(1);
         FinalSubnetEmissionWeights::<Test>::insert(
             emission_epoch,
             DistributionData {
@@ -126,7 +126,7 @@ fn assigned_slot_snapshots_after_settlement_before_swaps_and_extrinsics() {
         ));
         // A duplicate election invocation must not refresh voting power after that deposit.
         let elected = SubnetElectedValidator::<Test>::get(subnet, epoch + 1);
-        Network::elect_validator(subnet, epoch + 1, System::block_number());
+        Network::elect_validator(subnet, epoch + 1);
         assert_eq!(
             SubnetElectedValidator::<Test>::get(subnet, epoch + 1),
             elected
@@ -145,15 +145,11 @@ fn assigned_slot_snapshots_after_settlement_before_swaps_and_extrinsics() {
 #[test]
 fn election_without_eligible_nodes_publishes_no_snapshot_or_liabilities() {
     new_test_ext().execute_with(|| {
-        Network::elect_validator(1, 0, System::block_number());
+        Network::elect_validator(1, 0);
         assert!(SubnetElectedValidator::<Test>::get(1, 0).is_none());
         assert!(SubnetConsensusAttestorWeights::<Test>::get(1, 0).is_none());
         assert!(ConsensusRoundSettlementStatus::<Test>::get(1, 0).is_none());
-        assert!(PendingConsensusRoundSettlementEpoch::<Test>::get(1).is_none());
-        assert_eq!(
-            NodeStakePendingSlashLiabilityCount::<Test>::iter().count(),
-            0
-        );
+
     });
 }
 
@@ -251,7 +247,7 @@ fn oversized_voting_total_still_publishes_a_complete_election() {
             .consensus_eligible_from_subnet_epoch
             .unwrap();
         set_block_to_subnet_slot_epoch(epoch, subnet);
-        Network::elect_validator(subnet, epoch, System::block_number());
+        Network::elect_validator(subnet, epoch);
 
         let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
         let weights = SubnetConsensusAttestorWeights::<Test>::get(subnet, epoch).unwrap();
@@ -268,9 +264,6 @@ fn oversized_voting_total_still_publishes_a_complete_election() {
             ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
             Some(false)
         );
-        assert_eq!(
-            PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
-            Some(epoch)
-        );
+
     });
 }

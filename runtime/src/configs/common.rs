@@ -438,6 +438,7 @@ parameter_types! {
     pub const InitialTxRateLimit: u32 = 0;
     pub const NetworkEconomics: pallet_network::NetworkEconomics = tokenomics::POLICY.network;
     pub const EpochLength: u32 = BLOCKS_PER_EPOCH; // Testnet 600 blocks per erpoch / 69 mins per epoch, Local 10
+    pub const ConsensusOperationRetryPeriod: BlockNumber = 7 * DAYS;
     pub const EpochsPerYear: u32 = EPOCHS_PER_YEAR; // Testnet 600 blocks per erpoch / 69 mins per epoch, Local 10
     pub const NetworkPalletId: PalletId = PalletId(*b"/network");
     pub const OverwatchEpochEmissions: u128 = OVERWATCH_EPOCH_EMISSIONS;
@@ -475,6 +476,7 @@ impl pallet_network::Config for Runtime {
     type SuperMajorityCollectiveOrigin =
         pallet_collective::EnsureProportionAtLeast<AccountId, CouncilCollective, 4, 5>;
     type EpochLength = EpochLength;
+    type ConsensusOperationRetryPeriod = ConsensusOperationRetryPeriod;
     type EpochsPerYear = EpochsPerYear;
     type InitialTxRateLimit = InitialTxRateLimit;
     type Economics = NetworkEconomics;

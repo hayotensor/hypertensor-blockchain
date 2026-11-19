@@ -31,11 +31,8 @@ fn fixture() -> (u32, u32, u32) {
     let proposer = SubnetElectedValidator::<Test>::get(subnet, epoch)
         .unwrap()
         .validator_subnet_node_id;
-    assert_eq!(
-        PendingConsensusRoundSlashLiabilityNode::<Test>::get(subnet),
-        Some(proposer)
-    );
-    let emission_epoch = ConsensusRoundSettlementEmissionEpoch::<Test>::get(subnet, epoch).unwrap();
+
+    let emission_epoch = epoch.saturating_add(1);
     assert_eq!(emission_epoch, epoch + 1);
     FinalSubnetEmissionWeights::<Test>::insert(
         emission_epoch,
@@ -138,11 +135,7 @@ fn assert_progressed_at(subnet: u32, old_epoch: u32, next_epoch: u32) -> u32 {
         ConsensusRoundSettlementStatus::<Test>::get(subnet, old_epoch),
         Some(true)
     );
-    assert!(!ConsensusRoundSettlementEmissionEpoch::<Test>::contains_key(subnet, old_epoch));
-    assert_eq!(
-        PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
-        Some(next_epoch)
-    );
+
     assert_eq!(
         ConsensusRoundSettlementStatus::<Test>::get(subnet, next_epoch),
         Some(false)
@@ -150,19 +143,7 @@ fn assert_progressed_at(subnet: u32, old_epoch: u32, next_epoch: u32) -> u32 {
     let next = SubnetElectedValidator::<Test>::get(subnet, next_epoch)
         .expect("the same hook must elect the next round")
         .validator_subnet_node_id;
-    assert_eq!(
-        PendingConsensusRoundSlashLiabilityNode::<Test>::get(subnet),
-        Some(next)
-    );
-    // Exactly the new round owns a liability; the old one cannot leave a second lock behind.
-    assert_eq!(
-        NodeStakePendingSlashLiabilityCount::<Test>::iter_prefix(subnet).collect::<Vec<_>>(),
-        vec![(next, 1)]
-    );
-    assert_eq!(
-        NodeStakeSlashLockUntil::<Test>::iter_prefix(subnet).collect::<Vec<_>>(),
-        vec![(next, System::block_number() + EpochLength::get())]
-    );
+
     next
 }
 
@@ -236,7 +217,6 @@ fn full_queued_removal_set_preserves_unmarked_nodes_and_consensus_progress() {
 enum FrozenFault {
     MissingElection,
     MissingWeights,
-    MissingCompactLiabilityAndWeights,
     WrongWeightTotal,
     DuplicateMember,
     UnknownMember,
@@ -247,7 +227,6 @@ fn unusable_frozen_rounds_cancel_once_and_the_hook_elects_again() {
     for fault in [
         FrozenFault::MissingElection,
         FrozenFault::MissingWeights,
-        FrozenFault::MissingCompactLiabilityAndWeights,
         FrozenFault::WrongWeightTotal,
         FrozenFault::DuplicateMember,
         FrozenFault::UnknownMember,
@@ -264,10 +243,7 @@ fn unusable_frozen_rounds_cancel_once_and_the_hook_elects_again() {
                 FrozenFault::MissingWeights => {
                     SubnetConsensusAttestorWeights::<Test>::remove(subnet, epoch)
                 }
-                FrozenFault::MissingCompactLiabilityAndWeights => {
-                    PendingConsensusRoundSlashLiabilityNode::<Test>::remove(subnet);
-                    SubnetConsensusAttestorWeights::<Test>::remove(subnet, epoch);
-                }
+
                 FrozenFault::WrongWeightTotal => {
                     SubnetConsensusAttestorWeights::<Test>::mutate(subnet, epoch, |snapshot| {
                         snapshot.as_mut().unwrap().total_weight += 1
@@ -317,43 +293,44 @@ fn unusable_frozen_rounds_cancel_once_and_the_hook_elects_again() {
 }
 
 #[test]
-fn cancellation_repairs_bad_liability_counts_without_unlocking_a_new_round() {
-    for count in [0, u32::MAX] {
-        new_test_ext().execute_with(|| {
-            let (subnet, epoch, proposer) = fixture();
-            submit(subnet, proposer);
-            let before = economic_state(subnet);
-            NodeStakePendingSlashLiabilityCount::<Test>::insert(subnet, proposer, count);
-            SubnetConsensusAttestorWeights::<Test>::remove(subnet, epoch);
-            // Re-elect exactly the same position so historical cleanup cannot hide a wrong unlock.
-            SubnetNodeElectionSlots::<Test>::insert(subnet, vec![proposer]);
-            run_slot(subnet, epoch + 1);
-            assert_eq!(assert_progressed(subnet, epoch), proposer);
-            assert_eq!(economic_state(subnet), before);
-            let capacitor = SubnetRewardCapacitor::<Test>::get(subnet);
-
-            Network::finalize_consensus_round_slash_liability(subnet, epoch);
-            Network::precheck_subnet_consensus_submission(
-                subnet,
-                epoch,
-                Network::get_current_epoch_as_u32(),
-            );
-            assert_eq!(assert_progressed(subnet, epoch), proposer);
-            assert!(Network::is_node_stake_slash_locked(subnet, proposer));
-            assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), capacitor);
-            assert_eq!(cancellation_count(subnet, epoch), 1);
-            assert_eq!(economic_state(subnet), before);
-        });
-    }
-}
-
-#[test]
-fn resume_cancellation_recovers_missing_emission_epoch_without_using_another_budget() {
+fn unfinished_round_does_not_block_election_or_mutate_the_next_round() {
     new_test_ext().execute_with(|| {
         let (subnet, epoch, proposer) = fixture();
         submit(subnet, proposer);
         let before = economic_state(subnet);
-        ConsensusRoundSettlementEmissionEpoch::<Test>::remove(subnet, epoch);
+        SubnetNodeElectionSlots::<Test>::insert(subnet, vec![proposer]);
+        set_block_to_subnet_slot_epoch(epoch + 1, subnet);
+        // Elect without first settling the previous round, including the very same node.
+        Network::elect_validator(subnet, epoch + 1);
+        assert_eq!(
+            ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
+            Some(false)
+        );
+        let next = SubnetElectedValidator::<Test>::get(subnet, epoch + 1).unwrap();
+        assert_eq!(next.validator_subnet_node_id, proposer);
+        let weights = SubnetConsensusAttestorWeights::<Test>::get(subnet, epoch + 1);
+        Network::finalize_consensus_round(subnet, epoch);
+        assert_eq!(assert_progressed(subnet, epoch), proposer);
+        assert_eq!(
+            SubnetElectedValidator::<Test>::get(subnet, epoch + 1),
+            Some(next)
+        );
+        assert_eq!(
+            SubnetConsensusAttestorWeights::<Test>::get(subnet, epoch + 1),
+            weights
+        );
+        assert_eq!(economic_state(subnet), before);
+        frame_support::assert_storage_noop!(Network::finalize_consensus_round(subnet, epoch));
+    });
+}
+
+#[test]
+fn resume_cancellation_uses_the_next_subnet_epoch_allocation() {
+    new_test_ext().execute_with(|| {
+        let (subnet, epoch, proposer) = fixture();
+        submit(subnet, proposer);
+        let before = economic_state(subnet);
+
         FinalSubnetEmissionWeights::<Test>::insert(
             epoch + 2,
             DistributionData {
@@ -375,11 +352,11 @@ fn resume_cancellation_recovers_missing_emission_epoch_without_using_another_bud
 }
 
 #[test]
-fn stale_settled_pointer_is_repaired_without_repeating_its_economic_outcome() {
+fn settled_round_does_not_repeat_its_economic_outcome() {
     new_test_ext().execute_with(|| {
         let (subnet, epoch, _) = fixture();
         let before = economic_state(subnet);
-        ConsensusRoundSettlementStatus::<Test>::insert(subnet, epoch, true);
+        Network::finalize_consensus_round(subnet, epoch);
         run_slot(subnet, epoch + 1);
         assert_progressed(subnet, epoch);
         assert_eq!(economic_state(subnet), before);
@@ -411,41 +388,62 @@ fn election_skips_only_the_candidate_with_a_missing_identity_mapping() {
 }
 
 #[test]
-fn delayed_settlement_recovers_the_original_budget_when_emission_metadata_is_missing() {
+fn skipped_settlement_does_not_create_a_backlog_or_block_fresh_consensus() {
     for proposed in [false, true] {
-        let outcomes: Vec<_> = [false, true]
-            .into_iter()
-            .map(|missing_metadata| {
-                new_test_ext().execute_with(|| {
-                    let (subnet, epoch, proposer) = fixture();
-                    if proposed {
-                        submit(subnet, proposer);
-                    }
-                    if missing_metadata {
-                        ConsensusRoundSettlementEmissionEpoch::<Test>::remove(subnet, epoch);
-                    }
-                    let later_epoch = epoch + 3;
-                    FinalSubnetEmissionWeights::<Test>::insert(
-                        later_epoch,
-                        DistributionData {
-                            subnets_emissions: 999 * TOKEN,
-                            subnet_weights: BTreeMap::from([(subnet, TOKEN)]),
-                        },
-                    );
-                    run_slot(subnet, later_epoch);
-                    assert_progressed_at(subnet, epoch, later_epoch);
-                    assert_eq!(cancellation_count(subnet, epoch), 0);
-                    (
-                        economic_state(subnet),
-                        SubnetRewardCapacitor::<Test>::get(subnet),
-                        reward_count(subnet),
-                    )
-                })
-            })
-            .collect();
-        assert_eq!(outcomes[0], outcomes[1], "proposed={proposed}");
-        if !proposed {
-            assert_eq!(outcomes[1].1, TOKEN + ALLOCATION);
-        }
+        new_test_ext().execute_with(|| {
+            let (subnet, epoch, proposer) = fixture();
+            if proposed {
+                submit(subnet, proposer);
+            }
+            let before = economic_state(subnet);
+            let later_epoch = epoch + 3;
+            run_slot(subnet, later_epoch);
+            assert_eq!(
+                ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
+                Some(false)
+            );
+            assert_eq!(
+                ConsensusRoundSettlementStatus::<Test>::get(subnet, later_epoch),
+                Some(false)
+            );
+            assert_eq!(economic_state(subnet), before);
+            assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), TOKEN);
+            assert_eq!(cancellation_count(subnet, epoch), 0);
+            assert_eq!(reward_count(subnet), 0);
+            let next_proposer = SubnetElectedValidator::<Test>::get(subnet, later_epoch)
+                .unwrap()
+                .validator_subnet_node_id;
+            submit(subnet, next_proposer);
+            run_slot(subnet, later_epoch + 1);
+            assert_progressed(subnet, later_epoch);
+            assert_eq!(
+                ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
+                Some(false)
+            );
+        });
+    }
+}
+
+#[test]
+fn unfinished_round_does_not_block_subnet_removal() {
+    for owner_removal in [false, true] {
+        new_test_ext().execute_with(|| {
+            let (subnet, epoch, _) = fixture();
+            assert_eq!(
+                ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
+                Some(false)
+            );
+            if owner_removal {
+                let owner = SubnetOwner::<Test>::get(subnet).unwrap();
+                assert_ok!(Network::do_owner_deactivate_subnet(
+                    RuntimeOrigin::signed(owner),
+                    subnet
+                ));
+            } else {
+                assert_ok!(Network::do_collective_remove_subnet(subnet));
+            }
+            assert!(!SubnetsData::<Test>::contains_key(subnet));
+            assert!(!SubnetSlot::<Test>::contains_key(subnet));
+        });
     }
 }

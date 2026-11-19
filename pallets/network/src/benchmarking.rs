@@ -23,6 +23,7 @@
 use super::*;
 
 mod capacity;
+mod pending_operations;
 
 use crate::utilities::multiaddr::{encode_varint, DNS4, IP4, P2P, TCP};
 #[allow(unused)]
@@ -1932,7 +1933,7 @@ fn seed_validator_owned_nodes<T: Config>(
 /// Conservative election envelope: every accessed validator value is filled to its independent
 /// ownership bound, even though the global subnet capacity prevents all those maxima coexisting.
 /// The shared-identity variant additionally exercises node-count decay for the full candidate set.
-fn prepare_election_weight_fixture<T: Config>(x: u32, shared_identities: bool) -> (u32, u32, u32) {
+fn prepare_election_weight_fixture<T: Config>(x: u32, shared_identities: bool) -> (u32, u32) {
     MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
     build_activated_subnet::<T>(
         DEFAULT_SUBNET_NAME.into(),
@@ -2013,36 +2014,27 @@ fn prepare_election_weight_fixture<T: Config>(x: u32, shared_identities: bool) -
     (
         subnet_id,
         Network::<T>::get_current_subnet_epoch_as_u32(subnet_id),
-        get_current_block_as_u32::<T>(),
     )
 }
 
-fn verify_election_weight_fixture<T: Config>(subnet_id: u32, epoch: u32, block: u32, x: u32) {
+fn verify_election_weight_fixture<T: Config>(subnet_id: u32, epoch: u32, x: u32) {
     let round =
         SubnetElectedValidator::<T>::get(subnet_id, epoch).expect("benchmark election exists");
     let snapshot = SubnetConsensusAttestorWeights::<T>::get(subnet_id, epoch)
         .expect("election persists its complete weight snapshot");
     assert_eq!(snapshot.weights.len() as u32, x);
+    assert!(snapshot
+        .weights
+        .contains_key(&round.validator_subnet_node_id));
     assert!(snapshot.weights.values().all(|weight| *weight > 0));
     assert_eq!(
         snapshot.weights.values().copied().sum::<u128>(),
         snapshot.total_weight
     );
-    assert_eq!(
-        NodeStakePendingSlashLiabilityCount::<T>::get(subnet_id, round.validator_subnet_node_id),
-        1
-    );
-    assert_eq!(
-        NodeStakeSlashLockUntil::<T>::get(subnet_id, round.validator_subnet_node_id),
-        block.saturating_add(T::EpochLength::get())
-    );
+
     assert_eq!(
         ConsensusRoundSettlementStatus::<T>::get(subnet_id, epoch),
         Some(false)
-    );
-    assert_eq!(
-        PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id),
-        Some(epoch)
     );
 }
 
@@ -2872,19 +2864,8 @@ fn prepare_alternate_emission_step<T: Config>(
     );
 
     // Mirror the live election lifecycle so every alternate settlement benchmark measures the
-    // exact-once fence and both slash-liability release paths, not only a hand-built round.
+    // exact-once settlement fence and immutable allocation.
     ConsensusRoundSettlementStatus::<T>::insert(subnet_id, previous_subnet_epoch, false);
-    PendingConsensusRoundSettlementEpoch::<T>::insert(subnet_id, previous_subnet_epoch);
-    ConsensusRoundSettlementEmissionEpoch::<T>::insert(
-        subnet_id,
-        previous_subnet_epoch,
-        current_epoch,
-    );
-    PendingConsensusRoundSlashLiabilityNode::<T>::insert(subnet_id, validator_subnet_node_id);
-    NodeStakePendingSlashLiabilityCount::<T>::insert(subnet_id, validator_subnet_node_id, 1);
-    let nominal_unlock_block =
-        Network::<T>::get_current_block_as_u32().saturating_add(T::EpochLength::get());
-    NodeStakeSlashLockUntil::<T>::insert(subnet_id, validator_subnet_node_id, nominal_unlock_block);
 
     // A validator slot vector may have any insertion/removal order. Put the rejected attestors at
     // the tail so each of the bounded removal operations scans the largest reachable prefix while
@@ -3300,7 +3281,6 @@ mod benchmarks {
             result = Network::<T>::precheck_subnet_consensus_submission(
                 fixture.subnet_id,
                 fixture.epoch,
-                Network::<T>::get_current_epoch_as_u32(),
             )
             .0;
         }
@@ -3326,8 +3306,6 @@ mod benchmarks {
         {
             Network::<T>::emission_settlement_step(
                 &mut WeightMeter::new(),
-                get_current_block_as_u32::<T>(),
-                Network::<T>::get_current_epoch_as_u32(),
                 Network::<T>::get_current_subnet_epoch_as_u32(fixture.subnet_id),
                 fixture.subnet_id,
             );
@@ -3358,10 +3336,6 @@ mod benchmarks {
             .expect("the next election must persist weights inside the metered hook");
         let round = SubnetElectedValidator::<T>::get(fixture.subnet_id, epoch).unwrap();
         assert_eq!(snapshot.weights.len(), round.eligible_subnet_node_ids.len());
-        assert_eq!(
-            PendingConsensusRoundSettlementEpoch::<T>::get(fixture.subnet_id),
-            Some(epoch)
-        );
     }
 
     /// Accepted settlement with all three sequential reputation adjustments and real payouts.
@@ -3373,8 +3347,6 @@ mod benchmarks {
         {
             Network::<T>::emission_settlement_step(
                 &mut WeightMeter::new(),
-                get_current_block_as_u32::<T>(),
-                Network::<T>::get_current_epoch_as_u32(),
                 Network::<T>::get_current_subnet_epoch_as_u32(fixture.subnet_id),
                 fixture.subnet_id,
             );
@@ -3404,10 +3376,6 @@ mod benchmarks {
             .expect("the next election must persist weights inside the metered hook");
         let round = SubnetElectedValidator::<T>::get(fixture.subnet_id, epoch).unwrap();
         assert_eq!(snapshot.weights.len(), round.eligible_subnet_node_ids.len());
-        assert_eq!(
-            PendingConsensusRoundSettlementEpoch::<T>::get(fixture.subnet_id),
-            Some(epoch)
-        );
     }
 
     /// Research only: ordinary proposal with a full, maximum-metadata registration queue.
@@ -6018,7 +5986,7 @@ mod benchmarks {
         set_block_to_subnet_slot_epoch::<T>(epoch, subnet_id);
         let subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::<T>::elect_validator(subnet_id, subnet_epoch, get_current_block_as_u32::<T>());
+        Network::<T>::elect_validator(subnet_id, subnet_epoch);
 
         let subnet_node_id = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch as u32)
             .map(|round| round.validator_subnet_node_id);
@@ -6131,7 +6099,7 @@ mod benchmarks {
         set_block_to_subnet_slot_epoch::<T>(epoch, subnet_id);
         let subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::<T>::elect_validator(subnet_id, subnet_epoch, get_current_block_as_u32::<T>());
+        Network::<T>::elect_validator(subnet_id, subnet_epoch);
 
         let subnet_node_id = SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch as u32)
             .map(|round| round.validator_subnet_node_id);
@@ -7987,8 +7955,8 @@ mod benchmarks {
         }
     }
 
-    /// Cancellation never scans proposal/attestation rows, but must decode the largest elected
-    /// snapshot to release both stake liabilities and retain its allocation.
+    /// Cancellation retains the round allocation without scanning proposal/attestation rows
+    /// or decoding the election snapshot.
     #[benchmark]
     fn precheck_subnet_consensus_submission_cancelled() {
         let context = prepare_alternate_emission_step::<T>(
@@ -8002,7 +7970,6 @@ mod benchmarks {
             let (result, _) = Network::<T>::precheck_subnet_consensus_submission(
                 context.subnet_id,
                 context.previous_subnet_epoch,
-                context.current_epoch,
             );
             assert!(result.is_none());
         }
@@ -8015,9 +7982,7 @@ mod benchmarks {
             SubnetRewardCapacitor::<T>::get(context.subnet_id),
             2 * DEFAULT_SCORE
         );
-        assert!(!PendingConsensusRoundSettlementEpoch::<T>::contains_key(
-            context.subnet_id
-        ));
+
         assert_eq!(
             ConsensusRoundSettlementStatus::<T>::get(
                 context.subnet_id,
@@ -8039,8 +8004,6 @@ mod benchmarks {
         {
             Network::<T>::emission_settlement_step(
                 &mut WeightMeter::new(),
-                get_current_block_as_u32::<T>(),
-                context.current_epoch,
                 context.current_subnet_epoch,
                 context.subnet_id,
             );
@@ -8054,9 +8017,7 @@ mod benchmarks {
             SubnetRewardCapacitor::<T>::get(context.subnet_id),
             2 * DEFAULT_SCORE
         );
-        assert!(!PendingConsensusRoundSettlementEpoch::<T>::contains_key(
-            context.subnet_id
-        ));
+
         assert_eq!(
             ConsensusRoundSettlementStatus::<T>::get(
                 context.subnet_id,
@@ -9658,13 +9619,13 @@ mod benchmarks {
     fn elect_validator(
         x: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
     ) {
-        let (subnet_id, epoch, block) = prepare_election_weight_fixture::<T>(x, false);
+        let (subnet_id, epoch) = prepare_election_weight_fixture::<T>(x, false);
         #[block]
         {
             let _ = TotalSubnetElectableNodes::<T>::get(subnet_id);
-            Network::<T>::elect_validator(subnet_id, epoch, block);
+            Network::<T>::elect_validator(subnet_id, epoch);
         }
-        verify_election_weight_fixture::<T>(subnet_id, epoch, block, x);
+        verify_election_weight_fixture::<T>(subnet_id, epoch, x);
     }
 
     /// The production election envelope takes the componentwise maximum of both profiles.
@@ -9672,13 +9633,13 @@ mod benchmarks {
     fn elect_validator_multi_node(
         x: Linear<{ MIN_CONSENSUS_VALIDATOR_IDENTITIES }, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
     ) {
-        let (subnet_id, epoch, block) = prepare_election_weight_fixture::<T>(x, true);
+        let (subnet_id, epoch) = prepare_election_weight_fixture::<T>(x, true);
         #[block]
         {
             let _ = TotalSubnetElectableNodes::<T>::get(subnet_id);
-            Network::<T>::elect_validator(subnet_id, epoch, block);
+            Network::<T>::elect_validator(subnet_id, epoch);
         }
-        verify_election_weight_fixture::<T>(subnet_id, epoch, block, x);
+        verify_election_weight_fixture::<T>(subnet_id, epoch, x);
     }
 
     #[benchmark]
@@ -10235,6 +10196,379 @@ mod benchmarks {
     //         );
     //     }
     // }
+
+    #[benchmark]
+    fn pending_consensus_operation_read() {
+        let operation = pending_operations::node_reward::<T>();
+        assert_ok!(Network::<T>::enqueue_consensus_operation(7, operation));
+        #[block]
+        {
+            assert!(PendingConsensusOperations::<T>::get(0).is_some());
+        }
+    }
+
+    #[benchmark]
+    fn consensus_node_reward_snapshot() {
+        let expected = pending_operations::node_reward::<T>();
+        #[block]
+        {
+            assert_eq!(
+                Network::<T>::prepare_consensus_node_reward(7, 9, 81, 400),
+                expected
+            );
+        }
+    }
+
+    #[benchmark]
+    fn pending_node_slash_lock_read() {
+        pending_operations::slash_reservations::<T>();
+        #[block]
+        {
+            assert_eq!(
+                Network::<T>::pending_node_slash_locked_amount(7, 9),
+                u128::from(MaxPendingNodeSlashReservations::<T>::get())
+            );
+        }
+    }
+
+    #[benchmark]
+    fn pending_node_slash_reservation_update() {
+        let deadline = pending_operations::slash_reservations::<T>();
+        #[block]
+        {
+            assert_ok!(Network::<T>::reserve_pending_node_slash(7, 9, 1, deadline));
+        }
+        assert_eq!(
+            Network::<T>::pending_node_slash_locked_amount(7, 9),
+            u128::from(MaxPendingNodeSlashReservations::<T>::get()) + 1
+        );
+    }
+
+    #[benchmark]
+    fn pending_consensus_operation_slash_expired() {
+        let deadline = pending_operations::slash_reservations::<T>();
+        assert_ok!(Network::<T>::enqueue_consensus_operation(
+            7,
+            pending_operations::slash::<T>()
+        ));
+        frame_system::Pallet::<T>::set_block_number(deadline);
+        let stake = NodeSubnetStake::<T>::get(9, 7);
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(deadline, &mut WeightMeter::new());
+        }
+        assert!(!PendingConsensusOperationsQueue::<T>::exists());
+        assert_eq!(NodeSubnetStake::<T>::get(9, 7), stake);
+        assert_eq!(
+            PendingNodeSlashReservations::<T>::get(7, 9).len(),
+            MaxPendingNodeSlashReservations::<T>::get() as usize - 1
+        );
+    }
+
+    #[benchmark]
+    fn pending_consensus_operation_node_reward() {
+        let operation = pending_operations::node_reward::<T>();
+        let limit = pending_operations::queue_for_one_retry::<T>(operation.clone());
+
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::with_limit(limit),
+            );
+        }
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert!(PendingConsensusOperations::<T>::contains_key(1));
+        assert_eq!(NodeSubnetStake::<T>::get(9, 7), 100);
+    }
+
+    #[benchmark(extra)]
+    fn pending_consensus_operation_node_reward_retry() {
+        let operation = pending_operations::node_reward::<T>();
+        let limit = pending_operations::queue_for_one_retry::<T>(operation.clone());
+        TotalStake::<T>::put(u128::MAX);
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::with_limit(limit),
+            );
+        }
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert!(PendingConsensusOperations::<T>::contains_key(1));
+        assert_eq!(
+            PendingConsensusOperations::<T>::get(2).unwrap().operation,
+            operation
+        );
+    }
+
+    #[benchmark]
+    fn pending_consensus_operation_validator_reward() {
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        let operation = ConsensusOperation::ValidatorReward {
+            subnet_id: 7,
+            subnet_node_id: 9,
+            amount: 400,
+        };
+        let limit = pending_operations::queue_for_one_retry::<T>(operation.clone());
+
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::with_limit(limit),
+            );
+        }
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert!(PendingConsensusOperations::<T>::contains_key(1));
+        assert_eq!(NodeSubnetStake::<T>::get(9, 7), 400);
+    }
+
+    #[benchmark(extra)]
+    fn pending_consensus_operation_validator_reward_retry() {
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        let operation = ConsensusOperation::ValidatorReward {
+            subnet_id: 7,
+            subnet_node_id: 9,
+            amount: 400,
+        };
+        let limit = pending_operations::queue_for_one_retry::<T>(operation.clone());
+        TotalStake::<T>::put(u128::MAX);
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::with_limit(limit),
+            );
+        }
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert!(PendingConsensusOperations::<T>::contains_key(1));
+        assert_eq!(
+            PendingConsensusOperations::<T>::get(2).unwrap().operation,
+            operation
+        );
+    }
+
+    #[benchmark]
+    fn pending_consensus_operation_subnet_delegate_reward() {
+        let operation = pending_operations::subnet_reward::<T>();
+        let limit = pending_operations::queue_for_one_retry::<T>(operation.clone());
+
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::with_limit(limit),
+            );
+        }
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert!(PendingConsensusOperations::<T>::contains_key(1));
+        assert_eq!(TotalSubnetDelegateStakeBalance::<T>::get(7), 1_400);
+    }
+
+    #[benchmark(extra)]
+    fn pending_consensus_operation_subnet_delegate_reward_retry() {
+        let operation = pending_operations::subnet_reward::<T>();
+        let limit = pending_operations::queue_for_one_retry::<T>(operation.clone());
+        TotalDelegateStake::<T>::put(u128::MAX);
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::with_limit(limit),
+            );
+        }
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert!(PendingConsensusOperations::<T>::contains_key(1));
+        assert_eq!(
+            PendingConsensusOperations::<T>::get(2).unwrap().operation,
+            operation
+        );
+    }
+
+    #[benchmark]
+    fn pending_consensus_operation_node_slash() {
+        pending_operations::slash_reservations::<T>();
+        let operation = pending_operations::slash::<T>();
+        let limit = pending_operations::queue_for_one_retry::<T>(operation.clone());
+
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::with_limit(limit),
+            );
+        }
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert!(PendingConsensusOperations::<T>::contains_key(1));
+        assert_eq!(
+            NodeSubnetStake::<T>::get(9, 7),
+            u128::from(MaxPendingNodeSlashReservations::<T>::get()) + 999
+        );
+    }
+
+    #[benchmark(extra)]
+    fn pending_consensus_operation_node_slash_retry() {
+        pending_operations::slash_reservations::<T>();
+        let operation = pending_operations::slash::<T>();
+        let limit = pending_operations::queue_for_one_retry::<T>(operation.clone());
+        TotalStake::<T>::put(0);
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::with_limit(limit),
+            );
+        }
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert!(PendingConsensusOperations::<T>::contains_key(1));
+        assert_eq!(
+            PendingConsensusOperations::<T>::get(2).unwrap().operation,
+            operation
+        );
+    }
+
+    #[benchmark]
+    fn pending_consensus_operation_enqueue() {
+        let operation = pending_operations::node_reward::<T>();
+        assert_ok!(Network::<T>::enqueue_consensus_operation(
+            7,
+            operation.clone()
+        ));
+        #[block]
+        {
+            assert_ok!(Network::<T>::enqueue_consensus_operation(
+                7,
+                operation.clone()
+            ));
+        }
+        assert_eq!(PendingConsensusOperationsQueue::<T>::get().tail, 2);
+        assert_eq!(
+            PendingConsensusOperations::<T>::get(1).unwrap().operation,
+            operation
+        );
+    }
+
+    #[benchmark]
+    fn pending_consensus_operations_empty() {
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::new(),
+            );
+        }
+        assert!(!PendingConsensusOperationsQueue::<T>::exists());
+    }
+
+    #[benchmark]
+    fn pending_consensus_operation_paid() {
+        let recipient = get_account::<T>("pending-owner", 0);
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        let initial = T::Currency::minimum_balance();
+        drop(T::Currency::deposit_creating(&recipient, initial));
+        assert_ok!(Network::<T>::enqueue_consensus_operation(
+            1,
+            ConsensusOperation::OwnerReward {
+                recipient: recipient.clone(),
+                amount: 1
+            }
+        ));
+
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::new(),
+            );
+        }
+        assert_eq!(T::Currency::free_balance(&recipient), initial + 1u32.into());
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert!(!PendingConsensusOperationsQueue::<T>::exists());
+    }
+
+    #[benchmark]
+    fn pending_consensus_operation_retry() {
+        let recipient = get_account::<T>("pending-owner", 0);
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        assert!(T::Currency::minimum_balance() > 1u32.into());
+        assert_ok!(Network::<T>::enqueue_consensus_operation(
+            1,
+            ConsensusOperation::OwnerReward {
+                recipient: recipient.clone(),
+                amount: 1
+            }
+        ));
+        let original = PendingConsensusOperations::<T>::get(0).unwrap();
+
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::new(),
+            );
+        }
+        assert_eq!(T::Currency::free_balance(&recipient), 0u32.into());
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert_eq!(PendingConsensusOperations::<T>::get(1).unwrap(), original);
+    }
+
+    /// A recovered issuance failure can pay an owner whose account still needs creation.
+    /// Keep another FIFO entry so this also measures updating a nonempty queue.
+    #[benchmark(extra)]
+    fn pending_consensus_operation_paid_new_account() {
+        let recipient = get_account::<T>("pending-owner", 0);
+        frame_system::Pallet::<T>::set_block_number(1u32.into());
+        let amount = T::Currency::minimum_balance().saturated_into::<u128>();
+        assert_ok!(Network::<T>::enqueue_consensus_operation(
+            1,
+            ConsensusOperation::OwnerReward {
+                recipient: recipient.clone(),
+                amount
+            }
+        ));
+        assert_ok!(Network::<T>::enqueue_consensus_operation(
+            2,
+            ConsensusOperation::OwnerReward {
+                recipient: get_account::<T>("pending-owner", 1),
+                amount: 1
+            }
+        ));
+        let limit = T::WeightInfo::pending_consensus_operations_empty()
+            .saturating_add(T::WeightInfo::pending_consensus_operation_read())
+            .saturating_add(Network::<T>::pending_consensus_operation_step_weight(
+                &PendingConsensusOperations::<T>::get(0).unwrap().operation,
+            ));
+
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(
+                frame_system::Pallet::<T>::block_number(),
+                &mut WeightMeter::with_limit(limit),
+            );
+        }
+        assert_eq!(
+            T::Currency::free_balance(&recipient),
+            T::Currency::minimum_balance()
+        );
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert_eq!(PendingConsensusOperationsQueue::<T>::get().head, 1);
+        assert!(PendingConsensusOperations::<T>::contains_key(1));
+    }
+
+    #[benchmark]
+    fn pending_consensus_operation_expired() {
+        let operation = pending_operations::node_reward::<T>();
+        assert_ok!(Network::<T>::enqueue_consensus_operation(7, operation));
+        let expires_at = PendingConsensusOperations::<T>::get(0).unwrap().expires_at;
+        frame_system::Pallet::<T>::set_block_number(expires_at);
+        #[block]
+        {
+            Network::<T>::retry_pending_consensus_operations(expires_at, &mut WeightMeter::new());
+        }
+        assert!(!PendingConsensusOperations::<T>::contains_key(0));
+        assert!(!PendingConsensusOperationsQueue::<T>::exists());
+    }
 
     #[benchmark]
     fn add_balance_to_coldkey_account() {
@@ -11266,11 +11600,7 @@ mod benchmarks {
         // Set to correct block to elect a validator
         set_block_to_subnet_slot_epoch::<T>(Network::<T>::get_current_epoch_as_u32(), subnet_id);
         let subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::<T>::elect_validator(
-            subnet_id,
-            subnet_epoch,
-            Network::<T>::get_current_block_as_u32(),
-        );
+        Network::<T>::elect_validator(subnet_id, subnet_epoch);
         // Run consensus, submit proposal, attest
         run_subnet_consensus_step::<T>(subnet_id, None, None);
 
@@ -11349,8 +11679,6 @@ mod benchmarks {
         {
             let _ = Network::<T>::emission_step(
                 &mut WeightMeter::new(),
-                Network::<T>::get_current_block_as_u32(),
-                Network::<T>::get_current_epoch_as_u32(),
                 Network::<T>::get_current_subnet_epoch_as_u32(subnet_id),
                 subnet_id,
             );
@@ -11599,8 +11927,6 @@ mod benchmarks {
         {
             Network::<T>::emission_settlement_step(
                 &mut WeightMeter::new(),
-                Network::<T>::get_current_block_as_u32(),
-                context.current_epoch,
                 context.current_subnet_epoch,
                 context.subnet_id,
             );
@@ -11658,8 +11984,6 @@ mod benchmarks {
         {
             Network::<T>::emission_settlement_step(
                 &mut WeightMeter::new(),
-                Network::<T>::get_current_block_as_u32(),
-                context.current_epoch,
                 context.current_subnet_epoch,
                 context.subnet_id,
             );
@@ -11800,11 +12124,8 @@ mod benchmarks {
 
         #[block]
         {
-            let (result, weight) = Network::<T>::precheck_subnet_consensus_submission(
-                subnet_id,
-                subnet_epoch - 1,
-                current_epoch,
-            );
+            let (result, weight) =
+                Network::<T>::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
             assert_eq!(
                 result.expect("Precheck consensus failed").attestation_ratio,
@@ -11877,21 +12198,7 @@ mod benchmarks {
         assert_eq!(stored_round.eligible_validator_identity_ids.len() as u32, x);
         assert!(stored_round.policy.base_slash_percentage > 0);
         ConsensusRoundSettlementStatus::<T>::insert(subnet_id, previous_subnet_epoch, false);
-        PendingConsensusRoundSettlementEpoch::<T>::insert(subnet_id, previous_subnet_epoch);
-        ConsensusRoundSettlementEmissionEpoch::<T>::insert(
-            subnet_id,
-            previous_subnet_epoch,
-            current_epoch,
-        );
-        PendingConsensusRoundSlashLiabilityNode::<T>::insert(subnet_id, validator_subnet_node_id);
-        NodeStakePendingSlashLiabilityCount::<T>::insert(subnet_id, validator_subnet_node_id, 1);
-        let nominal_unlock_block =
-            Network::<T>::get_current_block_as_u32().saturating_add(T::EpochLength::get());
-        NodeStakeSlashLockUntil::<T>::insert(
-            subnet_id,
-            validator_subnet_node_id,
-            nominal_unlock_block,
-        );
+
         SubnetConsensusSubmission::<T>::remove(subnet_id, previous_subnet_epoch);
         let mut subnet_weights = BTreeMap::from([(subnet_id, percentage_factor)]);
         for index in 0..T::MaxPhysicalSubnetsUpperBound::get().saturating_sub(1) {
@@ -11911,7 +12218,6 @@ mod benchmarks {
             let (result, _) = Network::<T>::precheck_subnet_consensus_submission(
                 subnet_id,
                 previous_subnet_epoch,
-                current_epoch,
             );
             assert!(result.is_none());
         }
@@ -11923,10 +12229,6 @@ mod benchmarks {
         assert_eq!(
             ConsensusRoundSettlementStatus::<T>::get(subnet_id, previous_subnet_epoch),
             Some(true),
-        );
-        assert_eq!(
-            NodeStakePendingSlashLiabilityCount::<T>::get(subnet_id, validator_subnet_node_id,),
-            0,
         );
     }
 

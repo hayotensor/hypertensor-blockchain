@@ -157,7 +157,7 @@ fn build_elected_subnet_for_consensus_with_candidate_setup(
             .unwrap();
     let expected_proposer = candidates[index as usize];
     configure_before_election(subnet_id, expected_proposer);
-    Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+    Network::elect_validator(subnet_id, subnet_epoch);
 
     let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch).unwrap();
     assert_eq!(elected_node_id, expected_proposer);
@@ -380,11 +380,7 @@ fn propose_and_precheck_identity_gate_round_with_setup(
     attest_subnet_nodes(subnet_id, additional_attestors);
     configure_after_attestation();
 
-    let (submission, _) = Network::precheck_subnet_consensus_submission(
-        subnet_id,
-        subnet_epoch,
-        Network::get_current_epoch_as_u32(),
-    );
+    let (submission, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
     submission.expect("submitted identity-gate round must precheck")
 }
 
@@ -577,7 +573,7 @@ fn test_propose_attestation() {
         let blockchain_epoch = Network::get_current_epoch_as_u32();
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let subnet_node_data_vec = get_subnet_node_consensus_data(
             subnet_id_key_offset,
@@ -901,11 +897,7 @@ fn test_proposal_summaries_survive_votes_and_live_mutations() {
             None
         ));
         let original = SubnetConsensusSubmission::<Test>::get(subnet, epoch).unwrap();
-        let (initial, _) = Network::precheck_subnet_consensus_submission(
-            subnet,
-            epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (initial, _) = Network::precheck_subnet_consensus_submission(subnet, epoch);
         assert_eq!(initial.unwrap().identity_attestation_count, 1);
         let others: Vec<_> = (1..=n).filter(|id| *id != proposer).collect();
         let rotated = others[0];
@@ -970,11 +962,7 @@ fn test_proposal_summaries_survive_votes_and_live_mutations() {
             stored, expected,
             "only votes may change in the proposal record"
         );
-        let (processed, _) = Network::precheck_subnet_consensus_submission(
-            subnet,
-            epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (processed, _) = Network::precheck_subnet_consensus_submission(subnet, epoch);
         let processed = processed.unwrap();
         assert_eq!(processed.data, original.data);
         assert_eq!(processed.weight_sum, original.weight_sum);
@@ -1091,11 +1079,7 @@ fn test_proposal_summaries_cover_empty_zero_filtered_and_max_scores() {
             assert_eq!(stored.eligible_validator_identity_count, 4);
             assert_eq!(stored.data.len(), expected_len);
             assert_unique_sorted_consensus_data(&stored.data);
-            let (processed, _) = Network::precheck_subnet_consensus_submission(
-                subnet,
-                epoch,
-                Network::get_current_epoch_as_u32(),
-            );
+            let (processed, _) = Network::precheck_subnet_consensus_submission(subnet, epoch);
             let processed = processed.unwrap();
             assert_eq!(processed.data, stored.data);
             assert_eq!(processed.weight_sum, expected_sum);
@@ -1131,11 +1115,7 @@ fn test_precheck_missing_weight_snapshot_returns_none() {
         SubnetConsensusSubmission::<Test>::insert(subnet_id, subnet_epoch, corrupted_submission);
         SubnetConsensusAttestorWeights::<Test>::remove(subnet_id, subnet_epoch);
 
-        let (result, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         assert!(result.is_none());
     });
 }
@@ -1659,11 +1639,7 @@ fn test_precheck_uses_node_count_decayed_snapshot_weights_for_attestation_ratio(
         )
         .clamp(0, Network::percentage_factor_as_u128());
 
-        let (result, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let result = result.unwrap();
 
         assert_eq!(result.attestation_ratio, expected_ratio);
@@ -1701,11 +1677,7 @@ fn test_proposer_weight_counts_from_automatic_attestation() {
         let expected_ratio =
             Network::percent_div(snapshot.weights[&elected_node_id], snapshot.total_weight)
                 .clamp(0, Network::percentage_factor_as_u128());
-        let (result, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let result = result.unwrap();
 
         assert_eq!(result.attests.len(), 1);
@@ -1844,11 +1816,7 @@ fn test_precheck_rejects_duplicate_proposal_validator_ids() {
             .extend([elected_node_id, elected_node_id, second_attestor]);
         SubnetConsensusSubmission::<Test>::insert(subnet_id, subnet_epoch, submission);
 
-        let (result, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         assert!(result.is_none());
     });
 }
@@ -1886,11 +1854,8 @@ fn test_strong_rejection_deduplicates_identity_but_penalizes_each_attesting_node
         ));
         attest_subnet_nodes(subnet_id, &[sibling_node_id]);
 
-        let (submission, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (submission, _) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let mut submission = submission.unwrap();
         assert_eq!(submission.attests.len(), 2);
         assert_eq!(submission.eligible_validator_identity_count, 4);
@@ -2040,7 +2005,6 @@ fn test_distribute_rewards_fails_when_stake_passes_but_node_count_fails() {
             .find(|subnet_node_id| *subnet_node_id != elected_node_id)
             .unwrap();
 
-
         assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(hotkey.clone()),
             subnet_id,
@@ -2051,11 +2015,7 @@ fn test_distribute_rewards_fails_when_stake_passes_but_node_count_fails() {
             None,
         ));
         attest_subnet_nodes(subnet_id, &[second_attestor]);
-        let (result, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let consensus_submission_data = result.unwrap();
         assert!(
             consensus_submission_data.identity_attestation_ratio
@@ -2141,11 +2101,7 @@ fn test_distribute_rewards_passes_when_stake_and_node_count_quorums_pass() {
         ));
         attest_subnet_nodes(subnet_id, &additional_attestors);
 
-        let (result, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let consensus_submission_data = result.unwrap();
 
         assert!(
@@ -2223,11 +2179,7 @@ fn test_distribute_rewards_skips_settlement_below_minimum_validator_set_size() {
 
         attest_subnet_nodes(subnet_id, &additional_attestors);
 
-        let (result, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let consensus_submission_data = result.unwrap();
 
         assert_eq!(
@@ -2296,11 +2248,7 @@ fn test_distribute_rewards_fails_when_node_count_passes_but_stake_fails() {
         ));
         attest_subnet_nodes(subnet_id, &additional_attestors);
 
-        let (result, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let consensus_submission_data = result.unwrap();
 
         assert!(
@@ -2393,11 +2341,7 @@ fn test_precheck_fails_threshold_for_high_count_low_delegate_weight() {
             .collect::<Vec<_>>();
         attest_subnet_nodes(subnet_id, &low_weight_attestors);
 
-        let (result, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let result = result.unwrap();
 
         assert_eq!(result.attests.len(), 3);
@@ -2458,11 +2402,7 @@ fn test_precheck_uses_election_time_attestor_weight_snapshot() {
             }
         }
 
-        let (result, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let result = result.unwrap();
 
         assert_eq!(result.attestation_ratio, expected_ratio);
@@ -2570,11 +2510,8 @@ fn test_post_election_delegation_cannot_change_round_quorum() {
                 SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch).unwrap(),
                 proposal_weights
             );
-            let (submission, _) = Network::precheck_subnet_consensus_submission(
-                subnet_id,
-                subnet_epoch,
-                Network::get_current_epoch_as_u32(),
-            );
+            let (submission, _) =
+                Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
             let submission = submission.unwrap();
             assert_eq!(submission.attestation_ratio, test_percent(3, 4));
             assert!(submission.attestation_ratio >= submission.policy.min_attestation_percentage);
@@ -2601,7 +2538,7 @@ fn test_post_election_delegation_cannot_change_round_quorum() {
             assert!(ValidatorDelegateStakeBalance::<Test>::get(round.validator_id) >= stake);
 
             set_block_to_subnet_slot_epoch(subnet_epoch + 1, subnet_id);
-            Network::elect_validator(subnet_id, subnet_epoch + 1, System::block_number());
+            Network::elect_validator(subnet_id, subnet_epoch + 1);
             let next =
                 SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch + 1).unwrap();
             assert_eq!(next.weights[&delegate_target_node], 13 * stake);
@@ -2713,11 +2650,8 @@ fn test_post_election_withdrawal_allocation_and_node_count_apply_to_next_round()
             None
         ));
         attest_subnet_nodes(subnet_id, &[1, 2, 3, 4]);
-        let (submission, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (submission, _) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let submission = submission.unwrap();
         assert_eq!(submission.attestation_ratio, stake);
         Network::distribute_rewards(
@@ -2734,7 +2668,7 @@ fn test_post_election_withdrawal_allocation_and_node_count_apply_to_next_round()
             &round.policy,
             &round.eligible_validator_identity_ids,
         );
-        Network::elect_validator(subnet_id, subnet_epoch + 1, System::block_number());
+        Network::elect_validator(subnet_id, subnet_epoch + 1);
         let next =
             SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch + 1).unwrap();
         assert_eq!(next, next_expected);
@@ -2748,7 +2682,7 @@ fn test_post_election_withdrawal_allocation_and_node_count_apply_to_next_round()
 }
 
 #[test]
-fn test_election_without_candidates_leaves_no_partial_round_or_liabilities() {
+fn test_election_without_candidates_leaves_no_partial_round() {
     for failure in ["empty", "all-quarantined"] {
         new_test_ext().execute_with(|| {
             increase_epochs(50);
@@ -2777,7 +2711,7 @@ fn test_election_without_candidates_leaves_no_partial_round_or_liabilities() {
                 _ => unreachable!(),
             }
             let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
-            Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+            Network::elect_validator(subnet_id, subnet_epoch);
             assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
             assert!(SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).is_none());
             assert!(SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch).is_none());
@@ -2785,7 +2719,6 @@ fn test_election_without_candidates_leaves_no_partial_round_or_liabilities() {
                 crate::ConsensusRoundSettlementStatus::<Test>::get(subnet_id, subnet_epoch)
                     .is_none()
             );
-            assert!(crate::PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id).is_none());
         });
     }
 }
@@ -2854,7 +2787,7 @@ fn test_election_zero_weight_snapshot_is_valid_and_repeat_election_is_immutable(
         assert_eq!(snapshot.total_weight, 0);
         set_equal_validator_delegate_weights_before_election(subnet_id, 4);
         let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+        Network::elect_validator(subnet_id, subnet_epoch);
         assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
         assert_ok!(Network::propose_attestation(
             RuntimeOrigin::signed(hotkey),
@@ -2866,11 +2799,8 @@ fn test_election_zero_weight_snapshot_is_valid_and_repeat_election_is_immutable(
             None
         ));
         attest_subnet_nodes(subnet_id, &[1, 2, 3, 4]);
-        let (submission, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (submission, _) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         assert_eq!(submission.unwrap().attestation_ratio, 0);
         assert_eq!(
             SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch).unwrap(),
@@ -2914,7 +2844,7 @@ fn test_validator_absent_propose_attestation_decrease_reputation() {
         let blockchain_epoch = Network::get_current_epoch_as_u32();
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -2947,11 +2877,8 @@ fn test_validator_absent_propose_attestation_decrease_reputation() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(starting_subnet_rep > SubnetReputation::<Test>::get(subnet_id));
         assert!(
@@ -2993,7 +2920,7 @@ fn test_validator_absent_propose_attestation_decrease_reputation() {
 // //         let blockchain_epoch = Network::get_current_epoch_as_u32();
 // //         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-// //         Network::elect_validator(subnet_id, subnet_epoch, block_number);
+// //         Network::elect_validator(subnet_id, subnet_epoch);
 
 // //         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
 // //         assert!(elected_node_id != None, "Validator is None");
@@ -3098,7 +3025,7 @@ fn test_propose_attestation_after_slot_error() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
@@ -3150,7 +3077,7 @@ fn test_propose_attestation_score_overflow_error() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let subnet_node_data_vec = get_subnet_node_consensus_data_with_custom_score(
             subnets,
@@ -3206,7 +3133,7 @@ fn test_propose_attestation_invalid_validator() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
@@ -3264,7 +3191,7 @@ fn test_attest() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
@@ -3499,7 +3426,7 @@ fn test_attest_invalid_hotkey_subnet_node_id() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
@@ -3571,7 +3498,7 @@ fn test_attest_invalid_subnet_node_classification() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        // Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        // Network::elect_validator(subnet_id, subnet_epoch);
 
         insert_elected_subnet_node(subnet_id, subnet_epoch, 1);
 
@@ -3766,7 +3693,7 @@ fn test_attest_last_block_error() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
@@ -3840,7 +3767,7 @@ fn test_attest_no_submission_err() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
@@ -3891,7 +3818,7 @@ fn test_attest_already_attested_err() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let subnet_node_data_vec =
             get_subnet_node_consensus_data(subnets, max_subnet_nodes, 0, total_subnet_nodes);
@@ -4005,7 +3932,7 @@ fn test_distribute_rewards() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -4052,11 +3979,8 @@ fn test_distribute_rewards() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -4223,7 +4147,7 @@ fn test_distribute_rewards_node_gets_reward_after_removal() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -4270,11 +4194,8 @@ fn test_distribute_rewards_node_gets_reward_after_removal() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -4492,7 +4413,7 @@ fn test_distribute_rewards_delegate_account_50_percent() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -4539,11 +4460,8 @@ fn test_distribute_rewards_delegate_account_50_percent() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -4716,7 +4634,7 @@ fn test_distribute_rewards_fork() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -4763,11 +4681,8 @@ fn test_distribute_rewards_fork() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -4935,7 +4850,7 @@ fn test_distribute_rewards_prioritized_queue_node_id() {
 
         set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         run_subnet_consensus_step_v2(subnet_id, Some(last.id), None);
 
@@ -4969,8 +4884,6 @@ fn test_distribute_rewards_prioritized_queue_node_id() {
         // Emissions
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );
@@ -5020,7 +4933,7 @@ fn test_distribute_rewards_prioritized_queue_node_id_v2() {
 
         set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         run_subnet_consensus_step_v2(subnet_id, Some(last.id), None);
 
@@ -5057,8 +4970,6 @@ fn test_distribute_rewards_prioritized_queue_node_id_v2() {
         // Emissions
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );
@@ -5121,7 +5032,7 @@ fn test_distribute_rewards_remove_queue_node_id() {
         let exists = queue.iter().any(|node| node.id == last.id);
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         run_subnet_consensus_step_v2(subnet_id, None, Some(first.id));
 
@@ -5149,8 +5060,6 @@ fn test_distribute_rewards_remove_queue_node_id() {
         // Emissions
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );
@@ -5219,7 +5128,7 @@ fn test_distribute_rewards_remove_queue_node_id_v2() {
         let exists = queue.iter().any(|node| node.id == last.id);
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         run_subnet_consensus_step_v2(subnet_id, None, Some(first.id));
 
@@ -5247,8 +5156,6 @@ fn test_distribute_rewards_remove_queue_node_id_v2() {
         // Emissions
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );
@@ -5317,7 +5224,7 @@ fn test_distribute_rewards_non_consensus_reputation() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -5357,11 +5264,7 @@ fn test_distribute_rewards_non_consensus_reputation() {
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         let epoch = Network::get_current_epoch_as_u32();
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -5750,11 +5653,8 @@ fn test_strong_rejection_applies_proposer_attestor_decrease_before_removal() {
             None,
         ));
 
-        let (submission, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (submission, _) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let mut submission = submission.unwrap();
         assert_eq!(submission.attests.len(), 1);
         assert!(submission.attests.contains_key(&proposer_node_id));
@@ -5864,7 +5764,7 @@ fn test_distribute_rewards_absent_consensus_reputation() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -5910,11 +5810,8 @@ fn test_distribute_rewards_absent_consensus_reputation() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -5990,7 +5887,7 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -6036,11 +5933,8 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -6091,7 +5985,7 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -6137,11 +6031,8 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -6221,7 +6112,7 @@ fn test_distribute_rewards_below_min_weight_reputation() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -6275,11 +6166,8 @@ fn test_distribute_rewards_below_min_weight_reputation() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -6344,7 +6232,6 @@ fn test_proposal_derived_reputation_requires_identity_supermajority_despite_stak
                     MinSubnetNodeReputation::<Test>::insert(subnet_id, test_percent(1, 4));
                 },
             );
-
 
         let targets = (1..=node_count)
             .filter(|subnet_node_id| *subnet_node_id != proposer_node_id)
@@ -6751,11 +6638,8 @@ fn test_non_attestor_reward_uses_snapshotted_timing_floor() {
                 ));
                 System::set_block_number(System::block_number() + EpochLength::get() * 9 / 10);
                 attest_subnet_nodes(subnet_id, &additional_attestors);
-                let (submission, _) = Network::precheck_subnet_consensus_submission(
-                    subnet_id,
-                    subnet_epoch,
-                    Network::get_current_epoch_as_u32(),
-                );
+                let (submission, _) =
+                    Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
                 let submission = submission.unwrap();
                 assert_eq!(submission.policy.attestor_min_reward_factor, minimum);
                 assert_eq!(submission.eligible_validator_identity_count, 8);
@@ -7262,11 +7146,8 @@ fn test_rejected_and_missing_rounds_do_not_apply_non_attestor_decrease() {
             max_reputation,
         );
 
-        let (missing_submission, _) = Network::precheck_subnet_consensus_submission(
-            missing_subnet_id,
-            missing_subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (missing_submission, _) =
+            Network::precheck_subnet_consensus_submission(missing_subnet_id, missing_subnet_epoch);
         assert!(missing_submission.is_none());
         assert_eq!(
             SubnetNodeReputation::<Test>::get(missing_subnet_id, missing_non_attestor),
@@ -7313,7 +7194,7 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -7359,11 +7240,8 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -7482,7 +7360,7 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation_remove_node() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -7528,11 +7406,8 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation_remove_node() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -7672,7 +7547,7 @@ fn test_missing_proposal_uses_zero_support_slashes_and_one_absence_penalty() {
 
         let election_block = System::block_number();
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch, election_block);
+        Network::elect_validator(subnet_id, subnet_epoch);
         let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
         let elected_node_id = round.validator_subnet_node_id;
         let validator_id = SubnetNodeValidatorId::<Test>::get(subnet_id, elected_node_id).unwrap();
@@ -7696,11 +7571,8 @@ fn test_missing_proposal_uses_zero_support_slashes_and_one_absence_penalty() {
             None,
         );
 
-        let (submission, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (submission, _) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         assert!(submission.is_none());
 
         let ending_node_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
@@ -7789,7 +7661,7 @@ fn test_distribute_rewards_under_min_attest_slash_subnet_node() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -7825,11 +7697,8 @@ fn test_distribute_rewards_under_min_attest_slash_subnet_node() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -7966,7 +7835,7 @@ fn test_distribute_rewards_fork_under_min_attest_slash_subnet_node() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -8002,11 +7871,8 @@ fn test_distribute_rewards_fork_under_min_attest_slash_subnet_node() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -8135,7 +8001,7 @@ fn test_distribute_rewards_fork_remove_node_at_min_reputation() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -8195,11 +8061,8 @@ fn test_distribute_rewards_fork_remove_node_at_min_reputation() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -8268,7 +8131,7 @@ fn test_distribute_rewards_fork_no_score_submitted_decrease_reputation() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -8315,11 +8178,8 @@ fn test_distribute_rewards_fork_no_score_submitted_decrease_reputation() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -8406,7 +8266,7 @@ fn test_distribute_rewards_late_validator_and_attestors() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -8456,11 +8316,8 @@ fn test_distribute_rewards_late_validator_and_attestors() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -8597,7 +8454,7 @@ fn test_distribute_rewards_fork_late_validator_and_attestors() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -8647,11 +8504,8 @@ fn test_distribute_rewards_fork_late_validator_and_attestors() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -8789,7 +8643,7 @@ fn test_attest_increase_reputation_when_included() {
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -8840,11 +8694,8 @@ fn test_attest_increase_reputation_when_included() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -8957,7 +8808,7 @@ fn test_distribute_rewards_node_delegate_stake() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -9006,11 +8857,8 @@ fn test_distribute_rewards_node_delegate_stake() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -9123,7 +8971,7 @@ fn test_distribute_rewards_fork_node_delegate_stake() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -9172,11 +9020,8 @@ fn test_distribute_rewards_fork_node_delegate_stake() {
         let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
         assert!(subnet_weight.is_some());
 
-        let (result, block_weight) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch - 1,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, block_weight) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch - 1);
 
         assert!(result.is_some(), "Precheck consensus failed");
 
@@ -9386,7 +9231,7 @@ fn test_propose_attestation_epoch_progression_0() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -9482,7 +9327,7 @@ fn test_propose_attestation_epoch_progression_50() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -9580,7 +9425,7 @@ fn test_propose_attestation_epoch_progression_99() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -9681,7 +9526,7 @@ fn test_propose_attestation_epoch_progression_100() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let elected_node_id = get_elected_subnet_node_id(subnet_id, subnet_epoch);
         assert!(elected_node_id != None, "Validator is None");
@@ -9814,11 +9659,11 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
         let owner_balance_before = Balances::free_balance(&owner);
         let delegate_stake_before = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
 
-        for _ in 0..2 {
+        for settlement_epoch in 1..=2 {
             Network::distribute_rewards(
                 &mut WeightMeter::new(),
                 subnet_id,
-                Network::get_current_subnet_epoch_as_u32(subnet_id),
+                settlement_epoch,
                 zero_score_submission.clone(),
                 fresh_rewards.clone(),
             );
@@ -9890,7 +9735,7 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
         Network::distribute_rewards(
             &mut WeightMeter::new(),
             subnet_id,
-            Network::get_current_subnet_epoch_as_u32(subnet_id),
+            3,
             nonzero_score_submission,
             next_rewards.clone(),
         );
@@ -10006,10 +9851,7 @@ fn test_validator_delegate_rewards_require_circulating_shares() {
 
 #[test]
 fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
-    use crate::{
-        NodeStakePendingSlashLiabilityCount, PendingConsensusRoundSettlementEpoch,
-        SubnetBalanceTime, SubnetBalanceTimes,
-    };
+    use crate::{SubnetBalanceTime, SubnetBalanceTimes};
     use sp_core::U256;
 
     for future_timestamp in [false, true] {
@@ -10038,14 +9880,6 @@ fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
             );
             assert!(rewards.delegate_stake_rewards > 0);
             assert!(TotalSubnetDelegateStakeCirculatingShares::<Test>::get(subnet_id) > 0);
-            assert_eq!(
-                PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
-                Some(subnet_epoch)
-            );
-            assert_eq!(
-                NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer),
-                1
-            );
 
             System::set_block_number(System::block_number() + EpochLength::get());
             let block = System::block_number();
@@ -10077,11 +9911,7 @@ fn accepted_settlement_invalid_balance_time_recovers_and_finalizes_once() {
             );
 
             assert!(Network::is_consensus_round_settled(subnet_id, subnet_epoch));
-            assert!(PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id).is_none());
-            assert_eq!(
-                NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer),
-                0
-            );
+
             assert_eq!(
                 SubnetBalanceTimes::<Test>::get(subnet_id),
                 Some(SubnetBalanceTime {
@@ -10147,11 +9977,6 @@ fn accepted_settlement_missing_balance_time_recovers_and_finalizes_once() {
         let proposer_stake_before = NodeSubnetStake::<Test>::get(proposer, subnet_id);
         let pool_before = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
         let total_before = TotalDelegateStake::<Test>::get();
-        assert_eq!(
-            crate::PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
-            Some(subnet_epoch)
-        );
-        assert!(crate::NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer) > 0);
 
         distribute_identity_gate_round_with_rewards(
             subnet_id,
@@ -10160,11 +9985,7 @@ fn accepted_settlement_missing_balance_time_recovers_and_finalizes_once() {
             rewards.clone(),
         );
         assert!(Network::is_consensus_round_settled(subnet_id, subnet_epoch));
-        assert!(crate::PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id).is_none());
-        assert_eq!(
-            crate::NodeStakePendingSlashLiabilityCount::<Test>::get(subnet_id, proposer),
-            0
-        );
+
         assert_eq!(
             Balances::free_balance(&owner),
             owner_before + rewards.subnet_owner_reward
@@ -10192,15 +10013,11 @@ fn accepted_settlement_missing_balance_time_recovers_and_finalizes_once() {
             rewards,
         ));
 
-        Network::elect_validator(subnet_id, subnet_epoch + 1, block);
+        Network::elect_validator(subnet_id, subnet_epoch + 1);
         assert!(SubnetElectedValidator::<Test>::contains_key(
             subnet_id,
             subnet_epoch + 1
         ));
-        assert_eq!(
-            crate::PendingConsensusRoundSettlementEpoch::<Test>::get(subnet_id),
-            Some(subnet_epoch + 1)
-        );
     });
 }
 
@@ -10566,11 +10383,7 @@ fn test_failed_owner_credit_does_not_abort_settled_round_payouts() {
         ));
         attest_subnet_nodes(subnet_id, &attestors);
 
-        let (result, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (result, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let consensus_submission_data = result.unwrap();
 
         // The owner coldkey does not exist and its share is below the existential deposit, so
@@ -10594,16 +10407,32 @@ fn test_failed_owner_credit_does_not_abort_settled_round_payouts() {
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch.saturating_add(1),
-            consensus_submission_data,
-            rewards_data,
+            consensus_submission_data.clone(),
+            rewards_data.clone(),
         );
 
         assert_eq!(Balances::free_balance(&reaped_owner), 0);
-        // The undeliverable owner share is retained for a later round, not lost.
+        // The owner keeps a separate payable; future rounds cannot redistribute it.
         assert_eq!(
             crate::SubnetRewardCapacitor::<Test>::get(subnet_id),
-            capacitor_before + owner_reward
+            capacitor_before
         );
+        frame_support::assert_storage_noop!(Network::distribute_rewards(
+            &mut WeightMeter::new(),
+            subnet_id,
+            subnet_epoch + 1,
+            consensus_submission_data,
+            rewards_data,
+        ));
+        let pending = crate::PendingConsensusOperations::<Test>::get(0).unwrap();
+        assert_eq!(
+            pending.operation,
+            crate::ConsensusOperation::OwnerReward {
+                recipient: reaped_owner,
+                amount: owner_reward,
+            }
+        );
+        assert_eq!(pending.expires_at, System::block_number() + 100_800);
         // Node, proposer and delegate payouts still ran to completion.
         assert!(NodeSubnetStake::<Test>::get(elected_node_id, subnet_id) > proposer_stake_before);
         assert!(System::events().iter().any(|record| matches!(

@@ -1239,8 +1239,6 @@ fn test_register_admit_remove_claim_stake_unbondings() {
         // Trigger queue admission
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );

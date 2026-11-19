@@ -241,7 +241,6 @@ fn elected_fixture_with_reputation<T: Config>(
     Network::<T>::elect_validator(
         subnet_id,
         Network::<T>::get_current_subnet_epoch_as_u32(subnet_id),
-        get_current_block_as_u32::<T>(),
     );
     subnet_id
 }
@@ -305,11 +304,7 @@ pub(super) fn settlement_fixture_with_reputation<T: Config>(
                 ));
             }
         }
-        let (submission, _) = Network::<T>::precheck_subnet_consensus_submission(
-            subnet_id,
-            epoch,
-            Network::<T>::get_current_epoch_as_u32(),
-        );
+        let (submission, _) = Network::<T>::precheck_subnet_consensus_submission(subnet_id, epoch);
         let submission = submission.unwrap();
         assert_eq!(submission.attests.len(), 3);
         assert_eq!(submission.eligible_validator_identity_count, 3);

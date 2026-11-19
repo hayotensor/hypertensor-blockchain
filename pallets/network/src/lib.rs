@@ -228,6 +228,10 @@ pub mod pallet {
         #[pallet::constant]
         type EpochLength: Get<u32>;
 
+        /// Time allowed to retry a failed consensus financial operation, measured in blocks.
+        #[pallet::constant]
+        type ConsensusOperationRetryPeriod: Get<BlockNumberFor<Self>>;
+
         /// Number of epochs per year
         #[pallet::constant]
         type EpochsPerYear: Get<u32>;
@@ -660,11 +664,23 @@ pub mod pallet {
             attestation_percentage: u128,
             node_stake_amount: u128,
         },
-        /// The node slash was rolled back and waived. Settlement and reputation processing continue.
+        /// The node slash was rolled back. Its financial deduction can be queued independently.
         SubnetNodeSlashFailed {
             subnet_id: u32,
             subnet_node_id: u32,
             error: sp_runtime::DispatchError,
+        },
+        /// Financial work is retained for retry without keeping its consensus round open.
+        ConsensusOperationQueued {
+            subnet_id: u32,
+            operation: ConsensusOperation<T::AccountId>,
+            expires_at: BlockNumberFor<T>,
+        },
+        ConsensusOperationApplied {
+            operation: ConsensusOperation<T::AccountId>,
+        },
+        ConsensusOperationExpired {
+            operation: ConsensusOperation<T::AccountId>,
         },
         /// A delegate pool was emptied by withdrawal. Old shares are invalidated before reuse.
         ValidatorDelegatePoolReset {
@@ -1113,6 +1129,10 @@ pub mod pallet {
         StakeSlippageExceeded,
         /// Delegate-pool assets exist without any corresponding real shares.
         DelegatePoolInvariantViolation,
+        ConsensusOperationPoolGenerationMismatch,
+        NodeStakeReservedForPendingSlash,
+        PendingNodeSlashReservationLimit,
+        PendingNodeSlashReservationMissing,
         /// Rewards may only enter a pool with delegator-owned circulating shares.
         DelegatePoolNotActive,
         // Maximum unlockings reached for the unbonding ledger, see MaxUnbondings
@@ -1129,12 +1149,8 @@ pub mod pallet {
         InvalidSwapDeadline,
         NoStakeUnbondingsOrCooldownNotMet,
         MinDelegateStake,
-        /// Elected node principal is locked until its snapshotted round can be settled.
-        ElectedValidatorCannotUnstake,
         /// Elected validator on current epoch cannot remove to ensure they are able to be rewarded or penalized
         ElectedValidatorCannotRemove,
-        /// A subnet cannot be removed while its last elected round still requires settlement.
-        ConsensusRoundPendingSettlement,
         MinActiveNodeStakeEpochs,
         /// Shares entered is zero, must be greater than
         SharesZero,
@@ -4491,36 +4507,6 @@ pub mod pallet {
         DefaultZeroU128,
     >;
 
-    /// Nominal settlement block for the latest elected round involving this node position.
-    ///
-    /// The key is the exact slashable position rather than the validator identity so an election
-    /// in one subnet does not unnecessarily freeze that identity's unrelated node positions. This
-    /// timestamp is only a conservative compatibility signal; the authoritative lock is the
-    /// outstanding-liability count below, which cannot expire before actual settlement.
-    #[pallet::storage]
-    pub type NodeStakeSlashLockUntil<T> = StorageDoubleMap<
-        _,
-        Identity,
-        u32, // subnet id
-        Identity,
-        u32, // subnet node id
-        u32,
-        ValueQuery,
-    >;
-
-    /// Outstanding slash liability for this node position (zero or one).
-    /// Each subnet has at most one pending round; liabilities on other subnets are independent.
-    #[pallet::storage]
-    pub type NodeStakePendingSlashLiabilityCount<T> = StorageDoubleMap<
-        _,
-        Identity,
-        u32, // subnet id
-        Identity,
-        u32, // subnet node id
-        u32,
-        ValueQuery,
-    >;
-
     //
     // Validator staking
     //
@@ -4644,7 +4630,8 @@ pub mod pallet {
     pub type NetworkPaused<T> = StorageValue<_, bool, ValueQuery, DefaultBoolFalse>;
 
     /// Latest real global unpause. Rounds elected at or before this block cannot accept new
-    /// proposals/attestations, and any unsettled ones are cancelled at their next subnet slot.
+    /// proposals/attestations. The preceding epoch is cancelled at the next subnet slot;
+    /// older skipped rounds expire with consensus history and never block elections.
     /// Keeping one cutoff makes unpause O(1), independently of subnet and node counts.
     #[pallet::storage]
     pub type LastNetworkUnpauseBlock<T> = StorageValue<_, u32, OptionQuery>;
@@ -4660,32 +4647,11 @@ pub mod pallet {
 
     /// Exact-once settlement fence for each elected round.
     ///
-    /// `false` means elected and pending; `true` means its economic outcome was processed and its
-    /// liability counts were released. `OptionQuery` distinguishes an untracked/manual fixture
-    /// from either real state without rewriting the large historical election record.
+    /// `false` means elected; `true` means its economic outcome was processed. An unfinished
+    /// outcome never blocks subsequent elections. `None` means no tracked settlement.
     #[pallet::storage]
     pub type ConsensusRoundSettlementStatus<T> =
         StorageDoubleMap<_, Identity, u32, Identity, u32, bool, OptionQuery>;
-
-    /// The single unsettled consensus epoch for a subnet.
-    ///
-    /// Election is suppressed while this pointer exists, which bounds pending work to one round
-    /// per subnet and lets later assigned slots retry it without scanning historical elections.
-    #[pallet::storage]
-    pub type PendingConsensusRoundSettlementEpoch<T> =
-        StorageMap<_, Identity, u32, u32, OptionQuery>;
-
-    /// Slashable node of the pending round, independent of its larger historical snapshots.
-    /// This compact record lets cancellation release stake even if a snapshot is unreadable.
-    #[pallet::storage]
-    pub type PendingConsensusRoundSlashLiabilityNode<T> =
-        StorageMap<_, Identity, u32, u32, OptionQuery>;
-
-    /// General emission epoch whose immutable allocation funds a pending subnet round.
-    /// Retrying later must use this historical budget rather than a newer epoch's allocation.
-    #[pallet::storage]
-    pub type ConsensusRoundSettlementEmissionEpoch<T> =
-        StorageDoubleMap<_, Identity, u32, Identity, u32, u32, OptionQuery>;
 
     #[pallet::storage] // subnet ID => epoch  => data
     pub type SubnetConsensusSubmission<T: Config> =
@@ -4757,6 +4723,131 @@ pub mod pallet {
     #[pallet::storage]
     pub type SubnetRewardCapacitorReleasePercentage<T> =
         StorageValue<_, u128, ValueQuery, DefaultSubnetRewardCapacitorReleasePercentage>;
+
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo, MaxEncodedLen,
+    )]
+    pub struct PendingConsensusOperation<AccountId, BlockNumber> {
+        pub operation: ConsensusOperation<AccountId>,
+        pub expires_at: BlockNumber,
+    }
+
+    /// Frozen validator-pool routing for one node reward. Generation prevents paying a reset pool.
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo, MaxEncodedLen,
+    )]
+    pub struct ConsensusValidatorPoolAllocation {
+        pub validator_id: u32,
+        pub generation: u64,
+        pub rate: u128,
+    }
+
+    /// Financial operations retry independently of reputation, membership, and round finalization.
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo, MaxEncodedLen,
+    )]
+    pub enum ConsensusOperation<AccountId> {
+        #[codec(index = 0)]
+        OwnerReward { recipient: AccountId, amount: u128 },
+        #[codec(index = 1)]
+        NodeReward {
+            subnet_id: u32,
+            subnet_node_id: u32,
+            amount: u128,
+            validator_pool: Option<ConsensusValidatorPoolAllocation>,
+            delegate_account: Option<(AccountId, u128)>,
+        },
+        #[codec(index = 2)]
+        ValidatorReward {
+            subnet_id: u32,
+            subnet_node_id: u32,
+            amount: u128,
+        },
+        #[codec(index = 3)]
+        SubnetDelegateReward {
+            subnet_id: u32,
+            generation: u64,
+            amount: u128,
+        },
+        #[codec(index = 4)]
+        NodeSlash {
+            subnet_id: u32,
+            subnet_node_id: u32,
+            amount: u128,
+            attestation_percentage: u128,
+        },
+    }
+
+    /// Positions form a wrapping FIFO sequence; tail is the next insertion position.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        Clone,
+        Copy,
+        Default,
+        PartialEq,
+        Eq,
+        Debug,
+        TypeInfo,
+        MaxEncodedLen,
+    )]
+    pub struct ConsensusOperationQueueState {
+        pub head: u64,
+        pub tail: u64,
+    }
+
+    /// One global FIFO of failed consensus financial operations, with frozen payment inputs.
+    #[pallet::storage]
+    pub type PendingConsensusOperations<T: Config> = StorageMap<
+        _,
+        Identity,
+        u64,
+        PendingConsensusOperation<T::AccountId, BlockNumberFor<T>>,
+        OptionQuery,
+    >;
+
+    /// Small FIFO index; processing never decodes the complete pending-reward backlog.
+    #[pallet::storage]
+    pub type PendingConsensusOperationsQueue<T> =
+        StorageValue<_, ConsensusOperationQueueState, ValueQuery>;
+
+    #[derive(
+        Encode, Decode, DecodeWithMemTracking, Clone, PartialEq, Eq, Debug, TypeInfo, MaxEncodedLen,
+    )]
+    pub struct PendingNodeSlashReservation<BlockNumber> {
+        pub expires_at: BlockNumber,
+        pub amount: u128,
+    }
+
+    /// A node can acquire at most one new slash deadline per subnet epoch. Two spare entries
+    /// cover the endpoints of the retry window; same-block liabilities share one deadline.
+    pub struct MaxPendingNodeSlashReservations<T>(core::marker::PhantomData<T>);
+    impl<T: Config> Get<u32> for MaxPendingNodeSlashReservations<T> {
+        fn get() -> u32 {
+            use sp_runtime::SaturatedConversion;
+            T::ConsensusOperationRetryPeriod::get()
+                .saturated_into::<u32>()
+                .saturating_div(T::EpochLength::get().max(1))
+                .saturating_add(2)
+        }
+    }
+
+    /// Withdrawal lookup for active slash reservations. Expired entries never lock stake,
+    /// even if the global retry queue has not yet had idle time to remove them.
+    #[pallet::storage]
+    pub type PendingNodeSlashReservations<T: Config> = StorageDoubleMap<
+        _,
+        Identity,
+        u32,
+        Identity,
+        u32,
+        BoundedVec<
+            PendingNodeSlashReservation<BlockNumberFor<T>>,
+            MaxPendingNodeSlashReservations<T>,
+        >,
+        ValueQuery,
+    >;
 
     //
     // Reputation
@@ -6654,7 +6745,9 @@ pub mod pallet {
 
         #[pallet::call_index(53)]
         #[pallet::weight(
-            T::WeightInfo::remove_node_stake().saturating_add(
+            T::WeightInfo::remove_node_stake()
+                .saturating_add(T::WeightInfo::pending_node_slash_lock_read())
+                .saturating_add(
                 Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
             )
         )]
@@ -8544,17 +8637,6 @@ pub mod pallet {
             subnet_id: u32,
             reason: SubnetRemovalReason,
         ) -> SubnetRemovalOutcome {
-            // Preserve the assigned slot until the O(1) pending-round pointer has been retried.
-            // Removing it first would strand the elected node's slash liability.
-            let pending_settlement_weight = T::DbWeight::get().reads(1);
-            if !weight_meter.can_consume(pending_settlement_weight) {
-                return SubnetRemovalOutcome::Deferred;
-            }
-            weight_meter.consume(pending_settlement_weight);
-            if PendingConsensusRoundSettlementEpoch::<T>::contains_key(subnet_id) {
-                return SubnetRemovalOutcome::Deferred;
-            }
-
             // These scalar counters bound every subnet-keyed prefix cleared by cleanup without
             // decoding any of those collections before weight is reserved.
             let selector_weight = T::DbWeight::get().reads(3);
@@ -8903,14 +8985,6 @@ pub mod pallet {
         pub fn do_remove_subnet(subnet_id: u32, reason: SubnetRemovalReason) -> Weight {
             let mut weight = Weight::zero();
             let db_weight = T::DbWeight::get();
-
-            // Defense in depth for direct internal removal callers. Authenticated and metered
-            // entry points reject/defer earlier, but the slot must never be freed while a round
-            // still owns slash liabilities.
-            weight = weight.saturating_add(db_weight.reads(1));
-            if PendingConsensusRoundSettlementEpoch::<T>::contains_key(subnet_id) {
-                return weight;
-            }
 
             weight = weight.saturating_add(db_weight.reads(1));
             let subnet = match SubnetsData::<T>::try_get(subnet_id) {
@@ -10028,10 +10102,12 @@ pub mod pallet {
                     // One admission reserves settlement, terminal recovery, and election together.
                     // The resolved assignment determines the epoch without a redundant timing
                     // lookup. Optional maintenance uses only the unreserved remainder.
+                    let current_subnet_epoch = block
+                        .saturating_sub(epoch_slot)
+                        .saturating_div(epoch_length);
                     if !Self::run_assigned_subnet_slot(
                         &mut weight_meter,
-                        block,
-                        current_epoch,
+                        current_subnet_epoch,
                         subnet_id,
                     ) {
                         return weight_meter.consumed();
@@ -10125,6 +10201,7 @@ pub mod pallet {
         fn on_idle(block_number: BlockNumberFor<T>, remaining_weight: Weight) -> Weight {
             let mut weight_meter = WeightMeter::with_limit(remaining_weight);
             Self::cleanup_removed_subnet_consensus_history(&mut weight_meter);
+            Self::retry_pending_consensus_operations(block_number, &mut weight_meter);
             weight_meter.consumed()
         }
     }

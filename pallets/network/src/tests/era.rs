@@ -111,7 +111,7 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
             elected_min_weight_threshold,
         );
 
-        Network::elect_validator(subnet_id, subnet_epoch, 0);
+        Network::elect_validator(subnet_id, subnet_epoch);
         BaseSlashPercentage::<Test>::put(Network::percent_div(9, 100));
         SubnetReputationFactorSchedules::<Test>::mutate(subnet_id, |schedule| {
             schedule.current = SubnetReputationFactors {
@@ -167,12 +167,12 @@ fn validator_election_snapshots_collective_identity_attestation_percentage() {
         SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
         ConsensusValidatorIdentityAttestationPercentage::<Test>::put(old_value);
 
-        Network::elect_validator(subnet_id, 3, 0);
+        Network::elect_validator(subnet_id, 3);
         ConsensusValidatorIdentityAttestationPercentage::<Test>::put(pending_value);
         // A subnet may have only one unsettled consensus round. Complete the prior round's
         // lifecycle before electing its successor, as production does during epoch settlement.
-        let _ = Network::finalize_consensus_round_slash_liability(subnet_id, 3);
-        Network::elect_validator(subnet_id, 4, EpochLength::get());
+        let _ = Network::finalize_consensus_round(subnet_id, 3);
+        Network::elect_validator(subnet_id, 4);
 
         assert_eq!(
             SubnetElectedValidator::<Test>::get(subnet_id, 3)

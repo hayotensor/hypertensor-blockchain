@@ -399,18 +399,16 @@ sets a Q18 percentage from 0% to 100%, effective at the next settlement; zero di
 The supplement uses the round's reward split. Zero-score/zero-allocation rounds leave it stored;
 permanent subnet removal clears it. See [REWARDS.md](pallets/network/REWARDS.md).
 
-Global `Network.unpause` starts fresh consensus: all unsettled rounds elected
-before or in the resume block are cancelled, including submitted proposals and
-older deferred settlements. Old proposals and attestations are rejected immediately.
-At each subnet's next assigned slot, cancellation retains any recorded allocation
-in its capacitor, releases that round's stake liabilities, and applies no rewards,
-penalties, or probation progression before the next eligible election. Missing
-allocations for skipped epochs are not recreated. Historical round records remain
-queryable; `ConsensusRoundCancelled` reports cancellation. Unusable historical election,
-voting, or proposal evidence also cancels a completed round, retains its recorded allocation,
-and releases its stake liability so the next election can proceed. Missing balance-time records
-restart with zero historical credit. Epoch-status RPC hides globally cancelled work. Global resume does not extend registration or enactment
-deadlines; those lifecycle limits remain separate from consensus cancellation.
+Global `Network.unpause` starts fresh consensus: proposals and attestations for rounds elected
+before or in the resume block are rejected immediately. Each assigned slot settles only the
+preceding subnet epoch. Cancellation retains that round's recorded allocation in its capacitor
+and applies no rewards, penalties, or probation progression. Older skipped rounds are not
+retried and expire with consensus history; skipped allocations are not recreated.
+`ConsensusRoundCancelled` reports processed cancellations. Unusable election, voting, or proposal
+evidence also cancels the processed round and retains its recorded allocation. Per-round
+settlement status prevents duplicate outcomes but never blocks a new election or subnet removal.
+Missing balance-time records restart with zero historical credit. Epoch-status RPC hides
+globally invalidated work. Global resume does not extend registration or enactment deadlines.
 
 Election candidates, policy, and all attestor weights freeze together at the
 subnet's assigned-slot election, before that block's extrinsics. Delegation,
@@ -509,12 +507,14 @@ corresponding stake/balance removal and unbonding claim path.
 
 ### Remove stake and claim
 
-1. Read the position, current ownership, pending node removals, pending consensus
-   liabilities, applicable minimums, and `StakeUnbondingLedger(account)` capacity.
-   Elected direct node stake can be locked until historical node-slash liabilities
-   settle. Changing keys or removing a node does not bypass that lock. Validator
-   delegate pools have no consensus slash locks. Direct stake cannot fall below
-   the enforced node minimum while the relevant live-node constraints apply.
+1. Read the position, current ownership, pending node removals, applicable minimums,
+   and `StakeUnbondingLedger(account)` capacity. Election creates no stake withdrawal lock.
+   Direct stake cannot fall below the enforced node minimum while the relevant live-node
+   constraints apply. Failed slashes reserve their fixed unpaid amount in
+   `PendingNodeSlashReservations(subnet_id, node_id)` until paid or expired; withdrawals ignore
+   expired reservations even before idle cleanup. A new slash is capped by direct stake remaining
+   after active reservations. The global `PendingConsensusOperations` queue retries financial
+   effects without holding consensus open or replaying reputation changes.
 2. Submit the corresponding removal. To fully exit an admitted node, request
    `remove_subnet_node(subnet_id, subnet_node_id)` with its coldkey, wait for any
    deferred cleanup/settlement, then remove the remaining direct stake. A live
@@ -563,8 +563,8 @@ principal as destination stake.
 
 ## Owner controls
 
-- `owner_deactivate_subnet` permanently removes the subnet and is blocked by
-  unresolved consensus settlement. Inspect retained
+- `owner_deactivate_subnet` permanently removes the subnet, including when a consensus round
+  has not settled. Inspect retained
   stake/delegation positions and their withdrawal paths after removal.
 - Ownership transfer is two steps: current owner calls
   `transfer_subnet_ownership(subnet_id, new_owner)`, then the designated account
@@ -647,9 +647,9 @@ events are authoritative; they are not mirrored into Ethereum receipt logs.
 | `NotKeyOwner` or operational authorization failure | Canonical coldkey mapping, node/Overwatch override, and effective hotkey |
 | Registration rejected | Whitelist, phase, allowance, queue/capacity, stake bounds, peer encoding, burn ceiling |
 | Successful activation but missing subnet | Activation removal branch and `SubnetDeactivated` reason |
-| No proposer or no accepted rounds | Eligibility slot, three distinct identities, Active classification, nonzero delegated voting weight, pending settlement |
+| No proposer or no accepted rounds | Eligibility slot, three distinct identities, Active classification, nonzero delegated voting weight |
 | Attestation rejected | Epoch rollover, current proposal, effective signer, proposal snapshot membership, duplicate attestation |
-| Cannot withdraw/deposit/swap | Live-node minimum, shares versus balance, current generation, positive output bounds, slash liability, rate limit, ledger capacity |
+| Cannot withdraw/deposit/swap | Live-node minimum, shares versus balance, current generation, positive output bounds, rate limit, ledger capacity |
 | Withdrawal succeeded but wallet unchanged | Ledger maturity and explicit `claim_unbondings`; deferred refund credit |
 | Node call succeeded without intended change | Pending-removal cleanup branch; re-read before any resubmission |
 | Node remains Queued/Probation | Churn/queue settings, successful settlement counters, inclusion, identity quorum, reputation |

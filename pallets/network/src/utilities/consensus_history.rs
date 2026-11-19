@@ -24,9 +24,8 @@
 use super::*;
 use frame_support::{pallet_prelude::Weight, weights::WeightMeter};
 
-/// Number of most recent subnet epochs whose consensus history is retained (for settlement
-/// retries, RPC and off-chain inspection). Settlement only needs the previous epoch and the
-/// single pending round, which is never pruned.
+/// Number of most recent subnet epochs retained for RPC and off-chain inspection.
+/// Settlement only needs the previous epoch; unfinished older rounds expire with this history.
 pub const CONSENSUS_HISTORY_RETENTION_EPOCHS: u32 = 16;
 
 /// Upper bound on epochs visited per subnet slot, including epochs without an election.
@@ -70,24 +69,24 @@ impl<T: Config> Pallet<T> {
             ))
     }
 
-    /// Fixed single-key removals per pruned round (elected round, status, emission epoch,
+    /// Fixed single-key removals per pruned round (elected round, status,
     /// submission, max items, proposal args, attestor weights).
     fn consensus_round_fixed_prune_weight() -> Weight {
         // Canonical stored proposals keep opaque args/attest data in separate keys. Their
         // compact per-node fields use 86 bytes, elections use 12, and weights use 20. Round
-        // up to 128 per node, plus fixed fields, seven trie paths, and the proposal payload.
+        // up to 128 per node, plus fixed fields, six trie paths, and the proposal payload.
         let proof = 128 * T::MaxSubnetNodesUpperBound::get() as u64
             + 1_024
-            + 7 * 4_096
+            + 6 * 4_096
             + T::ValidatorArgsLimit::get() as u64
             + 5;
         T::DbWeight::get()
-            .reads_writes(1, 7)
+            .reads_writes(1, 6)
             .saturating_add(Weight::from_parts(0, proof))
     }
 
-    /// Prune consensus history for `subnet_id` older than the retention window, never touching
-    /// the round that is still pending settlement. Work is bounded by `weight_meter` and by
+    /// Prune consensus history for `subnet_id` older than the retention window.
+    /// Work is bounded by `weight_meter` and by
     /// [`MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT`].
     pub(crate) fn prune_consensus_history(
         weight_meter: &mut WeightMeter,
@@ -96,8 +95,8 @@ impl<T: Config> Pallet<T> {
     ) {
         let db_weight = T::DbWeight::get();
         let selector_weight = db_weight
-            .reads(2)
-            .saturating_add(Self::consensus_history_key_proof(2));
+            .reads(1)
+            .saturating_add(Self::consensus_history_key_proof(1));
         if !weight_meter.can_consume(selector_weight) {
             return;
         }
@@ -105,10 +104,7 @@ impl<T: Config> Pallet<T> {
 
         // Rounds strictly before `horizon` are outside the retention window.
         let horizon = current_subnet_epoch.saturating_sub(CONSENSUS_HISTORY_RETENTION_EPOCHS);
-        let stop = match PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id) {
-            Some(pending_epoch) => pending_epoch.min(horizon),
-            None => horizon,
-        };
+        let stop = horizon;
 
         let Some(mut cursor) = ConsensusHistoryPruneCursor::<T>::get(subnet_id) else {
             // Initialize at the oldest epoch that can hold history: no round is elected before
@@ -180,7 +176,6 @@ impl<T: Config> Pallet<T> {
 
             SubnetElectedValidator::<T>::remove(subnet_id, cursor);
             ConsensusRoundSettlementStatus::<T>::remove(subnet_id, cursor);
-            ConsensusRoundSettlementEmissionEpoch::<T>::remove(subnet_id, cursor);
             SubnetConsensusSubmission::<T>::remove(subnet_id, cursor);
             SubnetConsensusSubmissionMaxItems::<T>::remove(subnet_id, cursor);
             SubnetConsensusProposalArgs::<T>::remove(subnet_id, cursor);
@@ -258,9 +253,6 @@ impl<T: Config> Pallet<T> {
             subnet_id, limit, None
         ));
         clear_step!(SubnetConsensusAttestorWeights::<T>::clear_prefix(
-            subnet_id, limit, None
-        ));
-        clear_step!(ConsensusRoundSettlementEmissionEpoch::<T>::clear_prefix(
             subnet_id, limit, None
         ));
         clear_step!(ConsensusRoundSettlementStatus::<T>::clear_prefix(

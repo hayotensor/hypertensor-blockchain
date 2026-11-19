@@ -271,11 +271,8 @@ fn test_on_initialize() {
                 if SubnetConsensusSubmission::<Test>::get(subnet_id, prev_subnet_epoch).is_none() {
                     return None;
                 }
-                let (consensus_submission_data, _) = Network::precheck_subnet_consensus_submission(
-                    subnet_id,
-                    prev_subnet_epoch,
-                    current_epoch,
-                );
+                let (consensus_submission_data, _) =
+                    Network::precheck_subnet_consensus_submission(subnet_id, prev_subnet_epoch);
                 let Some(consensus_submission_data) = consensus_submission_data else {
                     return None;
                 };

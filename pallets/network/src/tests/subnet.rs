@@ -3071,7 +3071,7 @@ fn test_activated_subnet_attestation_proposal_absent_reputation_decrease() {
 
         let starting_rep = SubnetReputation::<Test>::get(6);
 
-        Network::precheck_subnet_consensus_submission(6, 1, 1);
+        Network::precheck_subnet_consensus_submission(6, 1);
         // Reputation should decrease
         assert!(SubnetReputation::<Test>::get(6) < starting_rep);
         // Subnet should remain (no removal yet)

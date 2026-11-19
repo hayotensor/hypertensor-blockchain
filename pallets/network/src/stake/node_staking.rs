@@ -143,6 +143,12 @@ impl<T: Config> Pallet<T> {
             Error::<T>::NotEnoughStakeToWithdraw
         );
 
+        ensure!(
+            node_stake_balance - stake_to_be_removed
+                >= Self::pending_node_slash_locked_amount(subnet_id, subnet_node_id),
+            Error::<T>::NodeStakeReservedForPendingSlash
+        );
+
         // if user is still a subnet node they must keep the required minimum balance
         if is_subnet_node {
             let remaining_node_stake = node_stake_balance
@@ -153,14 +159,6 @@ impl<T: Config> Pallet<T> {
                 Error::<T>::MinStakeNotReached
             );
         }
-
-        // Election commits this position's direct principal to the round. Keep that principal
-        // collectible until settlement; physical node removal is harmless because ownership and
-        // stake accounting intentionally survive it, but an unstake would otherwise evade slash.
-        ensure!(
-            !Self::is_node_stake_slash_locked(subnet_id, subnet_node_id),
-            Error::<T>::ElectedValidatorCannotUnstake
-        );
 
         // --- Ensure that we can convert this u128 to a balance.
         match Self::u128_to_balance(stake_to_be_removed) {

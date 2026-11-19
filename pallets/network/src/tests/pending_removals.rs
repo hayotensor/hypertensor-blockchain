@@ -113,7 +113,7 @@ fn election_scans_to_the_next_healthy_candidate_wraps_and_handles_all_pending() 
         );
         mark_admitted_pending(successor_subnet_id, candidates[selected_index]);
 
-        Network::elect_validator(successor_subnet_id, successor_epoch, System::block_number());
+        Network::elect_validator(successor_subnet_id, successor_epoch);
 
         let successor_round =
             SubnetElectedValidator::<Test>::get(successor_subnet_id, successor_epoch).unwrap();
@@ -144,7 +144,7 @@ fn election_scans_to_the_next_healthy_candidate_wraps_and_handles_all_pending() 
             });
         mark_admitted_pending(wrap_subnet_id, candidates[selected_index]);
 
-        Network::elect_validator(wrap_subnet_id, wrap_epoch, System::block_number());
+        Network::elect_validator(wrap_subnet_id, wrap_epoch);
 
         assert_eq!(
             SubnetElectedValidator::<Test>::get(wrap_subnet_id, wrap_epoch)
@@ -165,7 +165,7 @@ fn election_scans_to_the_next_healthy_candidate_wraps_and_handles_all_pending() 
             mark_admitted_pending(all_pending_subnet_id, *subnet_node_id);
         }
 
-        Network::elect_validator(all_pending_subnet_id, all_pending_epoch, 0);
+        Network::elect_validator(all_pending_subnet_id, all_pending_epoch);
 
         assert!(!SubnetElectedValidator::<Test>::contains_key(
             all_pending_subnet_id,
@@ -394,7 +394,7 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
         let general_epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(general_epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
         let proposer_node_id = round.validator_subnet_node_id;
@@ -482,11 +482,7 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
             SubnetConsensusSubmissionMaxItems::<Test>::get(subnet_id, subnet_epoch),
             stored_weights.weights.len() as u32,
         );
-        let (processed, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (processed, _) = Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let processed = processed.unwrap();
         assert_eq!(processed.attestation_ratio, test_percent(1, 3));
         assert_eq!(processed.eligible_validator_identity_count, 3);
@@ -501,11 +497,8 @@ fn pending_scores_are_filtered_before_overflow_and_stored_snapshots_stay_frozen(
             SubnetConsensusAttestorWeights::<Test>::get(subnet_id, subnet_epoch).unwrap(),
             stored_weights
         );
-        let (processed_after_quarantine, _) = Network::precheck_subnet_consensus_submission(
-            subnet_id,
-            subnet_epoch,
-            Network::get_current_epoch_as_u32(),
-        );
+        let (processed_after_quarantine, _) =
+            Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let processed_after_quarantine = processed_after_quarantine.unwrap();
         assert_eq!(
             processed_after_quarantine.attestation_ratio,
@@ -533,7 +526,7 @@ fn proposal_ignores_queue_requests_for_pending_queued_nodes() {
         let general_epoch = Network::get_current_epoch_as_u32();
         set_block_to_subnet_slot_epoch(general_epoch, subnet_id);
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch, System::block_number());
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         insert_subnet_node(
             930,
@@ -913,13 +906,7 @@ fn assigned_slot_cleanup_retries_on_the_next_assigned_slot_without_a_proposal() 
         );
         let mut insufficient_meter = WeightMeter::with_limit(one_ref_time_short);
         let first_subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::emission_step(
-            &mut insufficient_meter,
-            first_assigned_block,
-            first_epoch,
-            first_subnet_epoch,
-            subnet_id,
-        );
+        Network::emission_step(&mut insufficient_meter, first_subnet_epoch, subnet_id);
 
         assert!(SubnetNodesData::<Test>::contains_key(
             subnet_id,
@@ -983,8 +970,7 @@ fn missing_proposal_threshold_crossing_persists_pending_marker_and_event() {
         });
         System::reset_events();
 
-        let (submission, _) =
-            Network::precheck_subnet_consensus_submission(subnet_id, round_epoch, round_epoch + 1);
+        let (submission, _) = Network::precheck_subnet_consensus_submission(subnet_id, round_epoch);
 
         assert!(submission.is_none());
         assert!(

@@ -1,6 +1,9 @@
 use super::{mock::*, test_utils::*};
 use crate::*;
-use frame_support::{assert_ok, traits::Hooks};
+use frame_support::{
+    assert_ok,
+    traits::{Currency, Hooks},
+};
 use sp_std::collections::btree_map::BTreeMap;
 
 const TOKEN: u128 = 1_000_000_000_000_000_000;
@@ -36,7 +39,7 @@ fn elected_round() -> (u32, u32, u32) {
     let proposer = SubnetElectedValidator::<Test>::get(subnet, epoch)
         .unwrap()
         .validator_subnet_node_id;
-    let emission_epoch = ConsensusRoundSettlementEmissionEpoch::<Test>::get(subnet, epoch).unwrap();
+    let emission_epoch = epoch.saturating_add(1);
     FinalSubnetEmissionWeights::<Test>::insert(
         emission_epoch,
         DistributionData {
@@ -52,30 +55,15 @@ fn assert_next_round(subnet: u32, old_epoch: u32) {
         ConsensusRoundSettlementStatus::<Test>::get(subnet, old_epoch),
         Some(true)
     );
-    assert!(!ConsensusRoundSettlementEmissionEpoch::<Test>::contains_key(subnet, old_epoch));
-    assert_eq!(
-        PendingConsensusRoundSettlementEpoch::<Test>::get(subnet),
-        Some(old_epoch + 1)
-    );
+
     assert_eq!(
         ConsensusRoundSettlementStatus::<Test>::get(subnet, old_epoch + 1),
         Some(false)
     );
-    let next_proposer = SubnetElectedValidator::<Test>::get(subnet, old_epoch + 1)
-        .expect("a failed credit must not prevent the next election")
-        .validator_subnet_node_id;
-    assert_eq!(
-        PendingConsensusRoundSlashLiabilityNode::<Test>::get(subnet),
-        Some(next_proposer)
-    );
-    assert_eq!(
-        NodeStakePendingSlashLiabilityCount::<Test>::iter_prefix(subnet).collect::<Vec<_>>(),
-        vec![(next_proposer, 1)]
-    );
-    assert_eq!(
-        NodeStakeSlashLockUntil::<Test>::iter_prefix(subnet).collect::<Vec<_>>(),
-        vec![(next_proposer, System::block_number() + EpochLength::get())]
-    );
+    assert!(SubnetElectedValidator::<Test>::contains_key(
+        subnet,
+        old_epoch + 1
+    ));
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -83,6 +71,44 @@ enum CreditFault {
     SubnetDelegateAggregateOverflow,
     SubnetDelegatePoolInvariant,
     NodeAggregateOverflow,
+}
+
+#[test]
+fn failed_owner_payment_is_queued_and_the_hook_elects_again() {
+    new_test_ext().execute_with(|| {
+        let (subnet, epoch, proposer) = elected_round();
+        run_subnet_consensus_step_v2(subnet, None, None);
+        let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
+        let (rewards, _) = Network::calculate_rewards_with_policy(10 * TOKEN, TOKEN, &round.policy);
+        assert!(rewards.subnet_owner_reward > 0);
+        let owner = SubnetOwner::<Test>::get(subnet).unwrap();
+        let owner_before = Balances::free_balance(&owner);
+        let proposer_before = NodeSubnetStake::<Test>::get(proposer, subnet);
+        let pool_before = TotalSubnetDelegateStakeBalance::<Test>::get(subnet);
+        let capacitor_before = SubnetRewardCapacitor::<Test>::get(subnet);
+        let headroom = u128::MAX - Balances::total_issuance();
+        drop(Balances::deposit_creating(&account(987_654), headroom));
+        assert_eq!(Balances::total_issuance(), u128::MAX);
+
+        run_slot(subnet, epoch + 1);
+        assert_next_round(subnet, epoch);
+        assert_eq!(Balances::free_balance(&owner), owner_before);
+        assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), capacitor_before);
+        let pending = PendingConsensusOperations::<Test>::get(0).unwrap();
+        assert_eq!(
+            pending.operation,
+            ConsensusOperation::OwnerReward {
+                recipient: owner,
+                amount: rewards.subnet_owner_reward,
+            }
+        );
+        assert_eq!(pending.expires_at, System::block_number() + 100_800);
+        assert!(NodeSubnetStake::<Test>::get(proposer, subnet) > proposer_before);
+        assert_eq!(
+            TotalSubnetDelegateStakeBalance::<Test>::get(subnet),
+            pool_before + rewards.delegate_stake_rewards
+        );
+    });
 }
 
 #[test]
@@ -156,6 +182,44 @@ fn reward_credit_failures_leave_balances_atomic_and_the_hook_elects_again() {
                         TotalDelegateStake::<Test>::get(),
                         delegation_before + rewards.delegate_stake_rewards
                     );
+                    let operations: Vec<_> = PendingConsensusOperations::<Test>::iter_values()
+                        .map(|pending| pending.operation)
+                        .collect();
+                    assert_eq!(
+                        operations
+                            .iter()
+                            .filter(|operation| matches!(
+                                operation,
+                                ConsensusOperation::NodeReward { .. }
+                            ))
+                            .count(),
+                        NODES as usize
+                    );
+                    assert_eq!(
+                        operations
+                            .iter()
+                            .filter(|operation| matches!(
+                                operation,
+                                ConsensusOperation::ValidatorReward { .. }
+                            ))
+                            .count(),
+                        1
+                    );
+                    // Repair only the failing aggregate. Idle retries complete the financial
+                    // work without touching the already-finalized round or next election.
+                    TotalStake::<Test>::put(
+                        nodes_before
+                            .iter()
+                            .map(|(_, _, amount)| *amount)
+                            .sum::<u128>(),
+                    );
+                    Network::retry_pending_consensus_operations(
+                        System::block_number(),
+                        &mut WeightMeter::new(),
+                    );
+                    assert!(NodeSubnetStake::<Test>::get(proposer, subnet) > proposer_before);
+                    assert_eq!(PendingConsensusOperations::<Test>::iter().count(), 0);
+                    assert_next_round(subnet, epoch);
                 }
                 CreditFault::SubnetDelegateAggregateOverflow
                 | CreditFault::SubnetDelegatePoolInvariant => {
@@ -165,6 +229,11 @@ fn reward_credit_failures_leave_balances_atomic_and_the_hook_elects_again() {
                     );
                     assert_eq!(TotalDelegateStake::<Test>::get(), delegation_before);
                     assert!(NodeSubnetStake::<Test>::get(proposer, subnet) > proposer_before);
+                    assert!(
+                        matches!(PendingConsensusOperations::<Test>::get(0).unwrap().operation,
+                        ConsensusOperation::SubnetDelegateReward { subnet_id, amount, .. }
+                            if subnet_id == subnet && amount == rewards.delegate_stake_rewards)
+                    );
                 }
             }
         });

@@ -44,7 +44,7 @@ fn probation_fixture() -> (u32, u32) {
 
 fn elect(subnet: u32, epoch: u32) -> ElectedConsensusRound {
     set_block_to_subnet_slot_epoch(epoch, subnet);
-    Network::elect_validator(subnet, epoch, System::block_number());
+    Network::elect_validator(subnet, epoch);
     SubnetElectedValidator::<Test>::get(subnet, epoch).expect("round elected")
 }
 
@@ -94,11 +94,7 @@ fn propose_round(
             None
         ));
     }
-    let (submission, _) = Network::precheck_subnet_consensus_submission(
-        subnet,
-        epoch,
-        Network::get_current_epoch_as_u32(),
-    );
+    let (submission, _) = Network::precheck_subnet_consensus_submission(subnet, epoch);
     submission.expect("proposal prechecks")
 }
 
@@ -264,12 +260,7 @@ fn two_qualifying_rounds_promote_without_retroactive_node_or_delegate_rewards() 
         );
         assert_eq!(DelegateAccountStake::<Test>::get(&beneficiary), 0);
         // This is the operational phase of the same subnet hook that promoted the node.
-        Network::emission_operational_step(
-            &mut WeightMeter::new(),
-            System::block_number(),
-            epoch + 2,
-            subnet,
-        );
+        Network::emission_operational_step(&mut WeightMeter::new(), epoch + 2, subnet);
         assert!(SubnetElectedValidator::<Test>::get(subnet, epoch + 2)
             .unwrap()
             .eligible_subnet_node_ids
@@ -334,13 +325,7 @@ fn nonqualifying_rounds_freeze_progress() {
             if case == "missing" {
                 elect(subnet, epoch);
                 set_block_to_subnet_slot_epoch(epoch + 1, subnet);
-                Network::emission_settlement_step(
-                    &mut WeightMeter::new(),
-                    System::block_number(),
-                    Network::get_current_epoch_as_u32(),
-                    epoch + 1,
-                    subnet,
-                );
+                Network::emission_settlement_step(&mut WeightMeter::new(), epoch + 1, subnet);
             } else {
                 let score = match case {
                     "below_identity" => None,

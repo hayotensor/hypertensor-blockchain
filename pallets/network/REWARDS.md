@@ -31,10 +31,10 @@ The annual schedule reserves 5% for the foundation and 95% for subnets. Each ann
 
 ## 2. The epoch subnet budget is divided across subnets
 
-Global network unpause cancels every unsettled consensus round elected before or
-in the resume block, including submitted proposals and older deferred settlements.
-At the subnet's next assigned slot, its recorded allocation is retained in the
-reward capacitor exactly once and its slash liabilities are released. Cancellation
+Global network unpause invalidates consensus rounds elected before or in the resume block.
+At each subnet slot, settlement handles only the preceding epoch. If that round was invalidated,
+its recorded allocation is retained in the reward capacitor exactly once. Older skipped rounds
+are not replayed and expire with consensus history. Cancellation
 does not pay round rewards or apply slashes, reputation changes, queue votes, or
 probation progression. A fresh round can then be elected at that same slot.
 Allocations skipped during the pause are not recreated. Already settled outcomes
@@ -205,16 +205,49 @@ Two rewards sit outside the scheduled foundation/subnet budget:
 
 ## When allocated rewards remain uncredited
 
-Missing elected proposals and failed consensus quorums retain **100% of their scheduled subnet allocation** in `SubnetRewardCapacitor(subnet_id)`, saturating at `u128::MAX`. Each round accumulates only once, using its original emission allocation even if settlement is delayed. The separate proposal-validator bonus is not part of this allocation.
+Failed consensus financial operations are stored individually in `PendingConsensusOperations`,
+keyed by a global FIFO position. `PendingConsensusOperationsQueue` stores only its head and tail.
+Each record contains an operation enum and its fixed expiry. The supported operations are:
+
+- Owner payment: original account and full amount.
+- Node reward: original node and gross amount, validator-pool generation/rate, and delegate
+  beneficiary/rate. All destinations commit together, or all roll back.
+- Proposer bonus: original node and full amount, without a delegate split.
+- Subnet delegate reward: original pool generation and full amount.
+- Node slash: original node, fixed amount, and recorded attestation percentage.
+
+After removed-subnet history cleanup, `on_idle` reserves each operation's complete weight
+before attempting it. Failure moves the unchanged record to the tail; later entries can progress.
+Each entry is attempted at most once per hook invocation. Payment, reservation release where
+applicable, and queue removal commit atomically. Retries never replay consensus, reputation,
+probation, or membership changes. The original settlement and next election continue normally.
+
+Every operation expires 100,800 blocks after its initial failure (seven days at the six-second
+block target). Retries never extend that deadline. At or after expiry the operation is discarded
+without crediting the capacitor. Idle execution is not guaranteed before expiry; expired records
+can remain stored until cleanup reaches them. `ConsensusOperationQueued` includes the originating
+subnet ID; it and `ConsensusOperationApplied`/`ConsensusOperationExpired` carry the typed operation.
+
+Ownership changes and subnet removal do not redirect or erase pending owner payments. Node
+credits retain the persistent node/validator ownership mapping. Delayed pool credits benefit
+current shareholders in the original pool generation; a reset generation cannot receive them.
+A generation mismatch keeps the operation pending until expiry. Pending rewards are never
+added to `SubnetRewardCapacitor`.
+
+Missing elected proposals and failed consensus quorums retain **100% of their scheduled subnet allocation** in `SubnetRewardCapacitor(subnet_id)`, saturating at `u128::MAX`. Each processed round accumulates only once. Settlement in subnet epoch `S` uses `FinalSubnetEmissionWeights[S]` for round `S - 1`, independently of the current global epoch. Settlement processes only the preceding subnet epoch; skipped older allocations are not replayed. The separate proposal-validator bonus is not part of this allocation.
 
 Only the elected subnet node's direct stake is slashed. Validator delegate pools and other
 nodes owned by the same identity are unaffected. If a node deduction fails, it rolls back and
-`SubnetNodeSlashFailed` records the reason. That round's economic penalty is waived; reputation
-penalties, capacitor retention, and settlement continue, releasing the round's node-stake liability.
-No penalty debt, retry, or additional lock is created.
+`SubnetNodeSlashFailed` records the reason. The fixed penalty enters the global queue;
+reputation penalties, capacitor retention, and settlement continue. `PendingNodeSlashReservations`
+provides a bounded per-node withdrawal index, grouping amounts by deadline. Only unpaid,
+unexpired amounts are reserved. Payment or expiry releases them, and withdrawal checks ignore
+expired reservations even if idle cleanup has not run. Node/subnet removal preserves the index.
+Election itself does not lock direct stake; new slashes are capped by the balance remaining
+after existing active reservations.
 
 Unusable historical consensus evidence also terminates the round: its recorded allocation is
-retained in the capacitor, its stake liability is released, and `ConsensusRoundCancelled` is
+retained in the capacitor and `ConsensusRoundCancelled` is
 emitted without rewards, penalties, or probation progression. Stored allocation percentages are
 bounded to Q18 before multiplication. Accepted rewards rebuild a missing balance-time checkpoint
 at the current block with zero historical credit; the missing record does not hold consensus open.
@@ -229,7 +262,9 @@ Allocation remains a ceiling, not a guaranteed payout: existing eligibility, tim
 - [Subnet weights and reward budgets](src/utilities/slot.rs): `calculate_subnet_weights`,
   `get_time_weighted_stake_weights_for_eligible`, `subnet_reward_split`, and `emission_settlement_step`.
 - [Consensus reward distribution](src/bank/rewards.rs): `distribute_rewards_for_round`,
-  `handle_subnet_delegate_stake_reward`, and `handle_validator_delegate_stake`.
+  `settle_subnet_owner_reward`, and `handle_subnet_delegate_stake_reward`.
+- [Pending financial operations](src/bank/pending_operations.rs): frozen node reward splits,
+  atomic category handlers, FIFO retries, expiry, and slash reservations.
 - [Consensus scores and timing factors](src/consensus/attestation/subnet_validator.rs):
   canonicalization and the validator/attestor reward multiplier functions.
 - [Round policy snapshots](src/utilities/era.rs): `consensus_policy_snapshot`.

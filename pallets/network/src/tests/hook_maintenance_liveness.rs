@@ -187,7 +187,6 @@ fn check_history_pruning_budget(commit: bool) {
             + submission.encoded_size()
             + weights.encoded_size()
             + true.encoded_size()
-            + epoch.encoded_size()
             + attestors.encoded_size()
             + payload.encoded_size();
         assert!(
@@ -218,25 +217,25 @@ fn check_history_pruning_budget(commit: bool) {
         let _guard = DbWeightGuard::new();
         let db = TestDbWeight::get();
         let current_epoch = CONSENSUS_HISTORY_RETENTION_EPOCHS + 1;
-        // Two selectors, one election probe, one fixed-round read, and all attestor reads
-        // plus the prefix end probe; seven round writes and one cursor write follow removal.
+        // One selector, one election probe, one fixed-round read, and all attestor reads
+        // plus the prefix end probe; six round writes and one cursor write follow removal.
         let payload_limit = <Test as Config>::ValidatorArgsLimit::get() as u64;
         let probe_proof = 12 * attestors as u64 + 1_024 + 4_096;
-        let fixed_proof = 128 * attestors as u64 + 1_024 + 7 * 4_096 + payload_limit + 5;
+        let fixed_proof = 128 * attestors as u64 + 1_024 + 6 * 4_096 + payload_limit + 5;
         let prefix_proof = (attestors as u64 + 1) * (payload_limit + 5 + 4_096);
         let exact_budget = db
-            .reads_writes(attestors as u64 + 5, attestors as u64 + 8)
+            .reads_writes(attestors as u64 + 4, attestors as u64 + 7)
             .saturating_add(Weight::from_parts(
                 0,
-                2 * 4_096 + probe_proof + fixed_proof + prefix_proof + 4_096,
+                4_096 + probe_proof + fixed_proof + prefix_proof + 4_096,
             ));
         for shortfall in [db.reads(1), Weight::from_parts(0, 1)] {
             let mut short_meter = WeightMeter::with_limit(exact_budget.saturating_sub(shortfall));
             Network::prune_consensus_history(&mut short_meter, subnet, current_epoch);
             assert_eq!(
                 short_meter.consumed(),
-                db.reads(3)
-                    .saturating_add(Weight::from_parts(0, 2 * 4_096 + probe_proof))
+                db.reads(2)
+                    .saturating_add(Weight::from_parts(0, 4_096 + probe_proof))
             );
             assert!(SubnetElectedValidator::<Test>::contains_key(subnet, epoch));
             assert_eq!(

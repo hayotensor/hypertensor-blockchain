@@ -442,7 +442,7 @@ fn test_get_elected_validator_info_v2() {
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
         // Elect a validator
-        Network::elect_validator(subnet_id, subnet_epoch, block_number);
+        Network::elect_validator(subnet_id, subnet_epoch);
 
         let validator_info = Network::get_elected_validator_info(subnet_id, subnet_epoch);
 
@@ -590,7 +590,7 @@ fn consensus_round_rpc_uses_immutable_election_identity() {
         let subnet_id = SubnetName::<Test>::get(subnet_name).unwrap();
         let block = System::block_number();
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch, block);
+        Network::elect_validator(subnet_id, subnet_epoch);
         let stored = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
 
         SubnetNodeValidatorId::<Test>::remove(subnet_id, stored.validator_subnet_node_id);
@@ -624,7 +624,7 @@ fn consensus_round_rpc_preserves_election_weights_and_rejects_corrupt_snapshots(
         let subnet_id = SubnetName::<Test>::get(name).unwrap();
         seed_equal_validator_delegate_stake_for_subnet(subnet_id);
         let epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, epoch, System::block_number());
+        Network::elect_validator(subnet_id, epoch);
         let round = SubnetElectedValidator::<Test>::get(subnet_id, epoch).unwrap();
         let snapshot =
             crate::SubnetConsensusAttestorWeights::<Test>::get(subnet_id, epoch).unwrap();
@@ -883,7 +883,7 @@ fn validator_rpc_and_election_use_all_healthy_consensus_candidates() {
 
         let epoch = Network::get_current_subnet_epoch_as_u32(subnet);
         SubnetElectedValidator::<Test>::remove(subnet, epoch);
-        Network::elect_validator(subnet, epoch, System::block_number());
+        Network::elect_validator(subnet, epoch);
         let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
         assert_eq!(round.eligible_subnet_node_ids, healthy_candidates);
         assert!(healthy_candidates.contains(&round.validator_subnet_node_id));

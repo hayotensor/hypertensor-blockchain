@@ -231,8 +231,6 @@ fn test_register_subnet_node_and_admit() {
         // Trigger queue admission
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );
@@ -377,8 +375,6 @@ fn test_register_subnet_node_and_admit_max_churn_limit() {
         // Trigger queue admission
         Network::emission_step(
             &mut WeightMeter::new(),
-            System::block_number(),
-            Network::get_current_epoch_as_u32(),
             Network::get_current_subnet_epoch_as_u32(subnet_id),
             subnet_id,
         );

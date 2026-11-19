@@ -19,22 +19,7 @@ use frame_system::pallet_prelude::BlockNumberFor;
 use sp_runtime::DispatchError;
 
 impl<T: Config> Pallet<T> {
-    /// Whether this exact elected node position is still exposed to an unsettled round.
-    pub fn is_node_stake_slash_locked(subnet_id: u32, subnet_node_id: u32) -> bool {
-        NodeStakePendingSlashLiabilityCount::<T>::get(subnet_id, subnet_node_id) > 0
-            || Self::get_current_block_as_u32()
-                < NodeStakeSlashLockUntil::<T>::get(subnet_id, subnet_node_id)
-    }
-
-    fn round_has_node_stake_slash_liability(round: &ElectedConsensusRound) -> bool {
-        round.policy.base_slash_percentage > 0
-            && round.policy.max_slash_amount > 0
-            && round.validator_node_stake_balance > 0
-    }
-
-    /// Whether an election created by the live lifecycle has already consumed its economic
-    /// settlement. Untracked hand-built state is left to test/benchmark compatibility, while every
-    /// real election writes an explicit pending value.
+    /// Whether this round's economic outcome has already been processed.
     pub(crate) fn is_consensus_round_settled(subnet_id: u32, subnet_epoch: u32) -> bool {
         ConsensusRoundSettlementStatus::<T>::get(subnet_id, subnet_epoch) == Some(true)
     }
@@ -56,49 +41,16 @@ impl<T: Config> Pallet<T> {
         })
     }
 
-    /// Finish a round exactly once and release its node liability. Only the matching pending
-    /// epoch owns the compact liability record; replaying history cannot unlock a newer round.
-    pub(crate) fn finalize_consensus_round_slash_liability(
-        subnet_id: u32,
-        subnet_epoch: u32,
-    ) -> Weight {
+    /// Mark this round's economic outcome complete without affecting any other election.
+    pub(crate) fn finalize_consensus_round(subnet_id: u32, subnet_epoch: u32) -> Weight {
         let db_weight = T::DbWeight::get();
-        let mut weight = db_weight.reads(2);
-        let status = ConsensusRoundSettlementStatus::<T>::get(subnet_id, subnet_epoch);
-        let pending = PendingConsensusRoundSettlementEpoch::<T>::get(subnet_id);
-
-        if pending == Some(subnet_epoch) {
-            let liability_node = PendingConsensusRoundSlashLiabilityNode::<T>::take(subnet_id)
-                .or_else(|| {
-                    // Either independent record can identify the liability if the other is lost.
-                    weight = weight.saturating_add(db_weight.reads(1));
-                    SubnetElectedValidator::<T>::get(subnet_id, subnet_epoch)
-                        .filter(Self::round_has_node_stake_slash_liability)
-                        .map(|round| round.validator_subnet_node_id)
-                });
-            if let Some(node_id) = liability_node {
-                // There cannot be overlapping rounds for the same subnet/node position. Clear
-                // the liability instead of decrementing an inconsistent count into a lasting lock.
-                NodeStakePendingSlashLiabilityCount::<T>::remove(subnet_id, node_id);
-                NodeStakeSlashLockUntil::<T>::remove(subnet_id, node_id);
-                weight = weight.saturating_add(db_weight.writes(2));
-            }
-            weight = weight.saturating_add(db_weight.reads_writes(1, 1));
-            PendingConsensusRoundSettlementEpoch::<T>::remove(subnet_id);
-            weight = weight.saturating_add(db_weight.writes(1));
-        } else if status == Some(true) {
+        let weight = db_weight.reads(1);
+        if Self::is_consensus_round_settled(subnet_id, subnet_epoch) {
             return weight;
-        } else if status.is_none() {
-            // Direct benchmark/test fixtures may have an election without a pending pointer.
-            weight = weight.saturating_add(db_weight.reads(1));
-            if !SubnetElectedValidator::<T>::contains_key(subnet_id, subnet_epoch) {
-                return weight;
-            }
         }
 
         ConsensusRoundSettlementStatus::<T>::insert(subnet_id, subnet_epoch, true);
-        ConsensusRoundSettlementEmissionEpoch::<T>::remove(subnet_id, subnet_epoch);
-        weight.saturating_add(db_weight.writes(2))
+        weight.saturating_add(db_weight.writes(1))
     }
 
     pub(crate) fn can_remove_excess_subnet_at_epoch(
@@ -736,16 +688,10 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    pub fn elect_validator(subnet_id: u32, subnet_epoch: u32, block: u32) {
+    pub fn elect_validator(subnet_id: u32, subnet_epoch: u32) {
         // Redundant
         // If validator already chosen, then return
         if SubnetElectedValidator::<T>::contains_key(subnet_id, subnet_epoch) {
-            return;
-        }
-        // At most one round per subnet may await settlement. This keeps retry selection O(1),
-        // prevents an unbounded liability backlog, and still permits one validator identity to
-        // hold overlapping liabilities across different subnets.
-        if PendingConsensusRoundSettlementEpoch::<T>::contains_key(subnet_id) {
             return;
         }
 
@@ -809,8 +755,6 @@ impl<T: Config> Pallet<T> {
                 policy,
             };
 
-            let has_node_liability = Self::round_has_node_stake_slash_liability(&elected_round);
-
             let attestor_weights = Self::snapshot_consensus_attestor_weights(
                 subnet_id,
                 &elected_round.policy,
@@ -820,28 +764,6 @@ impl<T: Config> Pallet<T> {
             SubnetElectedValidator::<T>::insert(subnet_id, subnet_epoch, &elected_round);
             SubnetConsensusAttestorWeights::<T>::insert(subnet_id, subnet_epoch, attestor_weights);
             ConsensusRoundSettlementStatus::<T>::insert(subnet_id, subnet_epoch, false);
-            PendingConsensusRoundSettlementEpoch::<T>::insert(subnet_id, subnet_epoch);
-            ConsensusRoundSettlementEmissionEpoch::<T>::insert(
-                subnet_id,
-                subnet_epoch,
-                Self::get_current_epoch_with_block_as_u32(block).saturating_add(1),
-            );
-
-            let settlement_block = block.saturating_add(T::EpochLength::get());
-
-            // Direct node principal remains available until its round is settled. The snapshot
-            // fixes the amount exposed by this election; the lock prevents the owner from making
-            // that snapshot uncollectable before settlement.
-            PendingConsensusRoundSlashLiabilityNode::<T>::set(
-                subnet_id,
-                has_node_liability.then_some(node_id),
-            );
-            if has_node_liability {
-                NodeStakePendingSlashLiabilityCount::<T>::insert(subnet_id, node_id, 1);
-                NodeStakeSlashLockUntil::<T>::mutate(subnet_id, node_id, |lock_until| {
-                    *lock_until = (*lock_until).max(settlement_block);
-                });
-            }
         }
     }
 }

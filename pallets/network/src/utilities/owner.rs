@@ -225,11 +225,6 @@ impl<T: Config> Pallet<T> {
             SubnetsData::<T>::contains_key(subnet_id),
             Error::<T>::InvalidSubnetId
         );
-        ensure!(
-            !PendingConsensusRoundSettlementEpoch::<T>::contains_key(subnet_id),
-            Error::<T>::ConsensusRoundPendingSettlement
-        );
-
         Self::do_remove_subnet(subnet_id, SubnetRemovalReason::Owner);
 
         Ok(())
