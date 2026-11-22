@@ -280,10 +280,11 @@ fn full_pending_removal_set_does_not_block_rejected_round_settlement() {
         let events_before = network_events().len();
 
         let settle = || {
-            Network::distribute_rewards(
+            Network::distribute_rewards_for_round(
                 &mut WeightMeter::new(),
                 subnet_id,
                 subnet_epoch + 1,
+                (subnet_epoch + 1).saturating_sub(1),
                 rejected.clone(),
                 RewardsData {
                     overall_subnet_reward: 100,
@@ -436,10 +437,11 @@ fn failed_economic_slashes_finalize_rounds_without_replaying_consensus() {
 
                 let settle = || {
                     if submitted {
-                        Network::distribute_rewards(
+                        Network::distribute_rewards_for_round(
                             &mut WeightMeter::new(),
                             subnet_id,
                             subnet_epoch + 1,
+                            (subnet_epoch + 1).saturating_sub(1),
                             rejected.clone(),
                             RewardsData {
                                 overall_subnet_reward: reward_budget,
@@ -595,10 +597,11 @@ fn submitted_round_slash_is_exact_once_after_the_round_ends() {
             remove_queue_node_id: None,
         };
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch + 1,
+            (subnet_epoch + 1).saturating_sub(1),
             rejected_submission.clone(),
             RewardsData::default(),
         );
@@ -609,10 +612,11 @@ fn submitted_round_slash_is_exact_once_after_the_round_ends() {
             Some(true)
         );
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch + 1,
+            (subnet_epoch + 1).saturating_sub(1),
             rejected_submission,
             RewardsData::default(),
         );
@@ -662,7 +666,7 @@ fn finalized_zero_weight_submitted_round_settles_exactly_once() {
             Network::elect_validator(subnet_id, subnet_epoch);
             let round = SubnetElectedValidator::<Test>::get(subnet_id, subnet_epoch).unwrap();
             let validator_id = round.validator_id;
-            run_subnet_consensus_step_v2(subnet_id, None, None);
+            run_subnet_consensus_step(subnet_id, None, None);
 
             let emission_epoch = subnet_epoch.saturating_add(1);
             match allocation_shape {

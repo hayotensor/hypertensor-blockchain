@@ -100,10 +100,11 @@ fn propose_round(
 
 fn settle(subnet: u32, epoch: u32, submission: ConsensusSubmissionData<Test>) {
     set_block_to_subnet_slot_epoch(epoch + 1, subnet);
-    Network::distribute_rewards(
+    Network::distribute_rewards_for_round(
         &mut WeightMeter::new(),
         subnet,
         epoch + 1,
+        (epoch + 1).saturating_sub(1),
         submission,
         RewardsData {
             subnet_node_rewards: Network::percentage_factor_as_u128(),

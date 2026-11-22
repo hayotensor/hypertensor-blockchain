@@ -584,7 +584,7 @@ fn test_register_subnet_node_prunes_removed_subnet_ownership_before_cap_check() 
 }
 
 #[test]
-fn test_register_subnet_subnet_must_be_registering_or_active_v2() {
+fn test_register_subnet_subnet_must_be_registering_or_active() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -655,7 +655,7 @@ fn test_register_subnet_subnet_must_be_registering_or_active_v2() {
 }
 
 #[test]
-fn test_register_subnet_coldkey_registration_whitelist_error_v2() {
+fn test_register_subnet_coldkey_registration_whitelist_error() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -821,7 +821,7 @@ fn test_owner_added_initial_validator_can_register_during_registration() {
 }
 
 #[test]
-fn test_register_subnet_max_registered_nodes_error_v2() {
+fn test_register_subnet_max_registered_nodes_error() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -937,7 +937,7 @@ fn test_register_subnet_max_registered_nodes_error_v2() {
 }
 
 #[test]
-fn test_register_subnet_node_and_then_update_a_param_v2() {
+fn test_register_subnet_node_and_then_update_a_param() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -1053,7 +1053,7 @@ fn test_register_subnet_node_and_then_update_a_param_v2() {
 }
 
 #[test]
-fn test_register_subnet_node_post_subnet_activation_v2() {
+fn test_register_subnet_node_post_subnet_activation() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -1150,7 +1150,7 @@ fn test_register_subnet_node_post_subnet_activation_v2() {
 }
 
 #[test]
-fn test_register_subnet_node_without_peer_info_v2() {
+fn test_register_subnet_node_without_peer_info() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -1222,7 +1222,7 @@ fn test_register_subnet_node_without_peer_info_v2() {
 }
 
 #[test]
-fn test_admit_subnet_node_post_subnet_activation_v2() {
+fn test_admit_subnet_node_post_subnet_activation() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -1914,7 +1914,7 @@ fn test_remove_queued_subnet_node() {
 }
 
 #[test]
-fn test_register_subnet_node_subnet_err_v2() {
+fn test_register_subnet_node_subnet_err() {
     new_test_ext().execute_with(|| {
         let subnet_id = 0;
 
@@ -2149,7 +2149,7 @@ fn test_register_subnet_node_not_exists_err() {
 }
 
 #[test]
-fn test_add_subnet_node_stake_err_v2() {
+fn test_add_subnet_node_stake_err() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -2212,7 +2212,7 @@ fn test_add_subnet_node_stake_err_v2() {
 }
 
 #[test]
-fn test_add_subnet_node_stake_not_enough_balance_err_v2() {
+fn test_add_subnet_node_stake_not_enough_balance_err() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -2274,7 +2274,7 @@ fn test_add_subnet_node_stake_not_enough_balance_err_v2() {
 }
 
 #[test]
-fn test_register_subnet_node_invalid_peer_id_err_v2() {
+fn test_register_subnet_node_invalid_peer_id_err() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -2393,7 +2393,7 @@ fn test_register_subnet_node_invalid_peer_id_err_v2() {
 }
 
 #[test]
-fn test_remove_subnet_node_not_key_owner_v2() {
+fn test_remove_subnet_node_not_key_owner() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -2461,7 +2461,7 @@ fn test_remove_subnet_node_not_key_owner_v2() {
 }
 
 #[test]
-fn test_remove_subnet_nodes_v2() {
+fn test_remove_subnet_nodes() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 1000000000000000000000000;
@@ -2534,7 +2534,7 @@ fn test_remove_subnet_nodes_v2() {
 }
 
 #[test]
-fn test_update_peer_id_v2() {
+fn test_update_peer_id() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -2653,7 +2653,7 @@ fn test_update_peer_id_v2() {
 }
 
 #[test]
-fn test_update_peer_id_allows_none_v2() {
+fn test_update_peer_id_allows_none() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -2729,7 +2729,7 @@ fn test_update_peer_id_allows_none_v2() {
 }
 
 #[test]
-fn test_update_peer_id_exists_v2() {
+fn test_update_peer_id_exists() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -2796,7 +2796,7 @@ fn test_update_peer_id_exists_v2() {
 }
 
 #[test]
-fn test_update_peer_id_not_key_owner_v2() {
+fn test_update_peer_id_not_key_owner() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -2839,7 +2839,7 @@ fn test_update_peer_id_not_key_owner_v2() {
 }
 
 #[test]
-fn test_update_peer_id_invalid_peer_id_v2() {
+fn test_update_peer_id_invalid_peer_id() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -2881,7 +2881,7 @@ fn test_update_peer_id_invalid_peer_id_v2() {
 }
 
 #[test]
-fn test_update_bootnode_peer_id_v2() {
+fn test_update_bootnode_peer_id() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -3055,7 +3055,7 @@ fn test_update_bootnode_peer_id_v2() {
 }
 
 #[test]
-fn test_update_bootnode_peer_id_exists_v2() {
+fn test_update_bootnode_peer_id_exists() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -3126,7 +3126,7 @@ fn test_update_bootnode_peer_id_exists_v2() {
 }
 
 #[test]
-fn test_update_bootnode_peer_id_not_key_owner_v2() {
+fn test_update_bootnode_peer_id_not_key_owner() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -3170,7 +3170,7 @@ fn test_update_bootnode_peer_id_not_key_owner_v2() {
 }
 
 #[test]
-fn test_update_bootnode_peer_id_invalid_peer_id_v2() {
+fn test_update_bootnode_peer_id_invalid_peer_id() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
         let deposit_amount: u128 = 10000000000000000000000;
@@ -3213,7 +3213,7 @@ fn test_update_bootnode_peer_id_invalid_peer_id_v2() {
 }
 
 #[test]
-fn test_update_client_peer_id_v2() {
+fn test_update_client_peer_id() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -3333,7 +3333,7 @@ fn test_update_client_peer_id_v2() {
 }
 
 #[test]
-fn test_update_client_peer_id_exists_v2() {
+fn test_update_client_peer_id_exists() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -3555,7 +3555,7 @@ fn test_clean_validator_subnet_nodes() {
         let mut subnet_nodes: BTreeMap<u32, BTreeSet<u32>> = BTreeMap::new();
 
         // Subnet 1: Valid subnet with valid and invalid nodes
-        manual_insert_subnet_node_v2(
+        manual_insert_subnet_node(
             validator_id,
             1,
             100, // node id
@@ -3571,7 +3571,7 @@ fn test_clean_validator_subnet_nodes() {
         subnet_nodes.insert(1, node_ids1);
 
         // Subnet 2: Valid subnet with only valid nodes
-        manual_insert_subnet_node_v2(
+        manual_insert_subnet_node(
             validator_id,
             2,
             200, // node id
@@ -5060,22 +5060,3 @@ fn test_slash_subnet_node() {
 // //         assert!(starting_total_stake > TotalStake::<Test>::get());
 // //     });
 // // }
-
-// #[test]
-// fn test_build_activated_subnet_v2() {
-//     new_test_ext().execute_with(|| {
-//         let subnet_name: Vec<u8> = "subnet-name".into();
-
-//         let deposit_amount: u128 = 10000000000000000000000;
-//         let amount: u128 = 1000000000000000000000;
-
-//         let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
-
-//         let subnets = TotalActiveSubnets::<Test>::get() + 1;
-//         let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-//         let max_subnets = MaxSubnets::<Test>::get();
-//         let end = 4;
-
-//         build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
-//     })
-// }

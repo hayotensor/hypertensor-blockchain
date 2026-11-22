@@ -161,7 +161,7 @@ fn partial_epoch_pause_keeps_immunity_until_the_next_admission_opportunity() {
             let late_block = election_block + EpochLength::get() - 1;
             System::set_block_number(late_block.into());
             assert_eq!(Network::queue_epoch_at(subnet_id, late_block), boundary + 1);
-            run_subnet_consensus_step_v2(subnet_id, None, Some(queued.id));
+            run_subnet_consensus_step(subnet_id, None, Some(queued.id));
             assert_eq!(
                 SubnetConsensusSubmission::<Test>::get(subnet_id, resume_epoch)
                     .unwrap()
@@ -186,7 +186,7 @@ fn partial_epoch_pause_keeps_immunity_until_the_next_admission_opportunity() {
                 assert!(QueuedSubnetNodesData::<Test>::contains_key(
                     subnet_id, queued.id
                 ));
-                run_subnet_consensus_step_v2(subnet_id, None, Some(queued.id));
+                run_subnet_consensus_step(subnet_id, None, Some(queued.id));
                 assert_eq!(
                     SubnetConsensusSubmission::<Test>::get(subnet_id, resume_epoch + 1)
                         .unwrap()

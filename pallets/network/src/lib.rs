@@ -6895,7 +6895,7 @@ pub mod pallet {
             // Whole-subnet removal leaves this validator's forward indexes intact. Repair only
             // this owner's bounded state when they next remove one of their own nodes.
             Self::clean_validator_subnet_nodes(validator_id);
-            Self::do_remove_subnet_node_v2(subnet_id, subnet_node_id)
+            Self::do_remove_subnet_node(subnet_id, subnet_node_id)
         }
 
         // ==============================================
@@ -8564,7 +8564,7 @@ pub mod pallet {
             // See `do_epoch_preliminaries` to learn how subnets are removed if
             // maximum subnets is exceeded
             ensure!(
-                Self::get_total_subnets()
+                TotalSubnets::<T>::get()
                     < MaxSubnets::<T>::get().saturating_add(SUBNET_ROTATION_ALLOWANCE),
                 Error::<T>::MaxSubnets
             );
@@ -9447,7 +9447,7 @@ pub mod pallet {
             final_weight
         }
 
-        pub fn do_remove_subnet_node_v2(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
+        pub fn do_remove_subnet_node(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
             Self::perform_remove_subnet_node(subnet_id, subnet_node_id)?;
             Ok(())
         }

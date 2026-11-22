@@ -1718,7 +1718,7 @@ fn test_collective_remove_overwatch_node() {
         let validator_id = 7;
         manual_insert_validator(validator_id, 7, 8);
         OverwatchValidatorWhitelist::<Test>::insert(validator_id, ());
-        let node_id = insert_overwatch_node_v2(validator_id);
+        let node_id = insert_overwatch_node(validator_id, None);
 
         // A 2/3 vote cannot create active-but-unapproved state.
         assert_err!(

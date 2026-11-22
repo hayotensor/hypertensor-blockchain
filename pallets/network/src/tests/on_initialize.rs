@@ -131,7 +131,7 @@ fn test_on_initialize() {
         let mut overwatch_node_ids = Vec::new();
         for validator_id in 1..=overwatch_count {
             OverwatchValidatorWhitelist::<Test>::insert(validator_id, ());
-            let overwatch_node_id = insert_overwatch_node_v2(validator_id);
+            let overwatch_node_id = insert_overwatch_node(validator_id, None);
             set_overwatch_node_stake(overwatch_node_id, 100);
             assert_ne!(OverwatchNodeStakeBalance::<Test>::get(overwatch_node_id), 0);
             overwatch_node_ids.push(overwatch_node_id);
@@ -224,7 +224,7 @@ fn test_on_initialize() {
                     );
                     let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
                     if get_elected_subnet_node_id(subnet_id, subnet_epoch).is_some() {
-                        run_subnet_consensus_step_v2(subnet_id, None, None);
+                        run_subnet_consensus_step(subnet_id, None, None);
                     }
                 }
             }

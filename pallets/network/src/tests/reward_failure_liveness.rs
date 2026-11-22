@@ -77,7 +77,7 @@ enum CreditFault {
 fn failed_owner_payment_is_queued_and_the_hook_elects_again() {
     new_test_ext().execute_with(|| {
         let (subnet, epoch, proposer) = elected_round();
-        run_subnet_consensus_step_v2(subnet, None, None);
+        run_subnet_consensus_step(subnet, None, None);
         let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
         let (rewards, _) = Network::calculate_rewards_with_policy(10 * TOKEN, TOKEN, &round.policy);
         assert!(rewards.subnet_owner_reward > 0);
@@ -120,7 +120,7 @@ fn reward_credit_failures_leave_balances_atomic_and_the_hook_elects_again() {
     ] {
         new_test_ext().execute_with(|| {
             let (subnet, epoch, proposer) = elected_round();
-            run_subnet_consensus_step_v2(subnet, None, None);
+            run_subnet_consensus_step(subnet, None, None);
             let round = SubnetElectedValidator::<Test>::get(subnet, epoch).unwrap();
             let submission = SubnetConsensusSubmission::<Test>::get(subnet, epoch).unwrap();
             assert!(round.policy.base_validator_reward > 0);

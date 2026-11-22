@@ -367,7 +367,7 @@ fn test_overwatch_unbonding_never_enters_network_tvl() {
         let validator_id = 1;
         manual_insert_validator(validator_id, 895, 896);
         let coldkey = account(895);
-        let overwatch_node_id = insert_overwatch_node_v2(validator_id);
+        let overwatch_node_id = insert_overwatch_node(validator_id, None);
         let amount = 100;
         let stake = OverwatchMinStakeBalance::<Test>::get() + amount;
         set_overwatch_node_stake(overwatch_node_id, stake);
@@ -658,7 +658,7 @@ fn test_full_unbonding_ledger_blocks_overwatch_unstake_without_debit() {
         let validator_id = 1;
         manual_insert_validator(validator_id, 903, 904);
         let coldkey = account(903);
-        let overwatch_node_id = insert_overwatch_node_v2(validator_id);
+        let overwatch_node_id = insert_overwatch_node(validator_id, None);
         let stake = OverwatchMinStakeBalance::<Test>::get().saturating_add(1000);
         set_overwatch_node_stake(overwatch_node_id, stake);
 

@@ -1342,10 +1342,11 @@ fn more_than_four_threshold_crossings_withhold_without_redistribution() {
         let delegate_balance_before =
             crate::TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             1,
+            0,
             submission,
             rewards.clone(),
         );
@@ -1519,10 +1520,11 @@ fn pending_proposer_forfeits_every_node_related_allocation_without_redistributio
             subnet_node_rewards: 300,
         };
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             1,
+            0,
             submission,
             rewards.clone(),
         );

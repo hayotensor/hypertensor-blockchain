@@ -402,10 +402,11 @@ fn distribute_identity_gate_round_with_rewards(
     submission: ConsensusSubmissionData<Test>,
     rewards_data: RewardsData,
 ) {
-    Network::distribute_rewards(
+    Network::distribute_rewards_for_round(
         &mut WeightMeter::new(),
         subnet_id,
         subnet_epoch.saturating_add(1),
+        subnet_epoch.saturating_add(1).saturating_sub(1),
         submission,
         rewards_data,
     );
@@ -1922,10 +1923,11 @@ fn test_strong_rejection_deduplicates_identity_but_penalizes_each_attesting_node
         );
 
         submission.policy.min_subnet_node_reputation = 0;
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch.saturating_add(1),
+            subnet_epoch.saturating_add(1).saturating_sub(1),
             submission,
             RewardsData::default(),
         );
@@ -2054,10 +2056,11 @@ fn test_distribute_rewards_fails_when_stake_passes_but_node_count_fails() {
             SubnetNodeReputation::<Test>::get(subnet_id, second_attestor).unwrap();
 
         let mut weight_meter = WeightMeter::new();
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut weight_meter,
             subnet_id,
             subnet_epoch.saturating_add(1),
+            subnet_epoch.saturating_add(1).saturating_sub(1),
             consensus_submission_data,
             RewardsData::default(),
         );
@@ -2128,10 +2131,11 @@ fn test_distribute_rewards_passes_when_stake_and_node_count_quorums_pass() {
         let old_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
 
         let mut weight_meter = WeightMeter::new();
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut weight_meter,
             subnet_id,
             subnet_epoch.saturating_add(1),
+            subnet_epoch.saturating_add(1).saturating_sub(1),
             consensus_submission_data,
             RewardsData::default(),
         );
@@ -2207,10 +2211,11 @@ fn test_distribute_rewards_skips_settlement_below_minimum_validator_set_size() {
         let old_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
 
         let mut weight_meter = WeightMeter::new();
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut weight_meter,
             subnet_id,
             subnet_epoch.saturating_add(1),
+            subnet_epoch.saturating_add(1).saturating_sub(1),
             consensus_submission_data,
             RewardsData::default(),
         );
@@ -2284,10 +2289,11 @@ fn test_distribute_rewards_fails_when_node_count_passes_but_stake_fails() {
         SubnetReputation::<Test>::insert(subnet_id, neutral_reputation);
 
         let mut weight_meter = WeightMeter::new();
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut weight_meter,
             subnet_id,
             subnet_epoch.saturating_add(1),
+            subnet_epoch.saturating_add(1).saturating_sub(1),
             consensus_submission_data,
             RewardsData::default(),
         );
@@ -2536,10 +2542,11 @@ fn test_post_election_delegation_cannot_change_round_quorum() {
 
             // Post-election funding must not introduce a stake-only failure or proposer penalty.
             let proposer_stake = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
-            Network::distribute_rewards(
+            Network::distribute_rewards_for_round(
                 &mut WeightMeter::new(),
                 subnet_id,
                 subnet_epoch + 1,
+                (subnet_epoch + 1).saturating_sub(1),
                 submission,
                 RewardsData::default(),
             );
@@ -2663,10 +2670,11 @@ fn test_post_election_withdrawal_allocation_and_node_count_apply_to_next_round()
             Network::precheck_subnet_consensus_submission(subnet_id, subnet_epoch);
         let submission = submission.unwrap();
         assert_eq!(submission.attestation_ratio, stake);
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch + 1,
+            (subnet_epoch + 1).saturating_sub(1),
             submission,
             RewardsData::default(),
         );
@@ -4066,10 +4074,11 @@ fn test_distribute_rewards() {
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data.clone(),
             rewards_data.clone(),
         );
@@ -4306,10 +4315,11 @@ fn test_distribute_rewards_node_gets_reward_after_removal() {
             remove_node_id
         ));
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data.clone(),
             rewards_data.clone(),
         );
@@ -4547,10 +4557,11 @@ fn test_distribute_rewards_delegate_account_50_percent() {
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data.clone(),
             rewards_data.clone(),
         );
@@ -4768,10 +4779,11 @@ fn test_distribute_rewards_fork() {
         SubnetReputation::<Test>::insert(subnet_id, test_percent(1, 2));
         let starting_rep = SubnetReputation::<Test>::get(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data.clone(),
             rewards_data.clone(),
         );
@@ -4861,95 +4873,9 @@ fn test_distribute_rewards_prioritized_queue_node_id() {
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         Network::elect_validator(subnet_id, subnet_epoch);
 
-        run_subnet_consensus_step_v2(subnet_id, Some(last.id), None);
+        run_subnet_consensus_step(subnet_id, Some(last.id), None);
 
         let submission = SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch);
-        assert!(submission
-            .clone()
-            .unwrap()
-            .prioritize_queue_node_id
-            .is_some());
-        assert_eq!(
-            submission
-                .clone()
-                .unwrap()
-                .prioritize_queue_node_id
-                .unwrap(),
-            last.id
-        );
-
-        increase_epochs(1);
-        set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
-
-        // Calculate weights
-        Network::handle_subnet_emission_weights(Network::get_current_epoch_as_u32());
-
-        // Verify weights exist
-        let subnet_emission_weights =
-            FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
-        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
-        assert!(subnet_weight.is_some());
-
-        // Emissions
-        Network::emission_step(
-            &mut WeightMeter::new(),
-            Network::get_current_subnet_epoch_as_u32(subnet_id),
-            subnet_id,
-        );
-
-        let queue = SubnetNodeQueue::<Test>::get(subnet_id);
-
-        assert!(queue.len() > 0);
-
-        // Ensure last is now the first
-        let first = queue.first().unwrap();
-        assert_eq!(first.id, last.id)
-    });
-}
-
-#[test]
-fn test_distribute_rewards_prioritized_queue_node_id_v2() {
-    new_test_ext().execute_with(|| {
-        let subnet_name: Vec<u8> = "subnet-name".into();
-        let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
-
-        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
-        let subnets = TotalActiveSubnets::<Test>::get() + 1;
-        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let max_subnets = MaxSubnets::<Test>::get();
-        let end = 4;
-
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
-
-        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-        seed_equal_validator_delegate_stake_for_subnet(subnet_id);
-        let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
-
-        let new_start = end + 1;
-        let new_end = new_start + 4;
-        build_queued_subnet_nodes(subnet_id, new_start, new_end, deposit_amount, amount);
-
-        let queue = SubnetNodeQueue::<Test>::get(subnet_id);
-        assert_eq!(queue.len() as u32, new_end - new_start);
-
-        let first = queue.first().unwrap();
-        let last = queue.last().unwrap();
-        // Sanity check
-        assert_ne!(first.id, last.id);
-
-        let exists = queue.iter().any(|node| node.id == last.id);
-
-        set_block_to_subnet_slot_epoch(Network::get_current_epoch_as_u32(), subnet_id);
-        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch);
-
-        run_subnet_consensus_step_v2(subnet_id, Some(last.id), None);
-
-        let submission = SubnetConsensusSubmission::<Test>::get(
-            subnet_id,
-            Network::get_current_subnet_epoch_as_u32(subnet_id),
-        );
         assert!(submission
             .clone()
             .unwrap()
@@ -5043,7 +4969,7 @@ fn test_distribute_rewards_remove_queue_node_id() {
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
         Network::elect_validator(subnet_id, subnet_epoch);
 
-        run_subnet_consensus_step_v2(subnet_id, None, Some(first.id));
+        run_subnet_consensus_step(subnet_id, None, Some(first.id));
 
         let submission = SubnetConsensusSubmission::<Test>::get(
             subnet_id,
@@ -5084,99 +5010,6 @@ fn test_distribute_rewards_remove_queue_node_id() {
 
         log::error!("included {:?}", included);
         log::error!("first.id {:?}", first.id);
-
-        assert!(!included);
-    });
-}
-
-#[test]
-fn test_distribute_rewards_remove_queue_node_id_v2() {
-    new_test_ext().execute_with(|| {
-        let subnet_name: Vec<u8> = "subnet-name".into();
-        let deposit_amount: u128 = 10000000000000000000000;
-        let amount: u128 = 1000000000000000000000;
-
-        let stake_amount: u128 = MinSubnetMinStake::<Test>::get();
-        let subnets = TotalActiveSubnets::<Test>::get() + 1;
-        let max_subnet_nodes = MaxSubnetNodes::<Test>::get();
-        let max_subnets = MaxSubnets::<Test>::get();
-        let end = 4;
-
-        build_activated_subnet(subnet_name.clone(), 0, end, deposit_amount, stake_amount);
-
-        let subnet_id = SubnetName::<Test>::get(subnet_name.clone()).unwrap();
-        seed_equal_validator_delegate_stake_for_subnet(subnet_id);
-        let total_subnet_nodes = TotalSubnetNodes::<Test>::get(subnet_id);
-
-        let new_start = end + 1;
-        let new_end = new_start + 4;
-        build_queued_subnet_nodes(subnet_id, new_start, new_end, deposit_amount, amount);
-
-        // Set queue immunity epochs less than the registration queue epochs
-        QueueImmunityEpochs::<Test>::insert(subnet_id, 1);
-
-        // Push passed immunity period so node can be removed from queue
-        let immunity_epochs = QueueImmunityEpochs::<Test>::get(subnet_id);
-        let removal_epoch = SubnetNodeQueue::<Test>::get(subnet_id)
-            .first()
-            .unwrap()
-            .classification
-            .start_epoch
-            .saturating_add(immunity_epochs)
-            .saturating_add(1);
-        set_block_to_subnet_slot_epoch(removal_epoch, subnet_id);
-
-        let queue = SubnetNodeQueue::<Test>::get(subnet_id);
-        assert_eq!(queue.len() as u32, new_end - new_start);
-
-        let first = queue.first().unwrap();
-        let last = queue.last().unwrap();
-        // Sanity check
-        assert_ne!(first.id, last.id);
-
-        let exists = queue.iter().any(|node| node.id == last.id);
-
-        let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
-        Network::elect_validator(subnet_id, subnet_epoch);
-
-        run_subnet_consensus_step_v2(subnet_id, None, Some(first.id));
-
-        let submission = SubnetConsensusSubmission::<Test>::get(
-            subnet_id,
-            Network::get_current_subnet_epoch_as_u32(subnet_id),
-        );
-        assert!(submission.clone().unwrap().remove_queue_node_id.is_some());
-        assert_eq!(
-            submission.clone().unwrap().remove_queue_node_id.unwrap(),
-            first.id
-        );
-
-        set_block_to_subnet_slot_epoch(removal_epoch.saturating_add(1), subnet_id);
-
-        // Calculate weights
-        Network::handle_subnet_emission_weights(Network::get_current_epoch_as_u32());
-
-        // Verify weights exist
-        let subnet_emission_weights =
-            FinalSubnetEmissionWeights::<Test>::get(Network::get_current_epoch_as_u32());
-        let subnet_weight = subnet_emission_weights.subnet_weights.get(&subnet_id);
-        assert!(subnet_weight.is_some());
-
-        // Emissions
-        Network::emission_step(
-            &mut WeightMeter::new(),
-            Network::get_current_subnet_epoch_as_u32(subnet_id),
-            subnet_id,
-        );
-        let queue = SubnetNodeQueue::<Test>::get(subnet_id);
-        assert!(queue.len() > 0);
-
-        let mut included = false;
-        for n in queue {
-            if n.id == first.id {
-                included = true;
-            }
-        }
 
         assert!(!included);
     });
@@ -5325,10 +5158,11 @@ fn test_distribute_rewards_non_consensus_reputation() {
 
         let starting_subnet_rep = SubnetReputation::<Test>::get(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -5700,10 +5534,11 @@ fn test_strong_rejection_applies_proposer_attestor_decrease_before_removal() {
         // apply the proposer's automatic-attestor decrease before removing the active node.
         submission.policy.min_subnet_node_reputation = starting_reputation;
         System::reset_events();
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch.saturating_add(1),
+            subnet_epoch.saturating_add(1).saturating_sub(1),
             submission,
             RewardsData::default(),
         );
@@ -5851,10 +5686,11 @@ fn test_distribute_rewards_absent_consensus_reputation() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -5972,10 +5808,11 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -6070,10 +5907,11 @@ fn test_distribute_rewards_absent_consensus_then_in_consensus_reputation() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -6205,10 +6043,11 @@ fn test_distribute_rewards_below_min_weight_reputation() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -7292,10 +7131,11 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -7465,10 +7305,11 @@ fn test_distribute_rewards_non_attest_vast_majoriy_reputation_remove_node() {
             min_validator_node_reputation + 1,
         );
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -7773,10 +7614,11 @@ fn test_distribute_rewards_under_min_attest_slash_subnet_node() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -7944,10 +7786,11 @@ fn test_distribute_rewards_fork_under_min_attest_slash_subnet_node() {
             Some(identity_shortfall),
         );
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -8094,10 +7937,11 @@ fn test_distribute_rewards_fork_remove_node_at_min_reputation() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -8221,10 +8065,11 @@ fn test_distribute_rewards_fork_no_score_submitted_decrease_reputation() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -8369,10 +8214,11 @@ fn test_distribute_rewards_late_validator_and_attestors() {
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data.clone(),
             rewards_data.clone(),
         );
@@ -8557,10 +8403,11 @@ fn test_distribute_rewards_fork_late_validator_and_attestors() {
 
         let validator_stake = NodeSubnetStake::<Test>::get(elected_node_id.unwrap(), subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data.clone(),
             rewards_data.clone(),
         );
@@ -8736,10 +8583,11 @@ fn test_attest_increase_reputation_when_included() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -8812,7 +8660,6 @@ fn test_distribute_rewards_node_delegate_stake() {
         let epoch = block_number / epoch_length;
 
         // ⸺ Submit consnesus data
-        // run_subnet_consensus_step_v2(subnet_id, None, None);
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
@@ -8900,10 +8747,11 @@ fn test_distribute_rewards_node_delegate_stake() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -9063,10 +8911,11 @@ fn test_distribute_rewards_fork_node_delegate_stake() {
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch,
+            subnet_epoch.saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         );
@@ -9235,7 +9084,6 @@ fn test_propose_attestation_epoch_progression_0() {
         assert!(subnet_weight.is_some());
 
         // ⸺ Submit consnesus data
-        // run_subnet_consensus_step_v2(subnet_id, None, None);
         set_block_to_subnet_slot_epoch(epoch, subnet_id);
 
         let subnet_epoch = Network::get_current_subnet_epoch_as_u32(subnet_id);
@@ -9669,10 +9517,11 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
         let delegate_stake_before = TotalSubnetDelegateStakeBalance::<Test>::get(subnet_id);
 
         for settlement_epoch in 1..=2 {
-            Network::distribute_rewards(
+            Network::distribute_rewards_for_round(
                 &mut WeightMeter::new(),
                 subnet_id,
                 settlement_epoch,
+                settlement_epoch.saturating_sub(1),
                 zero_score_submission.clone(),
                 fresh_rewards.clone(),
             );
@@ -9741,10 +9590,11 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
         .expect("activating delegate stake deposit must succeed");
         assert!(circulating_shares > 0);
 
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             3,
+            2,
             nonzero_score_submission,
             next_rewards.clone(),
         );
@@ -10390,10 +10240,11 @@ fn test_failed_owner_credit_does_not_abort_settled_round_payouts() {
         let proposer_stake_before = NodeSubnetStake::<Test>::get(elected_node_id, subnet_id);
 
         System::reset_events();
-        Network::distribute_rewards(
+        Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch.saturating_add(1),
+            subnet_epoch.saturating_add(1).saturating_sub(1),
             consensus_submission_data.clone(),
             rewards_data.clone(),
         );
@@ -10404,10 +10255,11 @@ fn test_failed_owner_credit_does_not_abort_settled_round_payouts() {
             crate::SubnetRewardCapacitor::<Test>::get(subnet_id),
             capacitor_before
         );
-        frame_support::assert_storage_noop!(Network::distribute_rewards(
+        frame_support::assert_storage_noop!(Network::distribute_rewards_for_round(
             &mut WeightMeter::new(),
             subnet_id,
             subnet_epoch + 1,
+            (subnet_epoch + 1).saturating_sub(1),
             consensus_submission_data,
             rewards_data,
         ));

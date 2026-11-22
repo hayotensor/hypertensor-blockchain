@@ -525,7 +525,7 @@ impl<T: Config> Pallet<T> {
     }
     pub fn do_collective_remove_subnet_node(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
         Self::deposit_event(Event::CollectiveRemoveSubnetNode(subnet_id, subnet_node_id));
-        Self::do_remove_subnet_node_v2(subnet_id, subnet_node_id)
+        Self::do_remove_subnet_node(subnet_id, subnet_node_id)
     }
     pub fn do_collective_remove_overwatch_node(overwatch_node_id: u32) -> DispatchResult {
         Self::perform_disqualify_overwatch_node(overwatch_node_id)?;

@@ -65,7 +65,7 @@ fn default_queue_immunity_covers_activation_boundary() {
             subnet_id,
             subnet_epoch
         ));
-        run_subnet_consensus_step_v2(subnet_id, None, Some(queued_node.id));
+        run_subnet_consensus_step(subnet_id, None, Some(queued_node.id));
 
         let boundary_submission =
             SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
@@ -101,7 +101,7 @@ fn default_queue_immunity_covers_activation_boundary() {
 
         // Once activated, it cannot be selected as a queue removal even if a
         // validator supplies the old queue ID later in the epoch.
-        run_subnet_consensus_step_v2(subnet_id, None, Some(queued_node.id));
+        run_subnet_consensus_step(subnet_id, None, Some(queued_node.id));
         let eligible_submission =
             SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
         assert_eq!(eligible_submission.remove_queue_node_id, None);

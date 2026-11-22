@@ -126,7 +126,9 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    /// Settle rewards and reputation for one completed subnet consensus round.
+    /// Settle rewards and reputation for the explicitly identified consensus round.
+    /// The slot caller supplies the immediately preceding subnet epoch.
+    /// Already-settled rounds return without applying further changes.
     ///
     /// Processing is logically ordered as follows:
     /// 1. Load the round rules and existing pending removals.
@@ -143,24 +145,6 @@ impl<T: Config> Pallet<T> {
     ///    Store all newly pending node IDs and emit one batched event before returning.
     ///
     /// Physical node deletion is intentionally deferred to separately metered cleanup paths.
-    pub(crate) fn distribute_rewards(
-        weight_meter: &mut WeightMeter,
-        subnet_id: u32,
-        current_subnet_epoch: u32,
-        consensus_submission_data: ConsensusSubmissionData<T>,
-        rewards_data: RewardsData,
-    ) {
-        Self::distribute_rewards_for_round(
-            weight_meter,
-            subnet_id,
-            current_subnet_epoch,
-            current_subnet_epoch.saturating_sub(1),
-            consensus_submission_data,
-            rewards_data,
-        );
-    }
-
-    /// Round-explicit settlement path used when a previously skipped epoch is retried.
     pub(crate) fn distribute_rewards_for_round(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
@@ -1208,9 +1192,9 @@ impl<T: Config> Pallet<T> {
             return 0;
         }
 
-        // The balance EMA checkpoint reads the block, subnet existence and EMA record,
+        // The reward checkpoint reads the block, subnet existence and balance-time record,
         // in addition to the four existing pool/total reads. Charge before a possible error.
-        // Writes update the pool balance, total delegation, and balance EMA; never net flow.
+        // Writes update the pool balance, total delegation, and balance-time record.
         weight_meter.consume(db_weight.reads_writes(7, 3));
         weight_meter.consume(T::WeightInfo::checkpoint_subnet_delegate_stake_ema());
         if Self::do_increase_delegate_stake(subnet_id, delegate_stake_reward).is_err() {

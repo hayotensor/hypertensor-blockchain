@@ -70,10 +70,6 @@ impl<T: Config> Pallet<T> {
         min_subnet_nodes
     }
 
-    pub fn get_total_subnets() -> u32 {
-        TotalSubnets::<T>::get()
-    }
-
     // Check if the subnet state is registered, and if it's in the registration period
     pub fn is_subnet_registering(subnet_id: u32, state: SubnetState, epoch: u32) -> bool {
         // Only Registered state can be in registration period

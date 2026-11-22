@@ -2248,31 +2248,16 @@ pub fn to_bounded<Len: frame_support::traits::Get<u32>>(s: &str) -> BoundedVec<u
     BoundedVec::try_from(s.as_bytes().to_vec()).expect("String too long")
 }
 
-// When using this function, manually add stake because some tests require fine tuning stake
-pub fn insert_overwatch_node(validator_id: u32, hotkey_n: u32) -> u32 {
-    let hotkey = account(hotkey_n);
-
+/// Insert Overwatch membership with an optional node hotkey override.
+/// `None` leaves the override absent so the validator hotkey is used. Seed stake separately.
+pub fn insert_overwatch_node(validator_id: u32, hotkey_n: Option<u32>) -> u32 {
     TotalOverwatchNodeUids::<Test>::mutate(|n: &mut u32| *n += 1);
     let current_uid = TotalOverwatchNodeUids::<Test>::get();
 
     OverwatchNodes::<Test>::insert(current_uid, ());
-    OverwatchNodeIdHotkey::<Test>::insert(current_uid, hotkey.clone());
-    OverwatchNodeValidatorId::<Test>::insert(current_uid, validator_id);
-    ValidatorOverwatchNodeId::<Test>::insert(validator_id, current_uid);
-    TotalOverwatchNodes::<Test>::mutate(|n: &mut u32| *n += 1);
-
-    // let stake_balance = OverwatchMinStakeBalance::<Test>::get();
-
-    // OverwatchNodeStakeBalance::<Test>::insert(hotkey.clone(), stake_balance);
-
-    current_uid
-}
-
-pub fn insert_overwatch_node_v2(validator_id: u32) -> u32 {
-    TotalOverwatchNodeUids::<Test>::mutate(|n: &mut u32| *n += 1);
-    let current_uid = TotalOverwatchNodeUids::<Test>::get();
-
-    OverwatchNodes::<Test>::insert(current_uid, ());
+    if let Some(hotkey_n) = hotkey_n {
+        OverwatchNodeIdHotkey::<Test>::insert(current_uid, account(hotkey_n));
+    }
     OverwatchNodeValidatorId::<Test>::insert(current_uid, validator_id);
     ValidatorOverwatchNodeId::<Test>::insert(validator_id, current_uid);
     TotalOverwatchNodes::<Test>::mutate(|n: &mut u32| *n += 1);
@@ -2383,7 +2368,7 @@ pub fn insert_subnet_requirements(id: u32) {
     assert_eq!(total_delegate_stake_balance, min_subnet_delegate_stake);
 }
 
-pub fn manual_insert_subnet_node_v2(
+pub fn manual_insert_subnet_node(
     validator_id: u32,
     subnet_id: u32,
     node_id: u32,
@@ -2461,7 +2446,7 @@ pub fn set_reputation(id: u32, rep: u128) {
     SubnetReputation::<Test>::insert(id, rep);
 }
 
-pub fn run_subnet_consensus_step_v2(
+pub fn run_subnet_consensus_step(
     subnet_id: u32,
     prioritize_queue_node_id: Option<u32>,
     remove_queue_node_id: Option<u32>,

@@ -413,8 +413,8 @@ fn reveal_stats_increment_once_and_removal_decrements_shared_and_sole_subnets() 
 
         manual_insert_validator(1, 101, 201);
         manual_insert_validator(2, 102, 202);
-        let first_node_id = insert_overwatch_node_v2(1);
-        let second_node_id = insert_overwatch_node_v2(2);
+        let first_node_id = insert_overwatch_node(1, None);
+        let second_node_id = insert_overwatch_node(2, None);
 
         let first_shared_weight = test_percent(1, 4);
         let first_shared_salt = b"first-shared".to_vec();
@@ -1441,8 +1441,8 @@ fn copied_commitment_cannot_be_revealed_by_another_node_even_if_submitted_first(
         insert_subnet(subnet_id, SubnetState::Active, 0);
         manual_insert_validator(1, 101, 201);
         manual_insert_validator(2, 102, 202);
-        let honest_node = insert_overwatch_node_v2(1);
-        let copying_node = insert_overwatch_node_v2(2);
+        let honest_node = insert_overwatch_node(1, None);
+        let copying_node = insert_overwatch_node(2, None);
         let weight = test_percent(3, 5);
         let salt = b"honest-private-salt".to_vec();
         let commitment = make_commit(honest_node, subnet_id, epoch, weight, salt.clone());
@@ -1525,7 +1525,7 @@ fn commitments_cannot_be_replayed_across_subnets_or_epochs() {
             insert_subnet(subnet_id, SubnetState::Active, 0);
             insert_subnet(other_subnet_id, SubnetState::Active, 0);
             manual_insert_validator(1, 101, 201);
-            let node = insert_overwatch_node_v2(1);
+            let node = insert_overwatch_node(1, None);
             let weight = test_percent(1, 2);
             let salt = b"context-bound-salt".to_vec();
             let commitment = make_commit(node, subnet_id, epoch, weight, salt.clone());
@@ -1636,7 +1636,7 @@ fn test_overwatch_subnet_churn_during_commit_keeps_full_revealers_eligible() {
         for v in 1..=2u32 {
             manual_insert_validator(v, 10_000 + v, 20_000 + v);
             OverwatchValidatorWhitelist::<Test>::insert(v, ());
-            let id = insert_overwatch_node_v2(v);
+            let id = insert_overwatch_node(v, None);
             set_overwatch_node_stake(id, min_stake);
             hotkeys.insert(id, account(20_000 + v));
         }

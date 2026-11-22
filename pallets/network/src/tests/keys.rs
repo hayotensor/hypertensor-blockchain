@@ -33,7 +33,7 @@ use sp_std::collections::btree_map::BTreeMap;
 //         let fake_coldkey = get_coldkey(subnets, max_subnet_nodes, end + 3);
 
 //         // Insert overwatch node with coldkey
-//         let overwatch_node_id = insert_overwatch_node(max_subnet_nodes + end * subnets, 0);
+//         let overwatch_node_id = insert_overwatch_node(max_subnet_nodes + end * subnets, Some(0));
 //         set_overwatch_node_stake(
 //             max_subnet_nodes + end * subnets,
 //             OverwatchMinStakeBalance::<Test>::get(),
@@ -338,7 +338,7 @@ use sp_std::collections::btree_map::BTreeMap;
 //         let ow_hotkey_n = 1;
 //         let ow_hotkey = account(ow_hotkey_n);
 //         let overwatch_node_id =
-//             insert_overwatch_node(max_subnet_nodes + end * subnets, ow_hotkey_n);
+//             insert_overwatch_node(max_subnet_nodes + end * subnets, Some(ow_hotkey_n));
 
 //         set_overwatch_node_stake(ow_hotkey_n, OverwatchMinStakeBalance::<Test>::get());
 

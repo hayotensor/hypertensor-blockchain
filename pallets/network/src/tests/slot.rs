@@ -125,7 +125,7 @@ fn test_calculate_overwatch_rewards() {
         let default_weight = Network::percentage_factor_as_u128();
         let overwatch_epoch = Network::get_current_overwatch_epoch_as_u32();
 
-        let overwatch_node_id = insert_overwatch_node_v2(1);
+        let overwatch_node_id = insert_overwatch_node(1, None);
         let starting_stake = 100;
         set_overwatch_node_stake(overwatch_node_id, starting_stake);
         snapshot_overwatch_epoch();
@@ -276,9 +276,9 @@ fn effective_signal_change_preserves_written_allocation_and_changes_next_epoch()
             for validator_id in 10_001..=10_003 {
                 OverwatchValidatorWhitelist::<Test>::insert(validator_id, ());
             }
-            let target = insert_overwatch_node_v2(10_001);
-            let first_survivor = insert_overwatch_node_v2(10_002);
-            let second_survivor = insert_overwatch_node_v2(10_003);
+            let target = insert_overwatch_node(10_001, None);
+            let first_survivor = insert_overwatch_node(10_002, None);
+            let second_survivor = insert_overwatch_node(10_003, None);
             set_overwatch_node_stake(target, 9);
             set_overwatch_node_stake(first_survivor, 4);
             set_overwatch_node_stake(second_survivor, 1);
@@ -890,7 +890,7 @@ fn test_precheck_subnet_consensus_submission() {
         assert!(validator_id != None, "Validator is None");
         assert!(validator_id != Some(0), "Validator is 0");
 
-        run_subnet_consensus_step_v2(subnet_id, Some(last.id), Some(first.id));
+        run_subnet_consensus_step(subnet_id, Some(last.id), Some(first.id));
 
         let submission = SubnetConsensusSubmission::<Test>::get(
             subnet_id,
@@ -980,7 +980,7 @@ fn test_precheck_queue_removal_uses_saturating_immunity_epoch() {
         let prioritize_id = SubnetNodeQueue::<Test>::get(subnet_id).last().unwrap().id;
         let _ = max_subnet_nodes;
         let _ = max_subnets;
-        run_subnet_consensus_step_v2(subnet_id, Some(prioritize_id), Some(remove_id));
+        run_subnet_consensus_step(subnet_id, Some(prioritize_id), Some(remove_id));
 
         let submission = SubnetConsensusSubmission::<Test>::get(subnet_id, subnet_epoch).unwrap();
         assert_eq!(submission.remove_queue_node_id, None);

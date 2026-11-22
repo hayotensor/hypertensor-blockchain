@@ -33,7 +33,7 @@ use sp_std::collections::btree_map::BTreeMap;
 ///
 
 #[test]
-fn test_register_subnet_node_v2() {
+fn test_register_subnet_node() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 
@@ -649,7 +649,7 @@ fn test_register_subnet_node_and_admit_max_churn_limit() {
 }
 
 #[test]
-fn test_register_subnet_node_v2_with_max_nodes() {
+fn test_register_subnet_node_with_max_nodes() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 

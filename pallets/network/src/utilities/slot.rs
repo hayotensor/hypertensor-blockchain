@@ -501,7 +501,7 @@ impl<T: Config> Pallet<T> {
     }
 
     /// - Generates emissions variables to distribute emissions: `precheck_subnet_consensus_submission`
-    /// - Distributes emissions: `distribute_rewards`
+    /// - Distributes emissions: `distribute_rewards_for_round`
     /// - Elects validator: `elect_validator`
     /// - Drains pending physical removals with the remaining subnet-slot weight
     /// - Handles registration queue (i.e., admits Queued nodes as Probation): `handle_registration_queue`

@@ -1,6 +1,6 @@
 use super::mock::*;
 use crate::tests::test_utils::{
-    insert_overwatch_node_v2, insert_subnet, make_commit, manual_insert_validator,
+    insert_overwatch_node, insert_subnet, make_commit, manual_insert_validator,
     queue_overwatch_settlement, set_overwatch_epoch, set_overwatch_node_stake, test_percent,
 };
 use crate::{
@@ -381,8 +381,8 @@ fn partial_reveal_close_preserves_opening_cohort_and_counts_only_revealed_record
 
         manual_insert_validator(1, 101, 201);
         manual_insert_validator(2, 102, 202);
-        let revealing_node_id = insert_overwatch_node_v2(1);
-        let commit_only_node_id = insert_overwatch_node_v2(2);
+        let revealing_node_id = insert_overwatch_node(1, None);
+        let commit_only_node_id = insert_overwatch_node(2, None);
         set_overwatch_node_stake(revealing_node_id, 100);
         set_overwatch_node_stake(commit_only_node_id, 200);
 
@@ -516,7 +516,7 @@ fn pending_settlement_blocks_rollover_without_consuming_active_round_state() {
         let subnet_id = 1;
         insert_subnet(subnet_id, SubnetState::Active, 0);
         manual_insert_validator(1, 101, 201);
-        let node_id = insert_overwatch_node_v2(1);
+        let node_id = insert_overwatch_node(1, None);
         set_overwatch_node_stake(node_id, 100);
 
         let weight = test_percent(2, 5);

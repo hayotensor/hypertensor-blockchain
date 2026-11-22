@@ -38,7 +38,7 @@ use sp_std::collections::{btree_map::BTreeMap, btree_set::BTreeSet};
 ///
 
 #[test]
-fn test_register_subnet_node_v2() {
+fn test_register_subnet_node() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "subnet-name".into();
 

@@ -164,7 +164,7 @@ fn full_queued_removal_set_preserves_unmarked_nodes_and_consensus_progress() {
             let queued_id = TotalSubnetNodeUids::<Test>::get(subnet);
             // Keep normal admission from changing the queue while testing the removal decision.
             SubnetNodeQueueEpochs::<Test>::insert(subnet, u32::MAX);
-            run_subnet_consensus_step_v2(subnet, None, Some(queued_id));
+            run_subnet_consensus_step(subnet, None, Some(queued_id));
             assert_eq!(
                 SubnetConsensusSubmission::<Test>::get(subnet, epoch)
                     .unwrap()

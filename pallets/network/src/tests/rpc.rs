@@ -425,7 +425,7 @@ fn test_get_subnet_node_info() {
 }
 
 #[test]
-fn test_get_elected_validator_info_v2() {
+fn test_get_elected_validator_info() {
     new_test_ext().execute_with(|| {
         let subnet_name: Vec<u8> = "test-subnet".into();
         let deposit_amount: u128 = 10000000000000000000000;

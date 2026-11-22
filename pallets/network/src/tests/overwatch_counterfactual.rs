@@ -1,6 +1,6 @@
 use super::mock::*;
 use crate::tests::test_utils::{
-    insert_overwatch_node_v2, insert_subnet, manual_insert_validator, set_overwatch_node_stake,
+    insert_overwatch_node, insert_subnet, manual_insert_validator, set_overwatch_node_stake,
     submit_weight, test_percent,
 };
 use crate::{
@@ -46,15 +46,15 @@ fn configure_counterfactual_round() {
 fn seed_counterfactual_participants(include_maximum: bool) -> ParticipantIds {
     let maximum = include_maximum.then(|| {
         manual_insert_validator(1, 101, 201);
-        let node_id = insert_overwatch_node_v2(1);
+        let node_id = insert_overwatch_node(1, None);
         set_overwatch_node_stake(node_id, MAXIMUM_STAKE);
         node_id
     });
 
     manual_insert_validator(2, 102, 202);
     manual_insert_validator(3, 103, 203);
-    let first_survivor = insert_overwatch_node_v2(2);
-    let second_survivor = insert_overwatch_node_v2(3);
+    let first_survivor = insert_overwatch_node(2, None);
+    let second_survivor = insert_overwatch_node(3, None);
     set_overwatch_node_stake(first_survivor, FIRST_SURVIVOR_STAKE);
     set_overwatch_node_stake(second_survivor, SECOND_SURVIVOR_STAKE);
 
