@@ -1,84 +1,116 @@
 # Hypertensor Blockchain
 
-Hypertensor is a standalone NPoS chain built on the Polkadot SDK. BABE produces blocks,
-GRANDPA finalizes them, and staking elections select the session validators. The chain
-uses native 32-byte accounts, SS58 addresses, and SDK signed extrinsics.
-Revive executes EVM and PolkaVM smart contracts using the same native TENSOR balances.
-Existing users can sign contract calls with their sr25519 keys; Ethereum accounts
-are optional.
+Hypertensor is a blockchain for AI application subnets. Its Network pallet manages
+subnet and node registration, staking and delegation, attestation consensus, and
+reward distribution. Subnet applications run their workloads and compute scores
+off-chain, then submit proposals and attestations for settlement on-chain.
+
+The chain is built on the Polkadot SDK and uses nominated proof of stake (NPoS).
+Staking elections select the chain validators, BABE produces blocks, and GRANDPA
+finalizes them. Chain validators and subnet validators have separate roles.
+
+The blockchain supports EVM smart contracts and RISC-V smart contracts executed through
+[PolkaVM](https://github.com/paritytech/polkavm).
+Contracts share the chain's native balances. Native accounts use 32-byte IDs and
+SS58 addresses with prefix 42; users can sign contract calls with sr25519 keys.
+Ethereum accounts are optional.
 
 ## Build and run
 
+Install Rust through `rustup` and the native compiler, Clang/libclang, OpenSSL,
+pkg-config, and Protobuf dependencies in the [build environment guide](docs/rust-setup.md).
+The repository pins Rust 1.93.0 and the `wasm32v1-none` target in
+[rust-toolchain.toml](rust-toolchain.toml); rustup selects the toolchain automatically.
+
+From the repository root:
+
 ```sh
+rustup show
 cargo build --release --locked --features fast-runtime
-./target/release/hypertensor-node --dev
+./target/release/hypertensor-node --dev --base-path /tmp/hypertensor-network-dev
 ```
 
-The development preset uses Alice as validator and sudo account. Alice, Bob, Charlie,
-Dave, Eve, Ferdie, and their `//stash` accounts are funded from their standard SDK
-sr25519 development seeds. Local uses Alice and Bob as validators. TENSOR has 18
-decimals and the SS58 prefix is 42. `fast-runtime` is only for disposable development
-networks (two-minute sessions and six-minute eras). Build without that feature for
-four-hour sessions and daily eras; choose the runtime before generating genesis.
+The `--dev` preset starts a single validator using Alice, who is also the sudo
+account. Alice, Bob, Charlie, Dave, Eve, Ferdie, and their `//stash` accounts are
+funded from public SDK development seeds. Use this preset for disposable local
+development.
 
-HTTP and WebSocket RPC share port 9944. Native system, transaction-payment, and
-[network queries](pallets/network/rpc/API.md) are available. Submit application calls
-through runtime metadata using native SDK tooling.
+HTTP and WebSocket RPC share port 9944. With the node running, query its latest
+block from another terminal using `curl`:
 
-See the [validator guide](docs/validators.md), [runtime configuration](docs/npos.md),
-[smart contract guide](docs/smart-contracts.md), [validation guide](docs/npos-validation.md),
-[production review](docs/production-review.md), and [build environment](env-setup/README.md).
+```sh
+curl --fail --silent --show-error http://127.0.0.1:9944 \
+  -H 'Content-Type: application/json' \
+  --data '{"jsonrpc":"2.0","id":1,"method":"chain_getHeader","params":[]}'
+```
+
+Repeat after several seconds. An increasing hexadecimal `result.number` confirms
+block production; the target block time is six seconds. Native system,
+transaction-payment, and [network queries](pallets/network/rpc/API.md) are available.
+Submit application calls through runtime metadata using native SDK tooling.
+
+## Build profiles
+
+| Build | Network epoch | EVM chain ID | Validator session / staking era |
+| --- | --- | --- | --- |
+| Default (no profile feature) | 20 blocks | 1337 | Four hours / one day |
+| `--features fast-runtime` | 20 blocks | 1337 | Two minutes / six minutes |
+| `--features production` | Set before launch | Set before launch | Four hours / one day |
+
+Times assume six-second blocks/slots. Network epochs govern subnet consensus;
+validator sessions and staking eras govern block production and NPoS staking.
+Subnets have assigned slot offsets; use the
+[epoch-status RPC](pallets/network/rpc/API.md) to determine their consensus windows.
+
+The default build uses development network settings despite its longer staking
+timings. `fast-runtime` is for disposable networks and cannot be combined with
+`production`. Choose the profile before generating genesis; use a fresh chain
+specification and database when switching profiles.
 
 ## Chain specifications
 
-Generate specifications from the current runtime:
+The bundled presets are `dev` (Alice) and `local` (Alice and Bob), both intended
+for disposable networks. See the [validator guide](docs/validators.md) to run the
+two-validator local network.
+
+Generate a local specification from the development runtime built above:
 
 ```sh
-./target/release/hypertensor-node build-spec --chain local --disable-default-bootnode > localSpec.json
+./target/release/hypertensor-node build-spec --chain local \
+  --disable-default-bootnode > localSpec.json
 ```
-
-Only disposable development/local presets are supplied. `--chain hoskinson` rejects
-startup because the former live preset used publicly known validator and sudo keys.
-Create a reviewed JSON specification with operator-controlled keys, allocations,
-validator counts, and the production runtime, then run with `--chain <SPEC.json>`.
-This project targets fresh genesis state.
 
 ### Launch profile
 
-The default build is the development profile (20-block epoch, EVM chain ID 1337). Public
-networks must be built with `--features production`, which fails to compile until the
-owner sets `PRODUCTION_BLOCKS_PER_EPOCH` and `PRODUCTION_CHAIN_ID` in `runtime/src/lib.rs`.
-Both are fixed for the life of a chain. Build the node with the same feature so that its
-embedded runtime and the specs it emits use the production profile:
+For a public network, set `PRODUCTION_BLOCKS_PER_EPOCH` and `PRODUCTION_CHAIN_ID`
+in [runtime/src/lib.rs](runtime/src/lib.rs), then build the node with the production
+runtime embedded:
 
 ```sh
 cargo build --release --locked -p hypertensor-node --features production
 ```
 
+The production build fails until both values are configured. They are fixed for
+the life of the chain. Create a reviewed JSON specification with the production
+runtime, operator-controlled keys, allocations, and validator counts, then run
+with `--chain <SPEC.json>`. This project targets fresh genesis state.
+
 ### Deployment decisions
 
-- A `production` runtime rejects genesis that gives sudo, session keys, staking slots,
-  balances or council seats to public development keys (`//Alice`..`//Ferdie` and their `//stash`), so replace all of them
-  in the `--chain local` template.
-- The ETH replay domain is only the compile-time `ChainId`. Every production network
-  needs its own `PRODUCTION_CHAIN_ID`. Unprotected (pre-EIP-155) legacy transactions are
-  rejected, so Nick's-method deployments are not supported.
-- `SlashDeferDuration` is `BondingDuration - 2` (26 eras), so a slash lands before an
-  offender who unbonded in the offence era can withdraw. A report filed 27 or 28 eras late
-  is still accepted (BABE/GRANDPA only bound report age by historical sessions, which
-  Staking keeps for `BondingDuration`), but its slash is never applied.
-- Network hooks may use up to 50% of the block (`MaximumHooksWeight`). A Root scheduler
-  task heavier than the weight left after them can be dropped permanently. Keep scheduled
-  Root calls small, or schedule them away from slot blocks.
+Review the [production operations guide](docs/production-review.md) for genesis
+key requirements, Ethereum replay protection, slashing timing, scheduler limits,
+and attestation inclusion under congestion.
 
-### Attestation block-space
+## Documentation
 
-`Network.propose_attestation` and `Network.attest` are Normal-class calls with no extra
-transaction priority. They are refunded (`Pays::No`) only on success. Filling every Normal
-block costs about 23 TENSOR a day at launch fees, so sustained filler traffic could delay
-deadline-bound attestations. The runtime does not boost them: an unconditional priority
-boost would also apply to invalid calls, which would let anyone buy priority cheaply. A
-safe boost needs a transaction extension that checks the signer is the elected proposer or
-an eligible attestor before it raises priority. Until then, validators should add a tip to
-these calls when blocks are congested, and operators should watch block fullness and
-`TargetedFeeAdjustment`.
+| Task | Guide |
+| --- | --- |
+| Prepare the build environment | [Rust and native dependencies](docs/rust-setup.md) |
+| Operate chain validators or nominate | [Validators and nominators](docs/validators.md) |
+| Build and operate a subnet | [Network pallet guide](AGENTS.md) |
+| Query subnets, nodes, and consensus | [Network RPC API](pallets/network/rpc/API.md) |
+| Call contracts with native accounts | [Native contract examples](native-examples/README.md) |
+| Call contracts with Ethereum accounts | [Hardhat examples](ethereum-examples/README.md) (requires an Ethereum RPC adapter) |
+| Access the Network pallet from contracts | [Network precompiles](precompiles/network/README.md) |
+| Inspect runtime configuration and run tests | [Runtime source and tests](runtime/README.md) |
+| Prepare and operate a public network | [Production operations](docs/production-review.md) |

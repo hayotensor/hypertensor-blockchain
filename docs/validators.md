@@ -49,4 +49,6 @@ stake. Claim via `staking.payoutStakers` or `staking.payoutStakersByPage` within
 Call `staking.chill` to stop validating or nominating, `staking.unbond` to begin
 unbonding, and `staking.withdrawUnbonded` after the 28-era bonding period (28 days with default production timings).
 
-See [runtime configuration](npos.md) for election bounds, reward budgets, and timing.
+See [runtime configuration](../runtime/src/configs/npos.rs) for election bounds,
+reward budgets, and timing, and [production operations](production-review.md)
+for slashing and deployment considerations.

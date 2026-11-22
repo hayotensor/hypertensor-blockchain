@@ -18,4 +18,4 @@ library directory. The default node uses RocksDB. For a ParityDB-only build, use
 
 Use `SKIP_WASM_BUILD=1` only for native tests or compile checks. A node built with that
 variable cannot generate the built-in genesis presets because it has no embedded runtime.
-See [validation](npos-validation.md) and [validator setup](validators.md).
+See [runtime tests](../runtime/README.md) and [validator setup](validators.md).
