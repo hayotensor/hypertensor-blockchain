@@ -6,7 +6,7 @@ use crate::{
     CurrentNodeBurnRate, Error, InitialValidatorData, MaxDelegateStakePercentage,
     MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
     MinSubnetNodes, MultiaddrSubnetNodeId, NodeRegistrationInitialValidatorIds,
-    NodeRegistrationsThisEpoch, NodeRewardRateUpdatePeriod, NodeSlotIndex, NodeSubnetStake,
+    NodeRegistrationsThisEpoch, NodeRewardRateUpdatePeriod, NodeElectionSlotIndex, NodeSubnetStake,
     PeerIdSubnetNodeId, PeerInfo, PendingQueuedNodeRemovals, QueuedSubnetNodesData,
     SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNode, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeIdHotkey, SubnetNodeQueue,
@@ -4147,13 +4147,13 @@ fn test_insert_node_into_election_slot() {
             subnet_id
         );
 
-        // 2. NodeSlotIndex should have the correct index
+        // 2. NodeElectionSlotIndex should have the correct index
         let expected_index = initial_slot_list.len() as u32;
-        let stored_index = NodeSlotIndex::<Test>::get(subnet_id, subnet_node_id);
+        let stored_index = NodeElectionSlotIndex::<Test>::get(subnet_id, subnet_node_id);
         assert_eq!(
             stored_index,
             Some(expected_index),
-            "NodeSlotIndex should store correct index {} for node {}",
+            "NodeElectionSlotIndex should store correct index {} for node {}",
             expected_index,
             subnet_node_id
         );
@@ -4217,7 +4217,7 @@ fn test_remove_node_from_election_slot() {
             .unwrap();
 
         // Call the removal function
-        let result = Network::remove_node_from_election_slot(subnet_id, node_to_remove);
+        let result = Network::remove_node_from_election_slot(subnet_id, node_to_remove).unwrap();
 
         // Verify the function returned true
         assert_eq!(
@@ -4243,19 +4243,19 @@ fn test_remove_node_from_election_slot() {
             "Slot list should be 1 element shorter"
         );
 
-        // 3. The removed node's own index remains until deferred residual cleanup.
-        let removed_node_index = NodeSlotIndex::<Test>::get(subnet_id, node_to_remove);
+        // 3. The removed node's own index is cleared with election membership.
+        let removed_node_index = NodeElectionSlotIndex::<Test>::get(subnet_id, node_to_remove);
         assert_eq!(
-            removed_node_index,
-            Some(remove_position as u32),
-            "NodeSlotIndex should remain for removed node {} until cleanup",
+            removed_node_index, None,
+            "NodeElectionSlotIndex should be removed immediately for node {}",
             node_to_remove
         );
 
         // 4. If a node was moved (swap_remove), verify its index was updated
         if remove_position != initial_list_len - 1 {
             // A node was moved to fill the gap
-            let moved_node_new_index = NodeSlotIndex::<Test>::get(subnet_id, node_that_will_move);
+            let moved_node_new_index =
+                NodeElectionSlotIndex::<Test>::get(subnet_id, node_that_will_move);
             assert_eq!(
                 moved_node_new_index,
                 Some(remove_position as u32),
@@ -4288,11 +4288,10 @@ fn test_remove_node_from_election_slot() {
             "TotalElectableNodes should decrement by 1"
         );
 
-        // 7. Test removing non-existent node returns false
-        let non_existent_result = Network::remove_node_from_election_slot(subnet_id, 999u32);
-        assert_eq!(
-            non_existent_result, false,
-            "Removing non-existent node should return false"
+        // Missing indexes are explicit errors in the election-only helper.
+        assert_err!(
+            Network::remove_node_from_election_slot(subnet_id, 999),
+            Error::<Test>::InvalidNodeElectionSlotIndex
         );
 
         // 8. Verify no changes when removing non-existent node
@@ -4301,6 +4300,48 @@ fn test_remove_node_from_election_slot() {
             updated_slot_list.len(),
             "Slot list length should not change when removing non-existent node"
         );
+
+        // Removing the same node twice must not affect its replacement or the counters.
+        assert_err!(
+            Network::remove_node_from_election_slot(subnet_id, node_to_remove),
+            Error::<Test>::InvalidNodeElectionSlotIndex
+        );
+        assert_eq!(
+            SubnetNodeElectionSlots::<Test>::get(subnet_id),
+            updated_slot_list
+        );
+        assert_eq!(
+            TotalSubnetElectableNodes::<Test>::get(subnet_id),
+            updated_subnet_count
+        );
+        assert_eq!(TotalElectableNodes::<Test>::get(), updated_total_count);
+
+        // Removing the last entry requires no moved-node repair, but still clears its index.
+        let last_node = *updated_slot_list.last().unwrap();
+        assert!(Network::remove_node_from_election_slot(subnet_id, last_node).unwrap());
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(
+            subnet_id, last_node
+        ));
+        let remaining_slots = SubnetNodeElectionSlots::<Test>::get(subnet_id);
+        for (index, node_id) in remaining_slots.iter().enumerate() {
+            assert_eq!(
+                NodeElectionSlotIndex::<Test>::get(subnet_id, node_id),
+                Some(index as u32)
+            );
+        }
+        assert_eq!(
+            TotalSubnetElectableNodes::<Test>::get(subnet_id),
+            updated_subnet_count - 1
+        );
+        assert_eq!(TotalElectableNodes::<Test>::get(), updated_total_count - 1);
+        let only_node = remaining_slots[0];
+        assert!(Network::remove_node_from_election_slot(subnet_id, only_node).unwrap());
+        assert!(SubnetNodeElectionSlots::<Test>::get(subnet_id).is_empty());
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(
+            subnet_id, only_node
+        ));
+        assert_eq!(TotalSubnetElectableNodes::<Test>::get(subnet_id), 0);
+        assert_eq!(TotalElectableNodes::<Test>::get(), initial_total_count - 3);
     })
 }
 

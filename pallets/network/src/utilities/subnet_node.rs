@@ -370,7 +370,7 @@ impl<T: Config> Pallet<T> {
             if !slot_list.contains(&subnet_node_id) {
                 let idx = slot_list.len() as u32;
                 slot_list.push(subnet_node_id);
-                NodeSlotIndex::<T>::insert(subnet_id, subnet_node_id, idx);
+                NodeElectionSlotIndex::<T>::insert(subnet_id, subnet_node_id, idx);
                 TotalSubnetElectableNodes::<T>::mutate(subnet_id, |mut n| n.saturating_inc());
                 TotalElectableNodes::<T>::mutate(|mut n| n.saturating_inc());
                 Ok(true)
@@ -381,52 +381,67 @@ impl<T: Config> Pallet<T> {
         .unwrap_or(false)
     }
 
-    pub fn remove_node_from_election_slot(subnet_id: u32, subnet_node_id: u32) -> bool {
-        SubnetNodeElectionSlots::<T>::try_mutate(subnet_id, |slot_list| -> Result<bool, ()> {
-            if let Some(pos) = slot_list.iter().position(|id| *id == subnet_node_id) {
-                let last_idx = slot_list.len() - 1;
-                slot_list.swap_remove(pos);
+    pub fn remove_node_from_election_slot(
+        subnet_id: u32,
+        subnet_node_id: u32,
+    ) -> Result<bool, DispatchError> {
+        SubnetNodeElectionSlots::<T>::try_mutate(
+            subnet_id,
+            |slot_list| -> Result<bool, DispatchError> {
+                let pos = NodeElectionSlotIndex::<T>::get(subnet_id, subnet_node_id)
+                    .ok_or(Error::<T>::InvalidNodeElectionSlotIndex)? as usize;
+                ensure!(
+                    slot_list.get(pos) == Some(&subnet_node_id),
+                    Error::<T>::InvalidNodeElectionSlotIndex
+                );
+                {
+                    let last_idx = slot_list.len() - 1;
+                    slot_list.swap_remove(pos);
 
-                if pos != last_idx {
-                    let moved_node_id = slot_list[pos];
-                    NodeSlotIndex::<T>::insert(subnet_id, moved_node_id, pos as u32);
+                    if pos != last_idx {
+                        let moved_node_id = slot_list[pos];
+                        NodeElectionSlotIndex::<T>::insert(subnet_id, moved_node_id, pos as u32);
+                    }
+
+                    // Election membership and both affected indexes change together.
+                    NodeElectionSlotIndex::<T>::remove(subnet_id, subnet_node_id);
+                    TotalSubnetElectableNodes::<T>::mutate(subnet_id, |mut n| n.saturating_dec());
+                    TotalElectableNodes::<T>::mutate(|mut n| n.saturating_dec());
+                    Ok(true)
                 }
-
-                // The removed node's own index is cleared with its deferred residual records.
-                // Only the surviving node's index must match the changed slot list immediately.
-                TotalSubnetElectableNodes::<T>::mutate(subnet_id, |mut n| n.saturating_dec());
-                TotalElectableNodes::<T>::mutate(|mut n| n.saturating_dec());
-                Ok(true)
-            } else {
-                Ok(false)
-            }
-        })
-        .unwrap_or(false)
+            },
+        )
     }
 
-    pub fn remove_admitted_subnet_node(subnet_id: u32, subnet_node_id: u32) -> bool {
+    #[frame_support::transactional]
+    pub fn remove_admitted_subnet_node(
+        subnet_id: u32,
+        subnet_node_id: u32,
+    ) -> Result<bool, DispatchError> {
         let subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
-            SubnetNodesData::<T>::take(subnet_id, subnet_node_id)
+            SubnetNodesData::<T>::get(subnet_id, subnet_node_id)
         } else {
             Self::clear_pending_admitted_subnet_node_removal(subnet_id, subnet_node_id);
-            return false;
+            return Ok(false);
         };
-
-        Self::common_remove_subnet_node(subnet_id, subnet_node_id, subnet_node.clone());
 
         if subnet_node.classification.node_class == SubnetNodeClass::Active {
             // --- Try removing node from election slots (only happens if Active classification)
             // Updates:
             // - `SubnetNodeElectionSlots`
+            // - `NodeElectionSlotIndex`
             // - `TotalSubnetElectableNodes`
             // - `TotalElectableNodes`
-            Self::remove_node_from_election_slot(subnet_id, subnet_node_id);
+            Self::remove_node_from_election_slot(subnet_id, subnet_node_id)?;
         }
+
+        SubnetNodesData::<T>::remove(subnet_id, subnet_node_id);
+        Self::common_remove_subnet_node(subnet_id, subnet_node_id, subnet_node.clone());
 
         // Subtract from admitted node counts
         TotalAdmittedSubnetNodes::<T>::mutate(subnet_id, |n: &mut u32| n.saturating_dec());
         TotalAdmittedNodes::<T>::mutate(|n: &mut u32| n.saturating_dec());
-        true
+        Ok(true)
     }
 
     pub fn remove_queued_subnet_node(subnet_id: u32, subnet_node_id: u32) {
@@ -484,7 +499,7 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    pub fn perform_remove_subnet_node(subnet_id: u32, subnet_node_id: u32) {
+    pub fn perform_remove_subnet_node(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
         let mut is_admitted = false;
         let mut is_queued = false;
         let _subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
@@ -497,17 +512,18 @@ impl<T: Config> Pallet<T> {
             // A marker may outlive partially repaired node data. Treat an already-absent physical
             // node as successfully finalized and remove any stale quarantine state.
             Self::clear_pending_subnet_node_removal(subnet_id, subnet_node_id);
-            return;
+            return Ok(());
         };
 
         // A live node belongs to either admitted or queued storage
         if is_admitted {
-            Self::remove_admitted_subnet_node(subnet_id, subnet_node_id);
+            Self::remove_admitted_subnet_node(subnet_id, subnet_node_id)?;
         }
 
         if is_queued {
             Self::remove_queued_subnet_node(subnet_id, subnet_node_id);
         }
+        Ok(())
     }
 
     fn clear_pending_admitted_subnet_node_removal(subnet_id: u32, subnet_node_id: u32) {
@@ -550,13 +566,16 @@ impl<T: Config> Pallet<T> {
     /// Physically remove an authenticated pending target. `true` means the operation was consumed
     /// by pending cleanup, including the idempotent case where physical node data was already gone.
     /// Callers must authenticate ownership before invoking this helper.
-    pub fn finalize_pending_subnet_node_removal(subnet_id: u32, subnet_node_id: u32) -> bool {
+    pub fn finalize_pending_subnet_node_removal(
+        subnet_id: u32,
+        subnet_node_id: u32,
+    ) -> Result<bool, DispatchError> {
         if !Self::has_pending_subnet_node_removal(subnet_id, subnet_node_id) {
-            return false;
+            return Ok(false);
         }
 
-        Self::perform_remove_subnet_node(subnet_id, subnet_node_id);
-        true
+        Self::perform_remove_subnet_node(subnet_id, subnet_node_id)?;
+        Ok(true)
     }
 
     pub(crate) fn pending_subnet_node_removal_proof_weight() -> Weight {
@@ -794,7 +813,7 @@ impl<T: Config> Pallet<T> {
                         subnet_id,
                         subnet_node_id,
                     ),
-                    node_slot_index: NodeSlotIndex::<T>::get(subnet_id, subnet_node_id),
+                    node_slot_index: NodeElectionSlotIndex::<T>::get(subnet_id, subnet_node_id),
 
                     probation_progress: SubnetNodeProbationProgress::<T>::get(
                         subnet_id,
@@ -860,7 +879,7 @@ impl<T: Config> Pallet<T> {
 
                 SubnetNodesData::<T>::insert(subnet_id, subnet_node_id, &node);
                 SubnetNodeElectionSlots::<T>::insert(subnet_id, slots);
-                NodeSlotIndex::<T>::insert(subnet_id, subnet_node_id, index);
+                NodeElectionSlotIndex::<T>::insert(subnet_id, subnet_node_id, index);
                 TotalSubnetElectableNodes::<T>::insert(subnet_id, subnet_count);
                 TotalElectableNodes::<T>::put(total_count);
                 SubnetNodeProbationProgress::<T>::remove(subnet_id, subnet_node_id);

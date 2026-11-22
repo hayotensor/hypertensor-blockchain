@@ -5,7 +5,7 @@ use crate::{
     BootnodePeerIdSubnetNodeId, ClientPeerIdSubnetNodeId, ColdkeyValidatorId, CurrentNodeBurnRate,
     DelegateAccount, Error, HotkeyValidatorId, IdentityData, MaxDelegateStakePercentage,
     MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes, MaxSubnets, MinSubnetMinStake,
-    MinSubnetNodes, MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeSlotIndex,
+    MinSubnetNodes, MultiaddrSubnetNodeId, NodeRewardRateUpdatePeriod, NodeElectionSlotIndex,
     NodeSubnetStake, OverwatchNodeValidatorId, OverwatchNodes, PeerIdSubnetNodeId, PeerInfo,
     QueuedSubnetNodesData, SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNode,
     SubnetNodeClass, SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeIdHotkey,

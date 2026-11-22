@@ -24,6 +24,7 @@ use super::*;
 
 mod capacity;
 mod pending_operations;
+mod promotions;
 
 use crate::utilities::multiaddr::{encode_varint, DNS4, IP4, P2P, TCP};
 #[allow(unused)]
@@ -2014,7 +2015,11 @@ fn prepare_election_weight_fixture<T: Config>(x: u32, shared_identities: bool) -
         );
     }
     // Canonicalization must sort a nontrivial insertion/removal ordering.
-    SubnetNodeElectionSlots::<T>::insert(subnet_id, (1..=x).rev().collect::<Vec<_>>());
+    let slots: Vec<_> = (1..=x).rev().collect();
+    for (index, node) in slots.iter().enumerate() {
+        NodeElectionSlotIndex::<T>::insert(subnet_id, node, index as u32);
+    }
+    SubnetNodeElectionSlots::<T>::insert(subnet_id, slots);
     // A power of 0.5 takes libm's sqrt shortcut. Use non-special fractional exponents
     // for both the node-count penalty (2/3) and normalized stake power (1/3).
     ConsensusValidatorNodeCountDecay::<T>::insert(subnet_id, factor / 3);
@@ -2076,7 +2081,7 @@ fn seed_admitted_remove_subnet_node_state<T: Config>(
     assert_eq!(election_slots.len() as u32, e);
     SubnetNodeElectionSlots::<T>::insert(subnet_id, &election_slots);
     for (index, node_id) in election_slots.iter().copied().enumerate() {
-        NodeSlotIndex::<T>::insert(subnet_id, node_id, index as u32);
+        NodeElectionSlotIndex::<T>::insert(subnet_id, node_id, index as u32);
     }
 
     let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id).unwrap();
@@ -2883,7 +2888,7 @@ fn prepare_alternate_emission_step<T: Config>(
     if mode == AlternateEmissionMode::Rejected {
         let election_slots: Vec<u32> = (1..=h).rev().collect();
         for (index, subnet_node_id) in election_slots.iter().enumerate() {
-            NodeSlotIndex::<T>::insert(subnet_id, subnet_node_id, index as u32);
+            NodeElectionSlotIndex::<T>::insert(subnet_id, subnet_node_id, index as u32);
         }
         SubnetNodeElectionSlots::<T>::insert(subnet_id, election_slots);
         TotalSubnetElectableNodes::<T>::insert(subnet_id, h);
@@ -3277,6 +3282,71 @@ fn node_metadata_update_fixture<T: Config>(queued: bool, create: bool) -> (u32, 
 #[benchmarks]
 mod benchmarks {
     use super::*;
+
+    /// Two adjacent parameter values select the same case, so FRAME can analyze a fixed
+    /// scenario without its single-value regression error. Never fit time across case IDs.
+    #[benchmark(extra)]
+    fn capacity_promotion_settlement(c: Linear<0, { 2 * promotions::LAST_CASE + 1 }>) {
+        let fixture = promotions::fixture::<T>(promotions::case(c / 2));
+        frame_system::Pallet::<T>::reset_events();
+        #[block]
+        {
+            Network::<T>::emission_settlement_step(
+                &mut WeightMeter::new(),
+                fixture.round.epoch + 1,
+                fixture.round.subnet_id,
+            );
+        }
+        promotions::verify::<T>(&fixture, false);
+    }
+
+    /// Actual metered hook. Verification rejects fast samples caused by skipped admission.
+    #[benchmark(extra)]
+    fn capacity_promotion_on_initialize(c: Linear<0, { 2 * promotions::LAST_CASE + 1 }>) {
+        let fixture = promotions::fixture::<T>(promotions::case(c / 2));
+        let block = frame_system::Pallet::<T>::block_number();
+        frame_system::Pallet::<T>::reset_events();
+        let charged;
+        #[block]
+        {
+            charged = Network::<T>::on_initialize(block);
+        }
+        assert!(charged.all_lte(T::MaximumHooksWeight::get()));
+        promotions::verify::<T>(&fixture, true);
+    }
+
+    /// Isolate the helper with an existing list of e candidates, including the final slot.
+    #[benchmark(extra)]
+    fn capacity_promotion_single(e: Linear<6, 1023>) {
+        let e = e / 2;
+        let fixture = promotions::fixture::<T>(promotions::Case {
+            nodes: e + 1,
+            probation: 1,
+            profile: 0,
+        });
+        let subnet = fixture.round.subnet_id;
+        frame_system::Pallet::<T>::reset_events();
+        let promoted;
+        #[block]
+        {
+            promoted = Network::<T>::promote_probation_node_to_active(
+                subnet,
+                e + 1,
+                fixture.round.epoch + 1,
+                &Default::default(),
+            );
+        }
+        assert!(promoted);
+        assert_eq!(
+            SubnetNodeElectionSlots::<T>::get(subnet).len(),
+            (e + 1) as usize
+        );
+        assert_eq!(NodeElectionSlotIndex::<T>::get(subnet, e + 1), Some(e));
+        assert!(!SubnetNodeProbationProgress::<T>::contains_key(
+            subnet,
+            e + 1
+        ));
+    }
 
     /// Research only: isolate preparation of an immutable submitted round for settlement.
     #[benchmark(extra)]
@@ -4830,7 +4900,7 @@ mod benchmarks {
         // A registering subnet may have all its live nodes owned by one whitelisted identity.
         // This reaches both the live election-slot bound and the validator ownership bound.
         for id in 2..=initial {
-            Network::<T>::remove_admitted_subnet_node(subnet_id, id);
+            Network::<T>::remove_admitted_subnet_node(subnet_id, id).unwrap();
         }
         NodeRegistrationInitialValidatorIds::<T>::mutate(subnet_id, |map| {
             map.as_mut().unwrap().insert(validator_id, max_nodes);
@@ -9939,7 +10009,7 @@ mod benchmarks {
         );
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
         for subnet_node_id in a.saturating_add(1)..=fixture_admitted_nodes {
-            Network::<T>::remove_admitted_subnet_node(subnet_id, subnet_node_id);
+            Network::<T>::remove_admitted_subnet_node(subnet_id, subnet_node_id).unwrap();
         }
         // The queued fixture reuses these peers. Release residual reservations outside the
         // measured live-prefix cleanup; residual work has its own separately charged envelope.
@@ -10162,6 +10232,30 @@ mod benchmarks {
         }
     }
 
+    #[benchmark(extra)]
+    fn remove_admitted_subnet_node_invalid_index(c: Linear<0, 2>) {
+        let (subnet, node, _, _) = seed_admitted_remove_subnet_node_state::<T>(
+            MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN,
+            MAX_SUBNET_NODES_BENCHMARK_DOMAIN,
+        );
+        match c {
+            0 => NodeElectionSlotIndex::<T>::remove(subnet, node),
+            1 => NodeElectionSlotIndex::<T>::insert(subnet, node, 0),
+            _ => NodeElectionSlotIndex::<T>::insert(subnet, node, u32::MAX),
+        }
+        let before = SubnetNodesData::<T>::get(subnet, node);
+        let slots = SubnetNodeElectionSlots::<T>::get(subnet);
+        #[block]
+        {
+            assert_eq!(
+                Network::<T>::remove_admitted_subnet_node(subnet, node),
+                Err(Error::<T>::InvalidNodeElectionSlotIndex.into())
+            );
+        }
+        assert_eq!(SubnetNodesData::<T>::get(subnet, node), before);
+        assert_eq!(SubnetNodeElectionSlots::<T>::get(subnet), slots);
+    }
+
     #[benchmark]
     fn remove_admitted_subnet_node_small(
         n: Linear<1, { MAX_VALIDATOR_NODES_BENCHMARK_DOMAIN }>,
@@ -10178,7 +10272,7 @@ mod benchmarks {
 
         #[block]
         {
-            Network::<T>::remove_admitted_subnet_node(subnet_id, subnet_node_id);
+            Network::<T>::remove_admitted_subnet_node(subnet_id, subnet_node_id).unwrap();
         }
 
         assert_eq!(
@@ -10199,10 +10293,10 @@ mod benchmarks {
             n - 1
         );
         assert_eq!(
-            NodeSlotIndex::<T>::try_get(subnet_id, subnet_node_id),
+            NodeElectionSlotIndex::<T>::try_get(subnet_id, subnet_node_id),
             Err(())
         );
-        assert_eq!(NodeSlotIndex::<T>::get(subnet_id, e), Some(e - 2));
+        assert_eq!(NodeElectionSlotIndex::<T>::get(subnet_id, e), Some(e - 2));
     }
 
     #[benchmark]
@@ -10218,7 +10312,7 @@ mod benchmarks {
 
         #[block]
         {
-            Network::<T>::remove_admitted_subnet_node(subnet_id, subnet_node_id);
+            Network::<T>::remove_admitted_subnet_node(subnet_id, subnet_node_id).unwrap();
         }
 
         assert_eq!(
@@ -10239,10 +10333,10 @@ mod benchmarks {
             n - 1
         );
         assert_eq!(
-            NodeSlotIndex::<T>::try_get(subnet_id, subnet_node_id),
+            NodeElectionSlotIndex::<T>::try_get(subnet_id, subnet_node_id),
             Err(())
         );
-        assert_eq!(NodeSlotIndex::<T>::get(subnet_id, e), Some(e - 2));
+        assert_eq!(NodeElectionSlotIndex::<T>::get(subnet_id, e), Some(e - 2));
     }
 
     #[benchmark]
@@ -10265,7 +10359,7 @@ mod benchmarks {
             let _ = TotalValidatorNodes::<T>::get(selected_validator_id);
             let _ = SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id);
             let _ = TotalSubnetElectableNodes::<T>::get(subnet_id);
-            Network::<T>::perform_remove_subnet_node(subnet_id, subnet_node_id);
+            Network::<T>::perform_remove_subnet_node(subnet_id, subnet_node_id).unwrap();
         }
 
         assert!(!SubnetNodesData::<T>::contains_key(
@@ -10295,7 +10389,7 @@ mod benchmarks {
             let _ = TotalValidatorNodes::<T>::get(selected_validator_id);
             let _ = SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id);
             let _ = TotalSubnetElectableNodes::<T>::get(subnet_id);
-            Network::<T>::perform_remove_subnet_node(subnet_id, subnet_node_id);
+            Network::<T>::perform_remove_subnet_node(subnet_id, subnet_node_id).unwrap();
         }
 
         assert!(!SubnetNodesData::<T>::contains_key(
@@ -10368,7 +10462,7 @@ mod benchmarks {
             let _ = SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id);
             let _ = TotalAdmittedSubnetNodes::<T>::get(subnet_id);
             let _ = TotalSubnetNodes::<T>::get(subnet_id);
-            Network::<T>::perform_remove_subnet_node(subnet_id, subnet_node_id);
+            Network::<T>::perform_remove_subnet_node(subnet_id, subnet_node_id).unwrap();
         }
 
         assert!(!QueuedSubnetNodesData::<T>::contains_key(

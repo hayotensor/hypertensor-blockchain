@@ -104,6 +104,36 @@ fn maximum_network_slot_reservation() -> Weight {
         .saturating_add(W::elect_validator(nodes))
 }
 
+/// Guard the configuration assumed by the opt-in promotion capacity report. The native
+/// pallet fixture uses RocksDB charges and matching bounds, but its proof limit is unlimited.
+#[cfg(not(feature = "with-paritydb-weights"))]
+#[test]
+fn promotion_budget_matches_research_configuration() {
+    assert_eq!(
+        MaximumHooksWeight::get(),
+        Weight::from_parts(1_000_000_000_000, 16 * 1024 * 1024)
+    );
+    assert_eq!(
+        <Runtime as frame_system::Config>::DbWeight::get(),
+        frame_support::weights::constants::RocksDbWeight::get()
+    );
+    assert_eq!(NetworkMaxSubnetNodesUpperBound::get(), 512);
+    assert_eq!(NetworkMaxRegisteredNodesUpperBound::get(), 64);
+    assert_eq!(NetworkMaxVectorLength::get(), 1024);
+    assert_eq!(NetworkMaxUrlLength::get(), 1024);
+    assert_eq!(
+        NetworkSuperMajorityAttestationRatio::get(),
+        875_000_000_000_000_000
+    );
+    assert!(maximum_network_slot_reservation().all_lte(MaximumHooksWeight::get()));
+    eprintln!(
+        "promotion_runtime_reservation,{},{},{}",
+        maximum_network_slot_reservation().ref_time(),
+        maximum_network_slot_reservation().proof_size(),
+        NetworkMaxPhysicalSubnetsUpperBound::get()
+    );
+}
+
 #[test]
 fn pending_owner_reward_uses_seven_day_expiry_and_metered_idle_payment() {
     use frame_support::traits::Currency;

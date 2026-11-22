@@ -17,24 +17,23 @@
 //!
 //! `propose_attestation` and `attest` are feeless and store per-round records keyed by
 //! `(subnet_id, subnet_epoch)`, including opaque payloads bounded by `ValidatorArgsLimit`.
-//! Without a retention policy that state would grow for ever. Each subnet slot prunes rounds
-//! older than [`CONSENSUS_HISTORY_RETENTION_EPOCHS`] (bounded by the hook weight meter), and a
-//! removed subnet's remaining history is cleared incrementally with leftover block weight.
+//! All history deletion runs in `on_idle`, after financial retries and node metadata cleanup.
+//! Live subnets retain at least [`CONSENSUS_HISTORY_RETENTION_EPOCHS`] completed epochs; removed
+//! subnets are cleared incrementally. Persistent cursors keep each idle pass independent of the
+//! backlog size. Retention is best effort: busy blocks can postpone cleanup indefinitely.
 
 use super::*;
 use frame_support::{pallet_prelude::Weight, weights::WeightMeter};
 
 /// Number of most recent subnet epochs retained for RPC and off-chain inspection.
 /// Settlement only needs the previous epoch; unfinished older rounds expire with this history.
-pub const CONSENSUS_HISTORY_RETENTION_EPOCHS: u32 = 16;
+pub const CONSENSUS_HISTORY_RETENTION_EPOCHS: u32 = 128;
 
-/// Upper bound on epochs visited per subnet slot, including epochs without an election.
-/// Steady state prunes one per subnet epoch; the surplus lets a cursor catch up after skipped
-/// slots without making one hook's work depend on the length of the gap.
-pub const MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT: u32 = 4;
+/// Maximum historical epochs visited for one live subnet per idle pass, including empty epochs.
+pub const MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE: u32 = 4;
 
-/// Keys removed per storage prefix per block when clearing a removed subnet's history.
-pub const REMOVED_SUBNET_HISTORY_CLEAR_LIMIT: u32 = 256;
+/// Maximum key deletions or empty-prefix probes for one removed subnet per idle pass.
+pub const MAX_REMOVED_HISTORY_STEPS_PER_IDLE: u32 = 256;
 
 impl<T: Config> Pallet<T> {
     /// Conservative trie allowance for a compact storage key. These manual proof bounds
@@ -87,7 +86,7 @@ impl<T: Config> Pallet<T> {
 
     /// Prune consensus history for `subnet_id` older than the retention window.
     /// Work is bounded by `weight_meter` and by
-    /// [`MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT`].
+    /// [`MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE`].
     pub(crate) fn prune_consensus_history(
         weight_meter: &mut WeightMeter,
         subnet_id: u32,
@@ -109,7 +108,7 @@ impl<T: Config> Pallet<T> {
         let Some(mut cursor) = ConsensusHistoryPruneCursor::<T>::get(subnet_id) else {
             // Initialize at the oldest epoch that can hold history: no round is elected before
             // the subnet's consensus-eligibility epoch. Empty epochs are skipped within the
-            // same per-slot visit bound as elected rounds.
+            // same per-pass visit bound as elected rounds.
             let init_weight = Self::subnet_lifecycle_read_weight()
                 .saturating_add(db_weight.writes(1))
                 .saturating_add(Self::consensus_history_key_proof(1));
@@ -138,7 +137,7 @@ impl<T: Config> Pallet<T> {
         let probe_weight = Self::consensus_round_probe_weight();
         let start = cursor;
         let mut visited = 0u32;
-        while cursor < stop && visited < MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT {
+        while cursor < stop && visited < MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE {
             // Every per-epoch record is written only after that epoch's election, so an epoch
             // without an elected round holds no history and costs a single read to skip.
             if !weight_meter.can_consume(probe_weight.saturating_add(cursor_write_weight)) {
@@ -170,7 +169,7 @@ impl<T: Config> Pallet<T> {
             ));
             if removed.maybe_cursor.is_some() {
                 // More attestation entries than the per-call limit (inconsistent state). The same
-                // prefix must not be cleared twice in one block; resume on a later slot.
+                // prefix must not be cleared twice in one block; resume on a later idle pass.
                 break;
             }
 
@@ -191,83 +190,181 @@ impl<T: Config> Pallet<T> {
         }
     }
 
-    /// Schedule a removed subnet's per-epoch consensus history for incremental cleanup. Subnet
-    /// IDs are never reused, so deferred clearing cannot touch a later subnet's state.
+    /// Idle is the only production caller of either history deletion worker. Alternate the
+    /// first worker so a large removed-subnet backlog cannot always pre-empt live retention.
+    pub(crate) fn cleanup_consensus_history_on_idle(weight_meter: &mut WeightMeter, block: u32) {
+        if block % 2 == 0 {
+            Self::prune_live_consensus_history(weight_meter, block);
+            Self::cleanup_removed_subnet_consensus_history(weight_meter);
+        } else {
+            Self::cleanup_removed_subnet_consensus_history(weight_meter);
+            Self::prune_live_consensus_history(weight_meter, block);
+        }
+    }
+
+    /// One cursor read, at most two iterator seeks/value reads (including wraparound), and
+    /// the cursor write. All selected records are scalars, independent of history/backlog size.
+    pub(crate) fn history_idle_selector_weight() -> Weight {
+        T::DbWeight::get()
+            .reads_writes(5, 1)
+            .saturating_add(Weight::from_parts(0, 5 * (4_096 + 32)))
+    }
+
+    fn prune_live_consensus_history(weight_meter: &mut WeightMeter, block: u32) {
+        if weight_meter
+            .try_consume(Self::history_idle_selector_weight())
+            .is_err()
+        {
+            return;
+        }
+        let next = ConsensusHistoryPruneLastSlot::<T>::get()
+            .and_then(|last| SlotAssignment::<T>::iter_from_key(last).next())
+            .or_else(|| SlotAssignment::<T>::iter().next());
+        let Some((slot, subnet_id)) = next else {
+            return;
+        };
+        ConsensusHistoryPruneLastSlot::<T>::put(slot);
+        // Use the selected subnet's slot, not the general epoch. No extra storage lookup is
+        // necessary, and a removed slot is naturally skipped on the next iterator seek.
+        let epoch_length = T::EpochLength::get();
+        if slot == 0 || epoch_length == 0 {
+            return;
+        }
+        let subnet_epoch = block.saturating_sub(slot) / epoch_length;
+        Self::prune_consensus_history(weight_meter, subnet_id, subnet_epoch);
+    }
+
+    /// Enqueue is constant work even if idle cleanup has been starved for a long time. This
+    /// replaces the vector-wide membership scan and rewrite on the subnet-removal path.
     pub(crate) fn queue_removed_subnet_consensus_history(subnet_id: u32) -> Weight {
         ConsensusHistoryPruneCursor::<T>::remove(subnet_id);
-        ConsensusHistoryCleanupQueue::<T>::mutate(|queue| {
-            if !queue.contains(&subnet_id) {
-                queue.push(subnet_id);
-            }
-        });
+        ConsensusHistoryCleanupQueue::<T>::insert(
+            subnet_id,
+            ConsensusHistoryCleanupStage::Attestations,
+        );
+        // Retain the existing removal model's read/write allowance; the new scalar work record
+        // replaces its queue read/write and cannot exceed the old encoded queue value.
         T::DbWeight::get().reads_writes(1, 2)
     }
 
-    /// Clear the history of the oldest queued removed subnet using leftover block weight. Each
-    /// prefix is cleared at most once per block (a limited `clear_prefix` must not be repeated
-    /// within one block); the subnet leaves the queue once every prefix reports completion.
+    pub(crate) fn removed_history_progress_weight() -> Weight {
+        T::DbWeight::get()
+            .writes(1)
+            .saturating_add(Self::consensus_history_key_proof(1))
+    }
+
+    /// Reserve a seek, a storage access and a deletion, including the maximum old value proof.
+    /// Keys are selected without decoding historical values. Individual deletes also bound
+    /// overlay work: clear_prefix's backend limit does not bound same-block overlay removals.
+    pub(crate) fn removed_history_step_weight(stage: ConsensusHistoryCleanupStage) -> Weight {
+        use ConsensusHistoryCleanupStage::*;
+        let value_bytes = match stage {
+            Attestations | ProposalArgs => T::ValidatorArgsLimit::get() as u64 + 5,
+            SubmissionMaxItems | SettlementStatus => 32,
+            // The combined fixed-round bound conservatively covers each of these value types.
+            Submissions | AttestorWeights | Elections => {
+                128 * T::MaxSubnetNodesUpperBound::get() as u64
+                    + 1_024
+                    + T::ValidatorArgsLimit::get() as u64
+                    + 5
+            }
+        };
+        T::DbWeight::get()
+            .reads_writes(2, 1)
+            .saturating_add(Weight::from_parts(0, value_bytes + 4_096))
+    }
+
+    /// Visit one removed subnet in round-robin storage-key order. Persist the prefix stage so
+    /// a small idle allowance can make progress without repeatedly probing earlier prefixes.
     pub(crate) fn cleanup_removed_subnet_consensus_history(weight_meter: &mut WeightMeter) {
-        let db_weight = T::DbWeight::get();
-        let selector_weight = db_weight.reads(1);
-        if !weight_meter.can_consume(selector_weight) {
+        use ConsensusHistoryCleanupStage::*;
+        if weight_meter
+            .try_consume(Self::history_idle_selector_weight())
+            .is_err()
+        {
             return;
         }
-        weight_meter.consume(selector_weight);
-
-        let mut queue = ConsensusHistoryCleanupQueue::<T>::get();
-        let Some(subnet_id) = queue.first().copied() else {
+        let next = ConsensusHistoryCleanupLastSubnet::<T>::get()
+            .and_then(|last| ConsensusHistoryCleanupQueue::<T>::iter_from_key(last).next())
+            .or_else(|| ConsensusHistoryCleanupQueue::<T>::iter().next());
+        let Some((subnet_id, mut stage)) = next else {
             return;
         };
+        ConsensusHistoryCleanupLastSubnet::<T>::put(subnet_id);
+        let original_stage = stage;
+        let progress_weight = Self::removed_history_progress_weight();
+        // Advance within each prefix instead of seeking from its beginning after every delete.
+        // This avoids repeatedly traversing backend keys already deleted in this block's overlay.
+        let mut last_key = None;
 
-        let limit = REMOVED_SUBNET_HISTORY_CLEAR_LIMIT;
-        let step_weight = db_weight.reads_writes(limit as u64, limit as u64);
-        let queue_write_weight = db_weight.writes(1);
-
-        macro_rules! clear_step {
-            ($clear:expr) => {{
-                if !weight_meter.can_consume(step_weight.saturating_add(queue_write_weight)) {
-                    return;
+        macro_rules! remove_next {
+            ($storage:ident, $next_stage:expr) => {
+                if let Some(epoch) = match last_key.take() {
+                    Some(key) => $storage::<T>::iter_key_prefix_from(subnet_id, key).next(),
+                    None => $storage::<T>::iter_key_prefix(subnet_id).next(),
+                } {
+                    last_key = Some($storage::<T>::hashed_key_for(subnet_id, epoch));
+                    $storage::<T>::remove(subnet_id, epoch);
+                } else {
+                    stage = $next_stage;
                 }
-                let removed = $clear;
-                weight_meter.consume(
-                    db_weight.reads_writes(removed.loops.max(1) as u64, removed.unique as u64),
-                );
-                if removed.maybe_cursor.is_some() {
-                    return;
-                }
-            }};
+            };
         }
 
-        clear_step!(SubnetConsensusAttestationData::<T>::clear_prefix(
-            (subnet_id,),
-            limit,
-            None
-        ));
-        clear_step!(SubnetConsensusSubmission::<T>::clear_prefix(
-            subnet_id, limit, None
-        ));
-        clear_step!(SubnetConsensusSubmissionMaxItems::<T>::clear_prefix(
-            subnet_id, limit, None
-        ));
-        clear_step!(SubnetConsensusProposalArgs::<T>::clear_prefix(
-            subnet_id, limit, None
-        ));
-        clear_step!(SubnetConsensusAttestorWeights::<T>::clear_prefix(
-            subnet_id, limit, None
-        ));
-        clear_step!(ConsensusRoundSettlementStatus::<T>::clear_prefix(
-            subnet_id, limit, None
-        ));
-        clear_step!(SubnetElectedValidator::<T>::clear_prefix(
-            subnet_id, limit, None
-        ));
-
-        queue.remove(0);
-        weight_meter.consume(queue_write_weight);
-        if queue.is_empty() {
-            ConsensusHistoryCleanupQueue::<T>::kill();
-        } else {
-            ConsensusHistoryCleanupQueue::<T>::put(queue);
+        for _ in 0..MAX_REMOVED_HISTORY_STEPS_PER_IDLE {
+            let step_weight = Self::removed_history_step_weight(stage);
+            if !weight_meter.can_consume(step_weight.saturating_add(progress_weight)) {
+                break;
+            }
+            weight_meter.consume(step_weight);
+            match stage {
+                Attestations => {
+                    let next = match last_key.take() {
+                        Some(key) => SubnetConsensusAttestationData::<T>::iter_key_prefix_from(
+                            (subnet_id,),
+                            key,
+                        )
+                        .next(),
+                        None => SubnetConsensusAttestationData::<T>::iter_key_prefix((subnet_id,))
+                            .next(),
+                    };
+                    if let Some((epoch, node)) = next {
+                        last_key = Some(SubnetConsensusAttestationData::<T>::hashed_key_for((
+                            subnet_id, epoch, node,
+                        )));
+                        SubnetConsensusAttestationData::<T>::remove((subnet_id, epoch, node));
+                    } else {
+                        stage = Submissions;
+                    }
+                }
+                Submissions => remove_next!(SubnetConsensusSubmission, SubmissionMaxItems),
+                SubmissionMaxItems => remove_next!(SubnetConsensusSubmissionMaxItems, ProposalArgs),
+                ProposalArgs => remove_next!(SubnetConsensusProposalArgs, AttestorWeights),
+                AttestorWeights => remove_next!(SubnetConsensusAttestorWeights, SettlementStatus),
+                SettlementStatus => remove_next!(ConsensusRoundSettlementStatus, Elections),
+                Elections => {
+                    let next = match last_key.take() {
+                        Some(key) => {
+                            SubnetElectedValidator::<T>::iter_key_prefix_from(subnet_id, key).next()
+                        }
+                        None => SubnetElectedValidator::<T>::iter_key_prefix(subnet_id).next(),
+                    };
+                    if let Some(epoch) = next {
+                        last_key = Some(SubnetElectedValidator::<T>::hashed_key_for(
+                            subnet_id, epoch,
+                        ));
+                        SubnetElectedValidator::<T>::remove(subnet_id, epoch);
+                    } else {
+                        weight_meter.consume(progress_weight);
+                        ConsensusHistoryCleanupQueue::<T>::remove(subnet_id);
+                        return;
+                    }
+                }
+            }
+        }
+        if stage != original_stage {
+            weight_meter.consume(progress_weight);
+            ConsensusHistoryCleanupQueue::<T>::insert(subnet_id, stage);
         }
     }
 }

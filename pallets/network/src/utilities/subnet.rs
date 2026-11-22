@@ -71,11 +71,7 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn get_total_subnets() -> u32 {
-        SubnetsData::<T>::iter()
-            .collect::<Vec<_>>()
-            .len()
-            .try_into()
-            .unwrap_or(0)
+        TotalSubnets::<T>::get()
     }
 
     // Check if the subnet state is registered, and if it's in the registration period

@@ -582,14 +582,10 @@ impl<T: Config> Pallet<T> {
         let min_delegate_stake = (dstake_epoch_interval != 0 && epoch % dstake_epoch_interval == 0)
             .then(MinSubnetDelegateStakeBalance::<T>::get);
 
-        // This snapshot controls only whether capacity candidates need to be collected. Whether a
+        // This snapshot controls only whether a capacity candidate needs to be tracked. Whether a
         // capacity eviction is still required is recalculated after all health removals.
         let initially_over_capacity = initial_subnet_count > max_subnets;
-        let mut subnet_delegate_stake: Vec<(u32, u128)> = Vec::new();
-
-        if initially_over_capacity {
-            subnet_delegate_stake.reserve(initial_subnet_count as usize);
-        }
+        let mut removal_candidate: Option<(u32, u128)> = None;
 
         for (subnet_id, data) in &subnets {
             // --- Registration logic
@@ -692,25 +688,29 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            // Store delegate stake for possible excess removal
+            // Keep the first minimum in iteration order, matching the former stable sort's ties.
             if initially_over_capacity && can_remove_excess_subnet {
-                subnet_delegate_stake.push((*subnet_id, subnet_delegate_stake_balance));
+                if removal_candidate
+                    .is_none_or(|(_, lowest_stake)| subnet_delegate_stake_balance < lowest_stake)
+                {
+                    removal_candidate = Some((*subnet_id, subnet_delegate_stake_balance));
+                }
             }
         }
 
         // --- Excess subnet removal
         // We allow max+1 subnets to exist in the economy and every `x` epochs remove one
         // based on the delegate stake balance
-        let still_over_capacity = current_subnet_count > max_subnets;
-        if still_over_capacity && !subnet_delegate_stake.is_empty() && can_remove_excess_subnet {
-            subnet_delegate_stake.sort_by_key(|&(_, value)| value);
-
-            let subnet_id = subnet_delegate_stake[0].0.clone();
-            let _ = Self::try_do_remove_subnet(
-                weight_meter,
-                subnet_id,
-                SubnetRemovalReason::MaxSubnets,
-            );
+        let still_over_capacity =
+            current_subnet_count >= max_subnets.saturating_add(SUBNET_ROTATION_ALLOWANCE);
+        if still_over_capacity && can_remove_excess_subnet {
+            if let Some((subnet_id, _)) = removal_candidate {
+                let _ = Self::try_do_remove_subnet(
+                    weight_meter,
+                    subnet_id,
+                    SubnetRemovalReason::MaxSubnets,
+                );
+            }
         }
     }
 

@@ -10210,7 +10210,7 @@ fn local_reputation_commits_omission_and_probation_promotion() {
                 .classification
                 .node_class = SubnetNodeClass::Probation;
             force_subnet_node_to_probation(subnet, target);
-            assert!(Network::remove_node_from_election_slot(subnet, target));
+            assert!(Network::remove_node_from_election_slot(subnet, target).unwrap());
             SubnetNodeProbationProgress::<Test>::insert(subnet, target, 3);
             if omitted {
                 submission

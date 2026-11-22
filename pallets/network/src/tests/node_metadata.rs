@@ -822,7 +822,6 @@ fn removed_nodes_cannot_participate_and_can_unstake_before_or_long_after_idle_cl
                     Some(account(900_002))
                 ));
                 let hotkey = Network::get_subnet_node_associated_hotkey(subnet, node).unwrap();
-                let slot_index = NodeSlotIndex::<Test>::get(subnet, node);
                 let validator = SubnetNodeValidatorId::<Test>::get(subnet, node).unwrap();
                 let stake = NodeSubnetStake::<Test>::get(node, subnet);
                 assert_ok!(Network::remove_subnet_node(
@@ -843,7 +842,7 @@ fn removed_nodes_cannot_participate_and_can_unstake_before_or_long_after_idle_cl
                     SubnetNodeIdHotkey::<Test>::get(subnet, node),
                     Some(hotkey.clone())
                 );
-                assert_eq!(NodeSlotIndex::<Test>::get(subnet, node), slot_index);
+                assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, node));
                 assert_noop!(
                     Network::attest(RuntimeOrigin::signed(hotkey), subnet, node, None),
                     Error::<Test>::InvalidSubnetNodeId
@@ -882,7 +881,7 @@ fn removed_nodes_cannot_participate_and_can_unstake_before_or_long_after_idle_cl
                 Network::on_idle(System::block_number(), Weight::MAX);
                 assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
                 assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
-                assert!(!NodeSlotIndex::<Test>::contains_key(subnet, node));
+                assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, node));
                 assert_indexes(subnet, node, &metadata, false);
             });
         }
@@ -909,16 +908,16 @@ fn idle_cleanup_without_metadata_preserves_moved_nodes_slot_index() {
 
         Network::perform_remove_subnet_node(subnet, node);
         assert_eq!(SubnetNodeElectionSlots::<Test>::get(subnet)[0], moved_node);
-        assert_eq!(NodeSlotIndex::<Test>::get(subnet, moved_node), Some(0));
-        assert_eq!(NodeSlotIndex::<Test>::get(subnet, node), Some(0));
+        assert_eq!(NodeElectionSlotIndex::<Test>::get(subnet, moved_node), Some(0));
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, node));
         assert_eq!(
             SubnetNodeIdHotkey::<Test>::get(subnet, node),
             Some(account(900_002))
         );
         Network::on_idle(System::block_number(), Weight::MAX);
-        assert!(!NodeSlotIndex::<Test>::contains_key(subnet, node));
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, node));
         assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
-        assert_eq!(NodeSlotIndex::<Test>::get(subnet, moved_node), Some(0));
+        assert_eq!(NodeElectionSlotIndex::<Test>::get(subnet, moved_node), Some(0));
     });
 }
 
@@ -953,7 +952,7 @@ fn idle_metadata_cleanup_respects_both_weight_dimensions_and_is_idempotent() {
             assert!(meter.consumed().all_lte(insufficient));
             assert_eq!(NodeMetadataCleanupQueue::<Test>::get(), queue);
             assert_indexes(subnet, node, &metadata, true);
-            assert!(NodeSlotIndex::<Test>::contains_key(subnet, node));
+            assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, node));
         }
         let mut meter = WeightMeter::with_limit(exact);
         Network::cleanup_deferred_node_metadata(&mut meter);
@@ -963,15 +962,15 @@ fn idle_metadata_cleanup_respects_both_weight_dimensions_and_is_idempotent() {
             &[(subnet, second_node)]
         );
         assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
-        assert!(!NodeSlotIndex::<Test>::contains_key(subnet, node));
-        assert!(NodeSlotIndex::<Test>::contains_key(subnet, second_node));
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, node));
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, second_node));
         assert_indexes(subnet, node, &metadata, false);
         assert_indexes(subnet, second_node, &second_metadata, true);
         let counts = (TotalNodes::<Test>::get(), TotalAdmittedNodes::<Test>::get());
         Network::cleanup_deferred_node_metadata(&mut WeightMeter::new());
         assert!(!NodeMetadataCleanupQueue::<Test>::exists());
         assert_indexes(subnet, second_node, &second_metadata, false);
-        assert!(!NodeSlotIndex::<Test>::contains_key(subnet, second_node));
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, second_node));
         Network::cleanup_deferred_node_metadata(&mut WeightMeter::new());
         assert_eq!(
             counts,
@@ -1043,6 +1042,8 @@ fn full_metadata_cleanup_queue_does_not_block_removal_or_unstaking() {
                 .unwrap();
             NodeMetadataCleanupQueue::<Test>::put(&queue);
             let stake = NodeSubnetStake::<Test>::get(node, subnet);
+            let electable_before = TotalSubnetElectableNodes::<Test>::get(subnet);
+            let total_electable_before = TotalElectableNodes::<Test>::get();
             assert_ok!(Network::remove_subnet_node(
                 RuntimeOrigin::signed(coldkey.clone()),
                 subnet,
@@ -1055,7 +1056,24 @@ fn full_metadata_cleanup_queue_does_not_block_removal_or_unstaking() {
             assert!(!SubnetNodeProbationProgress::<Test>::contains_key(
                 subnet, node
             ));
-            assert!(!NodeSlotIndex::<Test>::contains_key(subnet, node));
+            assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, node));
+            let slots = SubnetNodeElectionSlots::<Test>::get(subnet);
+            assert!(!slots.contains(&node));
+            for (index, surviving_node) in slots.iter().enumerate() {
+                assert_eq!(
+                    NodeElectionSlotIndex::<Test>::get(subnet, surviving_node),
+                    Some(index as u32)
+                );
+            }
+            let removed_electable = if queued { 0 } else { 1 };
+            assert_eq!(
+                TotalSubnetElectableNodes::<Test>::get(subnet),
+                electable_before - removed_electable
+            );
+            assert_eq!(
+                TotalElectableNodes::<Test>::get(),
+                total_electable_before - removed_electable
+            );
             assert_ok!(Network::remove_node_stake(
                 RuntimeOrigin::signed(coldkey),
                 subnet,
@@ -1088,7 +1106,6 @@ fn subnet_removal_drains_only_its_residual_metadata_without_double_counting() {
         SubnetNodeMetadata::<Test>::insert(u32::MAX, 1, maximum(43));
         SubnetNodeIdHotkey::<Test>::insert(u32::MAX, 1, account(900_003));
         SubnetNodeProbationProgress::<Test>::insert(u32::MAX, 1, 1);
-        NodeSlotIndex::<Test>::insert(u32::MAX, 1, 0);
         Network::do_remove_subnet(subnet, SubnetRemovalReason::Owner);
         assert_eq!(
             NodeMetadataCleanupQueue::<Test>::get().as_slice(),
@@ -1100,10 +1117,9 @@ fn subnet_removal_drains_only_its_residual_metadata_without_double_counting() {
             u32::MAX,
             1
         ));
-        assert!(NodeSlotIndex::<Test>::contains_key(u32::MAX, 1));
         assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
         assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
-        assert!(!NodeSlotIndex::<Test>::contains_key(subnet, node));
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, node));
         assert_indexes(subnet, node, &metadata, false);
         assert_eq!(TotalNodes::<Test>::get(), 0);
         assert_eq!(TotalAdmittedNodes::<Test>::get(), 0);
@@ -1113,8 +1129,92 @@ fn subnet_removal_drains_only_its_residual_metadata_without_double_counting() {
             u32::MAX,
             1
         ));
-        assert!(!NodeSlotIndex::<Test>::contains_key(u32::MAX, 1));
         assert_eq!(TotalNodes::<Test>::get(), 0);
         assert_eq!(TotalAdmittedNodes::<Test>::get(), 0);
+    });
+}
+
+#[test]
+fn invalid_election_index_preserves_removal_state_and_pending_call_errors() {
+    for invalid in [None, Some(0), Some(u32::MAX)] {
+        for route in 0..7 {
+            new_test_ext().execute_with(|| {
+                let (subnet, node, coldkey) = fixture(false);
+                assert_ne!(NodeElectionSlotIndex::<Test>::get(subnet, node), invalid);
+                match invalid {
+                    Some(index) => NodeElectionSlotIndex::<Test>::insert(subnet, node, index),
+                    None => NodeElectionSlotIndex::<Test>::remove(subnet, node),
+                }
+                PendingAdmittedNodeRemovals::<Test>::mutate(subnet, |pending| {
+                    pending.try_insert(node).unwrap();
+                });
+                let hotkey = Network::get_subnet_node_associated_hotkey(subnet, node).unwrap();
+                let before = sp_io::storage::root(sp_runtime::StateVersion::V1);
+                let result = match route {
+                    0 => Network::perform_remove_subnet_node(subnet, node),
+                    1 => Network::remove_subnet_node(
+                        RuntimeOrigin::signed(coldkey.clone()),
+                        subnet,
+                        node,
+                    ),
+                    2 => Network::add_node_stake(
+                        RuntimeOrigin::signed(coldkey.clone()),
+                        subnet,
+                        node,
+                        1,
+                    ),
+                    3 => Network::remove_node_stake(
+                        RuntimeOrigin::signed(coldkey.clone()),
+                        subnet,
+                        node,
+                        1,
+                    ),
+                    4 => Network::update_node_hotkey(
+                        RuntimeOrigin::signed(coldkey.clone()),
+                        subnet,
+                        node,
+                        None,
+                    ),
+                    5 => Network::collective_remove_subnet_node(
+                        RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
+                        subnet,
+                        node,
+                    ),
+                    _ => Network::attest(RuntimeOrigin::signed(hotkey), subnet, node, None)
+                        .map(|_| ())
+                        .map_err(|error| error.error),
+                };
+                assert_eq!(
+                    result,
+                    Err(Error::<Test>::InvalidNodeElectionSlotIndex.into())
+                );
+                assert_eq!(sp_io::storage::root(sp_runtime::StateVersion::V1), before);
+                let slots = SubnetNodeElectionSlots::<Test>::get(subnet);
+                let index = slots.iter().position(|id| *id == node).unwrap();
+                NodeElectionSlotIndex::<Test>::insert(subnet, node, index as u32);
+                assert_ok!(Network::perform_remove_subnet_node(subnet, node));
+                assert_ok!(Network::perform_remove_subnet_node(subnet, node));
+            });
+        }
+    }
+}
+
+#[test]
+fn pending_cleanup_skips_bad_index_without_rolling_back_other_removals() {
+    new_test_ext().execute_with(|| {
+        let (subnet, _, _) = fixture(false);
+        let slots = SubnetNodeElectionSlots::<Test>::get(subnet);
+        let bad = slots[0];
+        let good = slots[1];
+        NodeElectionSlotIndex::<Test>::remove(subnet, bad);
+        PendingAdmittedNodeRemovals::<Test>::mutate(subnet, |pending| {
+            pending.try_insert(bad).unwrap();
+            pending.try_insert(good).unwrap();
+        });
+        Network::cleanup_pending_node_removals(&mut WeightMeter::new(), subnet);
+        assert!(SubnetNodesData::<Test>::contains_key(subnet, bad));
+        assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet).contains(&bad));
+        assert!(!SubnetNodesData::<Test>::contains_key(subnet, good));
+        assert!(!PendingAdmittedNodeRemovals::<Test>::get(subnet).contains(&good));
     });
 }

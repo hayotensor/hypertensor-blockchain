@@ -1,7 +1,7 @@
 use super::mock::*;
 use super::test_utils::*;
 use crate::utilities::consensus_history::{
-    CONSENSUS_HISTORY_RETENTION_EPOCHS, MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT,
+    CONSENSUS_HISTORY_RETENTION_EPOCHS, MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE,
 };
 use crate::{
     ConsensusAttestorWeightSnapshot, ConsensusHistoryCleanupQueue, ConsensusHistoryPruneCursor,
@@ -197,32 +197,31 @@ fn missing_proposal_with_invalid_election_weights_cancels_once() {
 fn consensus_history_is_pruned_to_the_retention_window_in_bounded_steps() {
     new_test_ext().execute_with(|| {
         let subnet_id = 7;
-        let current_subnet_epoch = 40;
+        let current_subnet_epoch = CONSENSUS_HISTORY_RETENTION_EPOCHS + 24;
         for epoch in 0..=current_subnet_epoch {
             insert_round(subnet_id, epoch);
         }
 
-        // The first slot only initializes the cursor, at the oldest epoch that can hold history
-        // (no subnet record here, so epoch 0), which reaches history written before pruning
-        // existed.
+        // The first idle pass only initializes the cursor, at the oldest epoch that can hold history
+        // (no subnet record here, so epoch 0).
         let horizon = current_subnet_epoch - CONSENSUS_HISTORY_RETENTION_EPOCHS;
         Network::prune_consensus_history(&mut WeightMeter::new(), subnet_id, current_subnet_epoch);
         assert_eq!(ConsensusHistoryPruneCursor::<Test>::get(subnet_id), Some(0));
         assert!(round_fully_present(subnet_id, 0));
 
-        // One slot prunes at most MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT rounds.
+        // One idle pass prunes at most MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE rounds.
         Network::prune_consensus_history(&mut WeightMeter::new(), subnet_id, current_subnet_epoch);
         assert_eq!(
             ConsensusHistoryPruneCursor::<Test>::get(subnet_id),
-            Some(MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT)
+            Some(MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE)
         );
         assert!(round_fully_absent(
             subnet_id,
-            MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT - 1
+            MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE - 1
         ));
         assert!(round_fully_present(
             subnet_id,
-            MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT
+            MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE
         ));
 
         for _ in 0..horizon {
@@ -253,7 +252,7 @@ fn consensus_history_is_pruned_to_the_retention_window_in_bounded_steps() {
 fn consensus_history_pruning_expires_unfinished_rounds() {
     new_test_ext().execute_with(|| {
         let subnet_id = 7;
-        let current_subnet_epoch = 40;
+        let current_subnet_epoch = CONSENSUS_HISTORY_RETENTION_EPOCHS + 24;
         for epoch in 0..=current_subnet_epoch {
             insert_round(subnet_id, epoch);
         }
@@ -299,7 +298,10 @@ fn subnet_removal_clears_all_consensus_history_with_idle_weight() {
         insert_round(subnet_id + 1, 1_000);
 
         Network::do_remove_subnet(subnet_id, SubnetRemovalReason::Council);
-        assert_eq!(ConsensusHistoryCleanupQueue::<Test>::get(), vec![subnet_id]);
+        assert_eq!(
+            ConsensusHistoryCleanupQueue::<Test>::get(subnet_id),
+            Some(crate::ConsensusHistoryCleanupStage::Attestations),
+        );
         assert!(ConsensusHistoryPruneCursor::<Test>::get(subnet_id).is_none());
 
         // (The mock's DbWeight is zero, so weight metering itself is not exercised here.)
@@ -307,7 +309,9 @@ fn subnet_removal_clears_all_consensus_history_with_idle_weight() {
             Network::on_idle(System::block_number(), Weight::MAX);
         }
 
-        assert!(ConsensusHistoryCleanupQueue::<Test>::get().is_empty());
+        assert!(ConsensusHistoryCleanupQueue::<Test>::iter_keys()
+            .next()
+            .is_none());
         assert!(SubnetElectedValidator::<Test>::iter_prefix(subnet_id)
             .next()
             .is_none());
@@ -371,20 +375,20 @@ fn prune_cursor_starts_at_the_oldest_possible_epoch_and_bounds_empty_epoch_visit
             Some(eligible_from)
         );
 
-        // The first slot visits at most the configured number of epochs, including empty ones.
+        // The first idle pass visits at most the configured number of epochs, including empty ones.
         Network::prune_consensus_history(&mut WeightMeter::new(), subnet_id, current_subnet_epoch);
         for epoch in old_rounds.clone() {
             assert!(round_fully_absent(subnet_id, epoch));
         }
         assert_eq!(
             ConsensusHistoryPruneCursor::<Test>::get(subnet_id),
-            Some(eligible_from + MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT)
+            Some(eligible_from + MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE)
         );
         assert!(round_fully_present(subnet_id, *recent_rounds.start()));
 
-        // Later slots traverse the gap in bounded steps and eventually reach the horizon.
+        // Later idle passes traverse the gap in bounded steps and eventually reach the horizon.
         let horizon = current_subnet_epoch - CONSENSUS_HISTORY_RETENTION_EPOCHS;
-        for _ in 0..(horizon - eligible_from).div_ceil(MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT) {
+        for _ in 0..(horizon - eligible_from).div_ceil(MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE) {
             let before = ConsensusHistoryPruneCursor::<Test>::get(subnet_id).unwrap();
             Network::prune_consensus_history(
                 &mut WeightMeter::new(),
@@ -395,7 +399,7 @@ fn prune_cursor_starts_at_the_oldest_possible_epoch_and_bounds_empty_epoch_visit
             assert_eq!(
                 after,
                 before
-                    .saturating_add(MAX_PRUNED_CONSENSUS_EPOCHS_PER_SLOT)
+                    .saturating_add(MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE)
                     .min(horizon)
             );
         }
@@ -410,5 +414,174 @@ fn prune_cursor_starts_at_the_oldest_possible_epoch_and_bounds_empty_epoch_visit
                 assert!(round_fully_present(subnet_id, epoch));
             }
         }
+    });
+}
+
+#[test]
+fn initialization_preserves_old_history_and_idle_prunes_only_expired_rounds() {
+    new_test_ext().execute_with(|| {
+        let name = b"idle-history-retention".to_vec();
+        build_activated_subnet(
+            name.clone(),
+            0,
+            4,
+            10_000_000_000_000_000_000_000,
+            MinSubnetMinStake::<Test>::get(),
+        );
+        let subnet = SubnetName::<Test>::get(name).unwrap();
+        let epoch = CONSENSUS_HISTORY_RETENTION_EPOCHS + 24;
+        let horizon = epoch - CONSENSUS_HISTORY_RETENTION_EPOCHS;
+        insert_round(subnet, 1);
+        insert_round(subnet, horizon);
+        ConsensusHistoryPruneCursor::<Test>::insert(subnet, 1);
+        set_block_to_subnet_slot_epoch(epoch, subnet);
+
+        Network::on_initialize(System::block_number());
+        assert!(round_fully_present(subnet, 1));
+        assert_eq!(ConsensusHistoryPruneCursor::<Test>::get(subnet), Some(1));
+        let current_round = SubnetElectedValidator::<Test>::get(subnet, epoch);
+        assert!(current_round.is_some());
+
+        frame_support::assert_storage_noop!({
+            assert_eq!(
+                Network::on_idle(System::block_number(), Weight::zero()),
+                Weight::zero()
+            );
+        });
+        Network::on_idle(System::block_number(), Weight::MAX);
+        assert!(round_fully_absent(subnet, 1));
+        assert!(round_fully_present(subnet, horizon));
+        assert_eq!(
+            SubnetElectedValidator::<Test>::get(subnet, epoch),
+            current_round
+        );
+    });
+}
+
+#[test]
+fn idle_pruning_rotates_subnets_and_uses_each_subnets_slot_epoch() {
+    new_test_ext().execute_with(|| {
+        for (slot, subnet) in [(4, 21), (5, 22)] {
+            crate::SlotAssignment::<Test>::insert(slot, subnet);
+            crate::SubnetSlot::<Test>::insert(subnet, slot);
+            ConsensusHistoryPruneCursor::<Test>::insert(subnet, 0);
+            insert_round(subnet, 0);
+        }
+        let block = (CONSENSUS_HISTORY_RETENTION_EPOCHS + 1) * NetworkEpochLength::get() + 4;
+        System::set_block_number(block);
+        for _ in 0..2 {
+            Network::on_idle(System::block_number(), Weight::MAX);
+        }
+        assert!(round_fully_absent(21, 0));
+        assert!(round_fully_present(22, 0));
+
+        System::set_block_number(block + 1);
+        for _ in 0..2 {
+            Network::on_idle(System::block_number(), Weight::MAX);
+        }
+        assert!(round_fully_absent(22, 0));
+
+        // Removing the last visited slot does not pin the iterator or leave a stale live job.
+        crate::SlotAssignment::<Test>::remove(5);
+        Network::on_idle(System::block_number(), Weight::MAX);
+        assert_eq!(crate::ConsensusHistoryPruneLastSlot::<Test>::get(), Some(4));
+    });
+}
+
+#[test]
+fn removed_history_deletes_a_bounded_batch_and_rotates_large_backlogs() {
+    use crate::utilities::consensus_history::MAX_REMOVED_HISTORY_STEPS_PER_IDLE;
+    for commit in [false, true] {
+        let mut ext = new_test_ext();
+        let entries = MAX_REMOVED_HISTORY_STEPS_PER_IDLE + 10;
+        ext.execute_with(|| {
+            Network::queue_removed_subnet_consensus_history(41);
+            Network::queue_removed_subnet_consensus_history(42);
+            for node in 0..entries {
+                SubnetConsensusAttestationData::<Test>::insert((41, 0, node), payload(1));
+            }
+            insert_round(42, 0);
+            insert_round(43, 0); // Unscheduled history must survive.
+        });
+        if commit {
+            ext.commit_all().unwrap();
+        }
+        ext.execute_with(|| {
+            Network::cleanup_removed_subnet_consensus_history(&mut WeightMeter::new());
+            assert_eq!(
+                SubnetConsensusAttestationData::<Test>::iter_key_prefix((41,)).count(),
+                (entries - MAX_REMOVED_HISTORY_STEPS_PER_IDLE) as usize,
+            );
+            assert!(ConsensusHistoryCleanupQueue::<Test>::contains_key(41));
+
+            // A large first subnet cannot monopolize subsequent idle passes.
+            Network::cleanup_removed_subnet_consensus_history(&mut WeightMeter::new());
+            assert!(round_fully_absent(42, 0));
+            assert!(!ConsensusHistoryCleanupQueue::<Test>::contains_key(42));
+            assert!(ConsensusHistoryCleanupQueue::<Test>::contains_key(41));
+            Network::cleanup_removed_subnet_consensus_history(&mut WeightMeter::new());
+            assert!(round_fully_absent(41, 0));
+            assert!(ConsensusHistoryCleanupQueue::<Test>::iter_keys()
+                .next()
+                .is_none());
+            assert!(round_fully_present(43, 0));
+        });
+    }
+}
+
+#[test]
+fn removed_history_respects_both_weight_limits_and_resumes_partial_prefix_cleanup() {
+    use crate::ConsensusHistoryCleanupStage;
+    use frame_support::weights::RuntimeDbWeight;
+    struct RestoreDbWeight(RuntimeDbWeight);
+    impl Drop for RestoreDbWeight {
+        fn drop(&mut self) {
+            TestDbWeight::set(self.0);
+        }
+    }
+    new_test_ext().execute_with(|| {
+        let _restore = RestoreDbWeight(TestDbWeight::get());
+        TestDbWeight::set(RuntimeDbWeight { read: 1, write: 2 });
+        Network::queue_removed_subnet_consensus_history(41);
+        SubnetConsensusAttestationData::<Test>::insert((41, 0, 1), payload(1));
+        let selector = Network::history_idle_selector_weight();
+        let step = Network::removed_history_step_weight(ConsensusHistoryCleanupStage::Attestations);
+        let progress = Network::removed_history_progress_weight();
+        let exact = selector.saturating_add(step).saturating_add(progress);
+        for limit in [
+            Weight::zero(),
+            Weight::from_parts(u64::MAX, 0),
+            exact.saturating_sub(Weight::from_parts(1, 0)),
+            exact.saturating_sub(Weight::from_parts(0, 1)),
+        ] {
+            let mut meter = WeightMeter::with_limit(limit);
+            Network::cleanup_removed_subnet_consensus_history(&mut meter);
+            assert!(meter.consumed().all_lte(limit));
+            assert!(SubnetConsensusAttestationData::<Test>::contains_key((
+                41, 0, 1
+            )));
+            assert_eq!(
+                ConsensusHistoryCleanupQueue::<Test>::get(41),
+                Some(ConsensusHistoryCleanupStage::Attestations)
+            );
+        }
+
+        let mut meter = WeightMeter::with_limit(exact);
+        Network::cleanup_removed_subnet_consensus_history(&mut meter);
+        assert!(!SubnetConsensusAttestationData::<Test>::contains_key((
+            41, 0, 1
+        )));
+        assert!(meter.consumed().all_lte(exact));
+
+        // The next small allowance advances just the prefix stage and saves it for later.
+        let mut meter = WeightMeter::with_limit(exact);
+        Network::cleanup_removed_subnet_consensus_history(&mut meter);
+        assert_eq!(meter.consumed(), exact);
+        assert_eq!(
+            ConsensusHistoryCleanupQueue::<Test>::get(41),
+            Some(ConsensusHistoryCleanupStage::Submissions)
+        );
+        Network::cleanup_removed_subnet_consensus_history(&mut WeightMeter::new());
+        assert!(!ConsensusHistoryCleanupQueue::<Test>::contains_key(41));
     });
 }

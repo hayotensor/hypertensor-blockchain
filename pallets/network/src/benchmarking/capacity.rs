@@ -117,6 +117,24 @@ fn elected_fixture_with_reputation<T: Config>(
     keep_node_metadata: bool,
     combined: bool,
 ) -> u32 {
+    elected_fixture_options::<T>(nodes, keep_node_metadata, combined, false, true)
+}
+
+/// Avoid repeatedly populating metadata that the measured promotion paths never access.
+/// Full-metadata boundary cases and equivalence tests retain that coverage.
+pub(super) fn promotion_elected_fixture<T: Config>(nodes: u32, full_metadata: bool) -> u32 {
+    // Keep the small registration metadata in light fixtures. Promotion setup elects its
+    // actual mixed population later, so an unused all-Active election is unnecessary.
+    elected_fixture_options::<T>(nodes, true, false, !full_metadata, false)
+}
+
+fn elected_fixture_options<T: Config>(
+    nodes: u32,
+    keep_node_metadata: bool,
+    combined: bool,
+    light: bool,
+    elect: bool,
+) -> u32 {
     MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
     build_activated_subnet::<T>(
         DEFAULT_SUBNET_NAME.into(),
@@ -146,7 +164,9 @@ fn elected_fixture_with_reputation<T: Config>(
         misc: Some(bytes),
     };
     for id in 1..=nodes {
-        max_fill_node::<T>(subnet_id, id);
+        if !light {
+            max_fill_node::<T>(subnet_id, id);
+        }
         let validator_id = SubnetNodeValidatorId::<T>::get(subnet_id, id).unwrap();
         // Use the real deposit path: a balance and total shares alone do NOT make a pool
         // reward-bearing. Circulating shares and a consistent delegate balance EMA checkpoint matter.
@@ -159,7 +179,9 @@ fn elected_fixture_with_reputation<T: Config>(
         ));
         assert!(ValidatorDelegateStakeCirculatingShares::<T>::get(validator_id) > 0);
         ValidatorsData::<T>::mutate(validator_id, |validator| {
-            ValidatorMetadata::<T>::insert(validator_id, identity.clone());
+            if !light {
+                ValidatorMetadata::<T>::insert(validator_id, identity.clone());
+            }
             validator.delegate_reward_rate = Network::<T>::percentage_factor_as_u128() / 2;
             validator.delegate_account = Some(DelegateAccount {
                 account_id: get_account::<T>("capacity-beneficiary", validator_id),
@@ -239,10 +261,12 @@ fn elected_fixture_with_reputation<T: Config>(
             },
         );
     }
-    Network::<T>::elect_validator(
-        subnet_id,
-        Network::<T>::get_current_subnet_epoch_as_u32(subnet_id),
-    );
+    if elect {
+        Network::<T>::elect_validator(
+            subnet_id,
+            Network::<T>::get_current_subnet_epoch_as_u32(subnet_id),
+        );
+    }
     subnet_id
 }
 
@@ -320,7 +344,13 @@ pub(super) fn settlement_fixture_with_reputation<T: Config>(
     } else {
         run_subnet_consensus_step::<T>(subnet_id, None, None);
     }
-    let fixture = SettlementFixture {
+    let fixture = capture_settlement::<T>(subnet_id, nodes);
+    prepare_settlement::<T>(subnet_id);
+    fixture
+}
+
+pub(super) fn capture_settlement<T: Config>(subnet_id: u32, nodes: u32) -> SettlementFixture {
+    SettlementFixture {
         subnet_id,
         epoch: Network::<T>::get_current_subnet_epoch_as_u32(subnet_id),
         nodes,
@@ -347,7 +377,10 @@ pub(super) fn settlement_fixture_with_reputation<T: Config>(
         ))
         .unwrap(),
         subnet_pool_balance: TotalSubnetDelegateStakeBalance::<T>::get(subnet_id),
-    };
+    }
+}
+
+pub(super) fn prepare_settlement<T: Config>(subnet_id: u32) {
     increase_epochs::<T>(1);
     set_block_to_subnet_slot_epoch::<T>(Network::<T>::get_current_epoch_as_u32(), subnet_id);
     let epoch = Network::<T>::get_current_epoch_as_u32();
@@ -362,7 +395,6 @@ pub(super) fn settlement_fixture_with_reputation<T: Config>(
         }
     });
     seed_subnet_net_flow_checkpoint::<T>(subnet_id, 1);
-    fixture
 }
 
 pub(super) fn verify_settlement<T: Config>(fixture: &SettlementFixture) {

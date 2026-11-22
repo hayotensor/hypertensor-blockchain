@@ -104,6 +104,9 @@ impl<T: Config> Pallet<T> {
         let mut total_weight = U256::zero();
         let node_count_decay = policy.consensus_validator_node_count_decay;
         let percentage_factor = Self::percentage_factor_as_u128();
+        let penalty_exponent = Self::get_percent_as_f64(
+            percentage_factor.saturating_sub(node_count_decay.min(percentage_factor)),
+        );
 
         for (validator_id, subnet_node_ids) in validator_nodes {
             let validator_delegate_stake = ValidatorDelegateStakeBalance::<T>::get(validator_id);
@@ -114,6 +117,8 @@ impl<T: Config> Pallet<T> {
                 .map(|subnet_nodes| subnet_nodes.len() as u128)
                 .unwrap_or(snapshotted_node_count)
                 .max(snapshotted_node_count);
+            // Compute only for the first positive allocation, then reuse across this validator's nodes.
+            let mut decay_divisor = None;
 
             for subnet_node_id in subnet_node_ids {
                 let allocation = validator_node_weights
@@ -127,10 +132,8 @@ impl<T: Config> Pallet<T> {
                     && node_count > 1
                     && node_count_decay < percentage_factor
                 {
-                    let penalty_exponent = Self::get_percent_as_f64(
-                        percentage_factor.saturating_sub(node_count_decay.min(percentage_factor)),
-                    );
-                    let divisor = Self::pow(node_count as f64, penalty_exponent);
+                    let divisor = *decay_divisor
+                        .get_or_insert_with(|| Self::pow(node_count as f64, penalty_exponent));
 
                     if divisor.is_finite() && divisor > 0.0 {
                         let decayed_weight = allocated_weight as f64 / divisor;
@@ -329,7 +332,7 @@ impl<T: Config> Pallet<T> {
         // cleanup. It must not create a proposal or receive the fee waiver for normal consensus
         // work.
         if pending_ids.contains(&validator_subnet_node_id) {
-            let _ = Self::finalize_pending_subnet_node_removal(subnet_id, validator_subnet_node_id);
+            let _ = Self::finalize_pending_subnet_node_removal(subnet_id, validator_subnet_node_id)?;
             return Ok(Pays::Yes.into());
         }
 
@@ -566,7 +569,7 @@ impl<T: Config> Pallet<T> {
 
         // Pending nodes can authenticate this call only to complete their own removal. They do not
         // attest, write opaque attestation data, emit an attestation event, or receive a fee waiver.
-        if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+        if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id)? {
             return Ok(Pays::Yes.into());
         }
 

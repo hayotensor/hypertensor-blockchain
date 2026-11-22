@@ -675,9 +675,6 @@ impl<T: Config> Pallet<T> {
             // reward/election priority while retrying every marker for any still-existing subnet.
             Self::cleanup_pending_node_removals(weight_meter, subnet_id);
 
-            // Bounded retention for feeless per-epoch consensus history.
-            Self::prune_consensus_history(weight_meter, subnet_id, current_subnet_epoch);
-
             if subnet.state == SubnetState::Active {
                 // Registration and burn maintenance are the final slot priority. Select one
                 // complete generated envelope from the physical queued-node count. Pending
@@ -784,7 +781,8 @@ impl<T: Config> Pallet<T> {
             }
 
             weight_meter.consume(removal_weight);
-            Self::remove_admitted_subnet_node(subnet_id, subnet_node_id);
+            // Failed validation preserves quarantine; later affordable nodes can still progress.
+            let _ = Self::remove_admitted_subnet_node(subnet_id, subnet_node_id);
         }
     }
 

@@ -45,6 +45,7 @@ fn seed_admitted_pending(subnet_id: u32) -> (u32, AccountId) {
         0,
     );
     let subnet_node_id = 1;
+    assert!(Network::insert_node_into_election_slot(subnet_id, subnet_node_id));
     mark_admitted_pending(subnet_id, subnet_node_id);
     (subnet_node_id, account(coldkey_number))
 }
@@ -64,6 +65,9 @@ fn mandatory_reward_and_election_envelope_fits_the_hook_budget() {
 
 fn seed_election_candidates(subnet_id: u32, candidates: &[u32]) {
     SubnetNodeElectionSlots::<Test>::insert(subnet_id, candidates.to_vec());
+    for (index, node) in candidates.iter().enumerate() {
+        crate::NodeElectionSlotIndex::<Test>::insert(subnet_id, node, index as u32);
+    }
     for subnet_node_id in candidates {
         SubnetNodeValidatorId::<Test>::insert(
             subnet_id,
@@ -723,6 +727,7 @@ fn direct_physical_removal_clears_both_marker_classes() {
             SubnetNodeClass::Active,
             0,
         );
+        assert!(Network::insert_node_into_election_slot(subnet_id, subnet_node_id));
         mark_admitted_pending(subnet_id, subnet_node_id);
         // A mismatched stale marker must not survive the common terminal removal path either.
         mark_queued_pending(subnet_id, subnet_node_id);
@@ -730,7 +735,7 @@ fn direct_physical_removal_clears_both_marker_classes() {
         assert!(Network::remove_admitted_subnet_node(
             subnet_id,
             subnet_node_id
-        ));
+        ).unwrap());
 
         assert!(PendingAdmittedNodeRemovals::<Test>::get(subnet_id).is_empty());
         assert!(PendingQueuedNodeRemovals::<Test>::get(subnet_id).is_empty());
@@ -842,6 +847,7 @@ fn pending_cleanup_obeys_the_exact_meter_boundary_and_subnet_scope() {
             SubnetNodeClass::Active,
             0,
         );
+        assert!(Network::insert_node_into_election_slot(subnet_id, subnet_node_id));
         mark_admitted_pending(subnet_id, subnet_node_id);
 
         let db_weight: frame_support::weights::RuntimeDbWeight =

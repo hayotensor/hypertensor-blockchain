@@ -130,7 +130,8 @@ impl<T: Config> Pallet<T> {
 
         for (unbonding_block, entry) in unbondings.iter() {
             if block < *unbonding_block {
-                continue;
+                // The BTreeMap is ordered by claim block, so all remaining entries are future claims.
+                break;
             }
 
             let Some(amount) = entry.network.checked_add(entry.overwatch) else {

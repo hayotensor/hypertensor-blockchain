@@ -14,7 +14,7 @@ use crate::{
     MinQueueEpochs, MinRegistrationCost, MinSubnetDelegateStakeBalance, MinSubnetMinStake,
     MinSubnetNodes, MinSubnetRegistrationEpochs, MinSubnetReputation, MultiaddrSubnetNodeId,
     NetworkBytes, NetworkMaxStakeBalance, NodeBurnRateAlpha, NodeRegistrationInitialValidatorIds,
-    NodeRegistrationsThisEpoch, NodeSlotIndex, NodeSubnetStake, OverwatchNodeIndex,
+    NodeRegistrationsThisEpoch, NodeElectionSlotIndex, NodeSubnetStake, OverwatchNodeIndex,
     OverwatchSubnetWeights, PeerIdOverwatchNodeId, PeerIdSubnetNodeId, PeerInfo,
     PendingConsensusValidatorNodeCountDecay, PendingConsensusValidatorStakeWeightPower,
     PendingMinSubnetNodeReputation, PendingProbationRounds, PendingQueueImmunityEpochs,
@@ -569,7 +569,7 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
         );
 
         insert_elected_subnet_node(subnet_id, 1, active_node_id);
-        NodeSlotIndex::<Test>::insert(subnet_id, active_node_id, 0);
+        NodeElectionSlotIndex::<Test>::insert(subnet_id, active_node_id, 0);
 
         SubnetNodeProbationProgress::<Test>::insert(subnet_id, active_node_id, 2);
 
@@ -764,7 +764,7 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
         // `on_initialize` would be unbounded, and the record remains useful for auditing settled
         // consensus after the subnet's live state is removed.
         assert!(SubnetElectedValidator::<Test>::contains_key(subnet_id, 1));
-        assert!(!NodeSlotIndex::<Test>::contains_key(
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(
             subnet_id,
             active_node_id
         ));
@@ -3113,6 +3113,36 @@ fn test_excess_subnet_removal_lowest_delegate_stake() {
         // The subnet with id 8 (lowest stake) should be removed
         assert!(!SubnetsData::<Test>::contains_key(8));
         assert!(SubnetsData::<Test>::contains_key(9));
+    });
+}
+
+#[test]
+fn test_excess_subnet_removal_equal_stakes_preserves_storage_iteration_order() {
+    new_test_ext().execute_with(|| {
+        MaxSubnets::<Test>::put(2);
+        PrevSubnetActivationEpoch::<Test>::put(0);
+
+        for subnet_id in [30, 31, 32] {
+            insert_cardinality_test_subnet(
+                subnet_id,
+                SubnetState::Active,
+                500 * Network::percentage_factor_as_u128(),
+            );
+        }
+        synchronize_cardinality_test_counts();
+
+        // Stable sorting by equal stakes selects the first subnet in storage iteration order.
+        let original_order: Vec<_> = SubnetsData::<Test>::iter_keys().collect();
+        assert_eq!(original_order.len(), 3);
+        let epoch = SubnetRemovalCheckInterval::<Test>::get();
+        set_epoch(epoch, NETWORK_EPOCH_PRELIMINARIES_SLOT);
+        Network::do_epoch_preliminaries(&mut WeightMeter::new(), System::block_number(), epoch);
+
+        assert!(!SubnetsData::<Test>::contains_key(original_order[0]));
+        for subnet_id in &original_order[1..] {
+            assert!(SubnetsData::<Test>::contains_key(subnet_id));
+        }
+        assert_eq!(TotalSubnets::<Test>::get(), 2);
     });
 }
 

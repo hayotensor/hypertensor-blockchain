@@ -5,7 +5,7 @@ use crate::{
     BootnodePeerIdSubnetNodeId, ChurnLimit, ClientPeerIdSubnetNodeId, Error,
     MaxDelegateStakePercentage, MaxRegisteredNodes, MaxRewardRateDecrease, MaxSubnetNodes,
     MaxSubnets, MinSubnetNodes, MinSubnetRegistrationEpochs, MultiaddrSubnetNodeId,
-    NodeRewardRateUpdatePeriod, NodeSlotIndex, PeerIdSubnetNodeId, PeerInfo, QueuedSubnetNodesData,
+    NodeRewardRateUpdatePeriod, NodeElectionSlotIndex, PeerIdSubnetNodeId, PeerInfo, QueuedSubnetNodesData,
     SubnetElectedValidator, SubnetMinStakeBalance, SubnetName, SubnetNodeClass,
     SubnetNodeClassification, SubnetNodeElectionSlots, SubnetNodeQueue, SubnetNodeQueueEpochs,
     SubnetOwner, SubnetState, SubnetsData, TotalActiveSubnets, TotalAdmittedNodes,

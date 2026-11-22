@@ -175,7 +175,7 @@ fn queued_is_not_score_or_vote_eligible_and_admission_starts_probation() {
         assert!(!SubnetNodeProbationProgress::<Test>::contains_key(
             subnet, NEW_NODE
         ));
-        assert!(!NodeSlotIndex::<Test>::contains_key(subnet, NEW_NODE));
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, NEW_NODE));
         let submission = propose_round(subnet, maturity, Some(100), false, 4);
         assert!(submission
             .data
@@ -249,7 +249,7 @@ fn two_qualifying_rounds_promote_without_retroactive_node_or_delegate_rewards() 
         assert_eq!(TotalAdmittedSubnetNodes::<Test>::get(subnet), NEW_NODE);
         let slots = SubnetNodeElectionSlots::<Test>::get(subnet);
         assert_eq!(
-            slots[NodeSlotIndex::<Test>::get(subnet, NEW_NODE).unwrap() as usize],
+            slots[NodeElectionSlotIndex::<Test>::get(subnet, NEW_NODE).unwrap() as usize],
             NEW_NODE
         );
         assert_eq!(promotion_events(subnet), 1);
@@ -311,7 +311,7 @@ fn promotion_requires_full_reputation_and_endorsed_omission_resets_progress() {
         assert!(!SubnetNodeProbationProgress::<Test>::contains_key(
             subnet, NEW_NODE
         ));
-        assert!(!NodeSlotIndex::<Test>::contains_key(subnet, NEW_NODE));
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, NEW_NODE));
     });
 }
 
@@ -371,7 +371,7 @@ fn quarantined_and_removed_probation_nodes_never_progress_or_receive_rewards() {
             let submission = propose_round(subnet, epoch, Some(100), false, 4);
             let stake_before = NodeSubnetStake::<Test>::get(NEW_NODE, subnet);
             if remove {
-                assert!(Network::remove_admitted_subnet_node(subnet, NEW_NODE));
+                assert!(Network::remove_admitted_subnet_node(subnet, NEW_NODE).unwrap());
             } else {
                 PendingAdmittedNodeRemovals::<Test>::mutate(subnet, |pending| {
                     pending.try_insert(NEW_NODE).unwrap();
@@ -383,7 +383,7 @@ fn quarantined_and_removed_probation_nodes_never_progress_or_receive_rewards() {
                 SubnetNodeProbationProgress::<Test>::get(subnet, NEW_NODE),
                 1
             );
-            assert!(!NodeSlotIndex::<Test>::contains_key(subnet, NEW_NODE));
+            assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, NEW_NODE));
             assert_eq!(promotion_events(subnet), 0);
             if remove {
                 Network::cleanup_deferred_node_metadata(&mut WeightMeter::new());
@@ -421,7 +421,7 @@ fn promotion_rolls_back_on_failure_and_cannot_repeat_or_bypass_quarantine() {
             SubnetNodeProbationProgress::<Test>::get(subnet, NEW_NODE),
             2
         );
-        assert!(!NodeSlotIndex::<Test>::contains_key(subnet, NEW_NODE));
+        assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, NEW_NODE));
         assert_eq!(promotion_events(subnet), 0);
         TotalElectableNodes::<Test>::put(BOOTSTRAP_NODES);
         let pending = [NEW_NODE]
@@ -479,7 +479,7 @@ fn bootstrap_registration_enters_active_without_probation() {
             assert!(!SubnetNodeProbationProgress::<Test>::contains_key(
                 subnet, id
             ));
-            assert!(NodeSlotIndex::<Test>::contains_key(subnet, id));
+            assert!(NodeElectionSlotIndex::<Test>::contains_key(subnet, id));
         }
         assert_eq!(
             TotalAdmittedSubnetNodes::<Test>::get(subnet),

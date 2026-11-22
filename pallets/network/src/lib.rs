@@ -1332,6 +1332,8 @@ pub mod pallet {
         MultiaddrTruncated,
         /// Queued swap principal is below the minimum queued swap balance.
         SwapBalanceBelowMinimum,
+        /// The active node election index is missing or disagrees with its slot vector.
+        InvalidNodeElectionSlotIndex,
     }
 
     /// Consensus mechanism used by a subnet.
@@ -3831,7 +3833,7 @@ pub mod pallet {
 
     /// Track election slots to avoid iterating
     #[pallet::storage]
-    pub type NodeSlotIndex<T> = StorageDoubleMap<
+    pub type NodeElectionSlotIndex<T> = StorageDoubleMap<
         _,
         Identity,
         u32, // subnet_id
@@ -4342,7 +4344,7 @@ pub mod pallet {
     pub type SubnetNodeMetadata<T: Config> =
         StorageDoubleMap<_, Identity, u32, Identity, u32, NodeMetadata<T>, OptionQuery>;
 
-    /// Residual metadata, hotkey overrides, probation progress and slot indexes for removed nodes.
+    /// Residual metadata, hotkey overrides and probation progress for removed nodes.
     /// A full queue falls back to synchronous cleanup, so idle starvation cannot grow unbounded state.
     #[pallet::storage]
     pub type NodeMetadataCleanupQueue<T: Config> =
@@ -4834,9 +4836,41 @@ pub mod pallet {
     #[pallet::storage]
     pub type ConsensusHistoryPruneCursor<T> = StorageMap<_, Identity, u32, u32, OptionQuery>;
 
-    /// Removed subnets whose per-epoch consensus history is still being cleared.
+    #[derive(
+        Encode,
+        Decode,
+        DecodeWithMemTracking,
+        Clone,
+        Copy,
+        PartialEq,
+        Eq,
+        Debug,
+        TypeInfo,
+        MaxEncodedLen,
+    )]
+    pub enum ConsensusHistoryCleanupStage {
+        Attestations,
+        Submissions,
+        SubmissionMaxItems,
+        ProposalArgs,
+        AttestorWeights,
+        SettlementStatus,
+        Elections,
+    }
+
+    /// One small work record per removed subnet, recording the next history prefix to clear.
+    /// Idle cleanup selects a single record without decoding the complete backlog.
     #[pallet::storage]
-    pub type ConsensusHistoryCleanupQueue<T> = StorageValue<_, Vec<u32>, ValueQuery>;
+    pub type ConsensusHistoryCleanupQueue<T> =
+        StorageMap<_, Identity, u32, ConsensusHistoryCleanupStage, OptionQuery>;
+
+    /// Last removed subnet visited by idle cleanup, in storage-key order.
+    #[pallet::storage]
+    pub type ConsensusHistoryCleanupLastSubnet<T> = StorageValue<_, u32, OptionQuery>;
+
+    /// Last assigned slot visited by idle pruning, in storage-key order.
+    #[pallet::storage]
+    pub type ConsensusHistoryPruneLastSlot<T> = StorageValue<_, u32, OptionQuery>;
 
     /// Epoch -> {total_issuance, (subnet_id, weight)}
     /// Set each epoch
@@ -6622,7 +6656,7 @@ pub mod pallet {
 
             ensure!(coldkey == node_coldkey, Error::<T>::InvalidValidator);
 
-            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id)? {
                 return Ok(());
             }
 
@@ -6674,7 +6708,7 @@ pub mod pallet {
 
             ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
-            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id)? {
                 return Ok(());
             }
 
@@ -6706,7 +6740,7 @@ pub mod pallet {
 
             ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
-            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id)? {
                 return Ok(());
             }
 
@@ -6738,7 +6772,7 @@ pub mod pallet {
 
             ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
-            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id)? {
                 return Ok(());
             }
 
@@ -6770,7 +6804,7 @@ pub mod pallet {
 
             ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
-            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id)? {
                 return Ok(());
             }
 
@@ -6802,7 +6836,7 @@ pub mod pallet {
 
             ensure!(node_coldkey == coldkey, Error::<T>::NotKeyOwner);
 
-            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id)? {
                 return Ok(());
             }
 
@@ -6841,7 +6875,7 @@ pub mod pallet {
                 Error::<T>::NotKeyOwner
             );
 
-            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id) {
+            if Self::finalize_pending_subnet_node_removal(subnet_id, subnet_node_id)? {
                 Self::clean_validator_subnet_nodes(validator_id);
                 return Ok(());
             }
@@ -6894,7 +6928,7 @@ pub mod pallet {
                     Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
                 ensure!(coldkey == node_coldkey, Error::<T>::NotKeyOwner);
 
-                Self::perform_remove_subnet_node(subnet_id, subnet_node_id);
+                Self::perform_remove_subnet_node(subnet_id, subnet_node_id)?;
                 return Ok(());
             }
 
@@ -6925,7 +6959,7 @@ pub mod pallet {
                     Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
                 ensure!(coldkey == node_coldkey, Error::<T>::NotKeyOwner);
 
-                Self::perform_remove_subnet_node(subnet_id, subnet_node_id);
+                Self::perform_remove_subnet_node(subnet_id, subnet_node_id)?;
                 return Ok(());
             }
 
@@ -9013,7 +9047,7 @@ pub mod pallet {
         /// - `SubnetNodeReputation` - Individual node reputations (cleared via prefix)
         /// - `SubnetNodeProbationProgress` - Inclusion streaks (cleared via prefix)
         /// - `SubnetElectedValidator` - Historical validator election results are preserved
-        /// - `NodeSlotIndex` - Slot index mappings (cleared via prefix)
+        /// - `NodeElectionSlotIndex` - Slot index mappings (cleared via prefix)
         /// - `SubnetNodeElectionSlots` - Election slot arrays
         /// - `SubnetNodeQueue` - Node queue
         /// - `TotalElectableNodes` - Global electable node counter (decremented)
@@ -9387,7 +9421,7 @@ pub mod pallet {
             weight_acc.add_clear_prefix(peer_id_overwatch_node_id_removed.unique);
 
             let node_slot_index_removed =
-                NodeSlotIndex::<T>::clear_prefix(subnet_id, u32::MAX, None);
+                NodeElectionSlotIndex::<T>::clear_prefix(subnet_id, u32::MAX, None);
             weight_acc.add_clear_prefix(node_slot_index_removed.unique);
 
             let electable_nodes = SubnetNodeElectionSlots::<T>::take(subnet_id).len() as u32;
@@ -9414,7 +9448,7 @@ pub mod pallet {
         }
 
         pub fn do_remove_subnet_node_v2(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
-            Self::perform_remove_subnet_node(subnet_id, subnet_node_id);
+            Self::perform_remove_subnet_node(subnet_id, subnet_node_id)?;
             Ok(())
         }
 
@@ -9621,7 +9655,7 @@ pub mod pallet {
                     && !SubnetNodeMetadata::<T>::contains_key(subnet_id, subnet_node_id)
                     && !SubnetNodeIdHotkey::<T>::contains_key(subnet_id, subnet_node_id)
                     && !SubnetNodeReputation::<T>::contains_key(subnet_id, subnet_node_id)
-                    && !NodeSlotIndex::<T>::contains_key(subnet_id, subnet_node_id)
+                    && !NodeElectionSlotIndex::<T>::contains_key(subnet_id, subnet_node_id)
                     && !validator_subnet_nodes
                         .get(&subnet_id)
                         .map(|node_ids| node_ids.contains(&subnet_node_id))
@@ -10456,9 +10490,12 @@ pub mod pallet {
 
         fn on_idle(block_number: BlockNumberFor<T>, remaining_weight: Weight) -> Weight {
             let mut weight_meter = WeightMeter::with_limit(remaining_weight);
-            Self::cleanup_removed_subnet_consensus_history(&mut weight_meter);
             Self::retry_pending_consensus_operations(block_number, &mut weight_meter);
             Self::cleanup_deferred_node_metadata(&mut weight_meter);
+            Self::cleanup_consensus_history_on_idle(
+                &mut weight_meter,
+                Self::convert_block_as_u32(block_number),
+            );
             weight_meter.consumed()
         }
     }

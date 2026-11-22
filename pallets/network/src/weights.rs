@@ -994,8 +994,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdOverwatchNodeId` (r:64 w:64)
 	/// Proof: `Network::PeerIdOverwatchNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:512 w:512)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:512 w:512)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeQueue` (r:1 w:0)
@@ -1157,8 +1157,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodeProbationProgress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdOverwatchNodeId` (r:64 w:64)
 	/// Proof: `Network::PeerIdOverwatchNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:256 w:256)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:256 w:256)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeQueue` (r:1 w:1)
@@ -1985,8 +1985,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:1 w:0)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:0)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdSubnetNodeId` (r:3 w:1)
 	/// Proof: `Network::PeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:3 w:1)
@@ -2120,8 +2120,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:1 w:1)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:1)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdSubnetNodeId` (r:3 w:1)
 	/// Proof: `Network::PeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:3 w:1)
@@ -4965,8 +4965,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodeProbationProgress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdOverwatchNodeId` (r:64 w:64)
 	/// Proof: `Network::PeerIdOverwatchNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:256 w:256)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:256 w:256)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeQueue` (r:1 w:1)
@@ -7049,8 +7049,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodeProbationProgress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdOverwatchNodeId` (r:64 w:64)
 	/// Proof: `Network::PeerIdOverwatchNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:512 w:512)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:512 w:512)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeQueue` (r:1 w:1)
@@ -7253,10 +7253,20 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	}
 	/// Storage: `Network::SubnetNodesData` (r:1 w:1)
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
+	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:2)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingQueuedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeMetadataCleanupQueue` (r:1 w:0)
+	/// Proof: `Network::NodeMetadataCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeMetadata` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeMetadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:1 w:1)
@@ -7277,12 +7287,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
-	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedSubnetNodes` (r:1 w:1)
 	/// Proof: `Network::TotalAdmittedSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedNodes` (r:1 w:1)
@@ -7297,8 +7301,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MultiaddrSubnetNodeId` (r:0 w:3)
 	/// Proof: `Network::MultiaddrSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:0 w:2)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ClientPeerIdSubnetNodeId` (r:0 w:1)
 	/// Proof: `Network::ClientPeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:0 w:1)
@@ -7309,25 +7311,33 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// The range of component `e` is `[3, 64]`.
 	fn remove_admitted_subnet_node_small(n: u32, e: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `8830 + e * (28 ±0) + n * (28 ±0)`
-		//  Estimated: `12295 + e * (36 ±2) + n * (28 ±0)`
-		// Minimum execution time: 268_970_000 picoseconds.
-		Weight::from_parts(261_287_550, 12295)
-			// Standard Error: 28_064
-			.saturating_add(Weight::from_parts(1_022_410, 0).saturating_mul(n.into()))
-			// Standard Error: 233_655
-			.saturating_add(Weight::from_parts(1_157_344, 0).saturating_mul(e.into()))
-			.saturating_add(T::DbWeight::get().reads(19_u64))
-			.saturating_add(T::DbWeight::get().writes(30_u64))
-			.saturating_add(Weight::from_parts(0, 36).saturating_mul(e.into()))
+		//  Measured:  `9433 + e * (25 ±0) + n * (28 ±0)`
+		//  Estimated: `12898 + e * (35 ±2) + n * (28 ±0)`
+		// Minimum execution time: 270_440_000 picoseconds.
+		Weight::from_parts(825_168_668, 12898)
+			// Standard Error: 91_511
+			.saturating_add(Weight::from_parts(534_590, 0).saturating_mul(n.into()))
+			.saturating_add(T::DbWeight::get().reads(20_u64))
+			.saturating_add(T::DbWeight::get().writes(28_u64))
+			.saturating_add(Weight::from_parts(0, 35).saturating_mul(e.into()))
 			.saturating_add(Weight::from_parts(0, 28).saturating_mul(n.into()))
 	}
 	/// Storage: `Network::SubnetNodesData` (r:1 w:1)
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
+	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:2)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingQueuedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeMetadataCleanupQueue` (r:1 w:0)
+	/// Proof: `Network::NodeMetadataCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeMetadata` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeMetadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:1 w:1)
@@ -7348,12 +7358,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
-	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedSubnetNodes` (r:1 w:1)
 	/// Proof: `Network::TotalAdmittedSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedNodes` (r:1 w:1)
@@ -7368,8 +7372,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MultiaddrSubnetNodeId` (r:0 w:3)
 	/// Proof: `Network::MultiaddrSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:0 w:2)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ClientPeerIdSubnetNodeId` (r:0 w:1)
 	/// Proof: `Network::ClientPeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:0 w:1)
@@ -7380,17 +7382,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// The range of component `e` is `[64, 512]`.
 	fn remove_admitted_subnet_node_large(n: u32, e: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `0 + e * (358 ±0) + n * (28 ±0)`
-		//  Estimated: `28423 + e * (358 ±4) + n * (28 ±4)`
-		// Minimum execution time: 386_650_000 picoseconds.
-		Weight::from_parts(365_272_337, 28423)
-			// Standard Error: 31_169
-			.saturating_add(Weight::from_parts(1_023_434, 0).saturating_mul(n.into()))
-			// Standard Error: 35_558
-			.saturating_add(Weight::from_parts(325_567, 0).saturating_mul(e.into()))
-			.saturating_add(T::DbWeight::get().reads(19_u64))
-			.saturating_add(T::DbWeight::get().writes(30_u64))
-			.saturating_add(Weight::from_parts(0, 358).saturating_mul(e.into()))
+		//  Measured:  `0 + e * (673 ±0) + n * (28 ±0)`
+		//  Estimated: `28869 + e * (673 ±6) + n * (28 ±6)`
+		// Minimum execution time: 431_437_000 picoseconds.
+		Weight::from_parts(522_214_786, 28869)
+			// Standard Error: 59_700
+			.saturating_add(Weight::from_parts(686_464, 0).saturating_mul(n.into()))
+			// Standard Error: 68_105
+			.saturating_add(Weight::from_parts(545_058, 0).saturating_mul(e.into()))
+			.saturating_add(T::DbWeight::get().reads(20_u64))
+			.saturating_add(T::DbWeight::get().writes(28_u64))
+			.saturating_add(Weight::from_parts(0, 673).saturating_mul(e.into()))
 			.saturating_add(Weight::from_parts(0, 28).saturating_mul(n.into()))
 	}
 	/// Storage: `Network::SubnetNodeValidatorId` (r:1 w:0)
@@ -7401,10 +7403,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
+	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:2)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingQueuedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeMetadataCleanupQueue` (r:1 w:0)
+	/// Proof: `Network::NodeMetadataCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeMetadata` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeMetadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:1 w:1)
@@ -7423,10 +7433,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
-	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedSubnetNodes` (r:1 w:1)
 	/// Proof: `Network::TotalAdmittedSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedNodes` (r:1 w:1)
@@ -7441,8 +7447,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MultiaddrSubnetNodeId` (r:0 w:3)
 	/// Proof: `Network::MultiaddrSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:0 w:2)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ClientPeerIdSubnetNodeId` (r:0 w:1)
 	/// Proof: `Network::ClientPeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:0 w:1)
@@ -7453,17 +7457,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// The range of component `e` is `[3, 64]`.
 	fn remove_admitted_subnet_node_dispatch_small(n: u32, e: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `9150 + e * (29 ±0) + n * (28 ±0)`
-		//  Estimated: `12615 + e * (39 ±2) + n * (28 ±0)`
-		// Minimum execution time: 292_544_000 picoseconds.
-		Weight::from_parts(274_044_901, 12615)
-			// Standard Error: 30_893
-			.saturating_add(Weight::from_parts(1_050_254, 0).saturating_mul(n.into()))
-			// Standard Error: 257_203
-			.saturating_add(Weight::from_parts(1_511_245, 0).saturating_mul(e.into()))
-			.saturating_add(T::DbWeight::get().reads(20_u64))
-			.saturating_add(T::DbWeight::get().writes(30_u64))
-			.saturating_add(Weight::from_parts(0, 39).saturating_mul(e.into()))
+		//  Measured:  `9691 + e * (28 ±0) + n * (28 ±0)`
+		//  Estimated: `13156 + e * (38 ±2) + n * (28 ±0)`
+		// Minimum execution time: 288_983_000 picoseconds.
+		Weight::from_parts(343_256_664, 13156)
+			// Standard Error: 38_187
+			.saturating_add(Weight::from_parts(1_029_525, 0).saturating_mul(n.into()))
+			// Standard Error: 317_934
+			.saturating_add(Weight::from_parts(598_000, 0).saturating_mul(e.into()))
+			.saturating_add(T::DbWeight::get().reads(21_u64))
+			.saturating_add(T::DbWeight::get().writes(28_u64))
+			.saturating_add(Weight::from_parts(0, 38).saturating_mul(e.into()))
 			.saturating_add(Weight::from_parts(0, 28).saturating_mul(n.into()))
 	}
 	/// Storage: `Network::SubnetNodeValidatorId` (r:1 w:0)
@@ -7474,10 +7478,18 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
+	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:2)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingQueuedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeMetadataCleanupQueue` (r:1 w:0)
+	/// Proof: `Network::NodeMetadataCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeMetadata` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeMetadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:1 w:1)
@@ -7496,10 +7508,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
-	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedSubnetNodes` (r:1 w:1)
 	/// Proof: `Network::TotalAdmittedSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedNodes` (r:1 w:1)
@@ -7514,8 +7522,6 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MultiaddrSubnetNodeId` (r:0 w:3)
 	/// Proof: `Network::MultiaddrSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:0 w:2)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ClientPeerIdSubnetNodeId` (r:0 w:1)
 	/// Proof: `Network::ClientPeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:0 w:1)
@@ -7526,17 +7532,17 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// The range of component `e` is `[64, 512]`.
 	fn remove_admitted_subnet_node_dispatch_large(n: u32, e: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `0 + e * (360 ±0) + n * (28 ±0)`
-		//  Estimated: `28842 + e * (360 ±4) + n * (28 ±4)`
-		// Minimum execution time: 440_474_000 picoseconds.
-		Weight::from_parts(384_909_279, 28842)
-			// Standard Error: 28_509
-			.saturating_add(Weight::from_parts(948_097, 0).saturating_mul(n.into()))
-			// Standard Error: 32_523
-			.saturating_add(Weight::from_parts(291_432, 0).saturating_mul(e.into()))
-			.saturating_add(T::DbWeight::get().reads(20_u64))
-			.saturating_add(T::DbWeight::get().writes(30_u64))
-			.saturating_add(Weight::from_parts(0, 360).saturating_mul(e.into()))
+		//  Measured:  `0 + e * (674 ±0) + n * (28 ±0)`
+		//  Estimated: `29288 + e * (674 ±6) + n * (28 ±6)`
+		// Minimum execution time: 409_971_000 picoseconds.
+		Weight::from_parts(213_787_718, 29288)
+			// Standard Error: 47_374
+			.saturating_add(Weight::from_parts(1_068_885, 0).saturating_mul(n.into()))
+			// Standard Error: 54_044
+			.saturating_add(Weight::from_parts(852_742, 0).saturating_mul(e.into()))
+			.saturating_add(T::DbWeight::get().reads(21_u64))
+			.saturating_add(T::DbWeight::get().writes(28_u64))
+			.saturating_add(Weight::from_parts(0, 674).saturating_mul(e.into()))
 			.saturating_add(Weight::from_parts(0, 28).saturating_mul(n.into()))
 	}
 	/// Storage: `Network::QueuedSubnetNodesData` (r:1 w:1)
@@ -7988,8 +7994,8 @@ impl<T: frame_system::Config> WeightInfo for SubstrateWeight<T> {
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
 	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:0 w:1)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:0 w:1)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn insert_node_into_election_slot() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `76`
@@ -10433,8 +10439,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdOverwatchNodeId` (r:64 w:64)
 	/// Proof: `Network::PeerIdOverwatchNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:512 w:512)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:512 w:512)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeQueue` (r:1 w:0)
@@ -10596,8 +10602,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodeProbationProgress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdOverwatchNodeId` (r:64 w:64)
 	/// Proof: `Network::PeerIdOverwatchNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:256 w:256)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:256 w:256)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeQueue` (r:1 w:1)
@@ -11424,8 +11430,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:1 w:0)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:0)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdSubnetNodeId` (r:3 w:1)
 	/// Proof: `Network::PeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:3 w:1)
@@ -11559,8 +11565,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeReputation` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeReputation` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:1 w:1)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:1)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdSubnetNodeId` (r:3 w:1)
 	/// Proof: `Network::PeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:3 w:1)
@@ -14404,8 +14410,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodeProbationProgress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdOverwatchNodeId` (r:64 w:64)
 	/// Proof: `Network::PeerIdOverwatchNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:256 w:256)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:256 w:256)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeQueue` (r:1 w:1)
@@ -16488,8 +16494,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodeProbationProgress` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PeerIdOverwatchNodeId` (r:64 w:64)
 	/// Proof: `Network::PeerIdOverwatchNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:512 w:512)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:512 w:512)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeQueue` (r:1 w:1)
@@ -16692,10 +16698,20 @@ impl WeightInfo for () {
 	}
 	/// Storage: `Network::SubnetNodesData` (r:1 w:1)
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
+	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:2)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingQueuedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeMetadataCleanupQueue` (r:1 w:0)
+	/// Proof: `Network::NodeMetadataCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeMetadata` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeMetadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:1 w:1)
@@ -16716,12 +16732,6 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
-	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedSubnetNodes` (r:1 w:1)
 	/// Proof: `Network::TotalAdmittedSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedNodes` (r:1 w:1)
@@ -16736,8 +16746,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MultiaddrSubnetNodeId` (r:0 w:3)
 	/// Proof: `Network::MultiaddrSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:0 w:2)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ClientPeerIdSubnetNodeId` (r:0 w:1)
 	/// Proof: `Network::ClientPeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:0 w:1)
@@ -16748,25 +16756,33 @@ impl WeightInfo for () {
 	/// The range of component `e` is `[3, 64]`.
 	fn remove_admitted_subnet_node_small(n: u32, e: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `8830 + e * (28 ±0) + n * (28 ±0)`
-		//  Estimated: `12295 + e * (36 ±2) + n * (28 ±0)`
-		// Minimum execution time: 268_970_000 picoseconds.
-		Weight::from_parts(261_287_550, 12295)
-			// Standard Error: 28_064
-			.saturating_add(Weight::from_parts(1_022_410, 0).saturating_mul(n.into()))
-			// Standard Error: 233_655
-			.saturating_add(Weight::from_parts(1_157_344, 0).saturating_mul(e.into()))
-			.saturating_add(RocksDbWeight::get().reads(19_u64))
-			.saturating_add(RocksDbWeight::get().writes(30_u64))
-			.saturating_add(Weight::from_parts(0, 36).saturating_mul(e.into()))
+		//  Measured:  `9433 + e * (25 ±0) + n * (28 ±0)`
+		//  Estimated: `12898 + e * (35 ±2) + n * (28 ±0)`
+		// Minimum execution time: 270_440_000 picoseconds.
+		Weight::from_parts(825_168_668, 12898)
+			// Standard Error: 91_511
+			.saturating_add(Weight::from_parts(534_590, 0).saturating_mul(n.into()))
+			.saturating_add(RocksDbWeight::get().reads(20_u64))
+			.saturating_add(RocksDbWeight::get().writes(28_u64))
+			.saturating_add(Weight::from_parts(0, 35).saturating_mul(e.into()))
 			.saturating_add(Weight::from_parts(0, 28).saturating_mul(n.into()))
 	}
 	/// Storage: `Network::SubnetNodesData` (r:1 w:1)
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
+	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:2)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingQueuedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeMetadataCleanupQueue` (r:1 w:0)
+	/// Proof: `Network::NodeMetadataCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeMetadata` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeMetadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:1 w:1)
@@ -16787,12 +16803,6 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
-	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedSubnetNodes` (r:1 w:1)
 	/// Proof: `Network::TotalAdmittedSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedNodes` (r:1 w:1)
@@ -16807,8 +16817,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MultiaddrSubnetNodeId` (r:0 w:3)
 	/// Proof: `Network::MultiaddrSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:0 w:2)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ClientPeerIdSubnetNodeId` (r:0 w:1)
 	/// Proof: `Network::ClientPeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:0 w:1)
@@ -16819,17 +16827,17 @@ impl WeightInfo for () {
 	/// The range of component `e` is `[64, 512]`.
 	fn remove_admitted_subnet_node_large(n: u32, e: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `0 + e * (358 ±0) + n * (28 ±0)`
-		//  Estimated: `28423 + e * (358 ±4) + n * (28 ±4)`
-		// Minimum execution time: 386_650_000 picoseconds.
-		Weight::from_parts(365_272_337, 28423)
-			// Standard Error: 31_169
-			.saturating_add(Weight::from_parts(1_023_434, 0).saturating_mul(n.into()))
-			// Standard Error: 35_558
-			.saturating_add(Weight::from_parts(325_567, 0).saturating_mul(e.into()))
-			.saturating_add(RocksDbWeight::get().reads(19_u64))
-			.saturating_add(RocksDbWeight::get().writes(30_u64))
-			.saturating_add(Weight::from_parts(0, 358).saturating_mul(e.into()))
+		//  Measured:  `0 + e * (673 ±0) + n * (28 ±0)`
+		//  Estimated: `28869 + e * (673 ±6) + n * (28 ±6)`
+		// Minimum execution time: 431_437_000 picoseconds.
+		Weight::from_parts(522_214_786, 28869)
+			// Standard Error: 59_700
+			.saturating_add(Weight::from_parts(686_464, 0).saturating_mul(n.into()))
+			// Standard Error: 68_105
+			.saturating_add(Weight::from_parts(545_058, 0).saturating_mul(e.into()))
+			.saturating_add(RocksDbWeight::get().reads(20_u64))
+			.saturating_add(RocksDbWeight::get().writes(28_u64))
+			.saturating_add(Weight::from_parts(0, 673).saturating_mul(e.into()))
 			.saturating_add(Weight::from_parts(0, 28).saturating_mul(n.into()))
 	}
 	/// Storage: `Network::SubnetNodeValidatorId` (r:1 w:0)
@@ -16840,10 +16848,18 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
+	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:2)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingQueuedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeMetadataCleanupQueue` (r:1 w:0)
+	/// Proof: `Network::NodeMetadataCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeMetadata` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeMetadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:1 w:1)
@@ -16862,10 +16878,6 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
-	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedSubnetNodes` (r:1 w:1)
 	/// Proof: `Network::TotalAdmittedSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedNodes` (r:1 w:1)
@@ -16880,8 +16892,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MultiaddrSubnetNodeId` (r:0 w:3)
 	/// Proof: `Network::MultiaddrSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:0 w:2)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ClientPeerIdSubnetNodeId` (r:0 w:1)
 	/// Proof: `Network::ClientPeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:0 w:1)
@@ -16892,17 +16902,17 @@ impl WeightInfo for () {
 	/// The range of component `e` is `[3, 64]`.
 	fn remove_admitted_subnet_node_dispatch_small(n: u32, e: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `9150 + e * (29 ±0) + n * (28 ±0)`
-		//  Estimated: `12615 + e * (39 ±2) + n * (28 ±0)`
-		// Minimum execution time: 292_544_000 picoseconds.
-		Weight::from_parts(274_044_901, 12615)
-			// Standard Error: 30_893
-			.saturating_add(Weight::from_parts(1_050_254, 0).saturating_mul(n.into()))
-			// Standard Error: 257_203
-			.saturating_add(Weight::from_parts(1_511_245, 0).saturating_mul(e.into()))
-			.saturating_add(RocksDbWeight::get().reads(20_u64))
-			.saturating_add(RocksDbWeight::get().writes(30_u64))
-			.saturating_add(Weight::from_parts(0, 39).saturating_mul(e.into()))
+		//  Measured:  `9691 + e * (28 ±0) + n * (28 ±0)`
+		//  Estimated: `13156 + e * (38 ±2) + n * (28 ±0)`
+		// Minimum execution time: 288_983_000 picoseconds.
+		Weight::from_parts(343_256_664, 13156)
+			// Standard Error: 38_187
+			.saturating_add(Weight::from_parts(1_029_525, 0).saturating_mul(n.into()))
+			// Standard Error: 317_934
+			.saturating_add(Weight::from_parts(598_000, 0).saturating_mul(e.into()))
+			.saturating_add(RocksDbWeight::get().reads(21_u64))
+			.saturating_add(RocksDbWeight::get().writes(28_u64))
+			.saturating_add(Weight::from_parts(0, 38).saturating_mul(e.into()))
 			.saturating_add(Weight::from_parts(0, 28).saturating_mul(n.into()))
 	}
 	/// Storage: `Network::SubnetNodeValidatorId` (r:1 w:0)
@@ -16913,10 +16923,18 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalSubnetElectableNodes` (r:1 w:1)
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
+	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:1 w:2)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
+	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:1)
 	/// Proof: `Network::PendingQueuedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeMetadataCleanupQueue` (r:1 w:0)
+	/// Proof: `Network::NodeMetadataCleanupQueue` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::SubnetNodeMetadata` (r:1 w:1)
 	/// Proof: `Network::SubnetNodeMetadata` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ValidatorSubnetNodes` (r:1 w:1)
@@ -16935,10 +16953,6 @@ impl WeightInfo for () {
 	/// Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
 	/// Storage: `System::Events` (r:1 w:1)
 	/// Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::SubnetNodeElectionSlots` (r:1 w:1)
-	/// Proof: `Network::SubnetNodeElectionSlots` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
-	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedSubnetNodes` (r:1 w:1)
 	/// Proof: `Network::TotalAdmittedSubnetNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalAdmittedNodes` (r:1 w:1)
@@ -16953,8 +16967,6 @@ impl WeightInfo for () {
 	/// Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::MultiaddrSubnetNodeId` (r:0 w:3)
 	/// Proof: `Network::MultiaddrSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:0 w:2)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::ClientPeerIdSubnetNodeId` (r:0 w:1)
 	/// Proof: `Network::ClientPeerIdSubnetNodeId` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::BootnodePeerIdSubnetNodeId` (r:0 w:1)
@@ -16965,17 +16977,17 @@ impl WeightInfo for () {
 	/// The range of component `e` is `[64, 512]`.
 	fn remove_admitted_subnet_node_dispatch_large(n: u32, e: u32, ) -> Weight {
 		// Proof Size summary in bytes:
-		//  Measured:  `0 + e * (360 ±0) + n * (28 ±0)`
-		//  Estimated: `28842 + e * (360 ±4) + n * (28 ±4)`
-		// Minimum execution time: 440_474_000 picoseconds.
-		Weight::from_parts(384_909_279, 28842)
-			// Standard Error: 28_509
-			.saturating_add(Weight::from_parts(948_097, 0).saturating_mul(n.into()))
-			// Standard Error: 32_523
-			.saturating_add(Weight::from_parts(291_432, 0).saturating_mul(e.into()))
-			.saturating_add(RocksDbWeight::get().reads(20_u64))
-			.saturating_add(RocksDbWeight::get().writes(30_u64))
-			.saturating_add(Weight::from_parts(0, 360).saturating_mul(e.into()))
+		//  Measured:  `0 + e * (674 ±0) + n * (28 ±0)`
+		//  Estimated: `29288 + e * (674 ±6) + n * (28 ±6)`
+		// Minimum execution time: 409_971_000 picoseconds.
+		Weight::from_parts(213_787_718, 29288)
+			// Standard Error: 47_374
+			.saturating_add(Weight::from_parts(1_068_885, 0).saturating_mul(n.into()))
+			// Standard Error: 54_044
+			.saturating_add(Weight::from_parts(852_742, 0).saturating_mul(e.into()))
+			.saturating_add(RocksDbWeight::get().reads(21_u64))
+			.saturating_add(RocksDbWeight::get().writes(28_u64))
+			.saturating_add(Weight::from_parts(0, 674).saturating_mul(e.into()))
 			.saturating_add(Weight::from_parts(0, 28).saturating_mul(n.into()))
 	}
 	/// Storage: `Network::QueuedSubnetNodesData` (r:1 w:1)
@@ -17427,8 +17439,8 @@ impl WeightInfo for () {
 	/// Proof: `Network::TotalSubnetElectableNodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	/// Storage: `Network::TotalElectableNodes` (r:1 w:1)
 	/// Proof: `Network::TotalElectableNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
-	/// Storage: `Network::NodeSlotIndex` (r:0 w:1)
-	/// Proof: `Network::NodeSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
+	/// Storage: `Network::NodeElectionSlotIndex` (r:0 w:1)
+	/// Proof: `Network::NodeElectionSlotIndex` (`max_values`: None, `max_size`: None, mode: `Measured`)
 	fn insert_node_into_election_slot() -> Weight {
 		// Proof Size summary in bytes:
 		//  Measured:  `76`

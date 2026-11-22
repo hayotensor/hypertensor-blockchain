@@ -36,7 +36,6 @@ impl<T: Config> Pallet<T> {
         // optional metadata record is absent; stake ownership must remain available indefinitely.
         SubnetNodeIdHotkey::<T>::remove(subnet_id, subnet_node_id);
         SubnetNodeProbationProgress::<T>::remove(subnet_id, subnet_node_id);
-        NodeSlotIndex::<T>::remove(subnet_id, subnet_node_id);
         let metadata = SubnetNodeMetadata::<T>::take(subnet_id, subnet_node_id).unwrap_or_default();
         if let Some(unique) = metadata.unique {
             UniqueParamSubnetNodeId::<T>::remove(subnet_id, unique);

@@ -168,7 +168,7 @@ impl<T: Config> Pallet<T> {
             non_unique: metadata.non_unique,
             stake_balance: NodeSubnetStake::<T>::get(subnet_node_id, subnet_id),
             subnet_node_reputation: SubnetNodeReputation::<T>::get(subnet_id, subnet_node_id),
-            node_slot_index: NodeSlotIndex::<T>::get(subnet_id, subnet_node_id),
+            node_slot_index: NodeElectionSlotIndex::<T>::get(subnet_id, subnet_node_id),
 
             probation_progress: SubnetNodeProbationProgress::<T>::get(subnet_id, subnet_node_id),
         };

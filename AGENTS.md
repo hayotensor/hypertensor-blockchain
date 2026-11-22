@@ -442,6 +442,13 @@ before capacity-based subnet removal; the global removal-check cadence stays unc
 Repeated pause calls retain the original pause start; unpause while running adds no extension.
 Re-read registration anchors after resume.
 
+Consensus-history deletion runs only in `on_idle`, after financial retries and node-metadata
+cleanup. Live subnets retain at least 128 completed subnet epochs plus the current epoch.
+Pruning and removed-subnet cleanup rotate through persistent cursors with bounded work and
+execution-time/proof-size budgets. Removed subnets have individual cleanup records, so processing
+does not scan or decode the entire backlog. Retention is best effort: without idle block weight,
+history can accumulate beyond the retention window without delaying consensus.
+
 Subnet reward allocation combines the delegate-balance EMA, elected-node count, and `net_flow`.
 The net-flow factor uses a signed EMA of external subnet-pool deposits minus withdrawals per
 completed general epoch; it does not divide by pool balance. Rewards and same-pool share transfers
@@ -601,7 +608,7 @@ position, then decide whether the intended operation is still appropriate.
 Node removal clears live membership, election/queue lists, reputation,
 counts, and validator allocations immediately. It preserves `SubnetNodeValidatorId` and
 `NodeSubnetStake` for future coldkey withdrawals. Metadata and its unique/peer/address
-reverse indexes, hotkey overrides, probation progress, and the removed node's `NodeSlotIndex`
+reverse indexes, hotkey overrides, probation progress, and the removed node's `NodeElectionSlotIndex`
 wait in the bounded `NodeMetadataCleanupQueue` for `on_idle`; unique/peer/address values
 remain reserved until cleanup. A surviving node moved in the election list has its slot index
 updated immediately. A full queue falls back to synchronous residual cleanup.

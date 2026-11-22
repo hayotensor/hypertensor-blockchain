@@ -27,9 +27,7 @@ fn idle(limit: Weight) -> Weight {
 }
 
 fn one_retry_weight() -> Weight {
-    let db: RuntimeDbWeight = <Test as frame_system::Config>::DbWeight::get();
-    db.reads(1)
-        .saturating_add(<() as WeightInfo>::pending_consensus_operations_empty())
+    <() as WeightInfo>::pending_consensus_operations_empty()
         .saturating_add(<() as WeightInfo>::pending_consensus_operation_read())
         .saturating_add(Network::pending_consensus_operation_step_weight(
             &ConsensusOperation::OwnerReward {
@@ -263,7 +261,9 @@ fn pending_owner_rewards_survive_owner_changes_subnet_removal_and_history_cleanu
         for _ in 0..5 {
             idle(Weight::MAX);
         }
-        assert!(ConsensusHistoryCleanupQueue::<Test>::get().is_empty());
+        assert!(ConsensusHistoryCleanupQueue::<Test>::iter_keys()
+            .next()
+            .is_none());
         assert_eq!(
             Balances::free_balance(&original_owner),
             EXISTENTIAL_DEPOSIT + 100
