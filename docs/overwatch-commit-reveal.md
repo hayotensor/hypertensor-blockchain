@@ -5,9 +5,25 @@ epoch-opening stake snapshot. A node registered mid-epoch waits until the next e
 Every accepted commitment must be successfully revealed before the reveal deadline.
 If a node leaves even one commitment unrevealed, it receives no rewards for that
 epoch and all its assessments are excluded before subnet averages are calculated.
-Commit and reveal batches accumulate; duplicate reveals do not complete other
-commitments, and a failed reveal batch adds no accepted reveals. A subnet's removal
-does not cancel an accepted commitment to it.
+Each node submits one successful commitment batch and one successful reveal batch
+per epoch. A node may choose a subset of subnets, but its reveal must contain every
+committed subnet exactly once, in any order. Commit batches reject unknown subnet
+IDs and duplicate IDs; reveal batches reject duplicate, missing, or extra IDs.
+An invalid batch stores nothing, emits no success event, and can be corrected and
+retried. A subnet's removal does not cancel an accepted commitment to it.
+
+Both successful native calls return `Pays::No`; rejected calls pay normal fees.
+This fee waiver does not waive contract gas when calling through a precompile.
+The stored node/epoch rows prevent repeated successful calls, including after
+hotkey rotation or pause/resume. `AlreadyCommitted` and `AlreadyRevealed` report a
+consumed submission opportunity. `DuplicateOverwatchSubnetId` rejects duplicate
+entries; `RevealSetMismatch` rejects an incomplete or unexpected reveal set.
+
+Commit admission uses the current subnet limit. Reveals use the accepted commitment
+set and `MaxPhysicalSubnetsUpperBound`, so a later reduction of `MaxSubnets` cannot
+strand a larger batch. The bundled runtime bounds batches at 16 entries and salts
+at 64 bytes. Subnets created after the commitment batch must wait for the next epoch.
+Maximum signed batch capacity is checked against runtime weight and length limits.
 
 Voluntary exit ends further submissions but preserves commitment records until
 epoch close. Fully revealed submissions remain eligible; incomplete submissions
@@ -30,10 +46,13 @@ Rust callers can use `Pallet::hash_overwatch_commitment`.
 
 Read the active Overwatch epoch before constructing the commitment. Use the
 Overwatch node ID authenticated by the signing hotkey, and a fresh secret random
-salt within `MaxOverwatchRevealSaltLength`. Submit the hash for that subnet during
-the commit phase, then reveal the weight and salt during the same epoch's reveal
-phase. The pallet obtains the node ID from the authenticated call and the epoch
-from active round state when verifying the reveal.
+salt within `MaxOverwatchRevealSaltLength`. Build and privately persist the complete
+set of weights, salts, and commitments before submitting the commitment batch.
+Submit all hashes together during commit, then all weights and salts together
+during the same epoch's reveal phase. The pallet obtains the node ID from the
+authenticated call and the epoch from active round state when verifying the reveal.
+On an uncertain transaction result, reconcile finalized events and the node's
+commit/reveal row before retrying. A successful submission cannot be amended.
 
 Copying a hash is possible, but opening it under another node, subnet, or epoch
 fails with `RevealMismatch`. Node IDs are never reused, and binding the stable ID

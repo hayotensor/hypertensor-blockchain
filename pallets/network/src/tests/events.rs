@@ -467,7 +467,7 @@ fn overwatch_events_track_membership_overrides_and_peer_replacement() {
 }
 
 #[test]
-fn commit_reveal_events_report_filtered_batches_only_after_complete_validation() {
+fn commit_reveal_events_report_complete_batches_only_after_validation() {
     new_test_ext().execute_with(|| {
         System::set_block_number(1);
         let overwatch_node_id = 1;
@@ -482,16 +482,29 @@ fn commit_reveal_events_report_filtered_batches_only_after_complete_validation()
             subnet_id: 11,
             weight: hash,
         };
+        assert_noop!(
+            Network::perform_commit_overwatch_subnet_weights(
+                overwatch_node_id,
+                vec![
+                    accepted.clone(),
+                    OverwatchCommit {
+                        subnet_id: 99,
+                        weight: hash
+                    }
+                ],
+            ),
+            Error::<Test>::InvalidSubnetId
+        );
+        assert_noop!(
+            Network::perform_commit_overwatch_subnet_weights(
+                overwatch_node_id,
+                vec![accepted.clone(), accepted.clone()],
+            ),
+            Error::<Test>::DuplicateOverwatchSubnetId
+        );
         assert_ok!(Network::perform_commit_overwatch_subnet_weights(
             overwatch_node_id,
-            vec![
-                accepted.clone(),
-                OverwatchCommit {
-                    subnet_id: 99,
-                    weight: hash
-                },
-                accepted.clone(),
-            ]
+            vec![accepted.clone()],
         ));
         System::assert_last_event(
             Event::OverwatchWeightsCommitted {
@@ -531,11 +544,18 @@ fn commit_reveal_events_report_filtered_batches_only_after_complete_validation()
                     },
                 ]
             ),
-            Error::<Test>::NoCommitFound
+            Error::<Test>::RevealSetMismatch
+        );
+        assert_noop!(
+            Network::perform_reveal_overwatch_subnet_weights(
+                overwatch_node_id,
+                vec![reveal.clone(), reveal.clone()]
+            ),
+            Error::<Test>::DuplicateOverwatchSubnetId
         );
         assert_ok!(Network::perform_reveal_overwatch_subnet_weights(
             overwatch_node_id,
-            vec![reveal.clone(), reveal]
+            vec![reveal]
         ));
         System::assert_last_event(
             Event::OverwatchWeightsRevealed {

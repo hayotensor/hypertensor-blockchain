@@ -73,7 +73,7 @@ fn maximum_network_slot_reservation() -> Weight {
         )
         .saturating_add(W::emission_step_accepted_below_min_weight_reputation(nodes))
         .saturating_add(
-            W::pending_consensus_operation_enqueue().saturating_mul(u64::from(nodes) + 3),
+            W::pending_consensus_operations_enqueue(nodes + 3),
         )
         .saturating_add(W::consensus_node_reward_snapshot().saturating_mul(u64::from(nodes)))
         .saturating_add(W::emission_step_accepted_non_attestor_reputation(
@@ -801,4 +801,162 @@ fn production_genesis_rejects_public_development_keys() {
     config.balances.balances[0].0 = account("Holder0");
     config.collective.members.push(account("Bob"));
     assert!(reject_development_keys(&config).is_err());
+}
+
+#[test]
+fn maximum_overwatch_batches_fit_signed_limits_and_refund_only_success() {
+    use pallet_network as n;
+    use std::collections::BTreeMap;
+
+    crate::tests::npos::ext().execute_with(|| {
+        let initialize = |block| {
+            System::initialize(&block, &H256::zero(), &generic::Digest::default());
+            System::register_extra_weight_unchecked(
+                MaximumHooksWeight::get().saturating_add(BlockWeights::get().base_block),
+                DispatchClass::Mandatory,
+            );
+        };
+        initialize(1);
+        n::CurrentOverwatchEpoch::<Runtime>::put(1);
+        n::OverwatchEpochStartBlock::<Runtime>::put(1);
+        n::ActiveOverwatchEpochLengthMultiplier::<Runtime>::put(1);
+        n::ActiveOverwatchCommitCutoffPercent::<Runtime>::put(TENSOR / 2);
+        assert_ok!(Network::register_validator(
+            RuntimeOrigin::signed(account("Bob")),
+            account("Alice"),
+            0,
+            None,
+            None
+        ));
+        let validator = n::ColdkeyValidatorId::<Runtime>::get(account("Bob")).unwrap();
+        n::OverwatchValidatorWhitelist::<Runtime>::insert(validator, ());
+        assert_ok!(Network::register_overwatch_node(
+            RuntimeOrigin::signed(account("Bob")),
+            n::OverwatchMinStakeBalance::<Runtime>::get()
+        ));
+        let node = n::ValidatorOverwatchNodeId::<Runtime>::get(validator).unwrap();
+        // A full opening snapshot can remain after other nodes leave the epoch.
+        let nodes = (1..=NetworkMaxOverwatchNodesUpperBound::get())
+            .map(|id| (id, n::OverwatchNodeStakeSnapshot { stake: TENSOR }))
+            .collect::<BTreeMap<_, _>>()
+            .try_into()
+            .unwrap();
+        n::OverwatchEpochSnapshots::<Runtime>::insert(
+            1,
+            n::OverwatchEpochSnapshot::<Runtime> {
+                nodes,
+                stake_weight_factor: TENSOR,
+                reward_budget: TENSOR,
+            },
+        );
+        let bound = NetworkMaxPhysicalSubnetsUpperBound::get();
+        n::MaxSubnets::<Runtime>::put(bound - n::SUBNET_ROTATION_ALLOWANCE);
+        let salt: n::OverwatchRevealSalt<Runtime> =
+            vec![255; NetworkMaxOverwatchRevealSaltLength::get() as usize]
+                .try_into()
+                .unwrap();
+        let mut commits = Vec::new();
+        let mut reveals = Vec::new();
+        for subnet_id in 1..=bound {
+            n::SubnetsData::<Runtime>::insert(
+                subnet_id,
+                n::SubnetData {
+                    id: subnet_id,
+                    ..Default::default()
+                },
+            );
+            commits.push(n::OverwatchCommit {
+                subnet_id,
+                weight: Network::hash_overwatch_commitment(node, subnet_id, 1, TENSOR, &salt),
+            });
+            reveals.push(n::OverwatchReveal::<Runtime> {
+                subnet_id,
+                weight: TENSOR,
+                salt: salt.clone(),
+            });
+        }
+        let apply = |call: RuntimeCall, expected: Result<(), sp_runtime::DispatchError>| {
+            let extrinsic = signed_capacity_extrinsic(call);
+            let info = extrinsic.get_dispatch_info();
+            let length = extrinsic.encoded_size();
+            let limits = BlockWeights::get();
+            let booked = info
+                .total_weight()
+                .saturating_add(limits.get(info.class).base_extrinsic)
+                .saturating_add_proof_size(length as u64);
+            assert_eq!(info.class, DispatchClass::Normal);
+            assert!(info.extension_weight.ref_time() > 0);
+            assert!(info
+                .total_weight()
+                .all_lte(limits.get(info.class).max_extrinsic.unwrap()));
+            assert!(length <= *BlockLength::get().max.get(info.class) as usize);
+            assert!(booked
+                .saturating_add(System::block_weight().total())
+                .all_lte(limits.max_block));
+            let before_events = System::events().len();
+            let before_balance = Balances::free_balance(account("Alice"));
+            let success = expected.is_ok();
+            eprintln!(
+                "Overwatch signed batch: bytes={length}, ref_time={}, proof_size={}, success={success}",
+                booked.ref_time(), booked.proof_size(),
+            );
+            assert_eq!(
+                Executive::apply_extrinsic(extrinsic)
+                    .expect("signed Overwatch batch fits block capacity"),
+                expected
+            );
+            let fee = System::events()[before_events..]
+                .iter()
+                .find_map(|event| match &event.event {
+                    RuntimeEvent::TransactionPayment(
+                        pallet_transaction_payment::Event::TransactionFeePaid {
+                            who,
+                            actual_fee,
+                            tip,
+                        },
+                    ) if who == &account("Alice") => {
+                        assert_eq!(*tip, 0);
+                        Some(*actual_fee)
+                    }
+                    _ => None,
+                })
+                .expect("native fee extension ran");
+            if success {
+                assert_eq!(fee, 0);
+            } else {
+                assert!(fee > 0);
+            }
+            assert_eq!(
+                before_balance - Balances::free_balance(account("Alice")),
+                fee
+            );
+        };
+        let commit: RuntimeCall = n::Call::commit_overwatch_subnet_weights {
+            overwatch_node_id: node,
+            commit_weights: commits,
+        }
+        .into();
+        apply(commit.clone(), Ok(()));
+        apply(commit, Err(n::Error::<Runtime>::AlreadyCommitted.into()));
+        for block in 2..=1 + EpochLength::get() / 2 {
+            initialize(block);
+        }
+        apply(
+            n::Call::reveal_overwatch_subnet_weights {
+                overwatch_node_id: node,
+                reveals: vec![reveals[0].clone()],
+            }
+            .into(),
+            Err(n::Error::<Runtime>::RevealSetMismatch.into()),
+        );
+        // Governance can lower admission capacity after this node committed its larger batch.
+        n::MaxSubnets::<Runtime>::put(1);
+        let reveal: RuntimeCall = n::Call::reveal_overwatch_subnet_weights {
+            overwatch_node_id: node,
+            reveals,
+        }
+        .into();
+        apply(reveal.clone(), Ok(()));
+        apply(reveal, Err(n::Error::<Runtime>::AlreadyRevealed.into()));
+    });
 }

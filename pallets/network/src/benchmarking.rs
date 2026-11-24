@@ -2226,6 +2226,40 @@ fn register_benchmark_overwatch_node<T: Config>(
     (TotalOverwatchNodeUids::<T>::get(), coldkey)
 }
 
+/// Maximum payload and opening snapshot for conservative rejection-path measurements.
+fn overwatch_submission_fixture<T: Config>() -> (
+    u32,
+    T::AccountId,
+    Vec<OverwatchCommit<T::Hash>>,
+    Vec<OverwatchReveal<T>>,
+) {
+    let (id, _) = register_benchmark_overwatch_node::<T>(1, DEFAULT_SUBNET_NODE_STAKE);
+    seed_max_overwatch_opening_snapshot::<T>();
+    let hotkey = Network::<T>::get_overwatch_node_associated_hotkey(id).unwrap();
+    let epoch = CurrentOverwatchEpoch::<T>::get();
+    let salt: OverwatchRevealSalt<T> = vec![0xff; T::MaxOverwatchRevealSaltLength::get() as usize]
+        .try_into()
+        .unwrap();
+    let mut commits = Vec::new();
+    let mut reveals = Vec::new();
+    MaxSubnets::<T>::put(T::MaxPhysicalSubnetsUpperBound::get() - SUBNET_ROTATION_ALLOWANCE);
+    for subnet_id in 1..=T::MaxPhysicalSubnetsUpperBound::get() {
+        insert_subnet::<T>(subnet_id, SubnetState::Active, 0);
+        max_fill_benchmark_subnet_data::<T>(subnet_id);
+        commits.push(OverwatchCommit {
+            subnet_id,
+            weight: Network::<T>::hash_overwatch_commitment(id, subnet_id, epoch, 1, &salt),
+        });
+        reveals.push(OverwatchReveal {
+            subnet_id,
+            weight: 1,
+            salt: salt.clone(),
+        });
+    }
+    set_block_to_overwatch_commit_block::<T>(epoch);
+    (id, hotkey, commits, reveals)
+}
+
 // fn get_subnet_node_data(start: u32, end: u32) -> Vec<SubnetNodeConsensusData> {
 //   // initialize peer consensus data array
 //   let mut subnet_node_data: Vec<SubnetNodeConsensusData> = Vec::new();
@@ -7735,27 +7769,14 @@ mod benchmarks {
 
         set_block_to_overwatch_commit_block::<T>(overwatch_epoch);
 
-        // A validator can fill this bounded row over repeated calls. Seed the disjoint prefix so
-        // x=1 measures decoding and rewriting a 16-entry row, while every x finishes at the
-        // cumulative 17-subnet bound.
-        let existing_count = T::MaxPhysicalSubnetsUpperBound::get().saturating_sub(x);
-        let existing_commits: BoundedBTreeMap<u32, T::Hash, T::MaxPhysicalSubnetsUpperBound> = (0
-            ..existing_count)
-            .map(|offset| {
-                let subnet_id = u32::MAX.saturating_sub(offset);
-                assert!(!subnet_ids.contains(&subnet_id));
-                (subnet_id, T::Hashing::hash_of(&(id, subnet_id)))
-            })
-            .collect::<BTreeMap<_, _>>()
-            .try_into()
-            .expect("cumulative commit prefix fits the runtime bound");
-        OverwatchCommits::<T>::insert(overwatch_epoch, id, existing_commits);
+        // The node has not submitted its one commitment batch for this epoch.
+        assert!(!OverwatchCommits::<T>::contains_key(overwatch_epoch, id));
 
         #[extrinsic_call]
         commit_overwatch_subnet_weights(RawOrigin::Signed(hotkey.clone()), id, commits);
 
         let stored = OverwatchCommits::<T>::get(overwatch_epoch, id);
-        assert_eq!(stored.len() as u32, T::MaxPhysicalSubnetsUpperBound::get());
+        assert_eq!(stored.len() as u32, x);
         for subnet_id in subnet_ids {
             let commit_hash = Network::<T>::hash_overwatch_commitment(
                 id,
@@ -7838,7 +7859,6 @@ mod benchmarks {
                 salt: salt.clone(),
             })
         }
-        let measured_subnet_ids = revealed_subnet_ids.clone();
 
         set_block_to_overwatch_commit_block::<T>(overwatch_epoch);
 
@@ -7848,8 +7868,7 @@ mod benchmarks {
             commits
         ));
 
-        // Every successful reveal mutates one bounded row and the compact per-subnet aggregate.
-        // Seed the largest reachable pre-state while leaving this call's row entries absent.
+        // Other nodes fill the aggregate; the measured node has never revealed this epoch.
         let max_revealing_nodes = T::MaxOverwatchNodesUpperBound::get() as usize;
         let max_revealed_subnets = T::MaxPhysicalSubnetsUpperBound::get() as usize;
         assert_eq!(id, 1);
@@ -7876,12 +7895,9 @@ mod benchmarks {
         let max_records = (max_revealing_nodes as u32).saturating_mul(max_revealed_subnets as u32);
         let mut preexisting_records = 0u32;
         let mut subnet_revealer_counts = BTreeMap::<u32, u32>::new();
-        for node_id in 1..=max_revealing_nodes as u32 {
+        for node_id in 2..=max_revealing_nodes as u32 {
             let mut reveal_row = BTreeMap::<u32, u128>::new();
             for subnet_id in revealed_subnet_ids.iter().copied() {
-                if node_id == id && measured_subnet_ids.contains(&subnet_id) {
-                    continue;
-                }
                 reveal_row.insert(subnet_id, weight);
                 subnet_revealer_counts
                     .entry(subnet_id)
@@ -7895,7 +7911,10 @@ mod benchmarks {
                     .expect("maximum benchmark reveal row fits its runtime bound");
             OverwatchReveals::<T>::insert(overwatch_epoch, node_id, reveal_row);
         }
-        assert_eq!(preexisting_records, max_records.saturating_sub(x));
+        assert_eq!(
+            preexisting_records,
+            max_records - max_revealed_subnets as u32
+        );
         // Every seeded node remains a canonical, whitelisted active member. Extra subnet keys may
         // be historical because subnet removal does not invalidate the bounded active reveal row.
         assert_eq!(
@@ -7904,7 +7923,7 @@ mod benchmarks {
         );
         TotalSubnetUids::<T>::set(max_revealed_subnets as u32);
         ActiveOverwatchRevealStats::<T>::put(OverwatchRevealStats::<T> {
-            records: max_records.saturating_sub(x),
+            records: preexisting_records,
             subnet_revealer_counts: subnet_revealer_counts
                 .try_into()
                 .expect("subnet-count fixture fits the runtime bound"),
@@ -7921,6 +7940,138 @@ mod benchmarks {
             let subnet_id = SubnetName::<T>::get::<Vec<u8>>(path.clone()).unwrap();
             assert_eq!(revealed_row.get(&subnet_id), Some(&weight));
         }
+    }
+
+    // Fixed envelopes cover rejection paths independently of submitted length. In particular,
+    // a one-entry reveal can read a maximum-size commitment row before rejecting incompleteness.
+    #[benchmark(extra)]
+    fn commit_overwatch_subnet_weights_invalid() {
+        let (id, hotkey, mut commits, _) = overwatch_submission_fixture::<T>();
+        commits.last_mut().unwrap().subnet_id = u32::MAX;
+        let result;
+        #[block]
+        {
+            result = Network::<T>::commit_overwatch_subnet_weights(
+                RawOrigin::Signed(hotkey).into(),
+                id,
+                commits,
+            );
+        }
+        assert_eq!(
+            result.unwrap_err().error,
+            Error::<T>::InvalidSubnetId.into()
+        );
+        assert!(!OverwatchCommits::<T>::contains_key(
+            CurrentOverwatchEpoch::<T>::get(),
+            id
+        ));
+    }
+
+    #[benchmark(extra)]
+    fn commit_overwatch_subnet_weights_repeated() {
+        let (id, hotkey, commits, _) = overwatch_submission_fixture::<T>();
+        assert_ok!(Network::<T>::commit_overwatch_subnet_weights(
+            RawOrigin::Signed(hotkey.clone()).into(),
+            id,
+            commits.clone()
+        ));
+        let result;
+        #[block]
+        {
+            result = Network::<T>::commit_overwatch_subnet_weights(
+                RawOrigin::Signed(hotkey).into(),
+                id,
+                vec![commits[0].clone()],
+            );
+        }
+        assert_eq!(
+            result.unwrap_err().error,
+            Error::<T>::AlreadyCommitted.into()
+        );
+    }
+
+    #[benchmark(extra)]
+    fn reveal_overwatch_subnet_weights_incomplete() {
+        let (id, hotkey, commits, reveals) = overwatch_submission_fixture::<T>();
+        assert!(commits.len() > 1);
+        assert_ok!(Network::<T>::commit_overwatch_subnet_weights(
+            RawOrigin::Signed(hotkey.clone()).into(),
+            id,
+            commits
+        ));
+        set_block_to_overwatch_reveal_block::<T>(CurrentOverwatchEpoch::<T>::get());
+        let result;
+        #[block]
+        {
+            result = Network::<T>::reveal_overwatch_subnet_weights(
+                RawOrigin::Signed(hotkey).into(),
+                id,
+                vec![reveals[0].clone()],
+            );
+        }
+        assert_eq!(
+            result.unwrap_err().error,
+            Error::<T>::RevealSetMismatch.into()
+        );
+        assert!(!OverwatchReveals::<T>::contains_key(
+            CurrentOverwatchEpoch::<T>::get(),
+            id
+        ));
+    }
+
+    #[benchmark(extra)]
+    fn reveal_overwatch_subnet_weights_invalid() {
+        let (id, hotkey, commits, mut reveals) = overwatch_submission_fixture::<T>();
+        assert_ok!(Network::<T>::commit_overwatch_subnet_weights(
+            RawOrigin::Signed(hotkey.clone()).into(),
+            id,
+            commits
+        ));
+        set_block_to_overwatch_reveal_block::<T>(CurrentOverwatchEpoch::<T>::get());
+        reveals.last_mut().unwrap().weight += 1;
+        let result;
+        #[block]
+        {
+            result = Network::<T>::reveal_overwatch_subnet_weights(
+                RawOrigin::Signed(hotkey).into(),
+                id,
+                reveals,
+            );
+        }
+        assert_eq!(result.unwrap_err().error, Error::<T>::RevealMismatch.into());
+        assert!(!OverwatchReveals::<T>::contains_key(
+            CurrentOverwatchEpoch::<T>::get(),
+            id
+        ));
+    }
+
+    #[benchmark(extra)]
+    fn reveal_overwatch_subnet_weights_repeated() {
+        let (id, hotkey, commits, reveals) = overwatch_submission_fixture::<T>();
+        assert_ok!(Network::<T>::commit_overwatch_subnet_weights(
+            RawOrigin::Signed(hotkey.clone()).into(),
+            id,
+            commits
+        ));
+        set_block_to_overwatch_reveal_block::<T>(CurrentOverwatchEpoch::<T>::get());
+        assert_ok!(Network::<T>::reveal_overwatch_subnet_weights(
+            RawOrigin::Signed(hotkey.clone()).into(),
+            id,
+            reveals.clone()
+        ));
+        let result;
+        #[block]
+        {
+            result = Network::<T>::reveal_overwatch_subnet_weights(
+                RawOrigin::Signed(hotkey).into(),
+                id,
+                vec![reveals[0].clone()],
+            );
+        }
+        assert_eq!(
+            result.unwrap_err().error,
+            Error::<T>::AlreadyRevealed.into()
+        );
     }
 
     #[benchmark]
@@ -10758,6 +10909,55 @@ mod benchmarks {
             PendingConsensusOperations::<T>::get(1).unwrap().operation,
             operation
         );
+    }
+
+    #[benchmark]
+    fn pending_consensus_operations_enqueue(n: Linear<1, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN + 3 }>) {
+        let operation = pending_operations::node_reward::<T>();
+        assert_ok!(Network::<T>::enqueue_consensus_operation(
+            7,
+            operation.clone()
+        ));
+        let operations = vec![operation.clone(); n as usize];
+        #[block]
+        {
+            // Include collecting the bounded failure list, as well as its durable append.
+            let failures: Vec<_> = operations.iter().cloned().collect();
+            Network::<T>::enqueue_consensus_rewards(7, &failures);
+        }
+        assert_eq!(
+            PendingConsensusOperationsQueue::<T>::get().tail,
+            u64::from(n) + 1
+        );
+        for id in 1..=u64::from(n) {
+            assert_eq!(
+                PendingConsensusOperations::<T>::get(id).unwrap().operation,
+                operation
+            );
+        }
+    }
+
+    #[benchmark(extra)]
+    fn pending_consensus_operations_enqueue_empty_queue(
+        n: Linear<1, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN + 3 }>,
+    ) {
+        let operation = pending_operations::node_reward::<T>();
+        let operations = vec![operation.clone(); n as usize];
+        #[block]
+        {
+            let failures: Vec<_> = operations.iter().cloned().collect();
+            Network::<T>::enqueue_consensus_rewards(7, &failures);
+        }
+        assert_eq!(
+            PendingConsensusOperationsQueue::<T>::get().tail,
+            u64::from(n)
+        );
+        for id in 0..u64::from(n) {
+            assert_eq!(
+                PendingConsensusOperations::<T>::get(id).unwrap().operation,
+                operation
+            );
+        }
     }
 
     #[benchmark]

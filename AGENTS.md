@@ -700,11 +700,20 @@ mid-epoch must wait for membership in the next epoch-opening snapshot. During
 commit, its effective hotkey calls `commit_overwatch_subnet_weights` with
 `{ subnet_id, weight: commitment_hash }` entries. During reveal, it calls
 `reveal_overwatch_subnet_weights` with `{ subnet_id, weight: u128, salt }` entries.
-Revealed weights must be in `0..=Q18`. An accepted commitment cannot be replaced
-for the same subnet and epoch.
-`OverwatchWeightsCommitted` contains only the filtered commitments accepted by the
-call. `OverwatchWeightsRevealed` contains the verified, deduplicated subnet weights
-without salts. Both identify the Overwatch node and epoch; failed batches emit neither.
+Each node may submit one successful commit batch and one successful reveal batch
+per epoch. Commit batches reject unknown or duplicate subnet IDs. Reveals must
+contain every committed subnet exactly once, including removed subnets, with
+weights in `0..=Q18`. The node may choose which subnets to assess before committing;
+its accepted commitment set cannot be extended or replaced. Invalid batches write
+nothing and may be corrected and retried. Successful native calls return `Pays::No`;
+failed calls pay normal fees, and precompile calls still pay contract gas.
+Hotkey rotation and pause/resume do not reset successful submissions. Reveals use
+the stored commitment set and hard batch bound, so lowering `MaxSubnets` after
+commit does not prevent completion. Persist the full batch and secret salts before
+committing, and reconcile finalized state before retrying an uncertain submission.
+`OverwatchWeightsCommitted` contains the complete accepted commitment batch.
+`OverwatchWeightsRevealed` contains the complete verified subnet weights without
+salts. Both identify the Overwatch node and epoch; failed batches emit neither.
 Commitment hashing is the runtime hash of this SCALE tuple:
 
 ```text

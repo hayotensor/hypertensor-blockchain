@@ -749,9 +749,11 @@ pub mod pallet {
             error: sp_runtime::DispatchError,
         },
         /// Financial work is retained for retry without keeping its consensus round open.
-        ConsensusOperationQueued {
+        ConsensusOperationsQueued {
             subnet_id: u32,
-            operation: ConsensusOperation<T::AccountId>,
+            /// FIFO IDs wrap with u64::wrapping_add, just like the queue cursors.
+            first_operation_id: u64,
+            operation_count: u32,
             expires_at: BlockNumberFor<T>,
         },
         ConsensusOperationApplied {
@@ -1286,8 +1288,14 @@ pub mod pallet {
         CommitsEmpty,
         /// Reveals vector is empty
         RevealsEmpty,
-        /// Already committed on this epoch and subnet ID
+        /// This Overwatch node already submitted its commitment batch for the epoch.
         AlreadyCommitted,
+        /// This Overwatch node already submitted its complete reveal batch for the epoch.
+        AlreadyRevealed,
+        /// An Overwatch commit or reveal batch contains a duplicate subnet ID.
+        DuplicateOverwatchSubnetId,
+        /// Reveal subnet IDs must exactly match the node's complete commitment set.
+        RevealSetMismatch,
         /// Invalid subnet weight, must be below percentage factor 1e18
         InvalidWeight,
         /// Maximum overwatch nodes reached
@@ -7427,8 +7435,6 @@ pub mod pallet {
         /// * `overwatch_node_id` - Overwatch node ID of caller.
         /// * `peer_id` - New peer ID for subnet.
         ///
-        /// Returns Ok(Pays::No.into()) on success
-        ///
         #[pallet::call_index(74)]
         #[pallet::weight(T::WeightInfo::set_overwatch_node_peer_id())]
         pub fn set_overwatch_node_peer_id(
@@ -7436,12 +7442,12 @@ pub mod pallet {
             subnet_id: u32,
             overwatch_node_id: u32,
             peer_id: PeerId,
-        ) -> DispatchResultWithPostInfo {
+        ) -> DispatchResult {
             Self::is_paused()?;
             Self::do_set_overwatch_node_peer_id(origin, subnet_id, overwatch_node_id, peer_id)
         }
 
-        /// Commit overwatch subnet weight weight
+        /// Commit the complete set of Overwatch subnet assessments for this epoch.
         ///
         /// # Requirements
         ///
@@ -7450,12 +7456,13 @@ pub mod pallet {
         ///
         /// # Note
         ///
-        /// This can be called multiple times in the commit phase of the overwatch epoch
+        /// Each node may submit one successful batch per epoch. Unknown or duplicate subnet
+        /// IDs reject the entire batch; failed calls may be corrected and retried.
         ///
         /// # Arguments
         ///
         /// * `overwatch_node_id` - Caller Overwatch Node ID.
-        /// * `mut commit_weights` - Vector of hashed subnet commits, see `OverwatchCommit`.
+        /// * `commit_weights` - Complete vector of hashed subnet commits, see `OverwatchCommit`.
         ///
         /// Returns Ok(Pays::No.into()) on success
         ///
@@ -7472,16 +7479,17 @@ pub mod pallet {
             Self::do_commit_overwatch_subnet_weights(origin, overwatch_node_id, commit_weights)
         }
 
-        /// Reveal overwatch subnet weight weight
+        /// Reveal every accepted Overwatch commitment in one batch.
         ///
         /// # Requirements
         ///
         /// * Must be an overwatch node
-        /// * Every reveal must match every commit
+        /// * Every committed subnet must appear exactly once with its matching weight and salt
         ///
         /// # Note
         ///
-        /// This can be called multiple times in the reveal phase of the overwatch epoch
+        /// Each node may submit one successful reveal batch per epoch, including commitments
+        /// to removed subnets. Failed calls write nothing and may be corrected and retried.
         ///
         /// # Arguments
         ///
@@ -10257,6 +10265,9 @@ pub mod pallet {
             let db_weight = T::DbWeight::get();
 
             let mut weight_meter = WeightMeter::with_limit(T::MaximumHooksWeight::get());
+            // Keep the full reservation inside the hook so a refund cannot change optional
+            // cleanup/swap admission. Return the unused enqueue allowance to the block only.
+            let mut enqueue_refund = Weight::zero();
 
             // Admit every fixed selector read before touching storage so even paused/no-step
             // blocks carry generated trie-proof weight.
@@ -10395,13 +10406,14 @@ pub mod pallet {
                     let current_subnet_epoch = block
                         .saturating_sub(epoch_slot)
                         .saturating_div(epoch_length);
-                    if !Self::run_assigned_subnet_slot(
+                    let Some(refund) = Self::run_assigned_subnet_slot(
                         &mut weight_meter,
                         current_subnet_epoch,
                         subnet_id,
-                    ) {
+                    ) else {
                         return weight_meter.consumed();
-                    }
+                    };
+                    enqueue_refund = refund;
                 }
             }
 
@@ -10409,7 +10421,7 @@ pub mod pallet {
             // bounded queue before its q-dependent weight has been reserved.
             let swap_selector_weight = T::WeightInfo::execute_ready_swap_selectors();
             if !weight_meter.can_consume(swap_selector_weight) {
-                return weight_meter.consumed();
+                return weight_meter.consumed().saturating_sub(enqueue_refund);
             }
             weight_meter.consume(swap_selector_weight);
             let max_swap_executions = MaxSwapQueueCallsPerBlock::<T>::get();
@@ -10483,7 +10495,7 @@ pub mod pallet {
                 }
             }
 
-            weight_meter.consumed()
+            weight_meter.consumed().saturating_sub(enqueue_refund)
         }
 
         fn on_finalize(block_number: BlockNumberFor<T>) {}

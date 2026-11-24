@@ -2,6 +2,117 @@
 
 Date: 2026-08-30
 
+## Batched consensus failures and hook refunds (2026-11-24)
+
+Reward settlement collects failed operations in memory, then appends the original individual
+FIFO records in one batch. The queue cursor and `ConsensusOperationsQueued` event are
+written once per nonempty batch. The event carries the subnet, first wrapping operation ID,
+record count, and shared expiry. Idle retry, expiry, frozen recipients/generations, payout
+amounts, and slash reservations retain their behavior. Early settlement returns still flush
+the batch. Failed slashes retain their separate atomic reservation and single append.
+
+Persistence was subsequently made infallible at the application level: reward appends no
+longer open a transaction or return an error, and single-slash appends perform all reservation
+validation before the first write. There is no fallible step between the reservation and FIFO
+writes. Reward allocation reporting is checked before crediting instead of asserting after it,
+and missing-proposer event capacity cannot panic the slot. The measured weights below are
+retained conservatively; removing the enqueue transaction does not claim new lower coefficients.
+Benchmark fixtures now exercise the infallible reward appender.
+
+Slot admission reserves the measured maximum batch (`historical_items + 3`), then the hook
+returns unused enqueue weight to the block in both dimensions. The refund cannot reduce the
+rejected/cancelled settlement envelope or any non-enqueue work. The internal meter keeps the
+full reservation through optional work; the refund itself does not change that admission.
+
+Measurements used the pinned-SDK node CLI 60.0.0, compiled Wasm, proof recording and
+verification, 50 steps, 20 repeats, and maximum time/PoV analysis. Empty and nonempty queues
+each have 1,000 timing samples and 50 storage samples over 1–515 records; the single append
+has 20 timing samples and one storage sample. Every recorded sample fits its charged time
+and proof model. Both weight implementations take the componentwise maximum of the two batch
+models, and the independent single-append method retains its previous floor.
+
+```bash
+SKIP_FRAME_STORAGE_ACCESS_TEST_RUNTIME_WASM_BUILD=1 SKIP_PALLET_REVIVE_FIXTURES=1 \
+  cargo build --release --locked --offline -p hypertensor-runtime --features runtime-benchmarks
+CONSENSUS_ENQUEUE_SKIP_BUILD=1 \
+  bash .maintain/benchmark-consensus-enqueue.sh /tmp/network-consensus-enqueue-benchmarks
+python3 .maintain/merge-consensus-enqueue-weights.py \
+  /tmp/network-consensus-enqueue-benchmarks/weights.rs
+```
+
+The runner records the commit, source diff, runtime hash, raw measurements, CLI output, and
+partial generated weights. The benchmark runtime SHA-256 was
+`17a552a1a81deec7653ed8f39536dd38b845f2eefd0b495a9d4cac5ca5c1a5f8`.
+
+With production RocksDB costs, the 515-record batch reserves 53.046412128 ms and 1,837 proof
+bytes, versus the former repeated single-append reservation of 288.292880 ms and 994,465 bytes.
+For the same healthy 512-node slot with the minimum queue component, mandatory-plus-optional
+hook accounting falls from 859.744928280 ms to 571.452048280 ms after refund (42.99% to 28.57%
+of a 2,000 ms block). Proof accounting falls from 14,771,930 to 13,777,465 bytes (44.02% to
+41.06% of 32 MiB). These are charged-weight calculations using measured component models,
+not new end-to-end execution timings or an increase to the supported 512-node limit.
+
+Validation passed: 1,257 pallet tests and benchmark fixture checks (one existing ignored test),
+17 production-runtime tests, and the runtime integrity test. The expanded failure suite also
+passes at 512 nodes: a healthy round refunds the entire batch allowance in both dimensions,
+while failures at every destination persist all 515 operations without an enqueue refund.
+Coverage includes partial failures, zero-score early returns, FIFO wraparound, atomic slash
+reservations, unchanged idle retries, and exact/insufficient mandatory-slot budgets.
+Transaction-limit fault injection covers accepted rounds at both 4 and 512 nodes, rejected
+rounds, and missing proposals. Every round completes and elects again; failed rewards and
+reserved slashes survive for exactly-once idle payment after the injected failures are repaired.
+An invalid slash reservation still leaves both the queue and existing reservations unchanged.
+
+## Single-call Overwatch submissions (2026-11-22)
+
+Commit and reveal now accept one successful complete batch per node and epoch.
+Invalid batches, duplicate subnet IDs, and repeat submissions fail without writes;
+only successful native calls return `Pays::No`. Reveal completeness uses stored
+commitments and the hard subnet bound, including after subnet removal or a decrease
+of the mutable admission limit.
+
+The successful commit fixture starts with no commitment row, and the successful
+reveal fixture starts with no reveal row for its caller. Other nodes populate the
+maximum aggregate state. Five extra benchmarks cover a late invalid commit, a
+repeat commit, an incomplete reveal against a maximum commitment row, a late hash
+mismatch with maximum-length salts, and a repeat reveal. Fixed rejection envelopes
+apply at every submitted length, so small rejected calls cannot undercharge reads
+of maximum-sized rows. The existing bounds remain part of the componentwise maximum.
+Only `commit_overwatch_subnet_weights` and `reveal_overwatch_subnet_weights` changed
+in the two weight implementations; the `WeightInfo` interface is unchanged.
+
+Measurements used the pinned-SDK node CLI 60.0.0 and a rebuilt benchmark runtime,
+compiled Wasm, proof recording and verification, 50 steps, 20 repeats, and maximum
+time/PoV analysis. Both successful benchmarks sampled every batch size from 1 to
+16 (1,000 timing samples each); each fixed rejection case has 20 timing samples.
+The runtime Wasm SHA-256 was
+`70116f95e5ebdb87e968672ed2f9f48c412e7e2203107b6c4ace85bc15223672`.
+The generated artifact's UTC date is 2026-11-23; the local run date above is
+America/New_York.
+
+```bash
+SKIP_FRAME_STORAGE_ACCESS_TEST_RUNTIME_WASM_BUILD=1 SKIP_PALLET_REVIVE_FIXTURES=1 \
+  cargo build --release --locked -p hypertensor-runtime --features runtime-benchmarks
+OVERWATCH_SUBMISSIONS_SKIP_BUILD=1 \
+  .maintain/benchmark-overwatch-submissions.sh /tmp/overwatch-submission-benchmarks
+python3 .maintain/merge-overwatch-submission-weights.py \
+  /tmp/overwatch-submission-benchmarks/weights.rs
+```
+
+The runner records the source diff, source commit, Wasm hash, raw measurements,
+CLI output, and partial generated weights. Use a node built against the pinned SDK;
+the standalone bencher described below has an incompatible host interface.
+
+Validation passed: 963 network tests (one existing ignored test), 164 Overwatch
+tests and benchmark fixture checks with `runtime-benchmarks`, and four targeted
+runtime tests against the merged weights. The signed capacity test uses 16 entries,
+64-byte reveal salts, the full opening snapshot, and the network's maximum hook
+reservation. Native encoded commits/reveals are 686/1,486 bytes; successful calls
+pay zero inclusion fees with zero tips, while rejected calls pay fees. The precompile
+test also verifies batch rejection and preserves contract gas charging. Formatting
+checks still report pre-existing differences outside the changed code.
+
+
 ## Fixed subnet delegation minimum (2026-11-08)
 
 Activation, periodic survival checks, and RPC reporting now read the configured base balance

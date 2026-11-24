@@ -13,7 +13,7 @@ fn mandatory_slot(h: u32) -> Weight {
                 .max(W::emission_step_accepted_queue_mutations_front(64)),
         )
         .saturating_add(W::emission_step_accepted_below_min_weight_reputation(h))
-        .saturating_add(W::pending_consensus_operation_enqueue().saturating_mul(u64::from(h) + 3))
+        .saturating_add(W::pending_consensus_operations_enqueue(h + 3))
         .saturating_add(W::consensus_node_reward_snapshot().saturating_mul(u64::from(h)))
         .saturating_add(if h > 3 {
             W::emission_step_accepted_non_attestor_reputation(h - 3)

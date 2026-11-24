@@ -732,30 +732,43 @@ fn overwatch_contract_hotkey_obeys_commit_reveal_and_pays_for_pays_no_calls() {
             }
         ));
         let id = n::ValidatorOverwatchNodeId::<Runtime>::get(validator_id).unwrap();
-        n::SubnetsData::<Runtime>::insert(
-            1,
-            n::SubnetData {
-                id: 1,
-                ..Default::default()
-            },
-        );
+        for subnet_id in 1..=2 {
+            n::SubnetsData::<Runtime>::insert(
+                subnet_id,
+                n::SubnetData {
+                    id: subnet_id,
+                    ..Default::default()
+                },
+            );
+        }
         let salt: n::OverwatchRevealSalt<Runtime> = vec![1, 2, 3].try_into().unwrap();
         let eligible_epoch = 2;
-        let hash = Network::hash_overwatch_commitment(id, 1, eligible_epoch, 123, &salt);
         let commit = abi::IOverwatch::commitOverwatchSubnetWeightsCall {
             overwatchNodeId: id,
-            commitWeights: vec![abi::OverwatchCommit {
-                subnetId: 1,
-                weight: hash.0.into(),
-            }],
+            commitWeights: (1..=2)
+                .map(|subnet_id| abi::OverwatchCommit {
+                    subnetId: subnet_id,
+                    weight: Network::hash_overwatch_commitment(
+                        id,
+                        subnet_id,
+                        eligible_epoch,
+                        123,
+                        &salt,
+                    )
+                    .0
+                    .into(),
+                })
+                .collect(),
         };
         let reveal = abi::IOverwatch::revealOverwatchSubnetWeightsCall {
             overwatchNodeId: id,
-            reveals: vec![abi::OverwatchReveal {
-                subnetId: 1,
-                weight: 123,
-                salt: vec![1, 2, 3].into(),
-            }],
+            reveals: (1..=2)
+                .map(|subnet_id| abi::OverwatchReveal {
+                    subnetId: subnet_id,
+                    weight: 123,
+                    salt: vec![1, 2, 3].into(),
+                })
+                .collect(),
         };
         assert!(native_call(contract_call(contract, 0, reveal.abi_encode())).is_err());
         // The transaction origin is the coldkey, so only the contract hotkey can commit.
@@ -775,13 +788,29 @@ fn overwatch_contract_hotkey_obeys_commit_reveal_and_pays_for_pays_no_calls() {
             Balances::free_balance(&who) < before,
             "Pays::No must not refund contract gas"
         );
+        // A second commit in the correct phase is rejected through the precompile too.
+        assert!(native_call(contract_call(contract, 0, commit.abi_encode())).is_err());
         System::set_block_number(2 * EpochLength::get() + EpochLength::get() / 2);
         assert!(native_call(contract_call(contract, 0, commit.abi_encode())).is_err());
+        let mut partial = reveal.clone();
+        partial.reveals.truncate(1);
+        assert!(native_call(contract_call(contract, 0, partial.abi_encode())).is_err());
+        assert!(n::OverwatchReveals::<Runtime>::get(eligible_epoch, id).is_empty());
         let mut wrong = reveal.clone();
-        wrong.reveals[0].weight = 124;
+        wrong.reveals[1].weight = 124;
         assert!(native_call(contract_call(contract, 0, wrong.abi_encode())).is_err());
         assert!(n::OverwatchReveals::<Runtime>::get(eligible_epoch, id).is_empty());
+        let before_reveal = Balances::free_balance(&who);
         assert_ok!(native_call(contract_call(contract, 0, reveal.abi_encode())));
+        assert!(
+            Balances::free_balance(&who) < before_reveal,
+            "successful reveal still pays contract gas"
+        );
+        assert!(native_call(contract_call(contract, 0, reveal.abi_encode())).is_err());
+        assert_eq!(
+            n::OverwatchReveals::<Runtime>::get(eligible_epoch, id).len(),
+            2
+        );
         assert_eq!(
             n::OverwatchReveals::<Runtime>::get(eligible_epoch, id).get(&1),
             Some(&123)

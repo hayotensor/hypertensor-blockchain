@@ -64,24 +64,47 @@ impl<T: Config> Pallet<T> {
     ) -> DispatchResult {
         let expires_at = frame_system::Pallet::<T>::block_number()
             .saturating_add(T::ConsensusOperationRetryPeriod::get());
-        with_transaction(|| {
-            if let ConsensusOperation::NodeSlash {
-                subnet_id,
-                subnet_node_id,
-                amount,
-                ..
-            } = &operation
-            {
-                if let Err(error) = Self::reserve_pending_node_slash(
-                    *subnet_id,
-                    *subnet_node_id,
-                    *amount,
-                    expires_at,
-                ) {
-                    return TransactionOutcome::Rollback(Err(error));
-                }
-            }
-            let mut queue = PendingConsensusOperationsQueue::<T>::get();
+        if let ConsensusOperation::NodeSlash {
+            subnet_id,
+            subnet_node_id,
+            amount,
+            ..
+        } = &operation
+        {
+            // Reservation validation changes only local values until its final storage write.
+            // Nothing after that write can return an application error, so the reservation and
+            // record stay together without opening another fallible transaction layer.
+            Self::reserve_pending_node_slash(*subnet_id, *subnet_node_id, *amount, expires_at)?;
+        }
+        Self::append_consensus_operations(subnet_id, &[operation], expires_at);
+        Ok(())
+    }
+
+    /// Persist reward failures without a transaction, validation, or fallible queue capacity.
+    /// Settlement supplies only credits; slashes use `enqueue_consensus_operation` to reserve
+    /// their liability before appending. Records and ordering remain unchanged for idle retries.
+    pub(crate) fn enqueue_consensus_rewards(
+        subnet_id: u32,
+        operations: &[ConsensusOperation<T::AccountId>],
+    ) {
+        if operations.is_empty() {
+            return;
+        }
+        let expires_at = frame_system::Pallet::<T>::block_number()
+            .saturating_add(T::ConsensusOperationRetryPeriod::get());
+        Self::append_consensus_operations(subnet_id, operations, expires_at);
+    }
+
+    /// Only infallible storage writes follow any financial validation/reservation. Do not add
+    /// fallible work here: a reward credit failing must never prevent retaining its retry record.
+    fn append_consensus_operations(
+        subnet_id: u32,
+        operations: &[ConsensusOperation<T::AccountId>],
+        expires_at: BlockNumberFor<T>,
+    ) {
+        let mut queue = PendingConsensusOperationsQueue::<T>::get();
+        let first_operation_id = queue.tail;
+        for operation in operations {
             PendingConsensusOperations::<T>::insert(
                 queue.tail,
                 PendingConsensusOperation {
@@ -90,14 +113,24 @@ impl<T: Config> Pallet<T> {
                 },
             );
             queue.tail = queue.tail.wrapping_add(1);
-            PendingConsensusOperationsQueue::<T>::put(queue);
-            Self::deposit_event(Event::ConsensusOperationQueued {
-                subnet_id,
-                operation,
-                expires_at,
-            });
-            TransactionOutcome::Commit(Ok(()))
-        })
+        }
+        PendingConsensusOperationsQueue::<T>::put(queue);
+        Self::deposit_event(Event::ConsensusOperationsQueued {
+            subnet_id,
+            first_operation_id,
+            operation_count: operations.len() as u32,
+            expires_at,
+        });
+    }
+
+    /// The empty batch performs no storage or event work. The measured batch model covers
+    /// reward records; failed slashes separately retain their reservation-update allowance.
+    pub(crate) fn consensus_operations_enqueue_weight(count: u32) -> Weight {
+        if count == 0 {
+            Weight::zero()
+        } else {
+            T::WeightInfo::pending_consensus_operations_enqueue(count)
+        }
     }
 
     pub(crate) fn pending_node_slash_locked_amount(subnet_id: u32, node_id: u32) -> u128 {

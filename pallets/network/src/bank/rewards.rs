@@ -151,6 +151,35 @@ impl<T: Config> Pallet<T> {
         current_subnet_epoch: u32,
         settled_subnet_epoch: u32,
         consensus_submission_data: ConsensusSubmissionData<T>,
+        rewards_data: RewardsData,
+    ) -> Weight {
+        let mut deferred_operations = Vec::new();
+        Self::distribute_rewards_with_deferred_operations(
+            weight_meter,
+            &mut deferred_operations,
+            subnet_id,
+            current_subnet_epoch,
+            settled_subnet_epoch,
+            consensus_submission_data,
+            rewards_data,
+        );
+        // Every early return from settlement reaches this append. Accepted rounds can defer
+        // at most one reward per historical node plus owner, proposer and subnet-pool rewards.
+        // Rejected rounds retain their independent single-slash reservation and enqueue path.
+        let enqueue_weight =
+            Self::consensus_operations_enqueue_weight(deferred_operations.len() as u32);
+        weight_meter.consume(enqueue_weight);
+        Self::enqueue_consensus_rewards(subnet_id, &deferred_operations);
+        enqueue_weight
+    }
+
+    fn distribute_rewards_with_deferred_operations(
+        weight_meter: &mut WeightMeter,
+        deferred_operations: &mut Vec<ConsensusOperation<T::AccountId>>,
+        subnet_id: u32,
+        current_subnet_epoch: u32,
+        settled_subnet_epoch: u32,
+        consensus_submission_data: ConsensusSubmissionData<T>,
         mut rewards_data: RewardsData,
     ) {
         let db_weight = T::DbWeight::get();
@@ -409,6 +438,7 @@ impl<T: Config> Pallet<T> {
                 } else {
                     if let Err(error) = Self::handle_validator_reward(
                         weight_meter,
+                        deferred_operations,
                         subnet_id,
                         validator_subnet_node_id,
                         &consensus_submission_data,
@@ -428,11 +458,13 @@ impl<T: Config> Pallet<T> {
             // Zero node score does not invalidate rewards unrelated to a node or proposer.
             Self::settle_subnet_owner_reward(
                 weight_meter,
+                deferred_operations,
                 subnet_id,
                 rewards_data.subnet_owner_reward,
             );
             let credited_delegate_stake_reward = Self::handle_subnet_delegate_stake_reward(
                 weight_meter,
+                deferred_operations,
                 subnet_id,
                 rewards_data.delegate_stake_rewards,
             );
@@ -447,7 +479,12 @@ impl<T: Config> Pallet<T> {
         }
 
         // --- Reward owner
-        Self::settle_subnet_owner_reward(weight_meter, subnet_id, rewards_data.subnet_owner_reward);
+        Self::settle_subnet_owner_reward(
+            weight_meter,
+            deferred_operations,
+            subnet_id,
+            rewards_data.subnet_owner_reward,
+        );
 
         // CPU cost for this bounded loop is covered by the generated `emission_step(h)` model;
         // only branch-specific storage work is tracked by this internal admission meter.
@@ -679,24 +716,30 @@ impl<T: Config> Pallet<T> {
                 subnet_node.validator_id,
                 account_reward,
             );
-            // Bound all three credit destinations, including reads before a rollback.
-            weight_meter.consume(db_weight.reads_writes(10, 7));
-            if Self::try_apply_consensus_operation(&operation).is_err() {
-                Self::defer_consensus_operation(weight_meter, subnet_id, operation);
-                continue;
-            }
-            let ConsensusOperation::NodeReward {
+            // Resolve reporting amounts before crediting. Invalid allocation data follows the
+            // same durable retry path as a failed credit, without aborting the remaining round.
+            let allocations = if let ConsensusOperation::NodeReward {
                 amount,
                 validator_pool,
                 delegate_account,
                 ..
-            } = operation
-            else {
-                unreachable!("node reward preparation always returns a node reward");
+            } = &operation
+            {
+                Self::consensus_node_reward_allocations(*amount, validator_pool, delegate_account).ok()
+            } else {
+                None
             };
-            let (account_reward, validator_allocation, delegate_account_allocation) =
-                Self::consensus_node_reward_allocations(amount, &validator_pool, &delegate_account)
-                    .expect("the same immutable allocations were checked by the successful credit");
+            let Some((account_reward, validator_allocation, delegate_account_allocation)) = allocations
+            else {
+                deferred_operations.push(operation);
+                continue;
+            };
+            // Bound all three credit destinations, including reads before a rollback.
+            weight_meter.consume(db_weight.reads_writes(10, 7));
+            if Self::try_apply_consensus_operation(&operation).is_err() {
+                deferred_operations.push(operation);
+                continue;
+            }
             if let Some(allocation) = validator_allocation {
                 validator_delegate_stake_rewards.push(allocation);
             }
@@ -727,6 +770,7 @@ impl<T: Config> Pallet<T> {
             } else {
                 if let Err(error) = Self::handle_validator_reward(
                     weight_meter,
+                    deferred_operations,
                     subnet_id,
                     validator_subnet_node_id,
                     &consensus_submission_data,
@@ -745,6 +789,7 @@ impl<T: Config> Pallet<T> {
         // --- Increase the delegate stake pool balance
         let credited_delegate_stake_reward = Self::handle_subnet_delegate_stake_reward(
             weight_meter,
+            deferred_operations,
             subnet_id,
             rewards_data.delegate_stake_rewards,
         );
@@ -916,6 +961,7 @@ impl<T: Config> Pallet<T> {
 
     pub(crate) fn handle_validator_reward(
         weight_meter: &mut WeightMeter,
+        deferred_operations: &mut Vec<ConsensusOperation<T::AccountId>>,
         subnet_id: u32,
         subnet_node_id: u32,
         consensus_submission_data: &ConsensusSubmissionData<T>,
@@ -939,15 +985,11 @@ impl<T: Config> Pallet<T> {
         match Self::increase_node_stake(subnet_node_id, subnet_id, validator_reward) {
             Ok(()) => Ok(()),
             Err(error) => {
-                Self::defer_consensus_operation(
-                    weight_meter,
+                deferred_operations.push(ConsensusOperation::ValidatorReward {
                     subnet_id,
-                    ConsensusOperation::ValidatorReward {
-                        subnet_id,
-                        subnet_node_id,
-                        amount: validator_reward,
-                    },
-                );
+                    subnet_node_id,
+                    amount: validator_reward,
+                });
                 Err(error)
             }
         }
@@ -967,6 +1009,7 @@ impl<T: Config> Pallet<T> {
     /// recipient is resolved once, so a later ownership change cannot redirect a pending reward.
     pub(crate) fn settle_subnet_owner_reward(
         weight_meter: &mut WeightMeter,
+        deferred_operations: &mut Vec<ConsensusOperation<T::AccountId>>,
         subnet_id: u32,
         amount: u128,
     ) {
@@ -978,11 +1021,7 @@ impl<T: Config> Pallet<T> {
             return;
         };
         if Self::handle_subnet_owner_reward(weight_meter, &recipient, amount).is_err() {
-            Self::defer_consensus_operation(
-                weight_meter,
-                subnet_id,
-                ConsensusOperation::OwnerReward { recipient, amount },
-            );
+            deferred_operations.push(ConsensusOperation::OwnerReward { recipient, amount });
         }
     }
 
@@ -1177,6 +1216,7 @@ impl<T: Config> Pallet<T> {
     /// rewards. Returns the amount credited immediately; failed credits enter the global queue.
     pub(crate) fn handle_subnet_delegate_stake_reward(
         weight_meter: &mut WeightMeter,
+        deferred_operations: &mut Vec<ConsensusOperation<T::AccountId>>,
         subnet_id: u32,
         delegate_stake_reward: u128,
     ) -> u128 {
@@ -1199,15 +1239,11 @@ impl<T: Config> Pallet<T> {
         weight_meter.consume(T::WeightInfo::checkpoint_subnet_delegate_stake_ema());
         if Self::do_increase_delegate_stake(subnet_id, delegate_stake_reward).is_err() {
             weight_meter.consume(db_weight.reads(1));
-            Self::defer_consensus_operation(
-                weight_meter,
+            deferred_operations.push(ConsensusOperation::SubnetDelegateReward {
                 subnet_id,
-                ConsensusOperation::SubnetDelegateReward {
-                    subnet_id,
-                    generation: SubnetDelegatePoolGeneration::<T>::get(subnet_id),
-                    amount: delegate_stake_reward,
-                },
-            );
+                generation: SubnetDelegatePoolGeneration::<T>::get(subnet_id),
+                amount: delegate_stake_reward,
+            });
             return 0;
         }
         delegate_stake_reward

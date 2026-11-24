@@ -6,18 +6,148 @@ use frame_support::{
     weights::{RuntimeDbWeight, Weight},
 };
 
+fn settle_owner_reward(weight_meter: &mut WeightMeter, subnet: u32, amount: u128) {
+    let mut operations = Vec::new();
+    Network::settle_subnet_owner_reward(weight_meter, &mut operations, subnet, amount);
+    weight_meter.consume(Network::consensus_operations_enqueue_weight(
+        operations.len() as u32,
+    ));
+    Network::enqueue_consensus_rewards(subnet, &operations);
+}
+
 fn queue_reward(subnet: u32, recipient_id: u32, amount: u128) -> AccountIdOf<Test> {
     if System::block_number() == 0 {
         System::set_block_number(1);
     }
     let recipient = account(recipient_id);
     SubnetOwner::<Test>::insert(subnet, &recipient);
-    Network::settle_subnet_owner_reward(&mut WeightMeter::new(), subnet, amount);
+    settle_owner_reward(&mut WeightMeter::new(), subnet, amount);
     recipient
 }
 
 fn fund(recipient: &AccountIdOf<Test>) {
     drop(Balances::deposit_creating(recipient, EXISTENTIAL_DEPOSIT));
+}
+
+#[test]
+fn empty_enqueue_batch_touches_no_storage_and_costs_no_weight() {
+    new_test_ext().execute_with(|| {
+        assert_storage_noop!(Network::enqueue_consensus_rewards(7, &[]));
+        assert_eq!(
+            Network::consensus_operations_enqueue_weight(0),
+            Weight::zero()
+        );
+    });
+}
+
+#[test]
+fn maximum_batch_preserves_each_record_across_fifo_wrap_and_idle_retries() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        let recipient = account(980_050);
+        let count = <Test as Config>::MaxSubnetNodesUpperBound::get() + 3;
+        let first = u64::MAX - u64::from(count) / 2;
+        // One existing failed payment must stay ahead of the appended batch.
+        PendingConsensusOperationsQueue::<Test>::put(ConsensusOperationQueueState {
+            head: first - 1,
+            tail: first,
+        });
+        PendingConsensusOperations::<Test>::insert(
+            first - 1,
+            PendingConsensusOperation {
+                operation: ConsensusOperation::OwnerReward {
+                    recipient: recipient.clone(),
+                    amount: 7,
+                },
+                expires_at: 100_000,
+            },
+        );
+        let operations: Vec<_> = (1..=count)
+            .map(|amount| ConsensusOperation::OwnerReward {
+                recipient: recipient.clone(),
+                amount: u128::from(amount),
+            })
+            .collect();
+        let events_before = System::events().len();
+        Network::enqueue_consensus_rewards(7, &operations);
+        assert_eq!(System::events().len(), events_before + 1);
+        System::assert_last_event(
+            Event::ConsensusOperationsQueued {
+                subnet_id: 7,
+                first_operation_id: first,
+                operation_count: count,
+                expires_at: 100_810,
+            }
+            .into(),
+        );
+        let queue = PendingConsensusOperationsQueue::<Test>::get();
+        assert_eq!(queue.head, first - 1);
+        assert_eq!(queue.tail, first.wrapping_add(u64::from(count)));
+        for (offset, operation) in operations.iter().enumerate() {
+            let pending =
+                PendingConsensusOperations::<Test>::get(first.wrapping_add(offset as u64))
+                    .expect("every failed operation is durable");
+            assert_eq!(&pending.operation, operation);
+            assert_eq!(pending.expires_at, 100_810);
+        }
+        // The unchanged idle path pays the existing record and every new record exactly once.
+        fund(&recipient);
+        idle(Weight::MAX);
+        let total = u128::from(count) * u128::from(count + 1) / 2 + 7;
+        assert_eq!(
+            Balances::free_balance(&recipient),
+            EXISTENTIAL_DEPOSIT + total
+        );
+        assert!(!PendingConsensusOperationsQueue::<Test>::exists());
+        assert_eq!(PendingConsensusOperations::<Test>::iter().count(), 0);
+        assert_storage_noop!(idle(Weight::MAX));
+    });
+}
+
+#[test]
+fn failed_slash_reservation_does_not_change_records_or_existing_reservations() {
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        node_stake(100);
+        assert_ok!(Network::enqueue_consensus_operation(7, slash(60)));
+        assert_noop!(
+            Network::enqueue_consensus_operation(7, slash(60)),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
+        assert_eq!(Network::pending_node_slash_locked_amount(7, 9), 60);
+        assert_eq!(PendingConsensusOperations::<Test>::iter().count(), 1);
+    });
+}
+
+#[test]
+fn slash_reservation_and_enqueue_do_not_need_a_transaction_layer() {
+    use frame_support::storage::{
+        transactional::{TRANSACTIONAL_LIMIT, TRANSACTION_LEVEL_KEY},
+        unhashed,
+    };
+    new_test_ext().execute_with(|| {
+        System::set_block_number(10);
+        node_stake(100);
+        // Reproduce the SDK boundary without consuming the test thread's native call stack.
+        unhashed::put(TRANSACTION_LEVEL_KEY, &TRANSACTIONAL_LIMIT);
+        assert_ok!(Network::enqueue_consensus_operation(7, slash(60)));
+        assert_eq!(Network::pending_node_slash_locked_amount(7, 9), 60);
+        assert_eq!(
+            PendingConsensusOperations::<Test>::get(0)
+                .unwrap()
+                .operation,
+            slash(60)
+        );
+        assert_noop!(
+            Network::enqueue_consensus_operation(7, slash(60)),
+            Error::<Test>::NotEnoughStakeToWithdraw
+        );
+        unhashed::kill(TRANSACTION_LEVEL_KEY);
+        idle(Weight::MAX);
+        assert_eq!(NodeSubnetStake::<Test>::get(9, 7), 40);
+        assert_eq!(Network::pending_node_slash_locked_amount(7, 9), 0);
+        assert_eq!(PendingConsensusOperations::<Test>::iter().count(), 0);
+    });
 }
 
 fn idle(limit: Weight) -> Weight {
@@ -44,14 +174,14 @@ fn owner_rewards_preserve_success_zero_and_missing_owner_behavior() {
         fund(&recipient);
         SubnetOwner::<Test>::insert(1, &recipient);
         let before = Balances::free_balance(&recipient);
-        Network::settle_subnet_owner_reward(&mut WeightMeter::new(), 1, 10);
+        settle_owner_reward(&mut WeightMeter::new(), 1, 10);
         assert_eq!(Balances::free_balance(&recipient), before + 10);
-        assert_storage_noop!(Network::settle_subnet_owner_reward(
+        assert_storage_noop!(settle_owner_reward(
             &mut WeightMeter::new(),
             1,
             0
         ));
-        assert_storage_noop!(Network::settle_subnet_owner_reward(
+        assert_storage_noop!(settle_owner_reward(
             &mut WeightMeter::new(),
             2,
             10
@@ -69,13 +199,11 @@ fn failed_rewards_remain_separate_and_recover_exactly_once() {
         let recipient = queue_reward(1, 980_002, 100);
         queue_reward(2, 980_002, 200);
         System::assert_last_event(
-            Event::ConsensusOperationQueued {
+            Event::ConsensusOperationsQueued {
                 subnet_id: 2,
                 expires_at: 100_810,
-                operation: ConsensusOperation::OwnerReward {
-                    recipient: recipient.clone(),
-                    amount: 200,
-                },
+                first_operation_id: 1,
+                operation_count: 1,
             }
             .into(),
         );

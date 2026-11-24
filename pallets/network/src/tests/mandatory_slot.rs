@@ -94,11 +94,7 @@ fn exact_mandatory_budget_settles_promotes_and_elects_before_optional_work() {
         let stake_before = NodeSubnetStake::<Test>::get(NEW_NODE, subnet);
         set_block_to_subnet_slot_epoch(epoch + 1, subnet);
         let mut meter = WeightMeter::with_limit(limit);
-        assert!(Network::run_assigned_subnet_slot(
-            &mut meter,
-            epoch + 1,
-            subnet
-        ));
+        assert!(Network::run_assigned_subnet_slot(&mut meter, epoch + 1, subnet).is_some());
         assert_eq!(meter.consumed(), limit);
         assert_eq!(
             ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),
@@ -133,11 +129,12 @@ fn incomplete_mandatory_budget_does_not_partially_settle_or_elect() {
             };
             set_block_to_subnet_slot_epoch(epoch + 1, subnet);
             let mut meter = WeightMeter::with_limit(limit);
-            frame_support::assert_storage_noop!(assert!(!Network::run_assigned_subnet_slot(
+            frame_support::assert_storage_noop!(assert!(Network::run_assigned_subnet_slot(
                 &mut meter,
                 epoch + 1,
                 subnet
-            )));
+            )
+            .is_none()));
             assert!(meter.consumed().all_lte(limit));
             assert_eq!(
                 ConsensusRoundSettlementStatus::<Test>::get(subnet, epoch),

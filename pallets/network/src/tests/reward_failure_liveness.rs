@@ -2,7 +2,9 @@ use super::{mock::*, test_utils::*};
 use crate::*;
 use frame_support::{
     assert_ok,
+    storage::{with_transaction, TransactionOutcome},
     traits::{Currency, Hooks},
+    weights::Weight,
 };
 use sp_std::collections::btree_map::BTreeMap;
 
@@ -16,11 +18,15 @@ fn run_slot(subnet: u32, epoch: u32) {
 }
 
 fn elected_round() -> (u32, u32, u32) {
+    elected_round_with_nodes(NODES)
+}
+
+fn elected_round_with_nodes(nodes: u32) -> (u32, u32, u32) {
     increase_epochs(50);
     let name = b"reward-failure-liveness".to_vec();
-    build_activated_subnet(name.clone(), 0, NODES, 10_000 * TOKEN, 100 * TOKEN);
+    build_activated_subnet(name.clone(), 0, nodes, 10_000 * TOKEN, 100 * TOKEN);
     let subnet = SubnetName::<Test>::get(name).unwrap();
-    for node in 1..=NODES {
+    for node in 1..=nodes {
         let validator = SubnetNodeValidatorId::<Test>::get(subnet, node).unwrap();
         assert_ok!(Network::handle_increase_account_validator_delegate_stake(
             &account(99),
@@ -268,4 +274,250 @@ fn slash_accounting_failure_preserves_stake_and_the_hook_elects_again() {
                     && *error == sp_runtime::ArithmeticError::Underflow.into()
         )));
     });
+}
+
+#[test]
+fn initialize_refunds_only_unused_enqueue_weight_and_persists_every_failure() {
+    // No failures, one owner failure, node/proposer failures, and every reward destination.
+    // Exercise both branch-dominated small cohorts and the full supported batch/refund.
+    let max_nodes = <Test as Config>::MaxSubnetNodesUpperBound::get();
+    for (nodes, fault) in (0..4)
+        .map(|fault| (NODES, fault))
+        .chain([(max_nodes, 0), (max_nodes, 3)])
+    {
+        new_test_ext().execute_with(|| {
+            let (subnet, epoch, _) = elected_round_with_nodes(nodes);
+            run_subnet_consensus_step(subnet, None, None);
+            if fault == 1 || fault == 3 {
+                let headroom = u128::MAX - Balances::total_issuance();
+                drop(Balances::deposit_creating(&account(987_654), headroom));
+            }
+            if fault >= 2 {
+                TotalStake::<Test>::put(u128::MAX);
+            }
+            if fault == 3 {
+                TotalDelegateStake::<Test>::put(u128::MAX);
+            }
+            set_block_to_subnet_slot_epoch(epoch + 1, subnet);
+            type W = <Test as Config>::WeightInfo;
+            let base = W::on_initialize_base()
+                .saturating_add(W::advance_overwatch_epoch_noop())
+                .saturating_add(W::emission_slot_selector());
+            // Execute the real slot transactionally, then rewind. This captures its full
+            // reservation and optional work without duplicating the settlement formula.
+            let (reserved, refund): (Weight, Weight) = with_transaction(|| {
+                let mut meter = WeightMeter::with_limit(MaximumHooksWeight::get());
+                meter.consume(base);
+                let refund = Network::run_assigned_subnet_slot(&mut meter, epoch + 1, subnet)
+                    .expect("complete slot fits");
+                meter.consume(W::execute_ready_swap_selectors());
+                TransactionOutcome::Rollback(Ok::<_, sp_runtime::DispatchError>((
+                    meter.consumed(),
+                    refund,
+                )))
+            })
+            .unwrap();
+            let charged = Network::on_initialize(System::block_number());
+            assert_eq!(charged, reserved.saturating_sub(refund));
+            assert!(charged.all_lte(MaximumHooksWeight::get()));
+            assert_next_round(subnet, epoch);
+            let expected = match fault {
+                0 => 0,
+                1 => 1,
+                2 => nodes + 1,
+                _ => nodes + 3,
+            };
+            assert_eq!(
+                PendingConsensusOperations::<Test>::iter().count(),
+                expected as usize
+            );
+            let batch_events = network_events()
+                .into_iter()
+                .filter(|event| {
+                    matches!(event,
+                        Event::ConsensusOperationsQueued { subnet_id, operation_count, .. }
+                            if *subnet_id == subnet && *operation_count == expected
+                    )
+                })
+                .count();
+            assert_eq!(batch_events, usize::from(expected > 0));
+            if fault == 0 {
+                assert!(refund.ref_time() > 0);
+                // At small cohorts the rejected branch can set the proof floor, so an
+                // unused enqueue allowance need not produce a proof refund as well.
+                let maximum_enqueue = Network::consensus_operations_enqueue_weight(nodes + 3);
+                assert!(refund.all_lte(maximum_enqueue));
+                if nodes == max_nodes {
+                    assert!(refund.proof_size() > 0);
+                    assert_eq!(refund, maximum_enqueue);
+                }
+            }
+            if fault == 3 {
+                assert_eq!(refund, Weight::zero());
+                // FIFO order remains owner, scored nodes, proposer bonus, subnet delegate pool.
+                assert!(matches!(
+                    PendingConsensusOperations::<Test>::get(0)
+                        .unwrap()
+                        .operation,
+                    ConsensusOperation::OwnerReward { .. }
+                ));
+                assert!(matches!(
+                    PendingConsensusOperations::<Test>::get(u64::from(nodes + 1))
+                        .unwrap()
+                        .operation,
+                    ConsensusOperation::ValidatorReward { .. }
+                ));
+                assert!(matches!(
+                    PendingConsensusOperations::<Test>::get(u64::from(nodes + 2))
+                        .unwrap()
+                        .operation,
+                    ConsensusOperation::SubnetDelegateReward { .. }
+                ));
+            }
+        });
+    }
+}
+
+#[test]
+fn zero_score_early_return_flushes_all_independent_reward_failures() {
+    new_test_ext().execute_with(|| {
+        let (subnet, epoch, proposer) = elected_round();
+        let hotkey = Network::get_subnet_node_associated_hotkey(subnet, proposer).unwrap();
+        assert_ok!(Network::propose_attestation(
+            RuntimeOrigin::signed(hotkey),
+            subnet,
+            vec![],
+            None,
+            None,
+            None,
+            None,
+        ));
+        for node in (1..=NODES).filter(|node| *node != proposer) {
+            let hotkey = Network::get_subnet_node_associated_hotkey(subnet, node).unwrap();
+            assert_ok!(Network::attest(
+                RuntimeOrigin::signed(hotkey),
+                subnet,
+                node,
+                None
+            ));
+        }
+        let headroom = u128::MAX - Balances::total_issuance();
+        drop(Balances::deposit_creating(&account(987_654), headroom));
+        TotalStake::<Test>::put(u128::MAX);
+        TotalDelegateStake::<Test>::put(u128::MAX);
+        run_slot(subnet, epoch + 1);
+        assert_next_round(subnet, epoch);
+        let operations: Vec<_> = (0..3)
+            .map(|id| {
+                PendingConsensusOperations::<Test>::get(id)
+                    .unwrap()
+                    .operation
+            })
+            .collect();
+        assert!(matches!(
+            operations[0],
+            ConsensusOperation::ValidatorReward { .. }
+        ));
+        assert!(matches!(
+            operations[1],
+            ConsensusOperation::OwnerReward { .. }
+        ));
+        assert!(matches!(
+            operations[2],
+            ConsensusOperation::SubnetDelegateReward { .. }
+        ));
+        assert_eq!(PendingConsensusOperations::<Test>::iter().count(), 3);
+    });
+}
+
+#[test]
+fn transaction_layer_exhaustion_cannot_abort_settlement_or_next_election() {
+    use frame_support::storage::{
+        transactional::{TRANSACTIONAL_LIMIT, TRANSACTION_LEVEL_KEY},
+        unhashed,
+    };
+    let max_nodes = <Test as Config>::MaxSubnetNodesUpperBound::get();
+    for (nodes, outcome) in [
+        (NODES, "accepted"),
+        (max_nodes, "accepted"),
+        (NODES, "rejected"),
+        (NODES, "missing"),
+    ] {
+        new_test_ext().execute_with(|| {
+            let (subnet, epoch, proposer) = elected_round_with_nodes(nodes);
+            if outcome == "accepted" {
+                run_subnet_consensus_step(subnet, None, None);
+            } else if outcome == "rejected" {
+                let hotkey = Network::get_subnet_node_associated_hotkey(subnet, proposer).unwrap();
+                assert_ok!(Network::propose_attestation(
+                    RuntimeOrigin::signed(hotkey),
+                    subnet,
+                    (1..=nodes)
+                        .map(|subnet_node_id| SubnetNodeConsensusData { subnet_node_id, score: 100 })
+                        .collect(),
+                    None, None, None, None,
+                ));
+            }
+            let total_stake = TotalStake::<Test>::get();
+            let total_delegate_stake = TotalDelegateStake::<Test>::get();
+            let issuance = Balances::total_issuance();
+            let owner = SubnetOwner::<Test>::get(subnet).unwrap();
+            let owner_balance = Balances::free_balance(&owner);
+            let pool_balance = TotalSubnetDelegateStakeBalance::<Test>::get(subnet);
+            let proposer_stake = NodeSubnetStake::<Test>::get(proposer, subnet);
+            if outcome == "accepted" {
+                // Every reward destination fails, including credits that do not open a
+                // transaction. The entire batch must survive even when a transaction cannot.
+                TotalStake::<Test>::put(u128::MAX);
+                TotalDelegateStake::<Test>::put(u128::MAX);
+                pallet_balances::TotalIssuance::<Test>::put(u128::MAX);
+            }
+            unhashed::put(TRANSACTION_LEVEL_KEY, &TRANSACTIONAL_LIMIT);
+            let blocked: Result<(), sp_runtime::DispatchError> =
+                with_transaction(|| TransactionOutcome::Commit(Ok(())));
+            assert_eq!(blocked, Err(sp_runtime::TransactionalError::LimitReached.into()));
+
+            run_slot(subnet, epoch + 1);
+            assert_next_round(subnet, epoch);
+            let count = if outcome == "accepted" { nodes + 3 } else { 1 };
+            let operations: Vec<_> = (0..u64::from(count))
+                .map(|id| PendingConsensusOperations::<Test>::get(id).unwrap().operation)
+                .collect();
+            assert_eq!(PendingConsensusOperations::<Test>::iter().count(), count as usize);
+            let pending_slash = Network::pending_node_slash_locked_amount(subnet, proposer);
+            if outcome == "accepted" {
+                assert_eq!(Balances::free_balance(&owner), owner_balance);
+                assert_eq!(TotalSubnetDelegateStakeBalance::<Test>::get(subnet), pool_balance);
+                assert_eq!(NodeSubnetStake::<Test>::get(proposer, subnet), proposer_stake);
+                assert_eq!(pending_slash, 0);
+            } else {
+                assert!(pending_slash > 0);
+                assert!(matches!(operations[0], ConsensusOperation::NodeSlash { amount, .. } if amount == pending_slash));
+                assert_eq!(NodeSubnetStake::<Test>::get(proposer, subnet), proposer_stake);
+            }
+
+            // Restore only the injected failure conditions. Idle consumes the original records
+            // without replaying consensus; a second idle invocation cannot pay them again.
+            unhashed::kill(TRANSACTION_LEVEL_KEY);
+            if outcome == "accepted" {
+                TotalStake::<Test>::put(total_stake);
+                TotalDelegateStake::<Test>::put(total_delegate_stake);
+                pallet_balances::TotalIssuance::<Test>::put(issuance);
+            }
+            Network::on_idle(System::block_number(), Weight::MAX);
+            assert_eq!(PendingConsensusOperations::<Test>::iter().count(), 0);
+            assert_eq!(Network::pending_node_slash_locked_amount(subnet, proposer), 0);
+            if outcome == "accepted" {
+                assert!(Balances::free_balance(&owner) > owner_balance);
+                assert!(TotalSubnetDelegateStakeBalance::<Test>::get(subnet) > pool_balance);
+                assert!(NodeSubnetStake::<Test>::get(proposer, subnet) > proposer_stake);
+            } else {
+                assert_eq!(NodeSubnetStake::<Test>::get(proposer, subnet), proposer_stake - pending_slash);
+            }
+            let paid_totals = (Balances::total_issuance(), TotalStake::<Test>::get(), TotalDelegateStake::<Test>::get());
+            Network::on_idle(System::block_number(), Weight::MAX);
+            assert_eq!(paid_totals, (Balances::total_issuance(), TotalStake::<Test>::get(), TotalDelegateStake::<Test>::get()));
+            assert_next_round(subnet, epoch);
+        });
+    }
 }

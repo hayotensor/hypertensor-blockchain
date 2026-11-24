@@ -2,6 +2,10 @@
 
 Overwatch nodes earn rewards for agreement with the aggregate assessment only if
 they successfully reveal every assessment they committed to during that epoch.
+Each node submits one complete commitment batch and one complete reveal batch;
+partial reveals and duplicate submissions are rejected without storing any work.
+Successful native submissions waive fees; failed submissions can be corrected and
+retried with normal fees. See [Overwatch commitments](overwatch-commit-reveal.md).
 If any commitment remains unrevealed at close, the node receives no epoch reward
 and all its assessments are excluded before subnet averages and reward shares
 are calculated. The completion rule applies regardless of assessment values or
@@ -97,11 +101,20 @@ output is a partial weight table. Integrate only the affected methods into
 record and dense-subnet settlement models, both voluntary-exit fixtures, and all
 five governance-disqualification paths.
 
+For single-call commits and reveals, `.maintain/benchmark-overwatch-submissions.sh`
+also measures repeated submissions, a late invalid entry, and a one-entry reveal
+against a full commitment row. Merge its partial output with
+`.maintain/merge-overwatch-submission-weights.py`, which retains the prior bounds
+and the componentwise maximum of successful and rejected calls in both weight
+implementations. These checks include maximum-length salts and signed runtime
+capacity/fee tests; increasing the subnet bound requires renewed measurements.
+
 Rollover benchmarks include all commitment and reveal rows and the completion
 snapshot write. Settlement weights include reading and consuming that snapshot.
 The pending header counts all accepted reveal records, including excluded nodes,
-so filtering does not undercharge the scan and cleanup. Incomplete submissions
-skip aggregation and payment work; their stored rows still get cleaned up.
+so filtering does not undercharge the scan and cleanup. A rejected incomplete reveal
+creates no row or counter entry. Unrevealed commitments are cleaned up at close;
+settlement still defensively excludes any inconsistent stored reveal evidence.
 
 The completion-rule weights were regenerated on 2026-09-30 with CLI 60.0.0,
 50 steps and 20 repeats. At the runtime bounds (64 evaluators and 17 subnets),

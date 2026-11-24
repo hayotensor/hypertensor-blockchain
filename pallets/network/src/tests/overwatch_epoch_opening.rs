@@ -47,15 +47,27 @@ fn commit(node: u32, validator: u32, rating: u128) {
 }
 
 fn commit_subnet(node: u32, validator: u32, subnet_id: u32, rating: u128) {
+    commit_batch(node, validator, &[(subnet_id, rating)]);
+}
+
+fn commit_batch(node: u32, validator: u32, ratings: &[(u32, u128)]) {
     let epoch = CurrentOverwatchEpoch::<Test>::get();
-    let hash = Network::hash_overwatch_commitment(node, subnet_id, epoch, rating, b"opening-test");
     assert_ok!(Network::commit_overwatch_subnet_weights(
         RuntimeOrigin::signed(account(200 + validator)),
         node,
-        vec![OverwatchCommit {
-            subnet_id,
-            weight: hash
-        }],
+        ratings
+            .iter()
+            .map(|&(subnet_id, weight)| OverwatchCommit {
+                subnet_id,
+                weight: Network::hash_overwatch_commitment(
+                    node,
+                    subnet_id,
+                    epoch,
+                    weight,
+                    b"opening-test"
+                ),
+            })
+            .collect(),
     ));
 }
 
@@ -64,15 +76,33 @@ fn reveal(node: u32, validator: u32, rating: u128) {
 }
 
 fn reveal_subnet(node: u32, validator: u32, subnet_id: u32, rating: u128) {
-    assert_ok!(Network::reveal_overwatch_subnet_weights(
+    assert_ok!(reveal_batch(node, validator, &[(subnet_id, rating)]));
+}
+
+fn reveal_batch(
+    node: u32,
+    validator: u32,
+    ratings: &[(u32, u128)],
+) -> frame_support::dispatch::DispatchResultWithPostInfo {
+    Network::reveal_overwatch_subnet_weights(
         RuntimeOrigin::signed(account(200 + validator)),
         node,
-        vec![OverwatchReveal {
-            subnet_id,
-            weight: rating,
-            salt: b"opening-test".to_vec().try_into().unwrap()
-        }],
-    ));
+        ratings
+            .iter()
+            .map(|&(subnet_id, weight)| OverwatchReveal {
+                subnet_id,
+                weight,
+                salt: b"opening-test".to_vec().try_into().unwrap(),
+            })
+            .collect(),
+    )
+}
+
+fn reject_incomplete_reveal(node: u32) {
+    assert_noop!(
+        reveal_batch(node, 1, &[(1, PERCENTAGE_FACTOR_U128)]),
+        Error::<Test>::RevealSetMismatch
+    );
 }
 
 #[test]
@@ -463,26 +493,25 @@ fn missing_one_reveal_excludes_every_assessment_before_averaging_and_rewards() {
             let (a, b, length) = setup();
             insert_subnet(2, SubnetState::Active, 0);
             if participates {
-                commit(a, 1, PERCENTAGE_FACTOR_U128);
-                commit_subnet(a, 1, 2, 0);
+                commit_batch(a, 1, &[(1, PERCENTAGE_FACTOR_U128), (2, 0)]);
             }
             commit(b, 2, PERCENTAGE_FACTOR_U128 / 4);
             tick(2 * length + length / 2);
             if participates {
-                reveal(a, 1, PERCENTAGE_FACTOR_U128);
-                // Replaying a reveal cannot substitute for revealing the other commitment.
-                reveal(a, 1, PERCENTAGE_FACTOR_U128);
+                reject_incomplete_reveal(a);
+                // Repeating an incomplete batch still cannot create a partial row.
+                reject_incomplete_reveal(a);
             }
             reveal(b, 2, PERCENTAGE_FACTOR_U128 / 4);
             tick(3 * length);
             let eligible = OverwatchEpochRevealEligibility::<Test>::get(2).unwrap();
             assert_eq!(eligible.iter().copied().collect::<Vec<_>>(), vec![b]);
-            // Cleanup must still be charged for the excluded node's accepted reveal.
+            // Rejected partial batches add no records to settlement cleanup.
             assert_eq!(
                 PendingOverwatchSettlement::<Test>::get()
                     .unwrap()
                     .reveal_records,
-                if participates { 2 } else { 1 }
+                1
             );
             assert!(OverwatchCommits::<Test>::iter_prefix(2).next().is_none());
             tick(3 * length + 1);
@@ -511,20 +540,19 @@ fn missing_one_reveal_excludes_every_assessment_before_averaging_and_rewards() {
 }
 
 #[test]
-fn multiple_commit_and_reveal_batches_require_completion_even_if_subnet_is_removed() {
+fn complete_reveal_batch_includes_removed_subnets() {
     new_test_ext().execute_with(|| {
         let (a, b, length) = setup();
         insert_subnet(2, SubnetState::Active, 0);
-        commit(a, 1, PERCENTAGE_FACTOR_U128);
-        commit_subnet(a, 1, 2, 0);
+        commit_batch(a, 1, &[(1, PERCENTAGE_FACTOR_U128), (2, 0)]);
         commit(b, 2, 0);
         tick(2 * length + length / 2);
-        reveal(a, 1, PERCENTAGE_FACTOR_U128);
+        reject_incomplete_reveal(a);
         reveal(b, 2, 0);
         // Removing the subnet does not cancel its accepted commitment.
         SubnetsData::<Test>::remove(2);
         System::set_block_number(3 * length - 1);
-        reveal_subnet(a, 1, 2, 0);
+        assert_ok!(reveal_batch(a, 1, &[(1, PERCENTAGE_FACTOR_U128), (2, 0)]));
         tick(3 * length);
         assert_eq!(
             OverwatchEpochRevealEligibility::<Test>::get(2)
@@ -553,11 +581,10 @@ fn all_incomplete_finalizes_valid_empty_and_next_epoch_can_earn_normally() {
     new_test_ext().execute_with(|| {
         let (a, b, length) = setup();
         insert_subnet(2, SubnetState::Active, 0);
-        commit(a, 1, PERCENTAGE_FACTOR_U128);
-        commit_subnet(a, 1, 2, 0);
+        commit_batch(a, 1, &[(1, PERCENTAGE_FACTOR_U128), (2, 0)]);
         commit(b, 2, 0); // No reveals at all from B.
         tick(2 * length + length / 2);
-        reveal(a, 1, PERCENTAGE_FACTOR_U128);
+        reject_incomplete_reveal(a);
         tick(3 * length);
         assert!(OverwatchEpochRevealEligibility::<Test>::get(2)
             .unwrap()
@@ -596,11 +623,10 @@ fn incomplete_exit_and_replacement_cannot_erase_commitment_obligations() {
     new_test_ext().execute_with(|| {
         let (a, b, length) = setup();
         insert_subnet(2, SubnetState::Active, 0);
-        commit(a, 1, PERCENTAGE_FACTOR_U128);
-        commit_subnet(a, 1, 2, 0);
+        commit_batch(a, 1, &[(1, PERCENTAGE_FACTOR_U128), (2, 0)]);
         commit(b, 2, 0);
         tick(2 * length + length / 2);
-        reveal(a, 1, PERCENTAGE_FACTOR_U128);
+        reject_incomplete_reveal(a);
         reveal(b, 2, 0);
         assert_ok!(Network::remove_overwatch_node(
             RuntimeOrigin::signed(account(101)),
@@ -691,8 +717,7 @@ fn invalid_reveal_batch_does_not_complete_and_late_reveal_cannot_change_closed_e
     new_test_ext().execute_with(|| {
         let (a, _, length) = setup();
         insert_subnet(2, SubnetState::Active, 0);
-        commit(a, 1, PERCENTAGE_FACTOR_U128);
-        commit_subnet(a, 1, 2, 0);
+        commit_batch(a, 1, &[(1, PERCENTAGE_FACTOR_U128), (2, 0)]);
         tick(2 * length + length / 2);
         assert_noop!(
             Network::reveal_overwatch_subnet_weights(
@@ -714,7 +739,7 @@ fn invalid_reveal_batch_does_not_complete_and_late_reveal_cannot_change_closed_e
             Error::<Test>::RevealMismatch
         );
         assert!(OverwatchReveals::<Test>::get(2, a).is_empty());
-        reveal(a, 1, PERCENTAGE_FACTOR_U128);
+        reject_incomplete_reveal(a);
         tick(3 * length);
         assert_noop!(
             Network::reveal_overwatch_subnet_weights(
@@ -773,10 +798,9 @@ fn pause_defers_completion_check_and_preserves_remaining_reveal_time() {
     new_test_ext().execute_with(|| {
         let (a, _, length) = setup();
         insert_subnet(2, SubnetState::Active, 0);
-        commit(a, 1, PERCENTAGE_FACTOR_U128);
-        commit_subnet(a, 1, 2, 0);
+        commit_batch(a, 1, &[(1, PERCENTAGE_FACTOR_U128), (2, 0)]);
         tick(2 * length + length / 2);
-        reveal(a, 1, PERCENTAGE_FACTOR_U128);
+        reject_incomplete_reveal(a);
         assert_ok!(Network::do_pause());
         tick(4 * length);
         assert_eq!(CurrentOverwatchEpoch::<Test>::get(), 2);
@@ -784,12 +808,40 @@ fn pause_defers_completion_check_and_preserves_remaining_reveal_time() {
         assert_eq!(OverwatchCommits::<Test>::get(2, a).len(), 2);
         assert_ok!(Network::do_unpause());
         tick(4 * length + 1);
-        reveal_subnet(a, 1, 2, 0);
+        assert_ok!(reveal_batch(a, 1, &[(1, PERCENTAGE_FACTOR_U128), (2, 0)]));
         tick(5 * length);
         assert!(OverwatchEpochRevealEligibility::<Test>::get(2)
             .unwrap()
             .contains(&a));
         tick(5 * length + 1);
         assert!(OverwatchNodeStakeBalance::<Test>::get(a) > 1_000);
+    });
+}
+
+#[test]
+fn successful_submission_markers_reset_only_at_the_next_epoch() {
+    new_test_ext().execute_with(|| {
+        let (a, b, length) = setup();
+        for epoch in [2, 3] {
+            assert_eq!(CurrentOverwatchEpoch::<Test>::get(), epoch);
+            commit(a, 1, PERCENTAGE_FACTOR_U128);
+            commit(b, 2, PERCENTAGE_FACTOR_U128 / 2);
+            tick(epoch * length + length / 2);
+            reveal(a, 1, PERCENTAGE_FACTOR_U128);
+            reveal(b, 2, PERCENTAGE_FACTOR_U128 / 2);
+            assert_noop!(
+                reveal_batch(a, 1, &[(1, PERCENTAGE_FACTOR_U128)]),
+                Error::<Test>::AlreadyRevealed
+            );
+            tick((epoch + 1) * length);
+            assert_eq!(
+                OverwatchEpochRevealEligibility::<Test>::get(epoch)
+                    .unwrap()
+                    .len(),
+                2
+            );
+            tick((epoch + 1) * length + 1);
+            assert!(!OverwatchReveals::<Test>::contains_key(epoch, a));
+        }
     });
 }

@@ -283,7 +283,23 @@ Each record contains an operation enum and its fixed expiry. The supported opera
 - Subnet delegate reward: original pool generation and full amount.
 - Node slash: original node, fixed amount, and recorded attestation percentage.
 
-After removed-subnet history cleanup, `on_idle` reserves each operation's complete weight
+Accepted-round settlement collects failed rewards and appends their individual records as one
+batch before returning, including from the zero-score branch. The append reads/writes the FIFO
+state once and emits one `ConsensusOperationsQueued` event. FIFO order, frozen destinations,
+pool generations, rates, and expiry are unchanged. Reward persistence opens no transaction and
+has no application-error return: exhausting the SDK's transaction layers can fail a payment,
+but cannot prevent its retry record from being stored or abort the slot. A failed slash validates
+its reservation entirely before writing it, then unconditionally appends its single queued record;
+no fallible work separates those writes. Financial credit attempts and idle retries retain their
+transactional rollback behavior.
+
+The subnet slot admits the worst-case batch before settlement. At the end of `on_initialize`,
+unused reward-enqueue weight is subtracted from the returned weight in both dimensions. The
+refund never includes payment attempts, reward snapshots, election, or the rejected/cancelled
+settlement allowance. The internal meter retains the full reservation through optional cleanup
+and swaps, so a refund itself cannot change which optional operations run.
+
+Before node-metadata and consensus-history cleanup, `on_idle` reserves each operation's complete weight
 before attempting it. Failure moves the unchanged record to the tail; later entries can progress.
 Each entry is attempted at most once per hook invocation. Payment, reservation release where
 applicable, and queue removal commit atomically. Retries never replay consensus, reputation,
@@ -292,8 +308,10 @@ probation, or membership changes. The original settlement and next election cont
 Every operation expires 100,800 blocks after its initial failure (seven days at the six-second
 block target). Retries never extend that deadline. At or after expiry the operation is discarded
 without crediting the capacitor. Idle execution is not guaranteed before expiry; expired records
-can remain stored until cleanup reaches them. `ConsensusOperationQueued` includes the originating
-subnet ID; it and `ConsensusOperationApplied`/`ConsensusOperationExpired` carry the typed operation.
+can remain stored until cleanup reaches them. `ConsensusOperationsQueued` includes the originating
+subnet ID, first FIFO operation ID, record count, and shared expiry. IDs advance with wrapping
+u64 addition. Individual typed operations remain in `PendingConsensusOperations` and in
+`ConsensusOperationApplied`/`ConsensusOperationExpired` events.
 
 Ownership changes and subnet removal do not redirect or erase pending owner payments. Node
 credits retain the persistent node/validator ownership mapping. Delayed pool credits benefit

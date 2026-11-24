@@ -181,7 +181,7 @@ fn test_reveal_batch_validation_is_atomic() {
                     },
                 ],
             ),
-            Error::<Test>::NoCommitFound
+            Error::<Test>::RevealSetMismatch
         );
 
         assert_eq!(
@@ -244,58 +244,30 @@ fn test_commit_batch_validation_is_atomic() {
 }
 
 #[test]
-fn test_repeated_commit_calls_respect_cumulative_subnet_bound() {
+fn test_maximum_commit_batch_cannot_be_extended() {
     new_test_ext().execute_with(|| {
-        let epoch = Network::get_current_overwatch_epoch_as_u32();
-        let node_id = 1;
-        let max_subnets = <Test as crate::Config>::MaxPhysicalSubnetsUpperBound::get();
-
-        for subnet_id in 1..=max_subnets.saturating_add(1) {
-            insert_subnet(subnet_id, SubnetState::Active, 0);
-        }
-
-        for subnet_id in 1..=max_subnets {
-            seed_overwatch_epoch_eligibility(node_id);
-            assert_ok!(Network::perform_commit_overwatch_subnet_weights(
-                node_id,
-                vec![OverwatchCommit {
-                    subnet_id,
-                    weight: make_commit(
-                        node_id,
-                        subnet_id,
-                        epoch,
-                        subnet_id as u128,
-                        vec![subnet_id as u8]
-                    ),
-                }],
-            ));
-        }
-
-        let row_before_failure = OverwatchCommits::<Test>::get(epoch, node_id);
-        let overflow_subnet_id = max_subnets.saturating_add(1);
-        seed_overwatch_epoch_eligibility(node_id);
-        assert_err!(
+        let (node, commits, _) =
+            single_call_fixture(<Test as crate::Config>::MaxPhysicalSubnetsUpperBound::get());
+        let extra = <Test as crate::Config>::MaxPhysicalSubnetsUpperBound::get() + 1;
+        insert_subnet(extra, SubnetState::Active, 0);
+        assert_ok!(Network::perform_commit_overwatch_subnet_weights(
+            node,
+            commits.clone()
+        ));
+        assert_noop!(
+            Network::perform_commit_overwatch_subnet_weights(node, commits),
+            Error::<Test>::AlreadyCommitted
+        );
+        assert_noop!(
             Network::perform_commit_overwatch_subnet_weights(
-                node_id,
+                node,
                 vec![OverwatchCommit {
-                    subnet_id: overflow_subnet_id,
-                    weight: make_commit(
-                        node_id,
-                        overflow_subnet_id,
-                        epoch,
-                        overflow_subnet_id as u128,
-                        vec![overflow_subnet_id as u8],
-                    ),
-                }],
+                    subnet_id: extra,
+                    weight: sp_core::H256::zero(),
+                }]
             ),
-            Error::<Test>::MaxSubnets
+            Error::<Test>::AlreadyCommitted
         );
-
-        assert_eq!(
-            OverwatchCommits::<Test>::get(epoch, node_id),
-            row_before_failure
-        );
-        assert_eq!(stored_commit(epoch, node_id, overflow_subnet_id), None);
     });
 }
 
@@ -516,16 +488,18 @@ fn reveal_stats_increment_once_and_removal_decrements_shared_and_sole_subnets() 
             Some(&1)
         );
 
-        // Replaying an already-recorded reveal may replace its value but cannot grow either
-        // bounded cardinality counter.
-        assert_ok!(Network::perform_reveal_overwatch_subnet_weights(
-            second_node_id,
-            vec![OverwatchReveal {
-                subnet_id: shared_subnet_id,
-                weight: second_shared_weight,
-                salt: second_shared_salt.try_into().unwrap(),
-            }],
-        ));
+        // Replaying a completed reveal is rejected without changing either counter.
+        assert_noop!(
+            Network::perform_reveal_overwatch_subnet_weights(
+                second_node_id,
+                vec![OverwatchReveal {
+                    subnet_id: shared_subnet_id,
+                    weight: second_shared_weight,
+                    salt: second_shared_salt.try_into().unwrap(),
+                }],
+            ),
+            Error::<Test>::AlreadyRevealed
+        );
         assert_eq!(ActiveOverwatchRevealStats::<Test>::get(), stats_after_both);
 
         assert_ok!(Network::perform_disqualify_overwatch_node(first_node_id));
@@ -1190,173 +1164,103 @@ fn test_reveal_overwatch_subnet_weights_reveal_mismatch_error() {
 }
 
 #[test]
-fn test_commit_reveal_multiple_times_in_same_epoch() {
+fn test_commit_and_reveal_require_single_complete_batches() {
+    use frame_support::dispatch::Pays;
     new_test_ext().execute_with(|| {
-        // Subnet 1
-        let subnet_id_1 = 1;
-        let subnet_data = SubnetData {
-            id: subnet_id_1,
-            friendly_id: subnet_id_1,
-            name: "subnet_name_1".into(),
-            repo: "github-1".into(),
-            description: "description-1".into(),
-            misc: "misc-1".into(),
-            consensus_mechanism: Default::default(),
-            state: SubnetState::Active,
-            consensus_eligible_from_subnet_epoch: Some(0),
-        };
-        SubnetsData::<Test>::insert(subnet_id_1, subnet_data);
-        // Subnet 2
-        let subnet_id_2 = 2;
-        let subnet_data = SubnetData {
-            id: subnet_id_2,
-            friendly_id: subnet_id_2,
-            name: "subnet_name_2".into(),
-            repo: "github-2".into(),
-            description: "description-2".into(),
-            misc: "misc-2".into(),
-            consensus_mechanism: Default::default(),
-            state: SubnetState::Active,
-            consensus_eligible_from_subnet_epoch: Some(0),
-        };
-        SubnetsData::<Test>::insert(subnet_id_2, subnet_data);
-
-        let coldkey: AccountId = account(1);
-        let hotkey: AccountId = account(2);
-
-        let reward_rate = test_percent(1, 20); // 5%
-        fund_validator_registration(&coldkey);
-        assert_ok!(Network::do_register_validator(
-            RuntimeOrigin::signed(coldkey.clone()),
-            hotkey,
-            reward_rate,
-            None,
-            None,
-        ));
-
-        let validator_id = TotalValidatorIds::<Test>::get();
-        OverwatchValidatorWhitelist::<Test>::insert(validator_id, ());
-
-        let validator_id = 1;
-        OverwatchValidatorWhitelist::<Test>::insert(validator_id, ());
-        let hotkey = ValidatorIdHotkey::<Test>::get(validator_id).unwrap();
-        let coldkey = ValidatorColdkey::<Test>::get(validator_id).unwrap();
-        let amount = 100000000000000000000;
-        let _ = Balances::deposit_creating(&coldkey.clone(), 100000000000000000000 + 500);
-
-        let overwatch_node_id = TotalOverwatchNodeUids::<Test>::get() + 1;
-        prepare_overwatch_validator(validator_id);
-
-        assert_ok!(Network::register_overwatch_node(
-            RuntimeOrigin::signed(coldkey.clone()),
-            amount,
-        ));
-
-        // Weight + salt
-        // Subnet 1
-        let weight_1: u128 = 123456;
-        let salt_1: Vec<u8> = b"secret-salt-1".to_vec();
-        let overwatch_epoch = Network::get_current_overwatch_epoch_as_u32();
-        let commit_hash_1 = make_commit(
-            overwatch_node_id,
-            subnet_id_1,
-            overwatch_epoch,
-            weight_1,
-            salt_1.clone(),
-        );
-        // Subnet 2
-        let weight_2: u128 = 78910;
-        let salt_2: Vec<u8> = b"secret-salt-2".to_vec();
-        let commit_hash_2 = make_commit(
-            overwatch_node_id,
-            subnet_id_2,
-            overwatch_epoch,
-            weight_2,
-            salt_2.clone(),
-        );
-
-        // Commit
-        seed_overwatch_epoch_eligibility(overwatch_node_id);
-        assert_ok!(Network::commit_overwatch_subnet_weights(
-            RuntimeOrigin::signed(hotkey.clone()),
-            overwatch_node_id,
-            vec![OverwatchCommit {
-                subnet_id: subnet_id_1,
-                weight: commit_hash_1
-            }]
-        ));
-
-        // Ensure it's stored
+        let (node, commits, reveals) = single_call_fixture(3);
         assert_eq!(
-            stored_commit(overwatch_epoch, overwatch_node_id, subnet_id_1),
-            Some(commit_hash_1)
+            Network::commit_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(201)),
+                node,
+                commits.clone()
+            )
+            .unwrap()
+            .pays_fee,
+            Pays::No
+        );
+        for batch in [commits.clone(), vec![commits[2].clone()]] {
+            assert_noop!(
+                Network::commit_overwatch_subnet_weights(
+                    RuntimeOrigin::signed(account(201)),
+                    node,
+                    batch
+                ),
+                Error::<Test>::AlreadyCommitted
+            );
+        }
+        insert_subnet(4, SubnetState::Active, 0);
+        assert_noop!(
+            Network::commit_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(201)),
+                node,
+                vec![OverwatchCommit {
+                    subnet_id: 4,
+                    weight: sp_core::H256::zero()
+                }],
+            ),
+            Error::<Test>::AlreadyCommitted
+        );
+        // Node identity, not its current operational key, owns the submission opportunity.
+        assert_ok!(Network::update_overwatch_hotkey(
+            RuntimeOrigin::signed(account(101)),
+            node,
+            Some(account(202))
+        ));
+        assert_noop!(
+            Network::commit_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(202)),
+                node,
+                commits
+            ),
+            Error::<Test>::AlreadyCommitted
+        );
+        set_block_to_overwatch_reveal_block(1);
+        let partial = vec![reveals[0].clone()];
+        assert_noop!(
+            Network::reveal_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(202)),
+                node,
+                partial.clone()
+            ),
+            Error::<Test>::RevealSetMismatch
         );
         assert_eq!(
-            stored_commit(overwatch_epoch, overwatch_node_id, subnet_id_2),
+            Network::reveal_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(202)),
+                node,
+                partial
+            )
+            .unwrap_err()
+            .post_info
+            .pays_fee,
+            Pays::Yes
+        );
+        let mut unordered = reveals.clone();
+        unordered.reverse();
+        assert_eq!(
+            Network::reveal_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(202)),
+                node,
+                unordered
+            )
+            .unwrap()
+            .pays_fee,
+            Pays::No
+        );
+        assert_ok!(Network::update_overwatch_hotkey(
+            RuntimeOrigin::signed(account(101)),
+            node,
             None
-        );
-
-        seed_overwatch_epoch_eligibility(overwatch_node_id);
-
-        assert_ok!(Network::commit_overwatch_subnet_weights(
-            RuntimeOrigin::signed(hotkey.clone()),
-            overwatch_node_id,
-            vec![OverwatchCommit {
-                subnet_id: subnet_id_2,
-                weight: commit_hash_2
-            }]
         ));
-
-        assert_eq!(
-            stored_commit(overwatch_epoch, overwatch_node_id, subnet_id_1),
-            Some(commit_hash_1)
+        assert_noop!(
+            Network::reveal_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(201)),
+                node,
+                reveals
+            ),
+            Error::<Test>::AlreadyRevealed
         );
-        assert_eq!(
-            stored_commit(overwatch_epoch, overwatch_node_id, subnet_id_2),
-            Some(commit_hash_2)
-        );
-
-        set_block_to_overwatch_reveal_block(overwatch_epoch);
-
-        assert_ok!(Network::reveal_overwatch_subnet_weights(
-            RuntimeOrigin::signed(hotkey.clone()),
-            overwatch_node_id,
-            vec![OverwatchReveal {
-                subnet_id: subnet_id_1,
-                weight: weight_1,
-                salt: salt_1.try_into().unwrap()
-            }]
-        ));
-
-        // Ensure revealed weight is correct
-        assert_eq!(
-            stored_reveal(overwatch_epoch, overwatch_node_id, subnet_id_1),
-            Some(weight_1)
-        );
-        assert_eq!(
-            stored_reveal(overwatch_epoch, overwatch_node_id, subnet_id_2),
-            None
-        );
-
-        assert_ok!(Network::reveal_overwatch_subnet_weights(
-            RuntimeOrigin::signed(hotkey.clone()),
-            overwatch_node_id,
-            vec![OverwatchReveal {
-                subnet_id: subnet_id_2,
-                weight: weight_2,
-                salt: salt_2.try_into().unwrap()
-            }]
-        ));
-
-        // Ensure revealed weight is correct
-        assert_eq!(
-            stored_reveal(overwatch_epoch, overwatch_node_id, subnet_id_1),
-            Some(weight_1)
-        );
-        assert_eq!(
-            stored_reveal(overwatch_epoch, overwatch_node_id, subnet_id_2),
-            Some(weight_2)
-        );
+        assert_eq!(ActiveOverwatchRevealStats::<Test>::get().records, 3);
     });
 }
 
@@ -1663,11 +1567,6 @@ fn test_overwatch_subnet_churn_during_commit_keeps_full_revealers_eligible() {
             a,
             vec![commit(a, 1, pf), commit(a, 2, pf / 2)]
         ));
-        assert_ok!(Network::commit_overwatch_subnet_weights(
-            RuntimeOrigin::signed(hotkeys[&b].clone()),
-            b,
-            (2..=bound).map(|s| commit(b, s, pf / 2)).collect()
-        ));
 
         // Still in the commit phase: subnet 1 is removed and a new subnet takes its slot.
         System::set_block_number(start + 10);
@@ -1677,7 +1576,10 @@ fn test_overwatch_subnet_churn_during_commit_keeps_full_revealers_eligible() {
         assert_ok!(Network::commit_overwatch_subnet_weights(
             RuntimeOrigin::signed(hotkeys[&b].clone()),
             b,
-            vec![commit(b, new_subnet, pf / 2)]
+            (2..=bound)
+                .chain([new_subnet])
+                .map(|s| commit(b, s, pf / 2))
+                .collect()
         ));
         assert!(Network::in_overwatch_commit_period());
 
@@ -1729,5 +1631,200 @@ fn test_overwatch_subnet_churn_during_commit_keeps_full_revealers_eligible() {
         System::set_block_number(start + 2 * len);
         Network::advance_overwatch_epoch(start + 2 * len);
         assert_eq!(crate::CurrentOverwatchEpoch::<Test>::get(), epoch + 2);
+    });
+}
+
+fn single_call_fixture(
+    count: u32,
+) -> (
+    u32,
+    Vec<OverwatchCommit<sp_core::H256>>,
+    Vec<OverwatchReveal<Test>>,
+) {
+    manual_insert_validator(1, 101, 201);
+    let node = insert_overwatch_node(1, None);
+    set_overwatch_epoch(1);
+    seed_overwatch_epoch_eligibility(node);
+    set_block_to_overwatch_commit_block(1);
+    let mut commits = Vec::new();
+    let mut reveals = Vec::new();
+    for subnet_id in 1..=count {
+        insert_subnet(subnet_id, SubnetState::Active, 0);
+        let salt = vec![
+            subnet_id as u8;
+            <Test as crate::Config>::MaxOverwatchRevealSaltLength::get() as usize
+        ];
+        let weight = subnet_id as u128;
+        commits.push(OverwatchCommit {
+            subnet_id,
+            weight: make_commit(node, subnet_id, 1, weight, salt.clone()),
+        });
+        reveals.push(OverwatchReveal {
+            subnet_id,
+            weight,
+            salt: salt.try_into().unwrap(),
+        });
+    }
+    (node, commits, reveals)
+}
+
+#[test]
+fn invalid_commit_batches_do_not_consume_the_epoch_submission() {
+    use frame_support::dispatch::Pays;
+    new_test_ext().execute_with(|| {
+        let (node, commits, _) = single_call_fixture(3);
+        let mut unknown = commits.clone();
+        unknown.last_mut().unwrap().subnet_id = 999;
+        let mut duplicate = commits.clone();
+        duplicate.push(commits[0].clone());
+        let oversized = vec![
+            commits[0].clone();
+            <Test as crate::Config>::MaxPhysicalSubnetsUpperBound::get() as usize
+                + 1
+        ];
+        for (batch, expected) in [
+            (vec![], Error::<Test>::CommitsEmpty),
+            (unknown, Error::<Test>::InvalidSubnetId),
+            (duplicate, Error::<Test>::DuplicateOverwatchSubnetId),
+            (oversized, Error::<Test>::MaxSubnets),
+        ] {
+            assert_noop!(
+                Network::perform_commit_overwatch_subnet_weights(node, batch.clone()),
+                expected
+            );
+            let err = Network::perform_commit_overwatch_subnet_weights(node, batch).unwrap_err();
+            assert_eq!(err.post_info.pays_fee, Pays::Yes);
+            assert!(!OverwatchCommits::<Test>::contains_key(1, node));
+        }
+        assert_eq!(
+            Network::perform_commit_overwatch_subnet_weights(node, commits)
+                .unwrap()
+                .pays_fee,
+            Pays::No
+        );
+    });
+}
+
+#[test]
+fn invalid_reveal_batches_are_atomic_and_allow_a_corrected_retry() {
+    new_test_ext().execute_with(|| {
+        let (node, commits, reveals) = single_call_fixture(3);
+        assert_noop!(
+            Network::perform_reveal_overwatch_subnet_weights(node, reveals.clone()),
+            Error::<Test>::NoCommitFound
+        );
+        assert_ok!(Network::perform_commit_overwatch_subnet_weights(
+            node, commits
+        ));
+        let mut extra = reveals.clone();
+        extra.push(OverwatchReveal {
+            subnet_id: 999,
+            ..reveals[0].clone()
+        });
+        let mut wrong_set = reveals.clone();
+        wrong_set[2].subnet_id = 999;
+        let mut duplicate = reveals.clone();
+        duplicate[2] = reveals[0].clone();
+        let mut invalid_weight = reveals.clone();
+        invalid_weight[2].weight = crate::PERCENTAGE_FACTOR_U128 + 1;
+        let mut invalid_hash = reveals.clone();
+        invalid_hash[2].weight += 1;
+        let oversized = vec![
+            reveals[0].clone();
+            <Test as crate::Config>::MaxPhysicalSubnetsUpperBound::get() as usize
+                + 1
+        ];
+        for (batch, expected) in [
+            (vec![], Error::<Test>::RevealsEmpty),
+            (reveals[..2].to_vec(), Error::<Test>::RevealSetMismatch),
+            (extra, Error::<Test>::RevealSetMismatch),
+            (wrong_set, Error::<Test>::RevealSetMismatch),
+            (duplicate, Error::<Test>::DuplicateOverwatchSubnetId),
+            (invalid_weight, Error::<Test>::InvalidWeight),
+            (invalid_hash, Error::<Test>::RevealMismatch),
+            (oversized, Error::<Test>::MaxSubnets),
+        ] {
+            assert_noop!(
+                Network::perform_reveal_overwatch_subnet_weights(node, batch),
+                expected
+            );
+            assert!(!OverwatchReveals::<Test>::contains_key(1, node));
+        }
+        // A failure after all hashes have been validated must also leave no success marker.
+        let max_records = <Test as crate::Config>::MaxOverwatchNodesUpperBound::get()
+            * <Test as crate::Config>::MaxPhysicalSubnetsUpperBound::get();
+        ActiveOverwatchRevealStats::<Test>::mutate(|stats| stats.records = max_records);
+        assert_noop!(
+            Network::perform_reveal_overwatch_subnet_weights(node, reveals.clone()),
+            Error::<Test>::MaxOverwatchRevealRecords
+        );
+        ActiveOverwatchRevealStats::<Test>::kill();
+        assert_ok!(Network::perform_reveal_overwatch_subnet_weights(
+            node, reveals
+        ));
+        assert_eq!(ActiveOverwatchRevealStats::<Test>::get().records, 3);
+    });
+}
+
+#[test]
+fn maximum_complete_reveal_survives_subnet_removal_and_lowered_capacity() {
+    new_test_ext().execute_with(|| {
+        let bound = <Test as crate::Config>::MaxPhysicalSubnetsUpperBound::get();
+        let (node, commits, reveals) = single_call_fixture(bound);
+        assert_ok!(Network::commit_overwatch_subnet_weights(
+            RuntimeOrigin::signed(account(201)),
+            node,
+            commits
+        ));
+        SubnetsData::<Test>::remove(bound);
+        crate::MaxSubnets::<Test>::put(1);
+        set_block_to_overwatch_reveal_block(1);
+        assert_ok!(Network::reveal_overwatch_subnet_weights(
+            RuntimeOrigin::signed(account(201)),
+            node,
+            reveals
+        ));
+        assert_eq!(OverwatchReveals::<Test>::get(1, node).len(), bound as usize);
+        let stats = ActiveOverwatchRevealStats::<Test>::get();
+        assert_eq!(stats.records, bound);
+        assert!(!stats.subnet_revealer_counts.contains_key(&bound));
+    });
+}
+
+#[test]
+fn pause_resume_does_not_reopen_successful_overwatch_submissions() {
+    new_test_ext().execute_with(|| {
+        let (node, commits, reveals) = single_call_fixture(1);
+        assert_ok!(Network::commit_overwatch_subnet_weights(
+            RuntimeOrigin::signed(account(201)),
+            node,
+            commits.clone()
+        ));
+        assert_ok!(Network::do_pause());
+        assert_ok!(Network::do_unpause());
+        assert_noop!(
+            Network::commit_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(201)),
+                node,
+                commits
+            ),
+            Error::<Test>::AlreadyCommitted
+        );
+        set_block_to_overwatch_reveal_block(1);
+        assert_ok!(Network::reveal_overwatch_subnet_weights(
+            RuntimeOrigin::signed(account(201)),
+            node,
+            reveals.clone()
+        ));
+        assert_ok!(Network::do_pause());
+        assert_ok!(Network::do_unpause());
+        assert_noop!(
+            Network::reveal_overwatch_subnet_weights(
+                RuntimeOrigin::signed(account(201)),
+                node,
+                reveals
+            ),
+            Error::<Test>::AlreadyRevealed
+        );
     });
 }

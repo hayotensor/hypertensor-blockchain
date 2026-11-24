@@ -396,6 +396,17 @@ impl<T: Config> Pallet<T> {
         queued_nodes: u32,
         admitted_nodes: u32,
     ) -> Weight {
+        Self::subnet_slot_weight_reservation(historical_items, queued_nodes, admitted_nodes).0
+    }
+
+    /// Return the complete admission and the part attributable solely to reward-failure
+    /// persistence. Taking the branch maximum before subtraction keeps rejected/cancelled
+    /// settlement, slash reservations and every non-queue proof covered after a refund.
+    fn subnet_slot_weight_reservation(
+        historical_items: u32,
+        queued_nodes: u32,
+        admitted_nodes: u32,
+    ) -> (Weight, Weight) {
         let historical_items = historical_items.min(T::MaxSubnetNodesUpperBound::get());
         let h = historical_items.max(Self::MIN_CONSENSUS_VALIDATOR_IDENTITIES);
         let q = queued_nodes
@@ -422,29 +433,41 @@ impl<T: Config> Pallet<T> {
             )
             .saturating_add(T::WeightInfo::emission_step_accepted_below_min_weight_reputation(h))
             .saturating_add(
-                T::WeightInfo::pending_consensus_operation_enqueue()
-                    .saturating_mul(u64::from(h) + 3),
-            )
-            .saturating_add(
                 T::WeightInfo::consensus_node_reward_snapshot().saturating_mul(u64::from(h)),
             )
             .saturating_add(non_attestor_reputation);
         let pending_slash = T::WeightInfo::pending_node_slash_lock_read()
             .saturating_add(T::WeightInfo::pending_node_slash_reservation_update())
             .saturating_add(T::WeightInfo::pending_consensus_operation_enqueue());
-        let settlement_branch = if historical_items == 0 {
-            T::WeightInfo::emission_step_missing().saturating_add(pending_slash)
+        let rejected = T::WeightInfo::emission_step_rejected(h).saturating_add(pending_slash);
+        let cancelled = T::WeightInfo::emission_step_cancelled();
+        let (settlement_branch, refundable) = if historical_items == 0 {
+            (
+                T::WeightInfo::emission_step_missing()
+                    .saturating_add(pending_slash)
+                    .max(cancelled),
+                Weight::zero(),
+            )
         } else {
-            accepted.max(T::WeightInfo::emission_step_rejected(h).saturating_add(pending_slash))
+            let without_enqueue = accepted.max(rejected).max(cancelled);
+            let with_enqueue = accepted
+                .saturating_add(Self::consensus_operations_enqueue_weight(
+                    h.saturating_add(3),
+                ))
+                .max(rejected)
+                .max(cancelled);
+            (with_enqueue, with_enqueue.saturating_sub(without_enqueue))
         };
         let settlement = settlement_branch
-            .max(T::WeightInfo::emission_step_cancelled())
             .saturating_add(T::WeightInfo::consensus_settlement_recovery())
             .saturating_add(T::DbWeight::get().reads_writes(3, 3))
             .saturating_add(Self::pending_subnet_node_removal_proof_weight());
-        settlement
-            .saturating_add(T::WeightInfo::elect_validator(e))
-            .saturating_add(Self::subnet_lifecycle_read_weight())
+        (
+            settlement
+                .saturating_add(T::WeightInfo::elect_validator(e))
+                .saturating_add(Self::subnet_lifecycle_read_weight()),
+            refundable,
+        )
     }
 
     /// Maximum hook work required to reach and finish an assigned subnet's mandatory step.
@@ -469,14 +492,14 @@ impl<T: Config> Pallet<T> {
     }
 
     /// The caller pays the generated fixed selector envelope before these bounded reads.
-    fn select_subnet_slot_mandatory_weight(subnet_id: u32, subnet_epoch: u32) -> Weight {
+    fn select_subnet_slot_mandatory_weight(subnet_id: u32, subnet_epoch: u32) -> (Weight, Weight) {
         let historical_items = subnet_epoch
             .checked_sub(1)
             .map(|epoch| SubnetConsensusSubmissionMaxItems::<T>::get(subnet_id, epoch))
             .unwrap_or(0);
         let admitted_nodes = TotalAdmittedSubnetNodes::<T>::get(subnet_id);
         let queued_nodes = TotalSubnetNodes::<T>::get(subnet_id).saturating_sub(admitted_nodes);
-        Self::subnet_slot_mandatory_weight(historical_items, queued_nodes, admitted_nodes)
+        Self::subnet_slot_weight_reservation(historical_items, queued_nodes, admitted_nodes)
     }
 
     /// Run the subnet selected by the current reverse slot assignment after one admission.
@@ -485,19 +508,20 @@ impl<T: Config> Pallet<T> {
         weight_meter: &mut WeightMeter,
         current_subnet_epoch: u32,
         subnet_id: u32,
-    ) -> bool {
+    ) -> Option<Weight> {
         let selectors = T::WeightInfo::emission_step_selectors();
         if !weight_meter.can_consume(selectors) {
-            return false;
+            return None;
         }
         weight_meter.consume(selectors);
-        let mandatory = Self::select_subnet_slot_mandatory_weight(subnet_id, current_subnet_epoch);
+        let (mandatory, refundable) =
+            Self::select_subnet_slot_mandatory_weight(subnet_id, current_subnet_epoch);
         if !weight_meter.can_consume(mandatory) {
-            return false;
+            return None;
         }
         weight_meter.consume(mandatory);
-        Self::emission_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
-        true
+        let enqueue_weight = Self::emission_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
+        Some(refundable.saturating_sub(enqueue_weight))
     }
 
     /// - Generates emissions variables to distribute emissions: `precheck_subnet_consensus_submission`
@@ -510,18 +534,9 @@ impl<T: Config> Pallet<T> {
         weight_meter: &mut WeightMeter,
         current_subnet_epoch: u32,
         subnet_id: u32,
-    ) {
-        let selectors = T::WeightInfo::emission_step_selectors();
-        if !weight_meter.can_consume(selectors) {
-            return;
-        }
-        weight_meter.consume(selectors);
-        let mandatory = Self::select_subnet_slot_mandatory_weight(subnet_id, current_subnet_epoch);
-        if !weight_meter.can_consume(mandatory) {
-            return;
-        }
-        weight_meter.consume(mandatory);
-        Self::emission_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
+    ) -> Weight {
+        Self::run_assigned_subnet_slot(weight_meter, current_subnet_epoch, subnet_id)
+            .unwrap_or_else(Weight::zero)
     }
 
     /// The complete bounded settlement and election work was charged by the caller. Internal
@@ -530,9 +545,11 @@ impl<T: Config> Pallet<T> {
         weight_meter: &mut WeightMeter,
         current_subnet_epoch: u32,
         subnet_id: u32,
-    ) {
-        Self::emission_settlement_step(&mut WeightMeter::new(), current_subnet_epoch, subnet_id);
+    ) -> Weight {
+        let enqueue_weight =
+            Self::emission_settlement_step(&mut WeightMeter::new(), current_subnet_epoch, subnet_id);
         Self::emission_operational_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
+        enqueue_weight
     }
 
     /// Settle the prior subnet epoch under a reward-core envelope that is independent from
@@ -541,7 +558,7 @@ impl<T: Config> Pallet<T> {
         weight_meter: &mut WeightMeter,
         current_subnet_epoch: u32,
         subnet_id: u32,
-    ) {
+    ) -> Weight {
         let db_weight = T::DbWeight::get();
 
         // We know the subnet exists because to call this function `SlotAssignment` must exist
@@ -550,7 +567,7 @@ impl<T: Config> Pallet<T> {
         // Each slot processes only its preceding epoch. Old unfinished rounds never become a
         // retry backlog and cannot hold up election of the current round.
         let Some(settlement_subnet_epoch) = current_subnet_epoch.checked_sub(1) else {
-            return;
+            return Weight::zero();
         };
 
         let historical_items =
@@ -566,7 +583,7 @@ impl<T: Config> Pallet<T> {
         .saturating_add(T::WeightInfo::consensus_settlement_recovery());
 
         if !weight_meter.can_consume(precheck_weight) {
-            return;
+            return Weight::zero();
         }
 
         // Missing proposals can be economically settled even when the emission allocation was
@@ -580,7 +597,7 @@ impl<T: Config> Pallet<T> {
             // without turning unusable evidence into an absence penalty.
             // Cancellation is covered by the recovery envelope reserved in precheck_weight.
             Self::cancel_consensus_round(subnet_id, settlement_subnet_epoch);
-            return;
+            return Weight::zero();
         };
 
         weight_meter.consume(db_weight.reads(1));
@@ -615,7 +632,7 @@ impl<T: Config> Pallet<T> {
             &consensus_submission_data.policy,
         );
         weight_meter.consume(rewards_block_weight);
-        Self::distribute_rewards_for_round(
+        let enqueue_weight = Self::distribute_rewards_for_round(
             weight_meter,
             subnet_id,
             current_subnet_epoch,
@@ -626,6 +643,7 @@ impl<T: Config> Pallet<T> {
         // If reward preparation could not complete, give this round a terminal cancellation.
         // Its work was reserved in precheck_weight. Election is independent of this outcome.
         Self::cancel_consensus_round(subnet_id, settlement_subnet_epoch);
+        enqueue_weight
     }
 
     /// Direct operational entry point for callers that have not prepaid the complete subnet slot.
@@ -1422,9 +1440,10 @@ impl<T: Config> Pallet<T> {
                             );
                         weight = weight.saturating_add(pending_weight);
                         if inserted {
-                            newly_pending_admitted_removals
-                                .try_push(validator_subnet_node_id)
-                                .expect("one missing proposer fits the admitted-removal event");
+                            // The removal marker is already durable. Event capacity must not
+                            // abort a settled round or prevent the next election.
+                            let _ = newly_pending_admitted_removals
+                                .try_push(validator_subnet_node_id);
                         }
                     }
                 }

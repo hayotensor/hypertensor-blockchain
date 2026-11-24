@@ -10373,7 +10373,7 @@ fn test_failed_validator_credit_does_not_abort_settled_round_payouts() {
                     TotalDelegateStake::<Test>::get(),
                     total_delegation_before + rewards.delegate_stake_rewards
                 );
-                System::assert_last_event(RuntimeEvent::Network(Event::SubnetRewards {
+                System::assert_has_event(RuntimeEvent::Network(Event::SubnetRewards {
                     subnet_id,
                     node_rewards: Vec::new(),
                     delegate_stake_reward: rewards.delegate_stake_rewards,

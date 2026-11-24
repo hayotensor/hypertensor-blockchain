@@ -14,8 +14,6 @@
 // limitations under the License.
 
 use super::*;
-use frame_support::pallet_prelude::DispatchResultWithPostInfo;
-use frame_support::pallet_prelude::Pays;
 
 impl<T: Config> Pallet<T> {
     #[frame_support::transactional]
@@ -141,7 +139,7 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         overwatch_node_id: u32,
         peer_id: PeerId,
-    ) -> DispatchResultWithPostInfo {
+    ) -> DispatchResult {
         let key: T::AccountId = ensure_signed(origin)?;
 
         ensure!(
@@ -193,6 +191,6 @@ impl<T: Config> Pallet<T> {
             peer_id,
         });
 
-        Ok(Pays::No.into())
+        Ok(())
     }
 }

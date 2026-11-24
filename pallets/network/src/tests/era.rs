@@ -16,7 +16,7 @@ use crate::{
     SubnetReputationFactorSchedules, SubnetReputationFactors, SubnetSlot, SubnetState,
     NETWORK_OVERWATCH_SETTLEMENT_SLOT, NETWORK_SUBNET_EMISSION_SLOT,
 };
-use frame_support::{assert_ok, traits::OnInitialize};
+use frame_support::{assert_noop, assert_ok, traits::OnInitialize};
 
 #[test]
 fn test_get_current_subnet_epoch_as_u32() {
@@ -367,7 +367,7 @@ fn test_overwatch_settlement_waits_for_reserved_slot_one() {
 }
 
 #[test]
-fn partial_reveal_close_preserves_opening_cohort_and_counts_only_revealed_records() {
+fn rejected_partial_reveal_close_preserves_opening_cohort_without_records() {
     new_test_ext().execute_with(|| {
         OverwatchEpochLengthMultiplier::<Test>::put(1);
         ActiveOverwatchEpochLengthMultiplier::<Test>::put(1);
@@ -429,16 +429,19 @@ fn partial_reveal_close_preserves_opening_cohort_and_counts_only_revealed_record
                 ),
             }],
         ));
-        assert_ok!(Network::perform_reveal_overwatch_subnet_weights(
-            revealing_node_id,
-            vec![OverwatchReveal {
-                subnet_id: revealed_subnet_id,
-                weight: revealed_weight,
-                salt: revealed_salt.try_into().unwrap(),
-            }],
-        ));
+        assert_noop!(
+            Network::perform_reveal_overwatch_subnet_weights(
+                revealing_node_id,
+                vec![OverwatchReveal {
+                    subnet_id: revealed_subnet_id,
+                    weight: revealed_weight,
+                    salt: revealed_salt.try_into().unwrap(),
+                }],
+            ),
+            crate::Error::<Test>::RevealSetMismatch
+        );
 
-        assert_eq!(ActiveOverwatchRevealStats::<Test>::get().records, 1);
+        assert_eq!(ActiveOverwatchRevealStats::<Test>::get().records, 0);
         let close_block = OverwatchEpochStartBlock::<Test>::get() + EpochLength::get();
         System::set_block_number(close_block);
         Network::advance_overwatch_epoch(close_block);
@@ -446,7 +449,7 @@ fn partial_reveal_close_preserves_opening_cohort_and_counts_only_revealed_record
         let pending = PendingOverwatchSettlement::<Test>::get()
             .expect("a successful close must publish a pending settlement");
         assert_eq!(pending.epoch, epoch);
-        assert_eq!(pending.reveal_records, 1);
+        assert_eq!(pending.reveal_records, 0);
         let snapshot = OverwatchEpochSnapshots::<Test>::get(epoch)
             .expect("a successful close must retain its opening snapshot");
         assert_eq!(snapshot.nodes.len(), 2);
@@ -456,7 +459,7 @@ fn partial_reveal_close_preserves_opening_cohort_and_counts_only_revealed_record
         assert!(OverwatchCommits::<Test>::get(epoch, commit_only_node_id).is_empty());
         assert_eq!(
             OverwatchReveals::<Test>::get(epoch, revealing_node_id).get(&revealed_subnet_id),
-            Some(&revealed_weight)
+            None
         );
         assert!(OverwatchReveals::<Test>::get(epoch, commit_only_node_id).is_empty());
         assert!(crate::OverwatchEpochRevealEligibility::<Test>::get(epoch)
