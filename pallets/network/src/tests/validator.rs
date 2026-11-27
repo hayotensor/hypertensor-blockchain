@@ -990,6 +990,7 @@ fn test_register_validator_subnet_node() {
 fn test_ensure_hotkey_owns_subnet_node_prefers_subnet_node_hotkey_override() {
     new_test_ext().execute_with(|| {
         let subnet_id = 1;
+        super::test_utils::ensure_test_subnet(subnet_id);
         let subnet_node_id = 7;
         let validator_id = 11;
         let validator_hotkey = account(1100);
@@ -1042,6 +1043,7 @@ fn test_ensure_hotkey_owns_subnet_node_prefers_subnet_node_hotkey_override() {
 fn test_ensure_hotkey_owns_subnet_node_uses_validator_hotkey_without_override() {
     new_test_ext().execute_with(|| {
         let subnet_id = 1;
+        super::test_utils::ensure_test_subnet(subnet_id);
         let subnet_node_id = 8;
         let validator_id = 12;
         let validator_hotkey = account(1200);

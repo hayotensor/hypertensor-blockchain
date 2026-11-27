@@ -1408,3 +1408,75 @@ fn contract_node_class_codes_match_queued_probation_and_active() {
         assert_code(2);
     });
 }
+
+#[test]
+fn contract_withdrawal_survives_subnet_removal_before_and_after_idle_cleanup() {
+    for cleanup in [false, true] {
+        crate::tests::npos::ext().execute_with(|| {
+            let (who, validator) = node_metadata_contract_fixture(false);
+            n::TxRateLimit::<Runtime>::put(0);
+            let stake = n::MinSubnetMinStake::<Runtime>::get();
+            assert_ok!(Network::register_subnet_node(
+                RuntimeOrigin::signed(who.clone()),
+                validator,
+                1,
+                None,
+                None,
+                None,
+                None,
+                stake,
+                None,
+                None,
+                u128::MAX,
+            ));
+            let node = n::TotalSubnetNodeUids::<Runtime>::get(1);
+            n::PendingQueuedNodeRemovals::<Runtime>::mutate(1, |ids| {
+                ids.try_insert(node).unwrap();
+            });
+            Network::do_remove_subnet(1, n::SubnetRemovalReason::Owner);
+            assert!(n::QueuedSubnetNodesData::<Runtime>::contains_key(1, node));
+            assert!(
+                !read(
+                    addresses::SUBNET_NODES,
+                    abi::ISubnetNodes::getSubnetNodeCall {
+                        subnetId: 1,
+                        subnetNodeId: node,
+                    }
+                )
+                .exists
+            );
+            if cleanup {
+                <Network as frame_support::traits::Hooks<BlockNumber>>::on_idle(
+                    System::block_number(),
+                    frame_support::weights::Weight::MAX,
+                );
+                assert!(!n::RemovedSubnetCleanupQueue::<Runtime>::contains_key(1));
+            }
+            let associated = read(
+                addresses::SUBNET_NODES,
+                abi::ISubnetNodes::getAssociatedValidatorCall {
+                    subnetId: 1,
+                    subnetNodeId: node,
+                },
+            );
+            assert!(associated.present);
+            assert_eq!(associated.value, validator);
+            assert_ok!(invoke(
+                addresses::STAKING,
+                abi::IStaking::removeNodeStakeCall {
+                    subnetId: 1,
+                    subnetNodeId: node,
+                    stakeToBeRemoved: stake,
+                }
+            ));
+            assert_eq!(n::NodeSubnetStake::<Runtime>::get(node, 1), 0);
+            assert_eq!(
+                n::StakeUnbondingLedger::<Runtime>::get(&who)
+                    .values()
+                    .map(|entry| entry.network)
+                    .sum::<u128>(),
+                stake
+            );
+        });
+    }
+}

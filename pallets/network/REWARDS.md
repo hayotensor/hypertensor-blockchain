@@ -299,7 +299,7 @@ refund never includes payment attempts, reward snapshots, election, or the rejec
 settlement allowance. The internal meter retains the full reservation through optional cleanup
 and swaps, so a refund itself cannot change which optional operations run.
 
-Before node-metadata and consensus-history cleanup, `on_idle` reserves each operation's complete weight
+Before individual-node metadata, removed-subnet, and consensus-history cleanup, `on_idle` reserves each operation's complete weight
 before attempting it. Failure moves the unchanged record to the tail; later entries can progress.
 Each entry is attempted at most once per hook invocation. Payment, reservation release where
 applicable, and queue removal commit atomically. Retries never replay consensus, reputation,
@@ -337,7 +337,7 @@ emitted without rewards, penalties, or probation progression. Stored allocation 
 bounded to Q18 before multiplication. Accepted rewards do not touch net-flow accounting;
 a missing flow record does not hold consensus open.
 
-An accepted round with a nonzero score total releases up to `SubnetRewardCapacitorReleasePercentage` of its normal allocation, rounded down in atomic units and limited by the stored capacitor and remaining `u128` reward-budget capacity. The global percentage defaults to 10% and is updated through the supermajority-collective call `set_subnet_reward_capacitor_release_percentage(value)`, using Q18 (`1e18 = 100%`, `1e17 = 10%`). Values must be between 0% and 100%; zero disables releases. Updates apply at the next settlement. The combined budget follows the successful round's existing owner, subnet-delegate, and node reward split. At the default rate, a normal allocation of 100 tokens and a capacitor containing 100 tokens produce a budget of 110 tokens and leave 90 in the capacitor. A zero allocation or zero-score round leaves the capacitor untouched. Permanent subnet removal clears its remaining capacitor.
+An accepted round with a nonzero score total releases up to `SubnetRewardCapacitorReleasePercentage` of its normal allocation, rounded down in atomic units and limited by the stored capacitor and remaining `u128` reward-budget capacity. The global percentage defaults to 10% and is updated through the supermajority-collective call `set_subnet_reward_capacitor_release_percentage(value)`, using Q18 (`1e18 = 100%`, `1e17 = 10%`). Values must be between 0% and 100%; zero disables releases. Updates apply at the next settlement. The combined budget follows the successful round's existing owner, subnet-delegate, and node reward split. At the default rate, a normal allocation of 100 tokens and a capacitor containing 100 tokens produce a budget of 110 tokens and leave 90 in the capacitor. A zero allocation or zero-score round leaves the capacitor untouched. Permanent subnet removal makes its remaining capacitor unusable immediately and schedules its deletion in `on_idle`.
 
 Allocation remains a ceiling, not a guaranteed payout: existing eligibility, timing, active-pool, and rounding rules apply to the combined budget. An **accepted zero-score round** still pays its normal owner and active subnet-delegate rewards, and can pay an eligible proposer bonus, but pays no score-based node rewards. Amounts left uncredited by these accepted-round rules are not added to the capacitor.
 

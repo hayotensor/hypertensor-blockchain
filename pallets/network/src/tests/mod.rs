@@ -45,6 +45,7 @@ mod staking_queue;
 mod staking_utils;
 mod steps;
 mod subnet;
+mod subnet_cleanup;
 mod subnet_cost;
 mod subnet_node;
 mod test_utils;

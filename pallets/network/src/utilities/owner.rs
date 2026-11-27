@@ -201,6 +201,9 @@ impl<T: Config> Pallet<T> {
     /// Resolve the canonical physical election slots without filtering quarantined nodes.
     /// Election keeps this domain intact for its random draw and skips quarantined candidates.
     pub fn resolve_consensus_validator_ids(subnet_id: u32) -> Vec<u32> {
+        if !Self::subnet_exists(subnet_id) {
+            return Vec::new();
+        }
         Self::canonicalize_consensus_validator_ids(SubnetNodeElectionSlots::<T>::get(subnet_id))
     }
 

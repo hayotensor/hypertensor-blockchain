@@ -643,6 +643,17 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
         assert!(!SlotAssignment::<Test>::contains_key(slot));
         assert_subnet_slot_indexes_are_consistent();
 
+        assert!(SubnetNodesData::<Test>::contains_key(
+            subnet_id,
+            active_node_id
+        ));
+        assert!(Network::get_subnet_node_info(subnet_id, active_node_id).is_none());
+        assert!(SubnetConsensusSubmission::<Test>::contains_key(
+            subnet_id,
+            historical_subnet_epoch
+        ));
+        drain_removed_subnets();
+
         assert!(!ChurnLimit::<Test>::contains_key(subnet_id));
         assert!(!ChurnLimitMultiplier::<Test>::contains_key(subnet_id));
         assert!(!SubnetNodeQueueEpochs::<Test>::contains_key(subnet_id));
@@ -760,10 +771,8 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
             subnet_id,
             queued_node_id
         ));
-        // Historical election data is deliberately retained: clearing every past epoch during
-        // `on_initialize` would be unbounded, and the record remains useful for auditing settled
-        // consensus after the subnet's live state is removed.
-        assert!(SubnetElectedValidator::<Test>::contains_key(subnet_id, 1));
+        // The explicitly drained idle worker has now removed the historical election as well.
+        assert!(!SubnetElectedValidator::<Test>::contains_key(subnet_id, 1));
         assert!(!NodeElectionSlotIndex::<Test>::contains_key(
             subnet_id,
             active_node_id
@@ -830,11 +839,11 @@ fn test_remove_subnet_cleanup_invariant_clears_live_state_and_preserves_exit_sta
                 .all(|(stored_subnet_id, _)| *stored_subnet_id != subnet_id)
         );
 
-        assert!(SubnetConsensusSubmission::<Test>::contains_key(
+        assert!(!SubnetConsensusSubmission::<Test>::contains_key(
             subnet_id,
             historical_subnet_epoch
         ));
-        assert!(SubnetConsensusAttestorWeights::<Test>::contains_key(
+        assert!(!SubnetConsensusAttestorWeights::<Test>::contains_key(
             subnet_id,
             historical_subnet_epoch
         ));

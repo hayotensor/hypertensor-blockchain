@@ -3835,7 +3835,7 @@ pub mod pallet {
     #[pallet::storage]
     pub type TotalSubnetElectableNodes<T> = StorageMap<_, Identity, u32, u32, ValueQuery>;
 
-    /// Network-wide physical Active election-slot count.
+    /// Active election-slot count across existing subnets; excludes removal residuals.
     #[pallet::storage]
     pub type TotalElectableNodes<T> = StorageValue<_, u32, ValueQuery>;
 
@@ -3851,11 +3851,11 @@ pub mod pallet {
         OptionQuery,
     >;
 
-    /// Count of retained queued and admitted nodes in the network.
+    /// Count of queued and admitted nodes belonging to existing subnets; excludes removal residuals.
     #[pallet::storage]
     pub type TotalNodes<T> = StorageValue<_, u32, ValueQuery, DefaultZeroU32>;
 
-    /// Count of admitted Probation and Active nodes in the network
+    /// Count of admitted Probation and Active nodes across existing subnets.
     #[pallet::storage]
     pub type TotalAdmittedNodes<T> = StorageValue<_, u32, ValueQuery, DefaultZeroU32>;
 
@@ -4856,7 +4856,63 @@ pub mod pallet {
         TypeInfo,
         MaxEncodedLen,
     )]
-    pub enum ConsensusHistoryCleanupStage {
+    pub enum RemovedSubnetCleanupStage {
+        ChurnLimit,
+        ChurnLimitMultiplier,
+        SubnetNodeQueueEpochs,
+        PendingSubnetNodeQueueEpochs,
+        ProbationRounds,
+        PendingProbationRounds,
+        SubnetMinStakeBalance,
+        SubnetMaxStakeBalance,
+        SubnetDelegateStakeRewardsPercentage,
+        PendingSubnetDelegateStakeRewardsPercentage,
+        LastSubnetDelegateStakeRewardsUpdate,
+        NodeRegistrationInitialValidatorIds,
+        InitialValidatorData,
+        MaxRegisteredNodes,
+        TargetNodeRegistrationsPerEpoch,
+        NodeBurnRateAlpha,
+        CurrentNodeBurnRate,
+        QueueImmunityEpochs,
+        PendingQueueImmunityEpochs,
+        ConsensusValidatorNodeCountDecay,
+        PendingConsensusValidatorNodeCountDecay,
+        LastConsensusValidatorNodeCountDecayUpdate,
+        ConsensusValidatorStakeWeightPower,
+        PendingConsensusValidatorStakeWeightPower,
+        LastConsensusValidatorStakeWeightPowerUpdate,
+        SubnetBootnodeAccess,
+        SubnetBootnodes,
+        SubnetReputation,
+        MinSubnetNodeReputation,
+        PendingMinSubnetNodeReputation,
+        NodeRegistrationsThisEpoch,
+        SubnetNodeMinWeightDecreaseReputationThreshold,
+        PendingSubnetNodeMinWeightDecreaseReputationThreshold,
+        SubnetReputationFactorSchedules,
+        SubnetNetFlows,
+        SubnetDelegateStakeEmas,
+        SubnetRewardCapacitor,
+        TotalSubnetNodeUids,
+        SubnetNodeElectionSlots,
+        SubnetNodeQueue,
+        PendingAdmittedNodeRemovals,
+        PendingQueuedNodeRemovals,
+        ConsensusHistoryPruneCursor,
+        Nodes,
+        QueuedNodes,
+        NodeMetadata,
+        Peers,
+        BootnodePeers,
+        ClientPeers,
+        Multiaddrs,
+        UniqueParams,
+        NodeHotkeys,
+        NodeReputations,
+        NodeProbationProgress,
+        OverwatchPeers,
+        NodeElectionIndexes,
         Attestations,
         Submissions,
         SubmissionMaxItems,
@@ -4866,15 +4922,83 @@ pub mod pallet {
         Elections,
     }
 
-    /// One small work record per removed subnet, recording the next history prefix to clear.
-    /// Idle cleanup selects a single record without decoding the complete backlog.
+    impl RemovedSubnetCleanupStage {
+        /// Stable order of the singleton and prefix cleanup stages.
+        pub const ALL: [Self; 63] = [
+            Self::ChurnLimit,
+            Self::ChurnLimitMultiplier,
+            Self::SubnetNodeQueueEpochs,
+            Self::PendingSubnetNodeQueueEpochs,
+            Self::ProbationRounds,
+            Self::PendingProbationRounds,
+            Self::SubnetMinStakeBalance,
+            Self::SubnetMaxStakeBalance,
+            Self::SubnetDelegateStakeRewardsPercentage,
+            Self::PendingSubnetDelegateStakeRewardsPercentage,
+            Self::LastSubnetDelegateStakeRewardsUpdate,
+            Self::NodeRegistrationInitialValidatorIds,
+            Self::InitialValidatorData,
+            Self::MaxRegisteredNodes,
+            Self::TargetNodeRegistrationsPerEpoch,
+            Self::NodeBurnRateAlpha,
+            Self::CurrentNodeBurnRate,
+            Self::QueueImmunityEpochs,
+            Self::PendingQueueImmunityEpochs,
+            Self::ConsensusValidatorNodeCountDecay,
+            Self::PendingConsensusValidatorNodeCountDecay,
+            Self::LastConsensusValidatorNodeCountDecayUpdate,
+            Self::ConsensusValidatorStakeWeightPower,
+            Self::PendingConsensusValidatorStakeWeightPower,
+            Self::LastConsensusValidatorStakeWeightPowerUpdate,
+            Self::SubnetBootnodeAccess,
+            Self::SubnetBootnodes,
+            Self::SubnetReputation,
+            Self::MinSubnetNodeReputation,
+            Self::PendingMinSubnetNodeReputation,
+            Self::NodeRegistrationsThisEpoch,
+            Self::SubnetNodeMinWeightDecreaseReputationThreshold,
+            Self::PendingSubnetNodeMinWeightDecreaseReputationThreshold,
+            Self::SubnetReputationFactorSchedules,
+            Self::SubnetNetFlows,
+            Self::SubnetDelegateStakeEmas,
+            Self::SubnetRewardCapacitor,
+            Self::TotalSubnetNodeUids,
+            Self::SubnetNodeElectionSlots,
+            Self::SubnetNodeQueue,
+            Self::PendingAdmittedNodeRemovals,
+            Self::PendingQueuedNodeRemovals,
+            Self::ConsensusHistoryPruneCursor,
+            Self::Nodes,
+            Self::QueuedNodes,
+            Self::NodeMetadata,
+            Self::Peers,
+            Self::BootnodePeers,
+            Self::ClientPeers,
+            Self::Multiaddrs,
+            Self::UniqueParams,
+            Self::NodeHotkeys,
+            Self::NodeReputations,
+            Self::NodeProbationProgress,
+            Self::OverwatchPeers,
+            Self::NodeElectionIndexes,
+            Self::Attestations,
+            Self::Submissions,
+            Self::SubmissionMaxItems,
+            Self::ProposalArgs,
+            Self::AttestorWeights,
+            Self::SettlementStatus,
+            Self::Elections,
+        ];
+    }
+
+    /// One compact work record per removed subnet. Financial exit state is never scheduled.
     #[pallet::storage]
-    pub type ConsensusHistoryCleanupQueue<T> =
-        StorageMap<_, Identity, u32, ConsensusHistoryCleanupStage, OptionQuery>;
+    pub type RemovedSubnetCleanupQueue<T> =
+        StorageMap<_, Identity, u32, RemovedSubnetCleanupStage, OptionQuery>;
 
     /// Last removed subnet visited by idle cleanup, in storage-key order.
     #[pallet::storage]
-    pub type ConsensusHistoryCleanupLastSubnet<T> = StorageValue<_, u32, OptionQuery>;
+    pub type RemovedSubnetCleanupLastSubnet<T> = StorageValue<_, u32, OptionQuery>;
 
     /// Last assigned slot visited by idle pruning, in storage-key order.
     #[pallet::storage]
@@ -6245,13 +6369,7 @@ pub mod pallet {
         /// * `subnet_node_id` - Subnet node ID of activator.
         ///
         #[pallet::call_index(7)]
-        #[pallet::weight(
-            T::WeightInfo::activate_subnet()
-                .saturating_add(Pallet::<T>::subnet_residual_metadata_cleanup_weight(*subnet_id))
-                .saturating_add(
-                Pallet::<T>::pending_node_removal_marker_clear_weight()
-            )
-        )]
+        #[pallet::weight(T::WeightInfo::activate_subnet())]
         pub fn activate_subnet(origin: OriginFor<T>, subnet_id: u32) -> DispatchResultWithPostInfo {
             let coldkey: T::AccountId = ensure_signed(origin)?;
 
@@ -6266,13 +6384,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(10)]
-        #[pallet::weight(
-            T::WeightInfo::owner_deactivate_subnet()
-                .saturating_add(Pallet::<T>::subnet_residual_metadata_cleanup_weight(*subnet_id))
-                .saturating_add(
-                T::WeightInfo::do_remove_registered_subnet_initial_validator_cleanup()
-            ).saturating_add(Pallet::<T>::pending_node_removal_marker_clear_weight())
-        )]
+        #[pallet::weight(T::WeightInfo::owner_deactivate_subnet())]
         pub fn owner_deactivate_subnet(origin: OriginFor<T>, subnet_id: u32) -> DispatchResult {
             Self::is_paused()?;
             Self::do_owner_deactivate_subnet(origin, subnet_id)
@@ -6659,6 +6771,7 @@ pub mod pallet {
             let coldkey: T::AccountId = ensure_signed(origin.clone())?;
 
             Self::is_paused()?;
+            Self::ensure_subnet_exists(subnet_id)?;
 
             let node_coldkey = Self::get_subnet_node_associated_coldkey(subnet_id, subnet_node_id)?;
 
@@ -6959,8 +7072,8 @@ pub mod pallet {
         ) -> DispatchResult {
             Self::is_paused()?;
 
-            // A pending call authenticates before cleanup and intentionally leaves the retained
-            // stake untouched. A later call follows the ordinary withdrawal path.
+            // Only live-subnet quarantine intercepts this call. After subnet removal, residual
+            // markers must never delay the requested withdrawal or decrement counters again.
             if Self::has_pending_subnet_node_removal(subnet_id, subnet_node_id) {
                 let coldkey: T::AccountId = ensure_signed(origin.clone())?;
                 let node_coldkey =
@@ -7590,13 +7703,7 @@ pub mod pallet {
         }
 
         #[pallet::call_index(81)]
-        #[pallet::weight(
-            T::WeightInfo::collective_remove_subnet()
-                .saturating_add(Pallet::<T>::subnet_residual_metadata_cleanup_weight(*subnet_id))
-                .saturating_add(
-                T::WeightInfo::do_remove_registered_subnet_initial_validator_cleanup()
-            ).saturating_add(Pallet::<T>::pending_node_removal_marker_clear_weight())
-        )]
+        #[pallet::weight(T::WeightInfo::collective_remove_subnet())]
         pub fn collective_remove_subnet(
             origin: OriginFor<T>,
             subnet_id: u32,
@@ -8893,566 +9000,59 @@ pub mod pallet {
             Ok(None.into())
         }
 
-        /// Try to remove a subnet from an immutable `SubnetsData` snapshot.
-        ///
-        /// This is called only by `do_epoch_preliminaries`. Snapshot IDs are unique and remain
-        /// present until their own removal attempt, so a fully admitted call removes exactly one
-        /// subnet. A weight-admission failure leaves the subnet unchanged for a later pass.
+        /// Reserve the complete immediate removal before changing the immutable epoch snapshot.
+        /// Deletion of residual storage never participates in this admission decision.
         pub(crate) fn try_do_remove_subnet(
             weight_meter: &mut WeightMeter,
             subnet_id: u32,
             reason: SubnetRemovalReason,
         ) -> SubnetRemovalOutcome {
-            // Scalar counters bound live-node prefixes. Reserve the bounded residual queue scan
-            // separately before selecting the additional metadata cleanup weight.
-            let selector_weight = T::DbWeight::get()
-                .reads(3)
-                .saturating_add(Self::node_metadata_cleanup_queue_weight());
-            if !weight_meter.can_consume(selector_weight) {
+            let weight = T::WeightInfo::do_remove_subnet();
+            if weight_meter.try_consume(weight).is_err() {
                 return SubnetRemovalOutcome::Deferred;
             }
-            weight_meter.consume(selector_weight);
-
-            let admitted_nodes = TotalAdmittedSubnetNodes::<T>::get(subnet_id);
-            let target_nodes = TotalSubnetNodes::<T>::get(subnet_id);
-            let overwatch_nodes = TotalOverwatchNodes::<T>::get();
-
-            let a = admitted_nodes.clamp(1, T::MaxSubnetNodesUpperBound::get());
-            let r = target_nodes
-                .saturating_sub(admitted_nodes)
-                .clamp(1, T::MaxRegisteredNodesUpperBound::get());
-            let o = overwatch_nodes.clamp(1, T::MaxOverwatchNodesUpperBound::get());
-            let step_weight = T::WeightInfo::do_remove_subnet(a, r, o)
-                .saturating_add(Self::subnet_residual_metadata_cleanup_weight(subnet_id))
-                .saturating_add(
-                    T::WeightInfo::do_remove_registered_subnet_initial_validator_cleanup(),
-                )
-                .saturating_add(Self::pending_node_removal_marker_clear_weight());
-
-            if !weight_meter.can_consume(step_weight) {
-                return SubnetRemovalOutcome::Deferred;
-            }
-
-            let _ = Self::do_remove_subnet(subnet_id, reason);
-            // Consume the same generated reservation used for admission. The manual cleanup
-            // accumulator does not model proof size and must never replace benchmarked weight.
-            weight_meter.consume(step_weight);
+            Self::do_remove_subnet(subnet_id, reason);
             SubnetRemovalOutcome::Removed
         }
 
-        /// Remove a subnet and clean up its subnet-keyed storage.
-        ///
-        /// This function permanently removes a subnet from the network. Subnet-keyed records are
-        /// removed immediately with bounded prefix clears. Validator and Overwatch forward indexes
-        /// are repaired lazily by their owner on the next relevant node operation, avoiding global
-        /// scans in the removal path.
-        ///
-        /// # Arguments
-        ///
-        /// * `subnet_id` - The unique identifier of the subnet to remove
-        /// * `reason` - The reason for removal (see `SubnetRemovalReason`)
-        ///
-        /// # Removal Reasons
-        ///
-        /// ## Activation-Related Removals
-        ///
-        /// - **`EnactmentPeriod`**: Subnet owner missed the activation deadline (passed enactment period end)
-        /// - **`MinReputation`**: Subnet failed to maintain minimum reputation requirement
-        /// - **`MinSubnetNodes`**: Subnet failed to meet minimum node count (typically 3)
-        ///
-        /// Delegate-stake shortfalls alone are retryable until the enactment deadline.
-        ///
-        /// ## Operational Removals
-        ///
-        /// - **`NotInConsensus`**: Subnet consistently failed to achieve consensus
-        /// - **`LessThanMinNodes`**: Admitted node count dropped below minimum threshold
-        /// - **`ValidatorProposalAbsent`**: Validator failed to submit proposals consistently
-        ///
-        /// ## Governance Removals
-        ///
-        /// - **`Owner`**: Subnet owner chose to remove their subnet
-        /// - **`Collective`**: Governance collective voted to remove the subnet
-        ///
-        /// # Removal Process
-        ///
-        /// The subnet is removed in the following order:
-        ///
-        /// ## 1. Core Subnet Data (6 items)
-        ///
-        /// - `SubnetsData` - Core metadata (name, repo, description, state, etc.)
-        /// - `SubnetName` - Reverse lookup by name (uniqueness constraint)
-        /// - `SubnetRepo` - Reverse lookup by repository URL (uniqueness constraint)
-        /// - `SubnetOwner` - Subnet owner account
-        /// - `PendingSubnetOwner` - Pending ownership transfer (if any)
-        /// - `SubnetRegistrationEpoch` - Registration timestamp (if still registered)
-        ///
-        /// ## 2. Subnet Configuration Parameters (28 items)
-        ///
-        /// ### Operational Parameters
-        /// - `ChurnLimit` - Maximum nodes that can enter/exit per epoch
-        /// - `ChurnLimitMultiplier` - Churn limit scaling factor
-        /// - `SubnetNodeQueueEpochs` - Epochs nodes must wait in queue
-        /// - `PendingSubnetNodeQueueEpochs` - Scheduled queue-duration update
-        /// - `ProbationRounds` - Qualifying inclusions required for promotion
-        /// - `QueueImmunityEpochs` - Protection period for queued nodes
-        /// - `MaxRegisteredNodes` - Maximum registration-queue length
-        /// - `TargetNodeRegistrationsPerEpoch` - Target registration rate
-        /// - `NodeBurnRateAlpha` - Registration cost decay parameter
-        /// - `CurrentNodeBurnRate` - Current dynamic registration cost
-        /// - `NodeRegistrationsThisEpoch` - Tracking counter for this epoch
-        ///
-        /// ### Stake Configuration
-        /// - `SubnetMinStakeBalance` - Minimum stake per node
-        /// - `SubnetMaxStakeBalance` - Maximum stake per node
-        /// - `SubnetDelegateStakeRewardsPercentage` - Delegate reward split
-        /// - `LastSubnetDelegateStakeRewardsUpdate` - Last reward distribution timestamp
-        /// - `SubnetRewardCapacitor` - Undistributed consensus reward allocation
-        ///
-        /// ### Registration Data (Temporary)
-        /// - `NodeRegistrationInitialValidatorIds` - Whitelisted node operators
-        /// - `InitialValidatorData` - Registration tracking data
-        ///
-        /// ### Network Configuration
-        /// - `SubnetBootnodes` - P2P network entry points
-        /// - `SubnetBootnodeAccess` - Accounts allowed to update bootnodes
-        ///
-        /// ### Reputation System
-        /// - `SubnetReputation` - Overall subnet reputation score
-        /// - `MinSubnetNodeReputation` - Minimum required node reputation
-        /// - `SubnetNodeMinWeightDecreaseReputationThreshold` - Weight threshold for penalties
-        /// - `SubnetReputationFactorSchedules` - Current and pending node reputation factors
-        ///
-        /// ## 3. Subnet Identifiers (2 items)
-        ///
-        /// - `SubnetIdFriendlyUid` - Human-readable ID mapping
-        /// - `FriendlyUidSubnetId` - Reverse lookup for friendly ID
-        ///
-        /// ## 4. Slot Assignment (3 items via `free_slot_of_subnet`)
-        ///
-        /// - `SubnetSlot` - Assigned epoch slot
-        /// - `SlotAssignment` - Reverse lookup (slot → subnet)
-        /// - `AssignedSlots` - Set of currently assigned slots (freed for reuse)
-        ///
-        /// ## 5. Active Subnet Counter
-        ///
-        /// - `TotalActiveSubnets` - Decremented if subnet was in Active state
-        ///
-        /// ## 6. All Node Data (via `clean_subnet_nodes`)
-        ///
-        /// Removes all subnet node data including:
-        /// - `SubnetNodesData` - All node metadata (cleared via prefix)
-        /// - `QueuedSubnetNodesData` - Registration data (cleared via prefix)
-        /// - `TotalAdmittedSubnetNodes` - Admitted node counter
-        /// - `TotalSubnetNodes` - Total node counter
-        /// - `TotalSubnetNodeUids` - Node ID counter
-        /// - `TotalAdmittedNodes` - Global admitted node counter (decremented)
-        /// - `PeerIdSubnetNodeId` - Peer ID mappings (cleared via prefix)
-        /// - `BootnodePeerIdSubnetNodeId` - Bootnode peer mappings (cleared via prefix)
-        /// - `ClientPeerIdSubnetNodeId` - Client peer mappings (cleared via prefix)
-        /// - `MultiaddrSubnetNodeId` - Bootnode node mappings (cleared via prefix)
-        /// - `UniqueParamSubnetNodeId` - Unique parameter tracking (cleared via prefix)
-        /// - `SubnetNodeIdHotkey` - Reverse hotkey mappings (cleared via prefix)
-        /// - `SubnetNodeReputation` - Individual node reputations (cleared via prefix)
-        /// - `SubnetNodeProbationProgress` - Inclusion streaks (cleared via prefix)
-        /// - `SubnetElectedValidator` - Historical validator election results are preserved
-        /// - `NodeElectionSlotIndex` - Slot index mappings (cleared via prefix)
-        /// - `SubnetNodeElectionSlots` - Election slot arrays
-        /// - `SubnetNodeQueue` - Node queue
-        /// - `TotalElectableNodes` - Global electable node counter (decremented)
-        /// - `TotalSubnetElectableNodes` - Subnet electable node counter
-        ///
-        /// # Important: Data NOT Removed
-        ///
-        /// ## Consensus Submission Data (Preserved)
-        ///
-        /// - **`SubnetConsensusSubmission` and `SubnetElectedValidator`**: Historical consensus
-        ///   and election data are **NOT** removed
-        ///   - Preserves consensus history for auditing and analysis
-        ///   - Does not impact blockchain logic for active subnets
-        ///   - Can be queried for historical subnet performance
-        ///
-        /// ## Stake Data (Preserved - User Action Required)
-        ///
-        /// - **Node Stake Balances**: Individual node stakes are NOT automatically removed
-        ///   - Node operators must call `remove_stake()` to reclaim stake
-        ///   - Stake remains locked until manually unstaked
-        ///   - Enters unbonding period upon unstaking
-        ///
-        /// - **Delegate Stake Balances**: Delegate stakes are NOT automatically removed
-        ///   - Delegate stakers must call `remove_account_delegate_stake()` to reclaim stake
-        ///   - Important: No rewards will be earned after subnet removal
-        ///   - Users should monitor for subnet removals and unstake promptly
-        ///
-        /// ## Owner-Local Forward Indexes (Lazily Repaired)
-        ///
-        /// - `ValidatorSubnetNodes`, `TotalValidatorNodes`, and validator allocation weights are
-        ///   repaired when that validator next registers or manually removes one of their nodes.
-        /// - `OverwatchNodeIndex` is repaired when that Overwatch node next updates a peer ID.
-        /// - Their subnet-keyed reverse indexes are removed immediately above, so retained forward
-        ///   entries cannot participate in live subnet logic.
-        ///
-        /// - **Account Mappings**: Some account-related storage persists
-        ///   - `HotkeyOwner` - Hotkey ownership records
-        ///   - `NodeSubnetStake` - Stake balances by account
-        ///   - `TotalSubnetStake` - Total stake counters
-        ///   - Cleaned up when stake is removed to zero
-        ///
-        /// # Weight Calculation
-        ///
-        /// This function carefully accounts for database operations:
-        ///
-        /// - **Lifecycle Lookup**: 1 read (`SubnetsData`)
-        /// - **Keyed Cleanup**: +1 read, +50 writes (49 removals plus
-        ///   `SubnetIdFriendlyUid::take`)
-        /// - **Conditional Writes**: +1 (`FriendlyUidSubnetId` if a friendly ID exists)
-        /// - **Slot Cleanup**: +2 reads, +3 writes (via `free_slot_of_subnet`)
-        /// - **Active Counter**: +1 read, +1 write (if subnet was active)
-        /// - **Total Counter**: +1 read, +1 write (`TotalSubnets`)
-        /// - **Node Cleanup**: Variable (see `clean_subnet_nodes` - scales with node count)
-        ///
-        /// Fixed storage weight before event and node cleanup is 5 reads and 54 writes, plus the
-        /// conditional friendly-ID write and, for active subnets, 1 read and 1 write.
-        ///
-        /// # Events
-        ///
-        /// Emits `SubnetDeactivated` event with:
-        /// - `subnet_id` - The removed subnet identifier
-        /// - `reason` - The reason for removal (see `SubnetRemovalReason`)
-        ///
-        /// # Errors
-        ///
-        /// This function does not return errors. If the subnet doesn't exist, it returns
-        /// early with minimal weight accounting (1 read). This is safe because:
-        /// - Called from contexts that already validated subnet existence
-        /// - Idempotent - safe to call multiple times
-        /// - Weight is always returned for proper accounting
-        ///
-        /// # Usage Contexts
-        ///
-        /// This function is called from several contexts:
-        ///
-        /// ## Manual Removal (Immediate)
-        ///
-        /// ### 1. Owner Removal
-        /// - **Path**: `owner_deactivate_subnet` extrinsic → `do_owner_deactivate_subnet` → `do_remove_subnet`
-        /// - **Who**: Subnet owner only
-        /// - **Reason**: `SubnetRemovalReason::Owner`
-        /// - **When**: Any time owner chooses to shut down their subnet
-        ///
-        /// ### 2. Collective/Governance Removal
-        /// - **Path**: `collective_remove_subnet` extrinsic → `do_collective_remove_subnet` → `do_remove_subnet`
-        /// - **Who**: Governance collective (requires vote/approval)
-        /// - **Reason**: `SubnetRemovalReason::Collective`
-        /// - **When**: Governance decides subnet should be removed (e.g., malicious behavior, policy violation)
-        ///
-        /// ## Automatic Removal via Activation Process
-        ///
-        /// ### 3. Activation Failure During Enactment
-        /// - **Path**: `activate_subnet` extrinsic → `do_activate_subnet` → `do_remove_subnet`
-        /// - **Who**: Called by owner attempting to activate
-        /// - **Reason**: `SubnetRemovalReason::MinReputation` or `MinSubnetNodes`
-        /// - **When**: Owner attempts activation during enactment but reputation or node count is insufficient
-        /// - **Exception**: A delegate-stake shortfall alone returns `SubnetActivationConditionsNotMetYet`
-        ///   and preserves the subnet for funding and retry before expiry.
-        ///
-        /// ### 4. Missed Activation Deadline
-        /// - **Path**: `activate_subnet` extrinsic → `do_activate_subnet` → `do_remove_subnet`
-        /// - **Who**: Called by owner attempting to activate
-        /// - **Reason**: `SubnetRemovalReason::EnactmentPeriod`
-        /// - **When**: Owner attempts activation after enactment period has expired
-        ///
-        /// ## Automatic Removal via Epoch Preliminaries
-        ///
-        /// The `do_epoch_preliminaries` function runs at the start of each epoch and performs
-        /// several health checks. Removal is triggered via `try_do_remove_subnet` (which calls
-        /// this function with weight metering) in the following scenarios:
-        ///
-        /// ### 5. Enactment Period - Insufficient Nodes
-        /// - **State**: Subnet in `Registered` state, within enactment period
-        /// - **Condition**: `TotalAdmittedSubnetNodes < MinSubnetNodes` (typically < 3 nodes)
-        /// - **Reason**: `SubnetRemovalReason::MinSubnetNodes`
-        /// - **Rationale**: Even in grace period, must maintain minimum node count
-        /// - **Note**: Delegate stake is NOT checked during enactment (users can still stake)
-        ///
-        /// ### 6. Failed to Activate (Post-Enactment)
-        /// - **State**: Subnet in `Registered` state, past enactment period
-        /// - **Condition**: `epoch > registered_epoch + SubnetRegistrationEpochs + SubnetEnactmentEpochs`
-        /// - **Reason**: `SubnetRemovalReason::EnactmentPeriod`
-        /// - **Rationale**: Owner failed to activate subnet within allowed time window
-        ///
-        /// ### 7. Insufficient Delegate Stake (Active Subnets)
-        /// - **State**: Subnet in `Active` state
-        /// - **Condition**:
-        ///   1. `TotalSubnetDelegateStakeBalance` is below `MinSubnetDelegateStakeBalance`
-        ///   2. `epoch % DelegateStakeSubnetRemovalInterval == 0` (only on designated epochs)
-        /// - **Reason**: `SubnetRemovalReason::MinSubnetDelegateStake`
-        /// - **Rationale**: Insufficient community stake support, checked periodically to give time to recover
-        /// - **Note**: Not checked every epoch - only on interval epochs to allow recovery time
-        ///
-        /// ### 8. Low Reputation (Active Subnets)
-        /// - **State**: Subnet in `Active` state
-        /// - **Condition**: `SubnetReputation < MinSubnetReputation`
-        /// - **Reason**: `SubnetRemovalReason::MinReputation`
-        /// - **Rationale**: Subnet consistently underperforming or failing health checks
-        /// - **Note**: Reputation can be decreased by multiple factors:
-        ///   - Low electable node count (decreases reputation but doesn't immediately remove)
-        ///   - Consensus failures
-        ///   - Validator absence
-        ///   - Other runtime logic
-        ///
-        /// ### 9. Excess Subnets (Lowest Stake Removal)
-        /// - **State**: Subnet in `Active` state
-        /// - **Condition**:
-        ///   1. The immutable pass snapshot initially contains more than `MaxSubnets`, so
-        ///      capacity candidates are collected
-        ///   2. `epoch % SubnetRemovalCheckInterval == 0` (designated removal epochs)
-        ///   3. `epoch >= PrevSubnetActivationEpoch + SubnetRemovalActivationCooldown` (cooldown period)
-        ///   4. Successful health removals still leave more than `MaxSubnets`
-        ///   5. Subnet has lowest `TotalSubnetDelegateStakeBalance` among all eligible active subnets
-        /// - **Reason**: `SubnetRemovalReason::MaxSubnets`
-        /// - **Rationale**: Network at capacity, least-supported subnet removed
-        /// - **Note**: At most one capacity subnet is removed per eligible pass. A successful
-        ///   health removal can make that eviction unnecessary.
-        ///
-        /// ## Epoch Preliminaries Removal Logic Summary
-        ///
-        /// ```text
-        /// For each subnet:
-        ///   IF state == Registered:
-        ///     IF in registration period → Skip (no checks)
-        ///     IF in enactment period:
-        ///       IF admitted_nodes < min → Remove (MinSubnetNodes)
-        ///     IF past enactment period → Remove (EnactmentPeriod)
-        ///   
-        ///   IF state == Active:
-        ///     IF delegate_stake < min AND is_dstake_epoch → Remove (MinSubnetDelegateStake)
-        ///     IF electable_nodes < min → Decrease reputation (NOT removed)
-        ///     IF reputation < min → Remove (MinReputation)
-        ///     IF initially_over_capacity AND is_removal_epoch AND can_remove → Track candidate
-        ///
-        /// IF successful health removals still leave current_count > MaxSubnets:
-        ///   Remove at most one tracked subnet with the lowest delegate stake (MaxSubnets)
-        /// ```
-        ///
-        /// # Post-Removal Actions Required
-        ///
-        /// After a subnet is removed, users must take action:
-        ///
-        /// 1. **Node Operators**: Call `remove_stake()` to unstake and reclaim funds
-        /// 2. **Delegate Stakers**: Call `remove_account_delegate_stake()` to reclaim delegate stake
-        /// 3. **Owner**: Can re-register subnet (must pay registration cost again)
-        ///
-        /// # Notes
-        ///
-        /// - Removal is **permanent** and **immediate** (no grace period)
-        /// - Removed subnet IDs are not reused
-        /// - Epoch slot is freed for assignment to new subnets
-        /// - Historical consensus data is preserved for analysis
-        /// - Total subnet count is decremented; active removals also decrement the active count
-        /// - Removal during registration period returns all registration costs (governance decision)
-        ///
+        /// Permanently detach a subnet with work independent of its node count and cleanup backlog.
+        /// Reusable identifiers, scheduling, authority and membership totals change immediately.
+        /// Configuration, node records and history are garbage-collected by `on_idle`.
+        /// Ownership and all financial positions survive for withdrawals and queued settlements.
         pub fn do_remove_subnet(subnet_id: u32, reason: SubnetRemovalReason) -> Weight {
-            let mut weight = Weight::zero();
-            let db_weight = T::DbWeight::get();
-
-            weight = weight.saturating_add(db_weight.reads(1));
-            let subnet = match SubnetsData::<T>::try_get(subnet_id) {
-                Ok(subnet) => subnet,
-                Err(()) => return weight,
+            let weight = T::WeightInfo::do_remove_subnet();
+            let Some(subnet) = SubnetsData::<T>::take(subnet_id) else {
+                // Repeated removals must not subtract counters or restart a partial cleanup.
+                return weight;
             };
-
-            // Remove unique name
             SubnetName::<T>::remove(&subnet.name);
             SubnetRepo::<T>::remove(&subnet.repo);
-            // Remove subnet data
-            SubnetsData::<T>::remove(subnet_id);
-
-            // Remove owner elements
             SubnetOwner::<T>::remove(subnet_id);
             PendingSubnetOwner::<T>::remove(subnet_id);
-
+            // `unpause` scans only pending registrations, bounded by live subnet capacity.
             SubnetRegistrationEpoch::<T>::remove(subnet_id);
-
-            // Subnet parameters
-            ChurnLimit::<T>::remove(subnet_id);
-            ChurnLimitMultiplier::<T>::remove(subnet_id);
-            SubnetNodeQueueEpochs::<T>::remove(subnet_id);
-            PendingSubnetNodeQueueEpochs::<T>::remove(subnet_id);
-
-            ProbationRounds::<T>::remove(subnet_id);
-            PendingProbationRounds::<T>::remove(subnet_id);
-            SubnetMinStakeBalance::<T>::remove(subnet_id);
-            SubnetMaxStakeBalance::<T>::remove(subnet_id);
-            SubnetDelegateStakeRewardsPercentage::<T>::remove(subnet_id);
-            PendingSubnetDelegateStakeRewardsPercentage::<T>::remove(subnet_id);
-            LastSubnetDelegateStakeRewardsUpdate::<T>::remove(subnet_id);
-            NodeRegistrationInitialValidatorIds::<T>::remove(subnet_id);
-            InitialValidatorData::<T>::remove(subnet_id);
-            MaxRegisteredNodes::<T>::remove(subnet_id);
-            TargetNodeRegistrationsPerEpoch::<T>::remove(subnet_id);
-            NodeBurnRateAlpha::<T>::remove(subnet_id);
-            CurrentNodeBurnRate::<T>::remove(subnet_id);
-            QueueImmunityEpochs::<T>::remove(subnet_id);
-            PendingQueueImmunityEpochs::<T>::remove(subnet_id);
-            ConsensusValidatorNodeCountDecay::<T>::remove(subnet_id);
-            PendingConsensusValidatorNodeCountDecay::<T>::remove(subnet_id);
-            LastConsensusValidatorNodeCountDecayUpdate::<T>::remove(subnet_id);
-            ConsensusValidatorStakeWeightPower::<T>::remove(subnet_id);
-            PendingConsensusValidatorStakeWeightPower::<T>::remove(subnet_id);
-            LastConsensusValidatorStakeWeightPowerUpdate::<T>::remove(subnet_id);
-            SubnetBootnodeAccess::<T>::remove(subnet_id);
-            SubnetBootnodes::<T>::remove(subnet_id);
-            SubnetReputation::<T>::remove(subnet_id);
-            MinSubnetNodeReputation::<T>::remove(subnet_id);
-            PendingMinSubnetNodeReputation::<T>::remove(subnet_id);
-            NodeRegistrationsThisEpoch::<T>::remove(subnet_id);
-            SubnetNodeMinWeightDecreaseReputationThreshold::<T>::remove(subnet_id);
-            PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::remove(subnet_id);
-            SubnetReputationFactorSchedules::<T>::remove(subnet_id);
-            SubnetNetFlows::<T>::remove(subnet_id);
-            SubnetDelegateStakeEmas::<T>::remove(subnet_id);
-            SubnetRewardCapacitor::<T>::remove(subnet_id);
-
             if let Some(friendly_uid) = SubnetIdFriendlyUid::<T>::take(subnet_id) {
                 FriendlyUidSubnetId::<T>::remove(friendly_uid);
-                weight = weight.saturating_add(T::DbWeight::get().writes(1));
             }
-
-            // The cleanup above removes 49 keyed values. `take` additionally reads and removes
-            // SubnetIdFriendlyUid; the reverse FriendlyUidSubnetId write remains conditional.
-            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 50));
-
-            // Remove from slot
             Self::free_slot_of_subnet(subnet_id);
-            // Add weight here of `free_slot_of_subnet`
-            // reads:
-            // AssignedSlots | SubnetSlot (`take`)
-            // writes:
-            // SubnetSlot | SlotAssignment | AssignedSlots
-            weight = weight.saturating_add(T::DbWeight::get().reads_writes(2, 3));
-
             if subnet.state != SubnetState::Registered {
-                // Decrement the active count when removing an activated subnet.
-                TotalActiveSubnets::<T>::mutate(|n: &mut u32| n.saturating_dec());
-                weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
+                TotalActiveSubnets::<T>::mutate(|n| n.saturating_dec());
             }
+            TotalSubnets::<T>::mutate(|n| n.saturating_dec());
 
-            TotalSubnets::<T>::mutate(|total| *total = total.saturating_sub(1));
-            weight = weight.saturating_add(T::DbWeight::get().reads_writes(1, 1));
+            let nodes = TotalSubnetNodes::<T>::take(subnet_id);
+            let admitted = TotalAdmittedSubnetNodes::<T>::take(subnet_id);
+            let electable = TotalSubnetElectableNodes::<T>::take(subnet_id);
+            TotalNodes::<T>::mutate(|n| n.saturating_reduce(nodes));
+            TotalAdmittedNodes::<T>::mutate(|n| n.saturating_reduce(admitted));
+            TotalElectableNodes::<T>::mutate(|n| n.saturating_reduce(electable));
 
-            // Clear the remaining subnet-keyed node and reverse-index state.
-            weight = weight.saturating_add(Self::clean_subnet_nodes(subnet_id));
-
-            // Per-epoch consensus history is cleared incrementally with leftover block weight.
-            weight = weight.saturating_add(Self::queue_removed_subnet_consensus_history(subnet_id));
-
-            Self::deposit_event(Event::SubnetDeactivated {
-                subnet_id: subnet_id,
-                reason: reason,
-            });
-
+            RemovedSubnetCleanupQueue::<T>::insert(
+                subnet_id,
+                RemovedSubnetCleanupStage::ChurnLimit,
+            );
+            Self::deposit_event(Event::SubnetDeactivated { subnet_id, reason });
             weight
-        }
-
-        /// Clear storage whose first key is the removed subnet ID.
-        ///
-        /// Validator-wide ownership/allocation maps and Overwatch-wide peer maps are deliberately
-        /// not scanned here. Validator cleanup runs when that validator next registers or
-        /// self-removes a node. `SubnetNodeValidatorId` and node stake remain so owners can
-        /// withdraw stake after subnet removal.
-        pub fn clean_subnet_nodes(subnet_id: u32) -> Weight {
-            // Residual records are not included in live-node counts. Drain and account for
-            // them separately before the ordinary bounded prefix clears.
-            let residual_weight = Self::cleanup_subnet_residual_metadata(subnet_id);
-            let mut weight_acc = WeightAccumulator::<T>::new();
-
-            let removed_subnet_nodes_data =
-                SubnetNodesData::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(removed_subnet_nodes_data.unique);
-
-            let queued_subnet_nodes_data_removed =
-                QueuedSubnetNodesData::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(queued_subnet_nodes_data_removed.unique);
-
-            let removed_metadata = SubnetNodeMetadata::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(removed_metadata.unique);
-
-            let total_nodes = TotalAdmittedSubnetNodes::<T>::take(subnet_id);
-            weight_acc.add_take();
-
-            TotalAdmittedNodes::<T>::mutate(|n: &mut u32| n.saturating_reduce(total_nodes));
-            weight_acc.add_mutate();
-
-            let total_subnet_nodes = TotalSubnetNodes::<T>::take(subnet_id);
-            weight_acc.add_take();
-
-            TotalNodes::<T>::mutate(|n: &mut u32| n.saturating_reduce(total_subnet_nodes));
-            weight_acc.add_mutate();
-
-            let _ = TotalSubnetNodeUids::<T>::remove(subnet_id);
-            weight_acc.add_remove();
-
-            let peer_id_subnet_node_id_removed =
-                PeerIdSubnetNodeId::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(peer_id_subnet_node_id_removed.unique);
-
-            let bootnode_peer_id_subnet_node_id_removed =
-                BootnodePeerIdSubnetNodeId::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(bootnode_peer_id_subnet_node_id_removed.unique);
-
-            let client_peer_id_subnet_node_id_removed =
-                ClientPeerIdSubnetNodeId::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(client_peer_id_subnet_node_id_removed.unique);
-
-            let bootnode_subnet_node_id_removed =
-                MultiaddrSubnetNodeId::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(bootnode_subnet_node_id_removed.unique);
-
-            let subnet_node_unique_param_removed =
-                UniqueParamSubnetNodeId::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(subnet_node_unique_param_removed.unique);
-
-            let subnet_node_is_hotkey_removed =
-                SubnetNodeIdHotkey::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(subnet_node_is_hotkey_removed.unique);
-
-            let subnet_node_reputations =
-                SubnetNodeReputation::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(subnet_node_reputations.unique);
-
-            let subnet_node_probation_progress_removed =
-                SubnetNodeProbationProgress::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(subnet_node_probation_progress_removed.unique);
-
-            let peer_id_overwatch_node_id_removed =
-                PeerIdOverwatchNodeId::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(peer_id_overwatch_node_id_removed.unique);
-
-            let node_slot_index_removed =
-                NodeElectionSlotIndex::<T>::clear_prefix(subnet_id, u32::MAX, None);
-            weight_acc.add_clear_prefix(node_slot_index_removed.unique);
-
-            let electable_nodes = SubnetNodeElectionSlots::<T>::take(subnet_id).len() as u32;
-            weight_acc.add_take();
-
-            let _ = SubnetNodeQueue::<T>::take(subnet_id);
-            weight_acc.add_take();
-
-            PendingAdmittedNodeRemovals::<T>::remove(subnet_id);
-            weight_acc.add_remove();
-
-            PendingQueuedNodeRemovals::<T>::remove(subnet_id);
-            weight_acc.add_remove();
-
-            TotalSubnetElectableNodes::<T>::remove(subnet_id);
-            weight_acc.add_remove();
-
-            // Sub total electable nodes network wide
-            TotalElectableNodes::<T>::mutate(|n| *n = n.saturating_sub(electable_nodes));
-            weight_acc.add_mutate();
-
-            let final_weight = weight_acc.finalize().saturating_add(residual_weight);
-            final_weight
         }
 
         pub fn do_remove_subnet_node(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
@@ -9972,7 +9572,9 @@ pub mod pallet {
         /// Queue admission preserves maturity/churn controls in the caller and respects quarantine.
         /// Increments admitted-population counters and emits SubnetNodeAdmitted.
         /// Returns false when the operation cannot be admitted or the lifecycle is invalid.
-        pub fn do_admit_subnet_node(
+        /// Registration or queue maintenance must first verify the subnet exists and supply its
+        /// current state. This keeps the liveness check outside the bounded admission loop.
+        pub(crate) fn do_admit_subnet_node(
             weight_meter: &mut WeightMeter,
             subnet_id: u32,
             subnet_state: SubnetState,
@@ -10336,7 +9938,7 @@ pub mod pallet {
                     weight_meter.consume(step_weight);
                     // The generated weight covers the scan and all non-removal checks. Passing
                     // the outer meter keeps every variable subnet removal separately guarded by
-                    // `do_remove_subnet(n)` before it mutates state.
+                    // `do_remove_subnet()` before it mutates state.
                     Self::do_epoch_preliminaries(&mut weight_meter, block, current_epoch);
                 }
             } else if let Some(settlement) = pending_overwatch_settlement

@@ -12,6 +12,7 @@ pub mod randomness;
 pub mod reputation;
 pub mod slot;
 pub mod subnet;
+pub mod subnet_cleanup;
 pub mod subnet_delegate_stake_ema;
 pub mod subnet_net_flow;
 pub mod subnet_node;

@@ -129,8 +129,10 @@ impl<T: Config> Pallet<T> {
 
         Self::ensure_node_stake_owner(&coldkey, subnet_id, subnet_node_id)?;
 
-        // Check whether the node is still registered as Queued, Probation, or Active.
-        let is_subnet_node = SubnetNodeReputation::<T>::contains_key(subnet_id, subnet_node_id);
+        // Residual reputation can outlive whole-subnet removal. Only live membership imposes
+        // a minimum; persistent ownership, principal and pending slash locks survive removal.
+        let is_subnet_node = Self::subnet_exists(subnet_id)
+            && SubnetNodeReputation::<T>::contains_key(subnet_id, subnet_node_id);
 
         let node_stake_balance: u128 = NodeSubnetStake::<T>::get(subnet_node_id, subnet_id);
 

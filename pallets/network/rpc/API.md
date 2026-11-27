@@ -19,10 +19,13 @@ absent. An explicitly present empty byte vector remains distinct from an absent 
 The raw `SubnetNodesData` and `QueuedSubnetNodesData` values now contain only `id`,
 `validator_id`, and `classification`, in that order. `SubnetNodeQueue` is an ordered vector of
 the same compact records. The metadata map uses `Identity` for both `u32` keys and `OptionQuery`.
-One entry survives the transition from Queued to Probation to Active; quarantine retains it and physical
-node removal deletes it. Whole-subnet removal clears the metadata prefix. Direct storage clients
-must join the new map with an existing operational record. Metadata alone does not establish
-that a node exists.
+One entry survives the transition from Queued to Probation to Active; quarantine retains it.
+Individual-node removal defers its deletion in `NodeMetadataCleanupQueue`. Whole-subnet removal
+immediately deletes `SubnetsData` and schedules all remaining operational and metadata records in
+`RemovedSubnetCleanupQueue`. RPCs hide removed-subnet nodes immediately, even before idle cleanup.
+Direct storage clients must verify the parent `SubnetsData` entry and join metadata with an existing
+operational node record. Residual node records alone do not establish live membership. The retained
+node-to-validator ownership and stake records continue to support withdrawals.
 
 Node metadata remains available in RPC and contract responses. `SubnetNodeRegistered`
 reports `subnet_id`, `subnet_node_id`, `validator_id`, `coldkey`, the optional `hotkey`

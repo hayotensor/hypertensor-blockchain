@@ -421,7 +421,8 @@ rounds supplement their normal allocation by `SubnetRewardCapacitorReleasePercen
 The supermajority-collective call `set_subnet_reward_capacitor_release_percentage(value)`
 sets a Q18 percentage from 0% to 100%, effective at the next settlement; zero disables releases.
 The supplement uses the round's reward split. Zero-score/zero-allocation rounds leave it stored;
-permanent subnet removal clears it. See [REWARDS.md](pallets/network/REWARDS.md).
+permanent subnet removal makes it unusable and schedules its deletion in `on_idle`.
+See [REWARDS.md](pallets/network/REWARDS.md).
 
 Global `Network.unpause` starts fresh consensus: proposals and attestations for rounds elected
 before or in the resume block are rejected immediately. Each assigned slot settles only the
@@ -442,12 +443,14 @@ before capacity-based subnet removal; the global removal-check cadence stays unc
 Repeated pause calls retain the original pause start; unpause while running adds no extension.
 Re-read registration anchors after resume.
 
-Consensus-history deletion runs only in `on_idle`, after financial retries and node-metadata
-cleanup. Live subnets retain at least 128 completed subnet epochs plus the current epoch.
-Pruning and removed-subnet cleanup rotate through persistent cursors with bounded work and
-execution-time/proof-size budgets. Removed subnets have individual cleanup records, so processing
-does not scan or decode the entire backlog. Retention is best effort: without idle block weight,
-history can accumulate beyond the retention window without delaying consensus.
+Consensus-history deletion runs only in `on_idle`, after financial retries and individual-node
+metadata cleanup. Live subnets retain at least 128 completed subnet epochs plus the current epoch.
+Live-history pruning alternates priority with removed-subnet cleanup. Each removed subnet has a
+compact `RemovedSubnetCleanupQueue` record that advances through configuration, node/index, and
+history stages. Cleanup selects one subnet in rotation and performs at most 256 single-key steps,
+reserving execution time, proof size, and progress persistence before deletion. Processing never
+scans the entire backlog or decodes node metadata. Retention and garbage collection are best
+effort: without idle weight, residual storage accumulates without delaying consensus or exits.
 
 Subnet reward allocation combines the delegate-balance EMA, elected-node count, and `net_flow`.
 The net-flow factor uses a signed EMA of external subnet-pool deposits minus withdrawals per
@@ -601,7 +604,7 @@ Read `StakeCooldownEpochs`, `DelegateStakeCooldownEpochs`, and
 `NodeDelegateStakeCooldownEpochs` for direct/beneficiary/Overwatch, subnet-pool,
 and validator-pool cooldowns, respectively; multiply by `EpochLength` for blocks.
 Network unbonding uses this ledger, not `Staking.withdraw_unbonded`.
-Some node operations first clear a pending-removal marker and return success
+Some node operations on a live subnet first clear a pending-removal marker and return success
 without applying the requested top-up/withdrawal/update. Re-read the node and
 position, then decide whether the intended operation is still appropriate.
 
@@ -612,8 +615,22 @@ reverse indexes, hotkey overrides, probation progress, and the removed node's `N
 wait in the bounded `NodeMetadataCleanupQueue` for `on_idle`; unique/peer/address values
 remain reserved until cleanup. A surviving node moved in the election list has its slot index
 updated immediately. A full queue falls back to synchronous residual cleanup.
-Whole-subnet deletion drains its residual entries with separately reserved weight. Deferred
-cleanup never changes stake, ownership, membership counts, or historical consensus rounds.
+Individual-node metadata cleanup never changes stake, ownership, membership counts, or historical
+consensus rounds.
+
+Whole-subnet removal immediately deletes `SubnetsData`, owner/registration records, name/repository
+and friendly-ID mappings, and slot assignments, and subtracts membership totals exactly once.
+It schedules configuration, all remaining node records/indexes, quarantine sets, and consensus
+history in `RemovedSubnetCleanupQueue`. Existing individual-node cleanup jobs remain independent.
+Residual records cannot authorize node updates, admission, election, settlement, or live node RPCs.
+New subnet IDs can reuse the freed name and slot while old cleanup is pending.
+
+Direct stake, node-to-validator ownership (including zero-balance positions), pool shares/balances/
+generations, unbondings, and queued financial operations survive both removal and cleanup. The
+validator's current coldkey can withdraw on the first call after subnet removal, even while node
+reputation and quarantine markers remain. The live-node minimum no longer applies; pending slash
+reservations and the ordinary unbonding cooldown still apply. Idle cleanup never changes balances
+or membership counters. Validator-wide ownership/allocation maps retain their bounded lazy repair.
 
 ### Transfer shares or swap pools
 

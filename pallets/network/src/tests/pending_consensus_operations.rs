@@ -389,7 +389,7 @@ fn pending_owner_rewards_survive_owner_changes_subnet_removal_and_history_cleanu
         for _ in 0..5 {
             idle(Weight::MAX);
         }
-        assert!(ConsensusHistoryCleanupQueue::<Test>::iter_keys()
+        assert!(RemovedSubnetCleanupQueue::<Test>::iter_keys()
             .next()
             .is_none());
         assert_eq!(

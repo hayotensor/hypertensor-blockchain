@@ -64,6 +64,7 @@ fn mandatory_reward_and_election_envelope_fits_the_hook_budget() {
 }
 
 fn seed_election_candidates(subnet_id: u32, candidates: &[u32]) {
+    super::test_utils::ensure_test_subnet(subnet_id);
     SubnetNodeElectionSlots::<Test>::insert(subnet_id, candidates.to_vec());
     for (index, node) in candidates.iter().enumerate() {
         crate::NodeElectionSlotIndex::<Test>::insert(subnet_id, node, index as u32);
@@ -826,6 +827,7 @@ fn queued_collective_and_whole_subnet_removals_clear_pending_markers() {
             RuntimeOrigin::from(pallet_collective::RawOrigin::Members(4, 5)),
             whole_subnet_id,
         ));
+        drain_removed_subnets();
         assert!(PendingAdmittedNodeRemovals::<Test>::get(whole_subnet_id).is_empty());
         assert!(PendingQueuedNodeRemovals::<Test>::get(whole_subnet_id).is_empty());
     });
@@ -860,6 +862,7 @@ fn pending_cleanup_obeys_the_exact_meter_boundary_and_subnet_scope() {
         let election_nodes = crate::TotalSubnetElectableNodes::<Test>::get(subnet_id);
         let marker_clear_weight = Network::pending_node_removal_marker_clear_weight();
         let exact_active_cleanup_weight = scan_weight
+            .saturating_add(<() as WeightInfo>::subnet_existence_check())
             .saturating_add(db_weight.reads(1))
             .saturating_add(selector_weight)
             .saturating_add(db_weight.reads(1))

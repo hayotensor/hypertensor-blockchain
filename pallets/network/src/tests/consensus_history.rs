@@ -4,8 +4,8 @@ use crate::utilities::consensus_history::{
     CONSENSUS_HISTORY_RETENTION_EPOCHS, MAX_PRUNED_CONSENSUS_EPOCHS_PER_IDLE,
 };
 use crate::{
-    ConsensusAttestorWeightSnapshot, ConsensusHistoryCleanupQueue, ConsensusHistoryPruneCursor,
-    ConsensusRoundSettlementStatus, ElectedConsensusRound, MinSubnetMinStake,
+    ConsensusAttestorWeightSnapshot, ConsensusHistoryPruneCursor, ConsensusRoundSettlementStatus,
+    ElectedConsensusRound, MinSubnetMinStake, RemovedSubnetCleanupQueue,
     SubnetConsensusAttestationData, SubnetConsensusAttestorWeights, SubnetConsensusProposalArgs,
     SubnetConsensusSubmissionMaxItems, SubnetElectedValidator, SubnetName, SubnetRemovalReason,
     ValidatorArgs,
@@ -299,8 +299,8 @@ fn subnet_removal_clears_all_consensus_history_with_idle_weight() {
 
         Network::do_remove_subnet(subnet_id, SubnetRemovalReason::Council);
         assert_eq!(
-            ConsensusHistoryCleanupQueue::<Test>::get(subnet_id),
-            Some(crate::ConsensusHistoryCleanupStage::Attestations),
+            RemovedSubnetCleanupQueue::<Test>::get(subnet_id),
+            Some(crate::RemovedSubnetCleanupStage::ChurnLimit),
         );
         assert!(ConsensusHistoryPruneCursor::<Test>::get(subnet_id).is_none());
 
@@ -309,7 +309,7 @@ fn subnet_removal_clears_all_consensus_history_with_idle_weight() {
             Network::on_idle(System::block_number(), Weight::MAX);
         }
 
-        assert!(ConsensusHistoryCleanupQueue::<Test>::iter_keys()
+        assert!(RemovedSubnetCleanupQueue::<Test>::iter_keys()
             .next()
             .is_none());
         assert!(SubnetElectedValidator::<Test>::iter_prefix(subnet_id)
@@ -490,13 +490,19 @@ fn idle_pruning_rotates_subnets_and_uses_each_subnets_slot_epoch() {
 
 #[test]
 fn removed_history_deletes_a_bounded_batch_and_rotates_large_backlogs() {
-    use crate::utilities::consensus_history::MAX_REMOVED_HISTORY_STEPS_PER_IDLE;
+    use crate::utilities::subnet_cleanup::MAX_REMOVED_SUBNET_STEPS_PER_IDLE;
     for commit in [false, true] {
         let mut ext = new_test_ext();
-        let entries = MAX_REMOVED_HISTORY_STEPS_PER_IDLE + 10;
+        let entries = MAX_REMOVED_SUBNET_STEPS_PER_IDLE + 10;
         ext.execute_with(|| {
-            Network::queue_removed_subnet_consensus_history(41);
-            Network::queue_removed_subnet_consensus_history(42);
+            RemovedSubnetCleanupQueue::<Test>::insert(
+                41,
+                crate::RemovedSubnetCleanupStage::Attestations,
+            );
+            RemovedSubnetCleanupQueue::<Test>::insert(
+                42,
+                crate::RemovedSubnetCleanupStage::Attestations,
+            );
             for node in 0..entries {
                 SubnetConsensusAttestationData::<Test>::insert((41, 0, node), payload(1));
             }
@@ -507,21 +513,21 @@ fn removed_history_deletes_a_bounded_batch_and_rotates_large_backlogs() {
             ext.commit_all().unwrap();
         }
         ext.execute_with(|| {
-            Network::cleanup_removed_subnet_consensus_history(&mut WeightMeter::new());
+            Network::cleanup_removed_subnets(&mut WeightMeter::new());
             assert_eq!(
                 SubnetConsensusAttestationData::<Test>::iter_key_prefix((41,)).count(),
-                (entries - MAX_REMOVED_HISTORY_STEPS_PER_IDLE) as usize,
+                (entries - MAX_REMOVED_SUBNET_STEPS_PER_IDLE) as usize,
             );
-            assert!(ConsensusHistoryCleanupQueue::<Test>::contains_key(41));
+            assert!(RemovedSubnetCleanupQueue::<Test>::contains_key(41));
 
             // A large first subnet cannot monopolize subsequent idle passes.
-            Network::cleanup_removed_subnet_consensus_history(&mut WeightMeter::new());
+            Network::cleanup_removed_subnets(&mut WeightMeter::new());
             assert!(round_fully_absent(42, 0));
-            assert!(!ConsensusHistoryCleanupQueue::<Test>::contains_key(42));
-            assert!(ConsensusHistoryCleanupQueue::<Test>::contains_key(41));
-            Network::cleanup_removed_subnet_consensus_history(&mut WeightMeter::new());
+            assert!(!RemovedSubnetCleanupQueue::<Test>::contains_key(42));
+            assert!(RemovedSubnetCleanupQueue::<Test>::contains_key(41));
+            Network::cleanup_removed_subnets(&mut WeightMeter::new());
             assert!(round_fully_absent(41, 0));
-            assert!(ConsensusHistoryCleanupQueue::<Test>::iter_keys()
+            assert!(RemovedSubnetCleanupQueue::<Test>::iter_keys()
                 .next()
                 .is_none());
             assert!(round_fully_present(43, 0));
@@ -531,7 +537,7 @@ fn removed_history_deletes_a_bounded_batch_and_rotates_large_backlogs() {
 
 #[test]
 fn removed_history_respects_both_weight_limits_and_resumes_partial_prefix_cleanup() {
-    use crate::ConsensusHistoryCleanupStage;
+    use crate::RemovedSubnetCleanupStage;
     use frame_support::weights::RuntimeDbWeight;
     struct RestoreDbWeight(RuntimeDbWeight);
     impl Drop for RestoreDbWeight {
@@ -542,11 +548,15 @@ fn removed_history_respects_both_weight_limits_and_resumes_partial_prefix_cleanu
     new_test_ext().execute_with(|| {
         let _restore = RestoreDbWeight(TestDbWeight::get());
         TestDbWeight::set(RuntimeDbWeight { read: 1, write: 2 });
-        Network::queue_removed_subnet_consensus_history(41);
+        RemovedSubnetCleanupQueue::<Test>::insert(
+            41,
+            crate::RemovedSubnetCleanupStage::Attestations,
+        );
         SubnetConsensusAttestationData::<Test>::insert((41, 0, 1), payload(1));
-        let selector = Network::history_idle_selector_weight();
-        let step = Network::removed_history_step_weight(ConsensusHistoryCleanupStage::Attestations);
-        let progress = Network::removed_history_progress_weight();
+        let selector = <() as crate::weights::WeightInfo>::removed_subnet_cleanup_selector();
+        let step =
+            Network::removed_subnet_cleanup_step_weight(RemovedSubnetCleanupStage::Attestations);
+        let progress = <() as crate::weights::WeightInfo>::removed_subnet_cleanup_progress();
         let exact = selector.saturating_add(step).saturating_add(progress);
         for limit in [
             Weight::zero(),
@@ -555,19 +565,19 @@ fn removed_history_respects_both_weight_limits_and_resumes_partial_prefix_cleanu
             exact.saturating_sub(Weight::from_parts(0, 1)),
         ] {
             let mut meter = WeightMeter::with_limit(limit);
-            Network::cleanup_removed_subnet_consensus_history(&mut meter);
+            Network::cleanup_removed_subnets(&mut meter);
             assert!(meter.consumed().all_lte(limit));
             assert!(SubnetConsensusAttestationData::<Test>::contains_key((
                 41, 0, 1
             )));
             assert_eq!(
-                ConsensusHistoryCleanupQueue::<Test>::get(41),
-                Some(ConsensusHistoryCleanupStage::Attestations)
+                RemovedSubnetCleanupQueue::<Test>::get(41),
+                Some(RemovedSubnetCleanupStage::Attestations)
             );
         }
 
         let mut meter = WeightMeter::with_limit(exact);
-        Network::cleanup_removed_subnet_consensus_history(&mut meter);
+        Network::cleanup_removed_subnets(&mut meter);
         assert!(!SubnetConsensusAttestationData::<Test>::contains_key((
             41, 0, 1
         )));
@@ -575,13 +585,13 @@ fn removed_history_respects_both_weight_limits_and_resumes_partial_prefix_cleanu
 
         // The next small allowance advances just the prefix stage and saves it for later.
         let mut meter = WeightMeter::with_limit(exact);
-        Network::cleanup_removed_subnet_consensus_history(&mut meter);
+        Network::cleanup_removed_subnets(&mut meter);
         assert_eq!(meter.consumed(), exact);
         assert_eq!(
-            ConsensusHistoryCleanupQueue::<Test>::get(41),
-            Some(ConsensusHistoryCleanupStage::Submissions)
+            RemovedSubnetCleanupQueue::<Test>::get(41),
+            Some(RemovedSubnetCleanupStage::Submissions)
         );
-        Network::cleanup_removed_subnet_consensus_history(&mut WeightMeter::new());
-        assert!(!ConsensusHistoryCleanupQueue::<Test>::contains_key(41));
+        Network::cleanup_removed_subnets(&mut WeightMeter::new());
+        assert!(!RemovedSubnetCleanupQueue::<Test>::contains_key(41));
     });
 }

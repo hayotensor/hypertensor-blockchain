@@ -308,6 +308,13 @@ mod benchmarks {
 
     #[benchmark]
     fn node_read() {
+        n::SubnetsData::<T>::insert(
+            1,
+            n::SubnetData {
+                id: 1,
+                ..Default::default()
+            },
+        );
         let coldkey = AccountId32::new([7; 32]);
         let hotkey = AccountId32::new([8; 32]);
         fund_validator_registration::<T>(&coldkey);

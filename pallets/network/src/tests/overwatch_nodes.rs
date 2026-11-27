@@ -1953,9 +1953,8 @@ fn overwatch_peer_index_prunes_removed_subnet_on_next_peer_update() {
 
         Network::do_remove_subnet(removed_subnet_id, SubnetRemovalReason::Owner);
 
-        // Subnet removal immediately clears its subnet-keyed reverse index, but deliberately
-        // leaves the owner-local forward index untouched.
-        assert!(!PeerIdOverwatchNodeId::<Test>::contains_key(
+        // Residual reverse and owner-local indexes survive removal, but live RPC filters them.
+        assert!(PeerIdOverwatchNodeId::<Test>::contains_key(
             removed_subnet_id,
             &removed_subnet_peer,
         ));

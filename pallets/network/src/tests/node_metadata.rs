@@ -494,6 +494,9 @@ fn whole_subnet_removal_clears_active_and_queued_metadata_and_indexes() {
         let stake = NodeSubnetStake::<Test>::get(node, subnet);
         let validator = SubnetNodeValidatorId::<Test>::get(subnet, node);
         Network::do_remove_subnet(subnet, SubnetRemovalReason::MinReputation);
+        assert!(SubnetNodeMetadata::<Test>::contains_key(subnet, node));
+        assert!(Network::get_subnet_node_info(subnet, node).is_none());
+        drain_removed_subnets();
         assert_eq!(SubnetNodeMetadata::<Test>::iter_prefix(subnet).count(), 0);
         assert_indexes(subnet, node, &m, false);
         assert_eq!(NodeSubnetStake::<Test>::get(node, subnet), stake);
@@ -522,11 +525,8 @@ fn metadata_updates_reject_removed_nodes_with_retained_ownership() {
                     Network::get_subnet_node_associated_coldkey(subnet, node).unwrap(),
                     coldkey
                 );
-                assert_eq!(
-                    SubnetNodeMetadata::<Test>::contains_key(subnet, node),
-                    !remove_whole_subnet
-                );
-                assert_indexes(subnet, node, &metadata, !remove_whole_subnet);
+                assert_eq!(SubnetNodeMetadata::<Test>::contains_key(subnet, node), true);
+                assert_indexes(subnet, node, &metadata, true);
 
                 // Both setting and clearing metadata must reject historical node IDs,
                 // without recreating metadata/reverse indexes or emitting update events.
@@ -538,7 +538,11 @@ fn metadata_updates_reject_removed_nodes_with_retained_ownership() {
                             node,
                             m.peer_info
                         ),
-                        Error::<Test>::InvalidSubnetNodeId
+                        if remove_whole_subnet {
+                            Error::<Test>::InvalidSubnetId
+                        } else {
+                            Error::<Test>::InvalidSubnetNodeId
+                        }
                     );
                     assert_noop!(
                         Network::update_node_bootnode_peer_info(
@@ -547,7 +551,11 @@ fn metadata_updates_reject_removed_nodes_with_retained_ownership() {
                             node,
                             m.bootnode_peer_info
                         ),
-                        Error::<Test>::InvalidSubnetNodeId
+                        if remove_whole_subnet {
+                            Error::<Test>::InvalidSubnetId
+                        } else {
+                            Error::<Test>::InvalidSubnetNodeId
+                        }
                     );
                     assert_noop!(
                         Network::update_node_client_peer_info(
@@ -556,7 +564,11 @@ fn metadata_updates_reject_removed_nodes_with_retained_ownership() {
                             node,
                             m.client_peer_info
                         ),
-                        Error::<Test>::InvalidSubnetNodeId
+                        if remove_whole_subnet {
+                            Error::<Test>::InvalidSubnetId
+                        } else {
+                            Error::<Test>::InvalidSubnetNodeId
+                        }
                     );
                     assert_noop!(
                         Network::update_node_unique(
@@ -565,7 +577,11 @@ fn metadata_updates_reject_removed_nodes_with_retained_ownership() {
                             node,
                             m.unique
                         ),
-                        Error::<Test>::InvalidSubnetNodeId
+                        if remove_whole_subnet {
+                            Error::<Test>::InvalidSubnetId
+                        } else {
+                            Error::<Test>::InvalidSubnetNodeId
+                        }
                     );
                     assert_noop!(
                         Network::update_node_non_unique(
@@ -574,7 +590,11 @@ fn metadata_updates_reject_removed_nodes_with_retained_ownership() {
                             node,
                             m.non_unique
                         ),
-                        Error::<Test>::InvalidSubnetNodeId
+                        if remove_whole_subnet {
+                            Error::<Test>::InvalidSubnetId
+                        } else {
+                            Error::<Test>::InvalidSubnetNodeId
+                        }
                     );
                 }
             });
@@ -682,6 +702,7 @@ fn hotkey_residuals_are_tracked_during_queued_node_churn() {
             ),
             SubnetRemovalOutcome::Removed
         ));
+        drain_removed_subnets();
         assert_eq!(SubnetNodeIdHotkey::<Test>::iter_prefix(subnet).count(), 0);
     });
 }
@@ -737,7 +758,7 @@ fn hotkey_updates_cannot_recreate_entries_after_subnet_removal() {
     new_test_ext().execute_with(|| {
         let (subnet, node, coldkey) = fixture(true);
         Network::do_remove_subnet(subnet, SubnetRemovalReason::MinReputation);
-        assert_eq!(SubnetNodeIdHotkey::<Test>::iter_prefix(subnet).count(), 0);
+
         assert_noop!(
             Network::update_node_hotkey(
                 RuntimeOrigin::signed(coldkey),
@@ -745,7 +766,7 @@ fn hotkey_updates_cannot_recreate_entries_after_subnet_removal() {
                 node,
                 Some(account(900_002))
             ),
-            Error::<Test>::InvalidSubnetNodeId
+            Error::<Test>::InvalidSubnetId
         );
     });
 }
@@ -1085,7 +1106,7 @@ fn full_metadata_cleanup_queue_does_not_block_removal_or_unstaking() {
 }
 
 #[test]
-fn subnet_removal_drains_only_its_residual_metadata_without_double_counting() {
+fn subnet_removal_defers_residual_metadata_without_double_counting() {
     new_test_ext().execute_with(|| {
         let (subnet, node, coldkey) = fixture(false);
         let metadata = maximum(42);
@@ -1096,12 +1117,8 @@ fn subnet_removal_drains_only_its_residual_metadata_without_double_counting() {
             node,
             Some(account(900_002))
         ));
-        let before = Network::subnet_residual_metadata_cleanup_weight(subnet);
-        Network::perform_remove_subnet_node(subnet, node);
-        assert_eq!(
-            Network::subnet_residual_metadata_cleanup_weight(subnet),
-            before.saturating_add(Network::node_metadata_cleanup_item_weight())
-        );
+        assert_ok!(Network::perform_remove_subnet_node(subnet, node));
+        assert!(NodeMetadataCleanupQueue::<Test>::get().contains(&(subnet, node)));
         NodeMetadataCleanupQueue::<Test>::mutate(|q| q.try_push((u32::MAX, 1)).unwrap());
         SubnetNodeMetadata::<Test>::insert(u32::MAX, 1, maximum(43));
         SubnetNodeIdHotkey::<Test>::insert(u32::MAX, 1, account(900_003));
@@ -1109,7 +1126,7 @@ fn subnet_removal_drains_only_its_residual_metadata_without_double_counting() {
         Network::do_remove_subnet(subnet, SubnetRemovalReason::Owner);
         assert_eq!(
             NodeMetadataCleanupQueue::<Test>::get().as_slice(),
-            &[(u32::MAX, 1)]
+            &[(subnet, node), (u32::MAX, 1)]
         );
         assert!(SubnetNodeMetadata::<Test>::contains_key(u32::MAX, 1));
         assert!(SubnetNodeIdHotkey::<Test>::contains_key(u32::MAX, 1));
@@ -1117,6 +1134,7 @@ fn subnet_removal_drains_only_its_residual_metadata_without_double_counting() {
             u32::MAX,
             1
         ));
+        drain_removed_subnets();
         assert!(!SubnetNodeMetadata::<Test>::contains_key(subnet, node));
         assert!(!SubnetNodeIdHotkey::<Test>::contains_key(subnet, node));
         assert!(!NodeElectionSlotIndex::<Test>::contains_key(subnet, node));

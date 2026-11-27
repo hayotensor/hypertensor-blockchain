@@ -1218,6 +1218,7 @@ pub fn insert_subnet_node(
     class: SubnetNodeClass,
     start_epoch: u32,
 ) {
+    ensure_test_subnet(subnet_id);
     TotalSubnetNodeUids::<Test>::mutate(subnet_id, |n: &mut u32| *n += 1);
     let subnet_node_id = TotalSubnetNodeUids::<Test>::get(subnet_id);
 
@@ -2554,4 +2555,32 @@ pub fn prepare_overwatch_validator(validator_id: u32) {
         CurrentOverwatchEpoch::<Test>::put(1);
     }
     OverwatchEpochStartBlock::<Test>::put(System::block_number());
+}
+
+/// Complete only removed-subnet garbage collection; unrelated individual-node jobs are untouched.
+pub fn drain_removed_subnets() {
+    for _ in 0..10_000 {
+        if crate::RemovedSubnetCleanupQueue::<Test>::iter_keys()
+            .next()
+            .is_none()
+        {
+            return;
+        }
+        Network::cleanup_removed_subnets(&mut WeightMeter::new());
+    }
+    panic!("removed-subnet cleanup did not converge");
+}
+
+/// Minimal live parent for unit fixtures that construct operational nodes without registration.
+pub fn ensure_test_subnet(subnet_id: u32) {
+    SubnetsData::<Test>::mutate_exists(subnet_id, |subnet| {
+        if subnet.is_none() {
+            *subnet = Some(SubnetData {
+                id: subnet_id,
+                state: SubnetState::Active,
+                consensus_eligible_from_subnet_epoch: Some(0),
+                ..Default::default()
+            });
+        }
+    });
 }

@@ -459,6 +459,7 @@ impl<T: Config> Pallet<T> {
             (with_enqueue, with_enqueue.saturating_sub(without_enqueue))
         };
         let settlement = settlement_branch
+            .saturating_add(T::WeightInfo::subnet_existence_check().saturating_mul(2))
             .saturating_add(T::WeightInfo::consensus_settlement_recovery())
             .saturating_add(T::DbWeight::get().reads_writes(3, 3))
             .saturating_add(Self::pending_subnet_node_removal_proof_weight());
@@ -561,8 +562,10 @@ impl<T: Config> Pallet<T> {
     ) -> Weight {
         let db_weight = T::DbWeight::get();
 
-        // We know the subnet exists because to call this function `SlotAssignment` must exist
-        // for the given subnet_id called in `on_initialize` on this block step.
+        let existence = T::WeightInfo::subnet_existence_check();
+        if weight_meter.try_consume(existence).is_err() || !Self::subnet_exists(subnet_id) {
+            return Weight::zero();
+        }
 
         // Each slot processes only its preceding epoch. Old unfinished rounds never become a
         // retry backlog and cannot hold up election of the current round.
@@ -708,6 +711,7 @@ impl<T: Config> Pallet<T> {
                     .saturating_sub(TotalAdmittedSubnetNodes::<T>::get(subnet_id))
                     .clamp(1, T::MaxRegisteredNodesUpperBound::get());
                 let maintenance_weight = T::WeightInfo::emission_step_queue(queued_nodes)
+                    .saturating_add(T::WeightInfo::subnet_existence_check())
                     // Queue admission checks the bounded pending set once per candidate.
                     // Compose that new scan until the queue benchmark is regenerated.
                     .saturating_add(
@@ -738,6 +742,13 @@ impl<T: Config> Pallet<T> {
     /// are considered first, then queued nodes. A marker remains durable whenever its complete
     /// selector/removal/write path does not fit, so the next assigned subnet slot can retry it.
     pub fn cleanup_pending_node_removals(weight_meter: &mut WeightMeter, subnet_id: u32) {
+        if weight_meter
+            .try_consume(T::WeightInfo::subnet_existence_check())
+            .is_err()
+            || !Self::subnet_exists(subnet_id)
+        {
+            return;
+        }
         Self::cleanup_pending_admitted_node_removals(weight_meter, subnet_id);
         Self::cleanup_pending_queued_node_removals(weight_meter, subnet_id);
     }
@@ -867,6 +878,13 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         current_subnet_epoch: u32,
     ) {
+        if weight_meter
+            .try_consume(T::WeightInfo::subnet_existence_check())
+            .is_err()
+            || !Self::subnet_exists(subnet_id)
+        {
+            return;
+        }
         let db_weight = T::DbWeight::get();
 
         // Seven existing reads plus four queue-clock reads (including both slot lookups).

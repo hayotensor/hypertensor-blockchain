@@ -91,39 +91,4 @@ impl<T: Config> Pallet<T> {
             }
         }
     }
-
-    /// Whole-subnet removal also clears residual metadata. Charge it independently from the
-    /// live-node counters that bound the ordinary subnet prefix cleanup. The extra queue envelope
-    /// covers selecting this weight, in addition to the queue scan/write during execution.
-    pub fn subnet_residual_metadata_cleanup_weight(subnet_id: u32) -> Weight {
-        let count = NodeMetadataCleanupQueue::<T>::get()
-            .iter()
-            .filter(|(id, _)| *id == subnet_id)
-            .count() as u64;
-        Self::node_metadata_cleanup_queue_weight()
-            .saturating_mul(2)
-            .saturating_add(Self::node_metadata_cleanup_item_weight().saturating_mul(count))
-    }
-
-    pub(crate) fn cleanup_subnet_residual_metadata(subnet_id: u32) -> Weight {
-        let mut queue = NodeMetadataCleanupQueue::<T>::get();
-        let mut removed = 0u64;
-        queue.retain(|&(id, node_id)| {
-            if id != subnet_id {
-                return true;
-            }
-            Self::remove_node_residuals(id, node_id);
-            removed += 1;
-            false
-        });
-        if removed != 0 {
-            if queue.is_empty() {
-                NodeMetadataCleanupQueue::<T>::kill();
-            } else {
-                NodeMetadataCleanupQueue::<T>::put(queue);
-            }
-        }
-        Self::node_metadata_cleanup_queue_weight()
-            .saturating_add(Self::node_metadata_cleanup_item_weight().saturating_mul(removed))
-    }
 }

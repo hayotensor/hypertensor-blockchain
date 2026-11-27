@@ -97,6 +97,8 @@ fn validator_election_snapshots_policy_against_later_governance_changes() {
         let elected_subnet_reputation_decrease = Network::percent_div(11, 100);
         let elected_min_weight_threshold = Network::percent_div(12, 100);
 
+        super::test_utils::ensure_test_subnet(subnet_id);
+
         SubnetNodeElectionSlots::<Test>::insert(subnet_id, vec![subnet_node_id]);
         SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
         BaseSlashPercentage::<Test>::put(elected_slash_percentage);
@@ -161,6 +163,8 @@ fn validator_election_snapshots_collective_identity_attestation_percentage() {
         let validator_id = 20;
         let old_value = Network::percent_div(1, 2);
         let pending_value = Network::percent_div(3, 4);
+
+        super::test_utils::ensure_test_subnet(subnet_id);
 
         SubnetNodeElectionSlots::<Test>::insert(subnet_id, vec![subnet_node_id]);
         SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);

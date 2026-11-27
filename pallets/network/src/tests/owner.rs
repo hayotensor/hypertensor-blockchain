@@ -2149,6 +2149,7 @@ fn test_remove_subnet_clears_pending_delegate_stake_percentage_update() {
         assert!(PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id).is_some());
 
         Network::do_remove_subnet(subnet_id, SubnetRemovalReason::Owner);
+        super::test_utils::drain_removed_subnets();
         assert!(PendingSubnetDelegateStakeRewardsPercentage::<Test>::get(subnet_id).is_none());
     });
 }

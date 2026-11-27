@@ -2,6 +2,70 @@
 
 Date: 2026-08-30
 
+## Deferred subnet configuration and node cleanup (2026-11-26)
+
+`do_remove_subnet` now has one fixed reservation. It takes `SubnetsData`, clears reusable
+name/repository/friendly-ID and slot mappings plus authority/registration records, subtracts scalar
+membership totals once, and enqueues a compact `RemovedSubnetCleanupQueue` job. Repeated removal
+cannot reset cleanup progress or subtract counters again. No node count, initial-validator map,
+node metadata, pending-removal set, or global cleanup queue is decoded to select removal weight.
+
+The removed-subnet worker has 63 stages: 43 singleton deletions, 13 node/index prefixes, and seven
+consensus-history prefixes. A step removes one key or probes one empty prefix. Values are never
+decoded. Selection rotates individual jobs in storage-key order, with at most 256 steps per pass.
+Every step reserves execution time, proof size, and progress persistence before touching storage.
+A local raw-key cursor advances within a pass; persisted stage plus remaining keys resume later.
+Financial retries and individual-node metadata jobs run first; live-history pruning and whole-subnet
+cleanup alternate priority. Existing metadata jobs safely overlap whole-subnet cleanup.
+
+Ownership and all financial state stay out of garbage collection, including zero-balance node
+ownership, pool generations, unbondings, queued payments, and slash reservations. Withdrawals use
+the current validator coldkey. Only a live subnet can impose a node minimum or intercept a call
+for quarantine cleanup. Election, queue maintenance, settlement, node mutation, and live node RPCs
+check the parent subnet; existing helper costs compose the measured liveness read. The contract
+node read envelope includes its additional parent read. Raw admission/removal/promotion helpers
+are internal and require the enclosing live-subnet check, keeping it outside per-node loops.
+
+Measurements use pinned CLI 60.0.0, compiled Wasm, 20 repeats, proof recording, and verification.
+Fixed removal fixtures fill the 512 admitted / 64 queued node ceilings, maximum subnet metadata,
+and all physical slots. Activation separately measures successful activation and removal; its
+weight uses their componentwise maximum. Epoch preliminaries sample every production subnet count
+from zero to 16. Each of the 63 stages has populated and empty measurements (20 execution samples
+and one storage sample per case). Heterogeneous stages are never fitted to an affine `s` model:
+the merger installs their individual maxima with 10% plus 1 microsecond execution margin, a
+4 KiB trie allowance, and at least two reads plus one write. Progress persistence has its own
+measured weight and an additional trie/dispatch allowance. Incomplete stage data is rejected.
+
+```bash
+bash .maintain/benchmark-subnet-cleanup.sh /tmp/network-subnet-cleanup-benchmarks
+python3 .maintain/merge-subnet-cleanup-weights.py /tmp/network-subnet-cleanup-benchmarks
+PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s .maintain/tests \
+  -p 'test_subnet_cleanup_weights.py'
+```
+
+The verified benchmark runtime SHA-256 is
+`2e7266421604a4f5a36c0808237d35b8ece4628e5a46095ce3a851cd5f61bf85`.
+Immediate removal performs **16 reads and 22 writes**, independent of node population and cleanup
+backlog. Its production RocksDB reservation is **3.013019 ms and 346,868 proof bytes**. Owner and
+collective removal reserve 3.094372 ms / 347,035 bytes and 3.137585 ms / 346,831 bytes respectively.
+The largest individual cleanup-stage reservation is 0.3296323 ms / 5,317 bytes, before the separate
+selector/progress costs. These are charged weights from the measured models, not end-to-end block
+timings. All 3,171 recorded timing/storage samples fit their installed time and proof envelopes.
+
+The benchmark-enabled pallet suite passed 1,272 tests (one existing ignored test). After installing
+the final measurements, all 15 focused cleanup/benchmark checks passed. Four merger tests verify
+per-stage coverage, rejection of missing samples, preservation of unrelated models, and enum order.
+The final runtime checks passed: 17 production tests, 24 Revive contract tests (including first-call
+withdrawal before/after cleanup and precompile benchmark fixtures), the runtime integrity check,
+and six precompile ABI/coverage tests. The broader Python tooling suite still has an existing
+`test_node_metadata_weights` assertion expecting four manual allowances; the unchanged baseline
+already contains eight. The focused cleanup merger suite passes independently.
+
+The runner records the source archive/diff, runtime hash, raw samples, and generated fixed models.
+The per-stage table and both fixed-model implementations are installed together. Idle storage
+reclamation remains best effort; a busy chain can retain residual records indefinitely without
+blocking exits or allowing removed subnets to resume consensus.
+
 ## Batched consensus failures and hook refunds (2026-11-24)
 
 Reward settlement collects failed operations in memory, then appends the original individual
@@ -288,12 +352,12 @@ whitelist rotation from growing a removal proof outside the generated domain.
 | `reveal_overwatch_subnet_weights` | `x = 1..17` new reveal records | Reads `x` maximum-length committed hashes/salts and rewrites one bounded reveal row. `ActiveOverwatchRevealStats` and all other reveal rows start at the largest reachable subnet/record pre-state while leaving exactly the measured entries absent. | Correct after update. The salt, row, and aggregate proof sizes are bounded and maximized, and validation completes before either aggregate or row storage is written. |
 | `set_validator_node_delegate_stake_weights` | `x = 1..512` validator-owned nodes and exact update entries | `TotalValidatorNodes` selects `x`; `ValidatorSubnetNodes` is populated across the largest reachable outer-map domain, and both the old and replacement `ValidatorNodeDelegateStakeWeights` maps contain `x` normalized entries. | Correct after update. Runtime requires a complete, duplicate-free, exact allocation, matching the benchmark. |
 | `elect_validator` | `x = 3..512` physical candidates | Max-fills the physical election-slot vector. Both bounded pending sets are loaded once; candidate filtering and the circular successor scan are then in memory. | Hook admission reserves the election model with the maximum pending-set scans. |
-| `do_remove_subnet` | `a = 1..512` admitted nodes, `r = 1..64` queued nodes, `o = 1..64` subnet-local Overwatch peer entries; fixed initial-validator cleanup component | Measures all subnet-keyed `clear_prefix` operations and scalar/index updates. It does not scan validator-wide ownership/allocation maps or the global Overwatch forward index. Maximum bootnodes, bootnode access, slot assignments, and initial-validator maps are represented. | Correct after update. Validator indexes are repaired by a separately benchmarked owner-local cleaner using a fixed 512-node worst case; Overwatch forward entries are repaired by the affected node's peer update (bounded by 17 physical subnets). `NodeRegistrationInitialValidatorIds`/`InitialValidatorData` cleanup remains a fixed maximum component because those lifecycle values are not independent of `a/r`. |
+| `do_remove_subnet` | Fixed immediate removal | Takes the maximum-size subnet record, frees reusable mappings and the bounded physical-slot set, removes authority/registration records, subtracts scalar membership counts, and enqueues a compact cleanup job. No node/metadata prefixes or initial-validator maps are read or deleted. | Replaced by the November deferred-cleanup measurements above. Validator-wide indexes retain their separately benchmarked owner-local repair. |
 | `remove_admitted_subnet_node` | `n = 1..512` total nodes owned by the validator; small and large `e` election-state regions plus dispatch wrappers | Max-fills `ValidatorSubnetNodes`, `ValidatorNodeDelegateStakeWeights`, node/index records, and election slots. A separate `SubnetNodeValidatorId` selector is charged before the branch model. | Correct after update. Models no longer use outer-subnet count and same-subnet count as incomplete proxies for total encoded ownership. |
 | `remove_queued_subnet_node` | `n = 1..512` total validator ownership and `r = 1..64` queued entries; dispatch wrapper included | Covers queue decode/rewrite, queued node value, ownership and allocation maps, scalar counters, and indexes. | Correct after update. Runtime selector values are maintained on registration and all removal paths. |
 | `handle_subnet_emission_weights` | `x = 1..17` eligible subnet rounds plus an empty branch | Iterates subnet keys, reads every elected round, and uses maximum 512-entry eligible node/identity collections so `contains_key` proofs are measured at the reachable encoded maximum. Both branches independently seed a valid 17-key effective Overwatch cache, including raw keys for subnets no longer live. | Correct after update. Empty live state has its own fixed benchmark without assuming an empty latest-only cache. |
 | `execute_ready_swap_calls` | Queue `q = 1..1000`; homogeneous ready prefixes `x = 1..1000`; three mixed vertices `x = 3..1000` | Separates `SwapQueueOrder` decode/rewrite from per-call work. Validator and subnet destinations use max-filled metadata; refunds use maximum unbonding ledgers. Mixed validator-, subnet-, and refund-dominant fixtures include the union of all branch proofs. Public swap benchmarks enqueue into a queue at `MaxSwapQueueLength - 1`. | Correct after update. Hook binary search and final consumption use the same homogeneous/mixed envelope, including the 1,000-call boundary. Existing-destination credit rejection followed by an exact refund is covered by adding one complete refund model per admitted call. |
-| `do_epoch_preliminaries` | `x = 0..17` physical subnet records | Uses maximum `SubnetsData` values, captures the six-component locked-TVL base once on delegate-stake removal epochs, and includes the compact removal selectors read for each subnet before any variable cleanup is admitted. Actual removal is composed through `try_do_remove_subnet`. | Correct and conservative. Every subnet in one pass uses the same funding base. Selector reads are also reserved by the removal helper, producing safe double reservation when removal occurs. |
+| `do_epoch_preliminaries` | `x = 0..16` production physical subnet records | Uses maximum `SubnetsData` values and the shared funding threshold. Actual removal is admitted separately through the fixed `try_do_remove_subnet` reservation. | Regenerated without the former node-count removal selectors. No removal read occurs before its complete fixed reservation fits. |
 | `advance_overwatch_epoch` | Fixed maximum close with 64 revealing nodes; separate no-op branch | The close fixture seeds 64 canonical validator-to-Overwatch-node relationships with unequal 18-decimal stakes, then verifies the complete bounded settlement snapshot. | Correct after snapshot update. The fixed weight covers every membership and stake read needed to build the close-time snapshot; later node removal may purge an entry before settlement. |
 | `calculate_overwatch_rewards` | Empty; `r = 1..17`; `r = 17..64`; `r = 64..1088` | The three regions reflect the correlation between at most 64 revealing nodes and 17 revealed subnets. Fixtures seed an exact reveal matrix, compact pending header, matching close-time stakes with exponent `0.9`, and the maximum prior 64-node by 17-subnet latest-only input/cache that finalization replaces. | Correct after snapshot update. Boundary values use the component-wise maximum of adjacent regressions, and even an empty new epoch measures replacement of maximum prior latest-only state. |
 | `emission_step` | Accepted/rejected `h = 3..512`; accepted queue `q = 1..64`; below-min reputation `h = 3..512`; non-attestors `a = 1..509`; missing and selector branches | Settlement fixtures include bounded marker writes and no physical deletion. Election, cleanup, queue admission, and burn maintenance are independently admitted after the complete settlement envelope. | Regenerated. The accepted path composes both reputation loops and the settlement-only marker reserve; physical-removal weights are consumed only by deferred cleanup. |
@@ -317,9 +381,10 @@ initial-validator whitelist/history, validator ownership/allocation maps, and
 consensus submissions. Maximum-value fixtures are used where a value contributes proof size but
 does not provide an independent runtime selector.
 
-Subnet removal immediately clears all subnet-keyed state with `clear_prefix`. It intentionally
-leaves owner-wide validator ownership/allocation entries and Overwatch forward peer entries for
-bounded owner-local repair. Validator node registration and validator self-removal reserve the fixed
+Subnet removal immediately detaches lifecycle state and membership totals. Configuration, node
+records/indexes, and subnet-local consensus history are deleted incrementally by `on_idle`. The
+worker never scans a global backlog or changes counters or balances. Owner-wide validator
+ownership/allocation entries and Overwatch forward peer entries retain bounded owner-local repair. Validator node registration and validator self-removal reserve the fixed
 maximum `clean_validator_subnet_nodes()` weight; Overwatch peer updates scan only that node's bounded
 17-subnet map. RPC output filters stale Overwatch forward entries until the owner next updates.
 
@@ -335,7 +400,9 @@ that retained state rather than assuming the mapping is deleted with live node d
 
 ## Intentional conservative reservations
 
-- Subnet removal always composes the fixed Registered-initial-map cleanup weight.
+- Immediate subnet removal uses a fixed benchmark. Idle stages use per-stage maxima of their
+  populated and empty cases, with execution and trie allowances; each step reserves progress
+  persistence before deleting anything.
 - Emission admission takes the maximum complete accepted, rejected, and missing branch
   envelopes when compact state cannot identify the branch
   cheaply. Independent pending-set or marker envelopes remain composed where maxima are mutually
@@ -343,8 +410,9 @@ that retained state rather than assuming the mapping is deleted with live node d
 - Ready-swap admission uses the maximum homogeneous/mixed affine vertex, adds the one-item
   boundary reserve at a 1,000-call mixed prefix, and composes one complete refund allowance per
   call so failed destination credit plus refund is covered.
-- `do_epoch_preliminaries` includes removal-selector reads in its per-subnet model while
-  `try_do_remove_subnet` also charges those reads before cleanup.
+- Lifecycle guards compose the measured `subnet_existence_check` cost into election, settlement,
+  queue maintenance, and node-addressed dispatch budgets. The dispatch surcharge reserves six
+  checks to cover selection, authentication, and nested helpers conservatively.
 - Empty historical queues are occasionally charged at the one-item queue boundary. This is an
   overcharge only; no variable collection is read without a prior reservation.
 
@@ -461,9 +529,9 @@ cleanup: subnet activation and the two public subnet-removal calls, `do_remove_s
 node unstaking, validator node-allocation updates, and Overwatch peer updates. A subsequent
 four-method run regenerated validator self-removal, collective node removal, node unstaking, and
 validator allocation updates after narrowing validator cleanup to node registration and validator
-self-removal only. The removal model now has only `a/r/o` subnet-local components; its maximum
+self-removal only. That earlier removal model had `a/r/o` subnet-local components; its maximum
 RocksDB ref-time reservation is approximately `888.5e9`, below the runtime's `1e12` hook ref-time
-limit. The validator cleaner uses a fixed maximum 512-node model and is never executed by the
+limit. The November deferred-cleanup model supersedes that removal weight. The validator cleaner uses a fixed maximum 512-node model and is never executed by the
 consensus or collective removal paths.
 
 Seven queued-swap execution weights were regenerated on 2026-08-30 after introducing non-blocking

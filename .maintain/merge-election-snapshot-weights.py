@@ -25,6 +25,7 @@ REQUIRED_ALLOWANCES = {
     "elect_validator": [
         ".saturating_add(Self::pending_admitted_removal_scan(MAX_PENDING_ADMITTED_REMOVALS))",
         ".saturating_add(Self::pending_queued_removal_scan(MAX_PENDING_QUEUED_REMOVALS))",
+        ".saturating_add(Self::subnet_existence_check())",
     ],
     # Cover the observed raw timing outlier independently of the fitted regression.
     "precheck_subnet_consensus_submission": [

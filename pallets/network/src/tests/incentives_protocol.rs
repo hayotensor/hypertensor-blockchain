@@ -9484,6 +9484,7 @@ fn test_zero_score_rounds_forfeit_subnet_rewards_without_carry() {
             remove_queue_node_id: None,
         };
 
+        super::test_utils::ensure_test_subnet(subnet_id);
         SubnetOwner::<Test>::insert(subnet_id, &owner);
         SubnetNodeValidatorId::<Test>::insert(subnet_id, subnet_node_id, validator_id);
         SubnetNodeReputation::<Test>::insert(subnet_id, subnet_node_id, percentage_factor);

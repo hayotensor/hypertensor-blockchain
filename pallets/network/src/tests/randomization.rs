@@ -109,6 +109,7 @@ fn nonempty_attributable_pool_elects_during_babe_bootstrap() {
         assert_eq!(pallet_babe::EpochStart::<Test>::get(), (0, 0));
         let subnet_id = 11u32;
         let candidates = vec![10u32, 20, 30, 40];
+        super::test_utils::ensure_test_subnet(subnet_id);
         crate::SubnetNodeElectionSlots::<Test>::insert(subnet_id, &candidates);
         for node_id in &candidates {
             crate::SubnetNodeValidatorId::<Test>::insert(subnet_id, *node_id, *node_id);
@@ -166,6 +167,7 @@ fn electing_the_same_round_at_another_block_does_not_change_the_draw() {
             );
             let subnet_id = 11u32;
             let subnet_epoch = 7u32;
+            super::test_utils::ensure_test_subnet(subnet_id);
             crate::SubnetNodeElectionSlots::<Test>::insert(subnet_id, vec![10, 20, 30, 40]);
             for node_id in [10u32, 20, 30, 40] {
                 crate::SubnetNodeValidatorId::<Test>::insert(subnet_id, node_id, node_id);

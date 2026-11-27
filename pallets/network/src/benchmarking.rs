@@ -1487,7 +1487,150 @@ fn maximum_benchmark_bootnodes<T: Config>() -> BTreeMap<PeerId, NetworkBytes<T>>
 
 /// Fill the variable-size keyed values removed by `do_remove_subnet` independently of its node
 /// prefix dimensions, including maximum bootnode and initial-validator records.
+/// Opaque-value deletion fixture. Keys are canonically encoded; value lengths conservatively
+/// bound the protocol's maximum encodings. Cleanup must succeed without decoding any old value.
+fn removed_subnet_cleanup_fixture<T: Config>(stage: RemovedSubnetCleanupStage) -> Vec<u8> {
+    use RemovedSubnetCleanupStage::*;
+    let bytes: NetworkBytes<T> = vec![0xff; T::MaxVectorLength::get() as usize]
+        .try_into()
+        .unwrap();
+    let peer_id = PeerId(vec![0xff; 128]);
+    let key = match stage {
+        ChurnLimit => crate::ChurnLimit::<T>::hashed_key_for(7).to_vec(),
+        ChurnLimitMultiplier => crate::ChurnLimitMultiplier::<T>::hashed_key_for(7).to_vec(),
+        SubnetNodeQueueEpochs => crate::SubnetNodeQueueEpochs::<T>::hashed_key_for(7).to_vec(),
+        PendingSubnetNodeQueueEpochs => {
+            crate::PendingSubnetNodeQueueEpochs::<T>::hashed_key_for(7).to_vec()
+        }
+        ProbationRounds => crate::ProbationRounds::<T>::hashed_key_for(7).to_vec(),
+        PendingProbationRounds => crate::PendingProbationRounds::<T>::hashed_key_for(7).to_vec(),
+        SubnetMinStakeBalance => crate::SubnetMinStakeBalance::<T>::hashed_key_for(7).to_vec(),
+        SubnetMaxStakeBalance => crate::SubnetMaxStakeBalance::<T>::hashed_key_for(7).to_vec(),
+        SubnetDelegateStakeRewardsPercentage => {
+            crate::SubnetDelegateStakeRewardsPercentage::<T>::hashed_key_for(7).to_vec()
+        }
+        PendingSubnetDelegateStakeRewardsPercentage => {
+            crate::PendingSubnetDelegateStakeRewardsPercentage::<T>::hashed_key_for(7).to_vec()
+        }
+        LastSubnetDelegateStakeRewardsUpdate => {
+            crate::LastSubnetDelegateStakeRewardsUpdate::<T>::hashed_key_for(7).to_vec()
+        }
+        NodeRegistrationInitialValidatorIds => {
+            crate::NodeRegistrationInitialValidatorIds::<T>::hashed_key_for(7).to_vec()
+        }
+        InitialValidatorData => crate::InitialValidatorData::<T>::hashed_key_for(7).to_vec(),
+        MaxRegisteredNodes => crate::MaxRegisteredNodes::<T>::hashed_key_for(7).to_vec(),
+        TargetNodeRegistrationsPerEpoch => {
+            crate::TargetNodeRegistrationsPerEpoch::<T>::hashed_key_for(7).to_vec()
+        }
+        NodeBurnRateAlpha => crate::NodeBurnRateAlpha::<T>::hashed_key_for(7).to_vec(),
+        CurrentNodeBurnRate => crate::CurrentNodeBurnRate::<T>::hashed_key_for(7).to_vec(),
+        QueueImmunityEpochs => crate::QueueImmunityEpochs::<T>::hashed_key_for(7).to_vec(),
+        PendingQueueImmunityEpochs => {
+            crate::PendingQueueImmunityEpochs::<T>::hashed_key_for(7).to_vec()
+        }
+        ConsensusValidatorNodeCountDecay => {
+            crate::ConsensusValidatorNodeCountDecay::<T>::hashed_key_for(7).to_vec()
+        }
+        PendingConsensusValidatorNodeCountDecay => {
+            crate::PendingConsensusValidatorNodeCountDecay::<T>::hashed_key_for(7).to_vec()
+        }
+        LastConsensusValidatorNodeCountDecayUpdate => {
+            crate::LastConsensusValidatorNodeCountDecayUpdate::<T>::hashed_key_for(7).to_vec()
+        }
+        ConsensusValidatorStakeWeightPower => {
+            crate::ConsensusValidatorStakeWeightPower::<T>::hashed_key_for(7).to_vec()
+        }
+        PendingConsensusValidatorStakeWeightPower => {
+            crate::PendingConsensusValidatorStakeWeightPower::<T>::hashed_key_for(7).to_vec()
+        }
+        LastConsensusValidatorStakeWeightPowerUpdate => {
+            crate::LastConsensusValidatorStakeWeightPowerUpdate::<T>::hashed_key_for(7).to_vec()
+        }
+        SubnetBootnodeAccess => crate::SubnetBootnodeAccess::<T>::hashed_key_for(7).to_vec(),
+        SubnetBootnodes => crate::SubnetBootnodes::<T>::hashed_key_for(7).to_vec(),
+        SubnetReputation => crate::SubnetReputation::<T>::hashed_key_for(7).to_vec(),
+        MinSubnetNodeReputation => crate::MinSubnetNodeReputation::<T>::hashed_key_for(7).to_vec(),
+        PendingMinSubnetNodeReputation => {
+            crate::PendingMinSubnetNodeReputation::<T>::hashed_key_for(7).to_vec()
+        }
+        NodeRegistrationsThisEpoch => {
+            crate::NodeRegistrationsThisEpoch::<T>::hashed_key_for(7).to_vec()
+        }
+        SubnetNodeMinWeightDecreaseReputationThreshold => {
+            crate::SubnetNodeMinWeightDecreaseReputationThreshold::<T>::hashed_key_for(7).to_vec()
+        }
+        PendingSubnetNodeMinWeightDecreaseReputationThreshold => {
+            crate::PendingSubnetNodeMinWeightDecreaseReputationThreshold::<T>::hashed_key_for(7)
+                .to_vec()
+        }
+        SubnetReputationFactorSchedules => {
+            crate::SubnetReputationFactorSchedules::<T>::hashed_key_for(7).to_vec()
+        }
+        SubnetNetFlows => crate::SubnetNetFlows::<T>::hashed_key_for(7).to_vec(),
+        SubnetDelegateStakeEmas => crate::SubnetDelegateStakeEmas::<T>::hashed_key_for(7).to_vec(),
+        SubnetRewardCapacitor => crate::SubnetRewardCapacitor::<T>::hashed_key_for(7).to_vec(),
+        TotalSubnetNodeUids => crate::TotalSubnetNodeUids::<T>::hashed_key_for(7).to_vec(),
+        SubnetNodeElectionSlots => crate::SubnetNodeElectionSlots::<T>::hashed_key_for(7).to_vec(),
+        SubnetNodeQueue => crate::SubnetNodeQueue::<T>::hashed_key_for(7).to_vec(),
+        PendingAdmittedNodeRemovals => {
+            crate::PendingAdmittedNodeRemovals::<T>::hashed_key_for(7).to_vec()
+        }
+        PendingQueuedNodeRemovals => {
+            crate::PendingQueuedNodeRemovals::<T>::hashed_key_for(7).to_vec()
+        }
+        ConsensusHistoryPruneCursor => {
+            crate::ConsensusHistoryPruneCursor::<T>::hashed_key_for(7).to_vec()
+        }
+        Nodes => crate::SubnetNodesData::<T>::hashed_key_for(7, 1),
+        QueuedNodes => crate::QueuedSubnetNodesData::<T>::hashed_key_for(7, 1),
+        NodeMetadata => crate::SubnetNodeMetadata::<T>::hashed_key_for(7, 1),
+        Peers => crate::PeerIdSubnetNodeId::<T>::hashed_key_for(7, &peer_id),
+        BootnodePeers => crate::BootnodePeerIdSubnetNodeId::<T>::hashed_key_for(7, &peer_id),
+        ClientPeers => crate::ClientPeerIdSubnetNodeId::<T>::hashed_key_for(7, &peer_id),
+        Multiaddrs => crate::MultiaddrSubnetNodeId::<T>::hashed_key_for(7, &bytes),
+        UniqueParams => crate::UniqueParamSubnetNodeId::<T>::hashed_key_for(7, &bytes),
+        NodeHotkeys => crate::SubnetNodeIdHotkey::<T>::hashed_key_for(7, 1),
+        NodeReputations => crate::SubnetNodeReputation::<T>::hashed_key_for(7, 1),
+        NodeProbationProgress => crate::SubnetNodeProbationProgress::<T>::hashed_key_for(7, 1),
+        OverwatchPeers => crate::PeerIdOverwatchNodeId::<T>::hashed_key_for(7, &peer_id),
+        NodeElectionIndexes => crate::NodeElectionSlotIndex::<T>::hashed_key_for(7, 1),
+        Attestations => crate::SubnetConsensusAttestationData::<T>::hashed_key_for((7, 1, 1)),
+        Submissions => crate::SubnetConsensusSubmission::<T>::hashed_key_for(7, 1),
+        SubmissionMaxItems => crate::SubnetConsensusSubmissionMaxItems::<T>::hashed_key_for(7, 1),
+        ProposalArgs => crate::SubnetConsensusProposalArgs::<T>::hashed_key_for(7, 1),
+        AttestorWeights => crate::SubnetConsensusAttestorWeights::<T>::hashed_key_for(7, 1),
+        SettlementStatus => crate::ConsensusRoundSettlementStatus::<T>::hashed_key_for(7, 1),
+        Elections => crate::SubnetElectedValidator::<T>::hashed_key_for(7, 1),
+    };
+    let nodes = T::MaxSubnetNodesUpperBound::get() as usize;
+    let queued = T::MaxRegisteredNodesUpperBound::get() as usize;
+    let vector = T::MaxVectorLength::get() as usize;
+    let size = match stage {
+        SubnetBootnodes => T::MaxBootnodesUpperBound::get() as usize * (vector + 128 + 12) + 5,
+        SubnetBootnodeAccess => {
+            T::MaxSubnetBootnodeAccessUpperBound::get() as usize
+                * <T::AccountId as codec::MaxEncodedLen>::max_encoded_len()
+                + 5
+        }
+        NodeRegistrationInitialValidatorIds | InitialValidatorData => queued * 8 + 5,
+        SubnetNodeElectionSlots | PendingAdmittedNodeRemovals => nodes * 4 + 5,
+        PendingQueuedNodeRemovals => queued * 4 + 5,
+        SubnetNodeQueue => queued * 32 + 5,
+        NodeMetadata => 3 * (128 + vector + 12) + 2 * (vector + 6),
+        Attestations | ProposalArgs => T::ValidatorArgsLimit::get() as usize + 5,
+        Submissions | AttestorWeights | Elections => {
+            128 * nodes + 1024 + T::ValidatorArgsLimit::get() as usize + 5
+        }
+        // The largest remaining fixed-size value is the two-generation reputation policy.
+        _ => 512,
+    };
+    sp_io::storage::set(&key, &vec![0xff; size]);
+    key
+}
+
 fn max_fill_remove_subnet_keyed_state<T: Config>(subnet_id: u32) {
+    max_fill_benchmark_subnet_data::<T>(subnet_id);
     MaxBootnodes::<T>::set(T::MaxBootnodesUpperBound::get());
     SubnetBootnodes::<T>::insert(subnet_id, maximum_benchmark_bootnodes::<T>());
 
@@ -3883,7 +4026,34 @@ mod benchmarks {
     }
 
     #[benchmark]
+    fn activate_subnet_success() {
+        MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
+        let n = T::MaxSubnetNodesUpperBound::get();
+        build_registered_subnet::<T>(
+            DEFAULT_SUBNET_NAME.into(),
+            0,
+            n,
+            DEFAULT_DEPOSIT_AMOUNT,
+            DEFAULT_SUBNET_NODE_STAKE,
+            false,
+        );
+        let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
+        let owner = subnet_owner::<T>(subnet_id);
+        seed_remove_subnet_cleanup_state::<T>(subnet_id, n, 0, 1);
+        max_fill_remove_subnet_keyed_state::<T>(subnet_id);
+        TotalSubnetDelegateStakeBalance::<T>::insert(subnet_id, DEFAULT_DEPOSIT_AMOUNT);
+        increase_epochs::<T>(MinSubnetRegistrationEpochs::<T>::get());
+        #[extrinsic_call]
+        activate_subnet(RawOrigin::Signed(owner), subnet_id);
+        assert_eq!(
+            SubnetsData::<T>::get(subnet_id).unwrap().state,
+            SubnetState::Active
+        );
+    }
+
+    #[benchmark]
     fn owner_deactivate_subnet() {
+        MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let max_registered_nodes = T::MaxRegisteredNodesUpperBound::get();
         build_activated_subnet::<T>(
@@ -3923,7 +4093,7 @@ mod benchmarks {
         owner_deactivate_subnet(RawOrigin::Signed(owner_coldkey.clone()), subnet_id);
 
         assert_eq!(SubnetsData::<T>::try_get(subnet_id), Err(()));
-        assert!(!SubnetRewardCapacitor::<T>::contains_key(subnet_id));
+        assert!(SubnetRewardCapacitor::<T>::contains_key(subnet_id));
     }
 
     #[benchmark]
@@ -8295,6 +8465,7 @@ mod benchmarks {
 
     #[benchmark]
     fn collective_remove_subnet() {
+        MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
         let max_subnet_nodes = MaxSubnetNodes::<T>::get();
         let max_registered_nodes = T::MaxRegisteredNodesUpperBound::get();
         build_activated_subnet::<T>(
@@ -8331,7 +8502,7 @@ mod benchmarks {
         collective_remove_subnet(origin as T::RuntimeOrigin, subnet_id);
 
         assert_eq!(SubnetsData::<T>::try_get(subnet_id), Err(()));
-        assert!(!SubnetRewardCapacitor::<T>::contains_key(subnet_id));
+        assert!(SubnetRewardCapacitor::<T>::contains_key(subnet_id));
     }
 
     #[benchmark]
@@ -10141,101 +10312,98 @@ mod benchmarks {
     }
 
     #[benchmark]
-    fn do_remove_subnet(
-        a: Linear<1, { MAX_SUBNET_NODES_BENCHMARK_DOMAIN }>,
-        r: Linear<1, { MAX_REGISTERED_NODES_BENCHMARK_DOMAIN }>,
-        o: Linear<1, { MAX_OVERWATCH_NODES_BENCHMARK_DOMAIN }>,
-    ) {
-        // a/r independently cover admitted and queued node prefixes. o covers the target
-        // PeerIdOverwatchNodeId prefix. Validator-wide and Overwatch-wide indexes are deliberately
-        // repaired later by the affected owner and are not scanned by this removal path.
+    fn do_remove_subnet() {
         MaxSubnetNodes::<T>::set(T::MaxSubnetNodesUpperBound::get());
-        let fixture_admitted_nodes = a.max(MinSubnetNodes::<T>::get());
+        let n = T::MaxSubnetNodesUpperBound::get();
+        let queued = T::MaxRegisteredNodesUpperBound::get();
         build_activated_subnet::<T>(
             DEFAULT_SUBNET_NAME.into(),
             0,
-            fixture_admitted_nodes,
+            n,
             DEFAULT_DEPOSIT_AMOUNT,
             DEFAULT_SUBNET_NODE_STAKE,
         );
         let subnet_id = SubnetName::<T>::get::<Vec<u8>>(DEFAULT_SUBNET_NAME.into()).unwrap();
-        for subnet_node_id in a.saturating_add(1)..=fixture_admitted_nodes {
-            Network::<T>::remove_admitted_subnet_node(subnet_id, subnet_node_id).unwrap();
-        }
-        // The queued fixture reuses these peers. Release residual reservations outside the
-        // measured live-prefix cleanup; residual work has its own separately charged envelope.
-        Network::<T>::cleanup_deferred_node_metadata(&mut WeightMeter::new());
+        // Maximum live and queued fixtures also exercise removal after a full block of
+        // registration events. None of their node/metadata values are touched by removal.
         build_queued_subnet_nodes::<T>(
             subnet_id,
-            a,
-            a.saturating_add(r),
+            n,
+            n + queued,
             DEFAULT_DEPOSIT_AMOUNT,
             DEFAULT_SUBNET_NODE_STAKE,
             false,
         );
-        seed_remove_subnet_cleanup_state::<T>(subnet_id, a, r, o);
+        seed_remove_subnet_cleanup_state::<T>(
+            subnet_id,
+            n,
+            queued,
+            T::MaxOverwatchNodesUpperBound::get(),
+        );
         max_fill_remove_subnet_keyed_state::<T>(subnet_id);
-        SubnetRewardCapacitor::<T>::insert(subnet_id, DEFAULT_SCORE);
-        let pending_admitted: BoundedBTreeSet<u32, T::MaxSubnetNodesUpperBound> = (1..=a)
-            .collect::<BTreeSet<_>>()
-            .try_into()
-            .expect("active removal markers fit the benchmark bound");
-        PendingAdmittedNodeRemovals::<T>::insert(subnet_id, pending_admitted);
-        let pending_queued: BoundedBTreeSet<u32, T::MaxRegisteredNodesUpperBound> =
-            (a.saturating_add(1)..=a.saturating_add(r))
-                .collect::<BTreeSet<_>>()
-                .try_into()
-                .expect("registered removal markers fit the benchmark bound");
-        PendingQueuedNodeRemovals::<T>::insert(subnet_id, pending_queued);
-        let current_epoch = Network::<T>::get_current_epoch_as_u32();
-        let current_subnet_epoch = Network::<T>::get_current_subnet_epoch_as_u32(subnet_id);
-
-        assert_eq!(TotalAdmittedSubnetNodes::<T>::get(subnet_id), a);
-        assert_eq!(TotalSubnetNodes::<T>::get(subnet_id), a.saturating_add(r));
-        assert_eq!(SubnetNodeQueue::<T>::get(subnet_id).len() as u32, r);
-        assert_eq!(
-            PendingAdmittedNodeRemovals::<T>::get(subnet_id).len() as u32,
-            a
-        );
-        assert_eq!(
-            PendingQueuedNodeRemovals::<T>::get(subnet_id).len() as u32,
-            r
-        );
-
+        SubnetRegistrationEpoch::<T>::insert(subnet_id, 1);
+        PendingSubnetOwner::<T>::insert(subnet_id, get_account::<T>("pending-owner", 1));
         #[block]
         {
-            // `try_do_remove_subnet` selects o from this scalar before reserving the generated
-            // cleanup weight. Include the selector-only key in this model so its proof is covered.
-            let _ = TotalOverwatchNodes::<T>::get();
-            let _ = Network::<T>::do_remove_subnet(subnet_id, SubnetRemovalReason::MinReputation);
+            Network::<T>::do_remove_subnet(subnet_id, SubnetRemovalReason::Council);
         }
-
-        assert!(!SubnetNetFlows::<T>::contains_key(subnet_id));
-        assert!(!SubnetRewardCapacitor::<T>::contains_key(subnet_id));
-        assert_eq!(SubnetsData::<T>::try_get(subnet_id), Err(()));
-        assert_eq!(SubnetNodesData::<T>::iter_prefix(subnet_id).count(), 0);
-        assert_eq!(
-            QueuedSubnetNodesData::<T>::iter_prefix(subnet_id).count(),
-            0
-        );
-        assert_eq!(
-            SubnetNodeValidatorId::<T>::iter_prefix(subnet_id).count(),
-            fixture_admitted_nodes.saturating_add(r) as usize
-        );
-        assert_eq!(SubnetNodeIdHotkey::<T>::iter_prefix(subnet_id).count(), 0);
-        assert!(!PendingAdmittedNodeRemovals::<T>::contains_key(subnet_id));
-        assert!(!PendingQueuedNodeRemovals::<T>::contains_key(subnet_id));
-        assert_eq!(
-            UniqueParamSubnetNodeId::<T>::iter_prefix(subnet_id).count(),
-            0
-        );
-        assert_eq!(
-            PeerIdOverwatchNodeId::<T>::iter_prefix(subnet_id).count(),
-            0
-        );
-        assert!(ValidatorSubnetNodes::<T>::iter()
-            .any(|(_, node_map)| node_map.contains_key(&subnet_id)));
+        assert!(!SubnetsData::<T>::contains_key(subnet_id));
+        assert!(SubnetNodesData::<T>::contains_key(subnet_id, 1));
+        assert!(RemovedSubnetCleanupQueue::<T>::contains_key(subnet_id));
         assert_eq!(TotalNodes::<T>::get(), 0);
+    }
+
+    #[benchmark]
+    fn subnet_existence_check() {
+        let key = SubnetsData::<T>::hashed_key_for(7);
+        let size = 3 * T::MaxVectorLength::get() + T::MaxUrlLength::get() + 1024;
+        sp_io::storage::set(&key, &vec![0xff; size as usize]);
+        #[block]
+        {
+            assert!(Network::<T>::subnet_exists(7));
+        }
+    }
+
+    #[benchmark]
+    fn removed_subnet_cleanup_selector() {
+        RemovedSubnetCleanupQueue::<T>::insert(7, RemovedSubnetCleanupStage::ChurnLimit);
+        RemovedSubnetCleanupLastSubnet::<T>::put(u32::MAX);
+        #[block]
+        {
+            assert!(Network::<T>::select_removed_subnet_cleanup().is_some());
+        }
+        assert_eq!(RemovedSubnetCleanupLastSubnet::<T>::get(), Some(7));
+    }
+
+    #[benchmark]
+    fn removed_subnet_cleanup_progress() {
+        RemovedSubnetCleanupQueue::<T>::insert(7, RemovedSubnetCleanupStage::ChurnLimit);
+        #[block]
+        {
+            RemovedSubnetCleanupQueue::<T>::insert(7, RemovedSubnetCleanupStage::Elections);
+        }
+    }
+
+    // `s` selects heterogeneous storage shapes, NOT a linear cost dimension. The weight merger
+    // installs the measured per-stage maxima of populated and empty steps, never an affine fit.
+    #[benchmark]
+    fn removed_subnet_cleanup_step(s: Linear<0, 62>) {
+        let stage = RemovedSubnetCleanupStage::ALL[s as usize];
+        let key = removed_subnet_cleanup_fixture::<T>(stage);
+        #[block]
+        {
+            Network::<T>::removed_subnet_cleanup_step(7, stage, &mut None);
+        }
+        assert!(!sp_io::storage::exists(&key));
+    }
+
+    #[benchmark]
+    fn removed_subnet_cleanup_empty_step(s: Linear<0, 62>) {
+        let stage = RemovedSubnetCleanupStage::ALL[s as usize];
+        #[block]
+        {
+            Network::<T>::removed_subnet_cleanup_step(7, stage, &mut None);
+        }
     }
 
     #[benchmark]
@@ -10318,40 +10486,6 @@ mod benchmarks {
             ValidatorNodeDelegateStakeWeights::<T>::get(validator_id).len() as u32,
             expected_live_nodes
         );
-    }
-
-    #[benchmark]
-    fn do_remove_registered_subnet_initial_validator_cleanup() {
-        let subnet_id = 1;
-        SubnetsData::<T>::insert(
-            subnet_id,
-            new_subnet_data::<T>(subnet_id, SubnetState::Registered, 0),
-        );
-        max_fill_initial_validator_cleanup_state::<T>(subnet_id);
-
-        assert_eq!(
-            NodeRegistrationInitialValidatorIds::<T>::get(subnet_id)
-                .expect("cleanup whitelist exists")
-                .len() as u32,
-            T::MaxRegisteredNodesUpperBound::get()
-        );
-        assert_eq!(
-            InitialValidatorData::<T>::get(subnet_id)
-                .expect("cleanup counters exist")
-                .len() as u32,
-            T::MaxRegisteredNodesUpperBound::get()
-        );
-
-        #[block]
-        {
-            NodeRegistrationInitialValidatorIds::<T>::remove(subnet_id);
-            InitialValidatorData::<T>::remove(subnet_id);
-        }
-
-        assert!(!NodeRegistrationInitialValidatorIds::<T>::contains_key(
-            subnet_id
-        ));
-        assert!(!InitialValidatorData::<T>::contains_key(subnet_id));
     }
 
     #[benchmark]
@@ -11766,16 +11900,7 @@ mod benchmarks {
 
         #[block]
         {
-            // Any subnet may enter `try_do_remove_subnet`. Its three compact selectors are read
-            // before a cleanup reservation can be rejected, so model their per-subnet proof and
-            // ref-time here. The zero inner limit makes every attempted removal `Deferred`, which
-            // keeps the snapshotted subnet count intact and exercises the final capacity recheck
-            // without performing the independently benchmarked cleanup.
-            for subnet_id in &subnet_ids {
-                let _ = TotalAdmittedSubnetNodes::<T>::get(subnet_id);
-                let _ = TotalSubnetNodes::<T>::get(subnet_id);
-                let _ = TotalOverwatchNodes::<T>::get();
-            }
+            // A zero inner budget rejects fixed-weight removal before any selector reads.
             Network::<T>::do_epoch_preliminaries(
                 &mut WeightMeter::with_limit(Weight::zero()),
                 get_current_block_as_u32::<T>(),

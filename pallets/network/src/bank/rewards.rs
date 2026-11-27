@@ -153,6 +153,13 @@ impl<T: Config> Pallet<T> {
         consensus_submission_data: ConsensusSubmissionData<T>,
         rewards_data: RewardsData,
     ) -> Weight {
+        if weight_meter
+            .try_consume(T::WeightInfo::subnet_existence_check())
+            .is_err()
+            || !Self::subnet_exists(subnet_id)
+        {
+            return Weight::zero();
+        }
         let mut deferred_operations = Vec::new();
         Self::distribute_rewards_with_deferred_operations(
             weight_meter,

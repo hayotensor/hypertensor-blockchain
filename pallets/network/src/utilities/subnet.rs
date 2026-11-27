@@ -106,11 +106,13 @@ impl<T: Config> Pallet<T> {
         }
     }
 
+    pub(crate) fn ensure_subnet_exists(subnet_id: u32) -> DispatchResult {
+        ensure!(Self::subnet_exists(subnet_id), Error::<T>::InvalidSubnetId);
+        Ok(())
+    }
+
     pub fn subnet_exists(subnet_id: u32) -> bool {
-        match SubnetsData::<T>::try_get(subnet_id) {
-            Ok(_) => true,
-            Err(()) => false,
-        }
+        SubnetsData::<T>::contains_key(subnet_id)
     }
 
     pub fn is_subnet_registered(subnet_id: u32) -> Option<bool> {

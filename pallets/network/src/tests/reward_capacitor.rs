@@ -451,6 +451,8 @@ fn subnet_removal_clears_its_capacitor() {
         SubnetRewardCapacitor::<Test>::insert(subnet, 100 * TOKEN);
         let _ = Network::do_remove_subnet(subnet, SubnetRemovalReason::Owner);
         assert!(!SubnetsData::<Test>::contains_key(subnet));
+        assert_eq!(SubnetRewardCapacitor::<Test>::get(subnet), 100 * TOKEN);
+        super::test_utils::drain_removed_subnets();
         assert!(!SubnetRewardCapacitor::<Test>::contains_key(subnet));
     });
 }

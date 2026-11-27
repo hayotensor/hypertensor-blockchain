@@ -33,6 +33,7 @@ impl<T: Config> Pallet<T> {
         subnet_node_id: u32,
         update: impl FnOnce(&mut NodeMetadata<T>) -> DispatchResult,
     ) -> DispatchResult {
+        Self::ensure_subnet_exists(subnet_id)?;
         ensure!(
             SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id)
                 || QueuedSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id),
@@ -413,8 +414,10 @@ impl<T: Config> Pallet<T> {
         )
     }
 
+    /// The dispatch entry point or slot cleanup must first verify that the subnet is live.
+    /// Whole-subnet garbage collection must never use this counter-changing helper.
     #[frame_support::transactional]
-    pub fn remove_admitted_subnet_node(
+    pub(crate) fn remove_admitted_subnet_node(
         subnet_id: u32,
         subnet_node_id: u32,
     ) -> Result<bool, DispatchError> {
@@ -444,7 +447,8 @@ impl<T: Config> Pallet<T> {
         Ok(true)
     }
 
-    pub fn remove_queued_subnet_node(subnet_id: u32, subnet_node_id: u32) {
+    /// Requires the live-subnet check in the dispatch entry point or slot cleanup.
+    pub(crate) fn remove_queued_subnet_node(subnet_id: u32, subnet_node_id: u32) {
         let subnet_node = if QueuedSubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
             QueuedSubnetNodesData::<T>::take(subnet_id, subnet_node_id)
         } else {
@@ -459,7 +463,7 @@ impl<T: Config> Pallet<T> {
         });
     }
 
-    pub fn common_remove_subnet_node(subnet_id: u32, subnet_node_id: u32, subnet_node: SubnetNode) {
+    fn common_remove_subnet_node(subnet_id: u32, subnet_node_id: u32, subnet_node: SubnetNode) {
         // Physical removal is the terminal state for either quarantine class. Clear both markers
         // defensively so a stale/mismatched marker cannot survive a node lifecycle transition.
         Self::clear_pending_subnet_node_removal(subnet_id, subnet_node_id);
@@ -500,6 +504,10 @@ impl<T: Config> Pallet<T> {
     }
 
     pub fn perform_remove_subnet_node(subnet_id: u32, subnet_node_id: u32) -> DispatchResult {
+        // Whole-subnet detachment already accounted for every node. Idle owns physical deletion.
+        if !Self::subnet_exists(subnet_id) {
+            return Ok(());
+        }
         let mut is_admitted = false;
         let mut is_queued = false;
         let _subnet_node = if SubnetNodesData::<T>::contains_key(subnet_id, subnet_node_id) {
@@ -559,6 +567,10 @@ impl<T: Config> Pallet<T> {
 
     /// Whether this subnet node is logically quarantined pending physical removal.
     pub fn has_pending_subnet_node_removal(subnet_id: u32, subnet_node_id: u32) -> bool {
+        // Quarantine belongs to a live subnet. Residual markers must not intercept withdrawals.
+        if !Self::subnet_exists(subnet_id) {
+            return false;
+        }
         PendingAdmittedNodeRemovals::<T>::get(subnet_id).contains(&subnet_node_id)
             || PendingQueuedNodeRemovals::<T>::get(subnet_id).contains(&subnet_node_id)
     }
@@ -610,7 +622,10 @@ impl<T: Config> Pallet<T> {
     /// complete physical-removal dispatch model and the two set read/writes used to clear markers.
     pub fn pending_node_cleanup_dispatch_weight(subnet_id: u32, subnet_node_id: u32) -> Weight {
         // The weight selector and dispatch each inspect both bounded sets in the worst case.
-        let marker_lookup_weight = Self::pending_node_removal_sets_weight().saturating_mul(2);
+        let marker_lookup_weight = Self::pending_node_removal_sets_weight()
+            .saturating_mul(2)
+            // Selector and dispatch liveness gates, authentication, and nested node helpers.
+            .saturating_add(T::WeightInfo::subnet_existence_check().saturating_mul(6));
 
         if !Self::has_pending_subnet_node_removal(subnet_id, subnet_node_id) {
             return marker_lookup_weight;
@@ -647,6 +662,7 @@ impl<T: Config> Pallet<T> {
 
         Self::pending_node_removal_sets_weight()
             .saturating_mul(2)
+            .saturating_add(T::WeightInfo::subnet_existence_check().saturating_mul(6))
             .saturating_add(maximum_admitted)
             .saturating_add(Self::node_metadata_cleanup_queue_weight())
             .saturating_add(Self::pending_node_removal_marker_clear_weight())
@@ -703,6 +719,10 @@ impl<T: Config> Pallet<T> {
     /// those dimensions before dispatch lets the call use the generated `Linear` models rather
     /// than the fixed four-node fixture used by the baseline extrinsic benchmark.
     pub fn remove_subnet_node_branch_weight(subnet_id: u32, subnet_node_id: u32) -> Weight {
+        let existence = T::WeightInfo::subnet_existence_check();
+        if !Self::subnet_exists(subnet_id) {
+            return existence;
+        }
         let max_validator_nodes = T::MaxValidatorNodesUpperBound::get();
         let maximum_admitted = Self::admitted_subnet_node_dispatch_weight(
             max_validator_nodes,
@@ -717,7 +737,7 @@ impl<T: Config> Pallet<T> {
         );
 
         let Some(validator_id) = SubnetNodeValidatorId::<T>::get(subnet_id, subnet_node_id) else {
-            return maximum_branch;
+            return maximum_branch.saturating_add(existence);
         };
 
         let validator_nodes = TotalValidatorNodes::<T>::get(validator_id)
@@ -736,7 +756,7 @@ impl<T: Config> Pallet<T> {
                 .saturating_add(Self::node_metadata_cleanup_queue_weight())
         };
 
-        branch_weight
+        branch_weight.saturating_add(existence)
     }
 
     pub fn get_active_classified_subnet_node(
@@ -744,6 +764,9 @@ impl<T: Config> Pallet<T> {
         subnet_node_id: u32,
         subnet_epoch: u32,
     ) -> Option<SubnetNode> {
+        if !Self::subnet_exists(subnet_id) {
+            return None;
+        }
         if let Ok(subnet_node) = SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id) {
             if subnet_node.has_classification(&SubnetNodeClass::Active, subnet_epoch) {
                 Some(subnet_node)
@@ -760,6 +783,9 @@ impl<T: Config> Pallet<T> {
         classification: &SubnetNodeClass,
         subnet_epoch: u32,
     ) -> Vec<SubnetNode> {
+        if !Self::subnet_exists(subnet_id) {
+            return Vec::new();
+        }
         SubnetNodesData::<T>::iter_prefix_values(subnet_id)
             .filter(|subnet_node| subnet_node.has_classification(classification, subnet_epoch))
             .collect()
@@ -770,6 +796,9 @@ impl<T: Config> Pallet<T> {
         classification: &SubnetNodeClass,
         subnet_epoch: u32,
     ) -> BTreeMap<u32, SubnetNode> {
+        if !Self::subnet_exists(subnet_id) {
+            return BTreeMap::new();
+        }
         SubnetNodesData::<T>::iter_prefix(subnet_id)
             .filter_map(|(subnet_node_id, subnet_node)| {
                 if subnet_node.has_classification(classification, subnet_epoch) {
@@ -786,6 +815,9 @@ impl<T: Config> Pallet<T> {
         classification: &SubnetNodeClass,
         subnet_epoch: u32,
     ) -> Vec<SubnetNodeInfo<T>> {
+        if !Self::subnet_exists(subnet_id) {
+            return Vec::new();
+        }
         SubnetNodesData::<T>::iter_prefix(subnet_id)
             .filter(|(_subnet_node_id, subnet_node)| {
                 subnet_node.has_classification(classification, subnet_epoch)
@@ -838,7 +870,8 @@ impl<T: Config> Pallet<T> {
     }
 
     /// Atomically promote a surviving Probation node and enroll it in the next election.
-    /// Settlement supplies its current quarantine set and has verified progress and reputation.
+    /// Settlement has checked subnet liveness once before the loop, supplies its current
+    /// quarantine set, and has verified progress and reputation.
     /// Repeated promotion cannot change counters, election membership, or events.
     pub(crate) fn promote_probation_node_to_active(
         subnet_id: u32,
@@ -1099,6 +1132,7 @@ impl<T: Config> Pallet<T> {
         subnet_node_id: u32,
         hotkey: &T::AccountId,
     ) -> Result<SubnetNode, DispatchError> {
+        Self::ensure_subnet_exists(subnet_id)?;
         let subnet_node = SubnetNodesData::<T>::try_get(subnet_id, subnet_node_id)
             .map_err(|_| Error::<T>::InvalidSubnetNodeId)?;
 
