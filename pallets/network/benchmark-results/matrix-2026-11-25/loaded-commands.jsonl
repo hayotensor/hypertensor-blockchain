@@ -1,0 +1,4 @@
+["lscpu"]
+["/home/bob/hypertensor-blockchain-revive/target/release/hypertensor-node", "--version"]
+["cargo", "build", "--locked", "--offline", "--manifest-path", "/tmp/matrix-capacity-loaded/source/runtime/Cargo.toml", "--features", "runtime-benchmarks"]
+["cargo", "build", "--locked", "--offline", "-p", "hypertensor-runtime", "--features", "runtime-benchmarks"]

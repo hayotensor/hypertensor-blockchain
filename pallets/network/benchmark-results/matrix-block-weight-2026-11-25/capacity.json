@@ -1,0 +1,977 @@
+{
+  "hook_limits": {
+    "ms": 1000.0,
+    "proof_bytes": 16777216
+  },
+  "block_limits": {
+    "ms": 2000.0,
+    "proof_bytes": 33554432
+  },
+  "normal_limits": {
+    "ms": 1500.0,
+    "proof_bytes": 25165824,
+    "encoded_bytes": 3932160
+  },
+  "base_block": {
+    "ms": 0.431614,
+    "proof_bytes": 0
+  },
+  "current_declared_signed_calls": {
+    "commit": {
+      "ref_time": 29745787000,
+      "ms": 29.745787,
+      "proof_bytes": 139896,
+      "block_ref_time_percent": 1.48728935,
+      "block_proof_percent": 0.41692256927490234,
+      "encoded_bytes": 149
+    },
+    "reveal": {
+      "ref_time": 29745787000,
+      "ms": 29.745787,
+      "proof_bytes": 141157,
+      "block_ref_time_percent": 1.48728935,
+      "block_proof_percent": 0.4206806421279907,
+      "encoded_bytes": 1410
+    }
+  },
+  "current_signed_block_capacity": {
+    "commit": {
+      "accepted": 33,
+      "next_rejected": "ExhaustsResources",
+      "before": {
+        "ref_time": 1001978034473,
+        "ms": 1001.978034473,
+        "proof_bytes": 16906085,
+        "block_ref_time_percent": 50.09890172365,
+        "block_proof_percent": 50.38405954837799
+      },
+      "after": {
+        "ref_time": 1983589005473,
+        "ms": 1983.589005473,
+        "proof_bytes": 21522653,
+        "block_ref_time_percent": 99.17945027365,
+        "block_proof_percent": 64.14250433444977
+      }
+    },
+    "reveal": {
+      "accepted": 33,
+      "next_rejected": "ExhaustsResources",
+      "before": {
+        "ref_time": 1001978034473,
+        "ms": 1001.978034473,
+        "proof_bytes": 16906085,
+        "block_ref_time_percent": 50.09890172365,
+        "block_proof_percent": 50.38405954837799
+      },
+      "after": {
+        "ref_time": 1983589005473,
+        "ms": 1983.589005473,
+        "proof_bytes": 21564266,
+        "block_ref_time_percent": 99.17945027365,
+        "block_proof_percent": 64.26652073860168
+      }
+    }
+  },
+  "current_declared_hook": {
+    "nodes": 64,
+    "ref_time": 572218365944,
+    "ms": 572.218365944,
+    "proof_bytes": 4654118,
+    "block_ref_time_percent": 28.610918297199998,
+    "block_proof_percent": 13.870352506637573,
+    "scenario": "quorum failure, next snapshot and empty queue maintenance"
+  },
+  "slot_fixed_allowance": {
+    "ms": 1,
+    "proof_bytes": 32768
+  },
+  "database_costs_ms": {
+    "read": 0.025,
+    "write": 0.1
+  },
+  "timing_samples": 1700,
+  "storage_samples": 170,
+  "results": [
+    {
+      "nodes": 64,
+      "mandatory_ms": 81.296712,
+      "mandatory_proof_bytes": 526226,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_slot",
+      "mandatory_weight": {
+        "ref_time": 81296712000,
+        "ms": 81.296712,
+        "proof_bytes": 526226,
+        "block_ref_time_percent": 4.0648356,
+        "block_proof_percent": 1.5682756900787354,
+        "hook_ref_time_percent": 8.1296712,
+        "hook_proof_percent": 3.1365513801574707
+      },
+      "signed_calls": {
+        "commit": {
+          "ms": 1.780522,
+          "proof_bytes": 23149,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": true,
+          "ref_time": 1780522000,
+          "block_ref_time_percent": 0.0890261,
+          "block_proof_percent": 0.06898939609527588
+        },
+        "reveal": {
+          "ms": 1.708764,
+          "proof_bytes": 25707,
+          "encoded_bytes": 1410,
+          "loaded_profile_measured": true,
+          "ref_time": 1708764000,
+          "block_ref_time_percent": 0.08543819999999999,
+          "block_proof_percent": 0.07661283016204834
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 7,
+        "peak": {
+          "ms": 196.40462799999997,
+          "proof_bytes": 2771748,
+          "encoded_bytes": 104958,
+          "ref_time": 196404628000,
+          "block_ref_time_percent": 9.820231399999999,
+          "block_proof_percent": 8.26045274734497
+        },
+        "average": {
+          "ms": 178.65144320000002,
+          "proof_bytes": 2501427.2,
+          "encoded_bytes": 79820.8
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 999.568386,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160
+        },
+        "uniform_schedule_fits": true,
+        "uniform_schedule_fits_with_20_percent_headroom": true,
+        "average_within_budget": true,
+        "matrix_only_peak_block": {
+          "ref_time": 278132954000,
+          "ms": 278.132954,
+          "proof_bytes": 3297974,
+          "block_ref_time_percent": 13.906647699999999,
+          "block_proof_percent": 9.828728437423706
+        },
+        "full_network_reservation_peak_block": {
+          "ref_time": 1196836242000,
+          "ms": 1196.836242,
+          "proof_bytes": 19548964,
+          "block_ref_time_percent": 59.841812100000006,
+          "block_proof_percent": 58.26045274734497
+        },
+        "fits_normal_class": true,
+        "matrix_only_fits": true
+      },
+      "single_subnet": {
+        "rows_per_phase_block": 7,
+        "peak_submissions": {
+          "ms": 12.463654,
+          "proof_bytes": 179949,
+          "encoded_bytes": 9870,
+          "ref_time": 12463654000,
+          "block_ref_time_percent": 0.6231827,
+          "block_proof_percent": 0.5362898111343384
+        },
+        "matrix_only_peak_block": {
+          "ref_time": 94191980000,
+          "ms": 94.19198,
+          "proof_bytes": 688269,
+          "block_ref_time_percent": 4.709599,
+          "block_proof_percent": 2.0512014627456665
+        },
+        "fits": true
+      }
+    },
+    {
+      "nodes": 128,
+      "mandatory_ms": 143.10228,
+      "mandatory_proof_bytes": 960882,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_slot",
+      "mandatory_weight": {
+        "ref_time": 143102280000,
+        "ms": 143.10228,
+        "proof_bytes": 960882,
+        "block_ref_time_percent": 7.155114,
+        "block_proof_percent": 2.8636515140533447,
+        "hook_ref_time_percent": 14.310228,
+        "hook_proof_percent": 5.7273030281066895
+      },
+      "signed_calls": {
+        "commit": {
+          "ms": 1.6870120000000002,
+          "proof_bytes": 26360,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": true,
+          "ref_time": 1687012000,
+          "block_ref_time_percent": 0.08435060000000001,
+          "block_proof_percent": 0.07855892181396484
+        },
+        "reveal": {
+          "ms": 1.850254,
+          "proof_bytes": 30463,
+          "encoded_bytes": 2691,
+          "loaded_profile_measured": true,
+          "ref_time": 1850254000,
+          "block_ref_time_percent": 0.0925127,
+          "block_proof_percent": 0.09078681468963623
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 13,
+        "peak": {
+          "ms": 372.119956,
+          "proof_bytes": 6016270,
+          "encoded_bytes": 361452,
+          "ref_time": 372119956000,
+          "block_ref_time_percent": 18.6059978,
+          "block_proof_percent": 17.929881811141968
+        },
+        "average": {
+          "ms": 362.21603840000006,
+          "proof_bytes": 5818675.2,
+          "encoded_bytes": 290816.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 999.568386,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160
+        },
+        "uniform_schedule_fits": true,
+        "uniform_schedule_fits_with_20_percent_headroom": true,
+        "average_within_budget": true,
+        "matrix_only_peak_block": {
+          "ref_time": 515653850000,
+          "ms": 515.65385,
+          "proof_bytes": 6977152,
+          "block_ref_time_percent": 25.7826925,
+          "block_proof_percent": 20.793533325195312
+        },
+        "full_network_reservation_peak_block": {
+          "ref_time": 1372551570000,
+          "ms": 1372.55157,
+          "proof_bytes": 22793486,
+          "block_ref_time_percent": 68.6275785,
+          "block_proof_percent": 67.92988181114197
+        },
+        "fits_normal_class": true,
+        "matrix_only_fits": true
+      },
+      "single_subnet": {
+        "rows_per_phase_block": 13,
+        "peak_submissions": {
+          "ms": 24.053302000000002,
+          "proof_bytes": 396019,
+          "encoded_bytes": 34983,
+          "ref_time": 24053302000,
+          "block_ref_time_percent": 1.2026651000000002,
+          "block_proof_percent": 1.180228590965271
+        },
+        "matrix_only_peak_block": {
+          "ref_time": 165465050000,
+          "ms": 165.46505,
+          "proof_bytes": 1303562,
+          "block_ref_time_percent": 8.273252499999998,
+          "block_proof_percent": 3.8849174976348877
+        },
+        "fits": true
+      }
+    },
+    {
+      "nodes": 224,
+      "mandatory_ms": 249.77632300000002,
+      "mandatory_proof_bytes": 1920074,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_slot",
+      "mandatory_weight": {
+        "ref_time": 249776323000,
+        "ms": 249.77632300000002,
+        "proof_bytes": 1920074,
+        "block_ref_time_percent": 12.48881615,
+        "block_proof_percent": 5.722266435623169,
+        "hook_ref_time_percent": 24.9776323,
+        "hook_proof_percent": 11.444532871246338
+      },
+      "signed_calls": {
+        "commit": {
+          "ms": 1.68668,
+          "proof_bytes": 31175,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": true,
+          "ref_time": 1686680000,
+          "block_ref_time_percent": 0.084334,
+          "block_proof_percent": 0.09290874004364014
+        },
+        "reveal": {
+          "ms": 2.118891,
+          "proof_bytes": 37594,
+          "encoded_bytes": 4611,
+          "loaded_profile_measured": true,
+          "ref_time": 2118891000,
+          "block_ref_time_percent": 0.10594455000000001,
+          "block_proof_percent": 0.11203885078430176
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 23,
+        "peak": {
+          "ms": 720.10677,
+          "proof_bytes": 12948770,
+          "encoded_bytes": 1081092,
+          "ref_time": 720106770000,
+          "block_ref_time_percent": 36.0053385,
+          "block_proof_percent": 38.59034180641174
+        },
+        "average": {
+          "ms": 681.9583232,
+          "proof_bytes": 12323404.799999999,
+          "encoded_bytes": 852992.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 999.568386,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160
+        },
+        "uniform_schedule_fits": true,
+        "uniform_schedule_fits_with_20_percent_headroom": true,
+        "average_within_budget": true,
+        "matrix_only_peak_block": {
+          "ref_time": 970314707000,
+          "ms": 970.314707,
+          "proof_bytes": 14868844,
+          "block_ref_time_percent": 48.51573535,
+          "block_proof_percent": 44.31260824203491
+        },
+        "full_network_reservation_peak_block": {
+          "ref_time": 1720538384000,
+          "ms": 1720.538384,
+          "proof_bytes": 29725986,
+          "block_ref_time_percent": 86.02691920000001,
+          "block_proof_percent": 88.59034180641174
+        },
+        "fits_normal_class": true,
+        "matrix_only_fits": true
+      },
+      "single_subnet": {
+        "rows_per_phase_block": 23,
+        "peak_submissions": {
+          "ms": 48.734493,
+          "proof_bytes": 864662,
+          "encoded_bytes": 106053,
+          "ref_time": 48734493000,
+          "block_ref_time_percent": 2.43672465,
+          "block_proof_percent": 2.5768935680389404
+        },
+        "matrix_only_peak_block": {
+          "ref_time": 289001577000,
+          "ms": 289.00157700000005,
+          "proof_bytes": 2637099,
+          "block_ref_time_percent": 14.450078850000004,
+          "block_proof_percent": 7.859167456626892
+        },
+        "fits": true
+      }
+    },
+    {
+      "nodes": 256,
+      "mandatory_ms": 284.717772,
+      "mandatory_proof_bytes": 2321749,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_slot",
+      "mandatory_weight": {
+        "ref_time": 284717772000,
+        "ms": 284.717772,
+        "proof_bytes": 2321749,
+        "block_ref_time_percent": 14.235888600000003,
+        "block_proof_percent": 6.91935122013092,
+        "hook_ref_time_percent": 28.471777200000005,
+        "hook_proof_percent": 13.83870244026184
+      },
+      "signed_calls": {
+        "commit": {
+          "ms": 1.766092,
+          "proof_bytes": 32745,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": true,
+          "ref_time": 1766092000,
+          "block_ref_time_percent": 0.0883046,
+          "block_proof_percent": 0.0975877046585083
+        },
+        "reveal": {
+          "ms": 2.46767,
+          "proof_bytes": 39936,
+          "encoded_bytes": 5251,
+          "loaded_profile_measured": true,
+          "ref_time": 2467670000,
+          "block_ref_time_percent": 0.1233835,
+          "block_proof_percent": 0.1190185546875
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 26,
+        "peak": {
+          "ms": 917.104552,
+          "proof_bytes": 15491580,
+          "encoded_bytes": 1388504,
+          "ref_time": 917104552000,
+          "block_ref_time_percent": 45.8552276,
+          "block_proof_percent": 46.168506145477295
+        },
+        "average": {
+          "ms": 867.0744576000002,
+          "proof_bytes": 14885068.8,
+          "encoded_bytes": 1105920.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 999.568386,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160
+        },
+        "uniform_schedule_fits": true,
+        "uniform_schedule_fits_with_20_percent_headroom": false,
+        "average_within_budget": true,
+        "matrix_only_peak_block": {
+          "ref_time": 1202253938000,
+          "ms": 1202.253938,
+          "proof_bytes": 17813329,
+          "block_ref_time_percent": 60.1126969,
+          "block_proof_percent": 53.087857365608215
+        },
+        "full_network_reservation_peak_block": {
+          "ref_time": 1917536166000,
+          "ms": 1917.536166,
+          "proof_bytes": 32268796,
+          "block_ref_time_percent": 95.87680830000001,
+          "block_proof_percent": 96.1685061454773
+        },
+        "fits_normal_class": true,
+        "matrix_only_fits": true
+      },
+      "single_subnet": {
+        "rows_per_phase_block": 26,
+        "peak_submissions": {
+          "ms": 64.15942,
+          "proof_bytes": 1038336,
+          "encoded_bytes": 136526,
+          "ref_time": 64159420000,
+          "block_ref_time_percent": 3.207971,
+          "block_proof_percent": 3.094482421875
+        },
+        "matrix_only_peak_block": {
+          "ref_time": 331067778000,
+          "ms": 331.06777800000003,
+          "proof_bytes": 3173119,
+          "block_ref_time_percent": 16.5533889,
+          "block_proof_percent": 9.456631541252136
+        },
+        "fits": true
+      }
+    },
+    {
+      "nodes": 320,
+      "mandatory_ms": 440.62056900000005,
+      "mandatory_proof_bytes": 3250033,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_slot",
+      "mandatory_weight": {
+        "ref_time": 440620569000,
+        "ms": 440.62056900000005,
+        "proof_bytes": 3250033,
+        "block_ref_time_percent": 22.03102845,
+        "block_proof_percent": 9.685853123664856,
+        "hook_ref_time_percent": 44.0620569,
+        "hook_proof_percent": 19.371706247329712
+      },
+      "signed_calls": {
+        "commit": {
+          "ms": 1.8607879999999999,
+          "proof_bytes": 36072,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": true,
+          "ref_time": 1860788000,
+          "block_ref_time_percent": 0.0930394,
+          "block_proof_percent": 0.10750293731689453
+        },
+        "reveal": {
+          "ms": 2.139951,
+          "proof_bytes": 44619,
+          "encoded_bytes": 6531,
+          "loaded_profile_measured": true,
+          "ref_time": 2139951000,
+          "block_ref_time_percent": 0.10699754999999998,
+          "block_proof_percent": 0.13297498226165771
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 32,
+        "peak": {
+          "ms": 1042.055616,
+          "proof_bytes": 21203904,
+          "encoded_bytes": 2118528,
+          "ref_time": 1042055616000,
+          "block_ref_time_percent": 52.102780800000005,
+          "block_proof_percent": 63.19255828857422
+        },
+        "average": {
+          "ms": 1024.1891839999998,
+          "proof_bytes": 20656896.0,
+          "encoded_bytes": 1710080.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 999.568386,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160
+        },
+        "uniform_schedule_fits": false,
+        "uniform_schedule_fits_with_20_percent_headroom": false,
+        "average_within_budget": false,
+        "matrix_only_peak_block": {
+          "ref_time": 1483107799000,
+          "ms": 1483.1077990000003,
+          "proof_bytes": 24453937,
+          "block_ref_time_percent": 74.15538995000001,
+          "block_proof_percent": 72.87841141223907
+        },
+        "full_network_reservation_peak_block": {
+          "ref_time": 2042487230000,
+          "ms": 2042.4872300000002,
+          "proof_bytes": 37981120,
+          "block_ref_time_percent": 102.12436150000002,
+          "block_proof_percent": 113.19255828857422
+        },
+        "fits_normal_class": true,
+        "matrix_only_fits": true
+      },
+      "single_subnet": {
+        "rows_per_phase_block": 32,
+        "peak_submissions": {
+          "ms": 68.478432,
+          "proof_bytes": 1427808,
+          "encoded_bytes": 208992,
+          "ref_time": 68478432000,
+          "block_ref_time_percent": 3.4239215999999995,
+          "block_proof_percent": 4.255199432373047
+        },
+        "matrix_only_peak_block": {
+          "ref_time": 500597399000,
+          "ms": 500.59739900000005,
+          "proof_bytes": 4404337,
+          "block_ref_time_percent": 25.029869950000005,
+          "block_proof_percent": 13.125947117805481
+        },
+        "fits": true
+      }
+    },
+    {
+      "nodes": 352,
+      "mandatory_ms": 536.877362,
+      "mandatory_proof_bytes": 3775611,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_slot",
+      "mandatory_weight": {
+        "ref_time": 536877362000,
+        "ms": 536.877362,
+        "proof_bytes": 3775611,
+        "block_ref_time_percent": 26.843868099999995,
+        "block_proof_percent": 11.252197623252869,
+        "hook_ref_time_percent": 53.68773619999999,
+        "hook_proof_percent": 22.504395246505737
+      },
+      "signed_calls": {
+        "commit": {
+          "ms": 1.990977,
+          "proof_bytes": 37512,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": true,
+          "ref_time": 1990977000,
+          "block_ref_time_percent": 0.09954885000000001,
+          "block_proof_percent": 0.11179447174072266
+        },
+        "reveal": {
+          "ms": 2.326744,
+          "proof_bytes": 46699,
+          "encoded_bytes": 7171,
+          "loaded_profile_measured": true,
+          "ref_time": 2326744000,
+          "block_ref_time_percent": 0.11633720000000002,
+          "block_proof_percent": 0.13917386531829834
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 36,
+        "peak": {
+          "ms": 1267.678872,
+          "proof_bytes": 24914232,
+          "encoded_bytes": 2613744,
+          "ref_time": 1267678872000,
+          "block_ref_time_percent": 63.3839436,
+          "block_proof_percent": 74.2501974105835
+        },
+        "average": {
+          "ms": 1215.8702336000003,
+          "proof_bytes": 23713817.6,
+          "encoded_bytes": 2061312.0000000002
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 999.568386,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160
+        },
+        "uniform_schedule_fits": false,
+        "uniform_schedule_fits_with_20_percent_headroom": false,
+        "average_within_budget": false,
+        "matrix_only_peak_block": {
+          "ref_time": 1804987848000,
+          "ms": 1804.987848,
+          "proof_bytes": 28689843,
+          "block_ref_time_percent": 90.24939239999999,
+          "block_proof_percent": 85.50239503383636
+        },
+        "full_network_reservation_peak_block": {
+          "ref_time": 2268110486000,
+          "ms": 2268.110486,
+          "proof_bytes": 41691448,
+          "block_ref_time_percent": 113.40552430000001,
+          "block_proof_percent": 124.2501974105835
+        },
+        "fits_normal_class": true,
+        "matrix_only_fits": true
+      },
+      "single_subnet": {
+        "rows_per_phase_block": 36,
+        "peak_submissions": {
+          "ms": 83.76278400000001,
+          "proof_bytes": 1681164,
+          "encoded_bytes": 258156,
+          "ref_time": 83762784000,
+          "block_ref_time_percent": 4.1881392,
+          "block_proof_percent": 5.01025915145874
+        },
+        "matrix_only_peak_block": {
+          "ref_time": 608984148000,
+          "ms": 608.9841479999999,
+          "proof_bytes": 5126043,
+          "block_ref_time_percent": 30.449207399999995,
+          "block_proof_percent": 15.276798605918884
+        },
+        "fits": true
+      }
+    },
+    {
+      "nodes": 384,
+      "mandatory_ms": 509.821756,
+      "mandatory_proof_bytes": 4342103,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_failed_credits",
+      "mandatory_weight": {
+        "ref_time": 509821756000,
+        "ms": 509.821756,
+        "proof_bytes": 4342103,
+        "block_ref_time_percent": 25.491087800000003,
+        "block_proof_percent": 12.940475344657898,
+        "hook_ref_time_percent": 50.982175600000005,
+        "hook_proof_percent": 25.880950689315796
+      },
+      "signed_calls": {
+        "commit": {
+          "ms": 2.022567,
+          "proof_bytes": 38985,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": true,
+          "ref_time": 2022567000,
+          "block_ref_time_percent": 0.10112834999999999,
+          "block_proof_percent": 0.11618435382843018
+        },
+        "reveal": {
+          "ms": 2.364878,
+          "proof_bytes": 48812,
+          "encoded_bytes": 7811,
+          "loaded_profile_measured": true,
+          "ref_time": 2364878000,
+          "block_ref_time_percent": 0.1182439,
+          "block_proof_percent": 0.14547109603881836
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 39,
+        "peak": {
+          "ms": 1395.583098,
+          "proof_bytes": 28159170,
+          "encoded_bytes": 3081156,
+          "ref_time": 1395583098000,
+          "block_ref_time_percent": 69.77915490000001,
+          "block_proof_percent": 83.92086625099182
+        },
+        "average": {
+          "ms": 1347.8231039999998,
+          "proof_bytes": 26971238.4,
+          "encoded_bytes": 2445312.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 999.568386,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160
+        },
+        "uniform_schedule_fits": false,
+        "uniform_schedule_fits_with_20_percent_headroom": false,
+        "average_within_budget": false,
+        "matrix_only_peak_block": {
+          "ref_time": 1905836468000,
+          "ms": 1905.8364680000002,
+          "proof_bytes": 32501273,
+          "block_ref_time_percent": 95.29182340000001,
+          "block_proof_percent": 96.86134159564972
+        },
+        "full_network_reservation_peak_block": {
+          "ref_time": 2396014712000,
+          "ms": 2396.014712,
+          "proof_bytes": 44936386,
+          "block_ref_time_percent": 119.80073560000001,
+          "block_proof_percent": 133.92086625099182
+        },
+        "fits_normal_class": false,
+        "matrix_only_fits": false
+      },
+      "single_subnet": {
+        "rows_per_phase_block": 39,
+        "peak_submissions": {
+          "ms": 92.230242,
+          "proof_bytes": 1903668,
+          "encoded_bytes": 304629,
+          "ref_time": 92230242000,
+          "block_ref_time_percent": 4.6115121,
+          "block_proof_percent": 5.673372745513916
+        },
+        "matrix_only_peak_block": {
+          "ref_time": 589133483000,
+          "ms": 589.133483,
+          "proof_bytes": 5862518,
+          "block_ref_time_percent": 29.456674149999998,
+          "block_proof_percent": 17.471665143966675
+        },
+        "fits": true
+      }
+    },
+    {
+      "nodes": 448,
+      "mandatory_ms": 639.9852109999999,
+      "mandatory_proof_bytes": 5598097,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_slot",
+      "mandatory_weight": {
+        "ref_time": 639985211000,
+        "ms": 639.9852109999999,
+        "proof_bytes": 5598097,
+        "block_ref_time_percent": 31.999260549999995,
+        "block_proof_percent": 16.683629155158997,
+        "hook_ref_time_percent": 63.99852109999999,
+        "hook_proof_percent": 33.36725831031799
+      },
+      "signed_calls": {
+        "commit": {
+          "ms": 2.069895,
+          "proof_bytes": 41900,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": true,
+          "ref_time": 2069895000,
+          "block_ref_time_percent": 0.10349475,
+          "block_proof_percent": 0.12487173080444336
+        },
+        "reveal": {
+          "ms": 2.8445620000000003,
+          "proof_bytes": 53007,
+          "encoded_bytes": 9091,
+          "loaded_profile_measured": true,
+          "ref_time": 2844562000,
+          "block_ref_time_percent": 0.14222810000000002,
+          "block_proof_percent": 0.15797317028045654
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 45,
+        "peak": {
+          "ms": 1838.92455,
+          "proof_bytes": 35166150,
+          "encoded_bytes": 4131180,
+          "ref_time": 1838924550000,
+          "block_ref_time_percent": 91.94622749999999,
+          "block_proof_percent": 104.80329394340515
+        },
+        "average": {
+          "ms": 1761.3413888,
+          "proof_bytes": 34014668.8,
+          "encoded_bytes": 3311616.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 999.568386,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160
+        },
+        "uniform_schedule_fits": false,
+        "uniform_schedule_fits_with_20_percent_headroom": false,
+        "average_within_budget": false,
+        "matrix_only_peak_block": {
+          "ref_time": 2479341375000,
+          "ms": 2479.341375,
+          "proof_bytes": 40764247,
+          "block_ref_time_percent": 123.96706875000001,
+          "block_proof_percent": 121.48692309856415
+        },
+        "full_network_reservation_peak_block": {
+          "ref_time": 2839356164000,
+          "ms": 2839.356164,
+          "proof_bytes": 51943366,
+          "block_ref_time_percent": 141.9678082,
+          "block_proof_percent": 154.80329394340515
+        },
+        "fits_normal_class": false,
+        "matrix_only_fits": false
+      },
+      "single_subnet": {
+        "rows_per_phase_block": 45,
+        "peak_submissions": {
+          "ms": 128.00529,
+          "proof_bytes": 2385315,
+          "encoded_bytes": 409095,
+          "ref_time": 128005290000,
+          "block_ref_time_percent": 6.4002645000000005,
+          "block_proof_percent": 7.108792662620544
+        },
+        "matrix_only_peak_block": {
+          "ref_time": 733562100000,
+          "ms": 733.5620999999999,
+          "proof_bytes": 7483597,
+          "block_ref_time_percent": 36.678104999999995,
+          "block_proof_percent": 22.302857041358948
+        },
+        "fits": true
+      }
+    },
+    {
+      "nodes": 512,
+      "mandatory_ms": 892.884143,
+      "mandatory_proof_bytes": 7017921,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": false,
+      "limiting_time_case": "capacity_matrix_slot",
+      "mandatory_weight": {
+        "ref_time": 892884143000,
+        "ms": 892.884143,
+        "proof_bytes": 7017921,
+        "block_ref_time_percent": 44.64420715,
+        "block_proof_percent": 20.915034413337708,
+        "hook_ref_time_percent": 89.2884143,
+        "hook_proof_percent": 41.830068826675415
+      },
+      "signed_calls": {
+        "commit": {
+          "ms": 2.104386,
+          "proof_bytes": 44873,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": true,
+          "ref_time": 2104386000,
+          "block_ref_time_percent": 0.10521929999999999,
+          "block_proof_percent": 0.13373196125030518
+        },
+        "reveal": {
+          "ms": 3.2065310000000005,
+          "proof_bytes": 57260,
+          "encoded_bytes": 10371,
+          "loaded_profile_measured": true,
+          "ref_time": 3206531000,
+          "block_ref_time_percent": 0.16032655,
+          "block_proof_percent": 0.17064809799194336
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 52,
+        "peak": {
+          "ms": 2323.964552,
+          "proof_bytes": 43775576,
+          "encoded_bytes": 5439408,
+          "ref_time": 2323964552000,
+          "block_ref_time_percent": 116.1982276,
+          "block_proof_percent": 130.46138286590576
+        },
+        "average": {
+          "ms": 2175.3516032,
+          "proof_bytes": 41833676.800000004,
+          "encoded_bytes": 4308992.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 999.568386,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160
+        },
+        "uniform_schedule_fits": false,
+        "uniform_schedule_fits_with_20_percent_headroom": false,
+        "average_within_budget": false,
+        "matrix_only_peak_block": {
+          "ref_time": 3217280309000,
+          "ms": 3217.2803089999998,
+          "proof_bytes": 50793497,
+          "block_ref_time_percent": 160.86401544999998,
+          "block_proof_percent": 151.37641727924347
+        },
+        "full_network_reservation_peak_block": {
+          "ref_time": 3324396166000,
+          "ms": 3324.396166,
+          "proof_bytes": 60552792,
+          "block_ref_time_percent": 166.2198083,
+          "block_proof_percent": 180.46138286590576
+        },
+        "fits_normal_class": false,
+        "matrix_only_fits": false
+      },
+      "single_subnet": {
+        "rows_per_phase_block": 52,
+        "peak_submissions": {
+          "ms": 166.73961200000002,
+          "proof_bytes": 2977520,
+          "encoded_bytes": 539292,
+          "ref_time": 166739612000,
+          "block_ref_time_percent": 8.3369806,
+          "block_proof_percent": 8.873701095581055
+        },
+        "matrix_only_peak_block": {
+          "ref_time": 1002743829000,
+          "ms": 1002.7438289999999,
+          "proof_bytes": 9351317,
+          "block_ref_time_percent": 50.13719144999999,
+          "block_proof_percent": 27.869096398353577
+        },
+        "fits": true
+      }
+    }
+  ],
+  "notes": [
+    "Optimized compiled Wasm on the recorded host, not end-to-end block import.",
+    "Point timing uses the slowest measured sample, not a global affine model.",
+    "Estimated proof bounds are from FRAME max PoV analysis for equivalent parameter pairs at each fixed node count.",
+    "Production Matrix bound and admission weights have not been changed.",
+    "Submission scheduling assumes all 16 subnets participate fully; other traffic competes for the same block capacity.",
+    "Matrix-only peak blocks exclude other pallet hooks, global Network work, optional maintenance, other transactions and idle cleanup.",
+    "The full-Network-reservation model reserves 1,000 ms / 16 MiB every block, not just the measured Matrix settlement; base block weight is additional.",
+    "A maximum below is the largest tested population, not an exhaustive integer search or an installed runtime bound."
+  ],
+  "largest_tested_passing": {
+    "single_subnet": 512,
+    "hook_with_20_percent_headroom": 448,
+    "all_16_matrix_only": 352,
+    "all_16_full_network_reservation": 256,
+    "all_16_submission_20_percent_headroom": 224
+  }
+}

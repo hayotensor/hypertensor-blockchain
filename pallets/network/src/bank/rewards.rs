@@ -26,7 +26,7 @@ impl<T: Config> Pallet<T> {
     ///
     /// The set has the same bound as the admitted-node population. If inconsistent state fills
     /// either collection, skip this removal without changing either collection or blocking settlement.
-    fn stage_pending_admitted_node_removal(
+    pub(crate) fn stage_pending_admitted_node_removal(
         subnet_id: u32,
         pending: &mut BoundedBTreeSet<u32, T::MaxSubnetNodesUpperBound>,
         newly_pending: &mut BoundedVec<u32, T::MaxSubnetNodesUpperBound>,
@@ -110,7 +110,7 @@ impl<T: Config> Pallet<T> {
         (weight, inserted)
     }
 
-    fn deposit_pending_node_removals(
+    pub(crate) fn deposit_pending_node_removals(
         subnet_id: u32,
         admitted_subnet_node_ids: BoundedVec<u32, T::MaxSubnetNodesUpperBound>,
         queued_subnet_node_ids: BoundedVec<u32, T::MaxRegisteredNodesUpperBound>,
@@ -312,31 +312,13 @@ impl<T: Config> Pallet<T> {
 
         // Release against the normal allocation, never against the stored balance. Zero-score
         // rounds cannot distribute node rewards, so retain their capacitor for a later round.
-        let mut remaining_capacitor = None;
-        if consensus_submission_data.weight_sum > 0 && rewards_data.overall_subnet_reward > 0 {
-            weight_meter.consume(db_weight.reads(1));
-            let capacitor = SubnetRewardCapacitor::<T>::get(subnet_id);
-            if capacitor > 0 {
-                weight_meter.consume(db_weight.reads(1));
-                let release_percentage = SubnetRewardCapacitorReleasePercentage::<T>::get();
-                let supplement = capacitor
-                    .min(Self::percent_mul(
-                        rewards_data.overall_subnet_reward,
-                        release_percentage,
-                    ))
-                    .min(u128::MAX - rewards_data.overall_subnet_reward);
-                if supplement > 0 {
-                    let combined_reward = rewards_data.overall_subnet_reward + supplement;
-                    let (combined_rewards, _) = Self::calculate_rewards_with_policy(
-                        combined_reward,
-                        percentage_factor,
-                        &policy,
-                    );
-                    rewards_data = combined_rewards;
-                    remaining_capacitor = Some(capacitor - supplement);
-                }
-            }
-        }
+        let remaining_capacitor = Self::prepare_consensus_capacitor_release(
+            weight_meter,
+            subnet_id,
+            &policy,
+            consensus_submission_data.weight_sum > 0,
+            &mut rewards_data,
+        );
 
         // Both quorum gates passed, so this round has no economic slash to apply. Mark its
         // outcome complete before any later reward-specific early return.
@@ -707,39 +689,18 @@ impl<T: Config> Pallet<T> {
                 continue;
             }
 
-            // Freeze every destination before attempting the atomic reward group. A retry must
-            // not consult a changed beneficiary, reward rate, or a replacement delegate pool.
-            weight_meter.consume(T::WeightInfo::consensus_node_reward_snapshot());
-            let operation = Self::prepare_consensus_node_reward(
-                subnet_id,
-                subnet_node.id,
-                subnet_node.validator_id,
-                account_reward,
-            );
-            // Resolve reporting amounts before crediting. Invalid allocation data follows the
-            // same durable retry path as a failed credit, without aborting the remaining round.
-            let allocations = if let ConsensusOperation::NodeReward {
-                amount,
-                validator_pool,
-                delegate_account,
-                ..
-            } = &operation
-            {
-                Self::consensus_node_reward_allocations(*amount, validator_pool, delegate_account).ok()
-            } else {
-                None
-            };
-            let Some((account_reward, validator_allocation, delegate_account_allocation)) = allocations
+            let Some((account_reward, validator_allocation, delegate_account_allocation)) =
+                Self::settle_consensus_node_reward(
+                    weight_meter,
+                    deferred_operations,
+                    subnet_id,
+                    subnet_node.id,
+                    subnet_node.validator_id,
+                    account_reward,
+                )
             else {
-                deferred_operations.push(operation);
                 continue;
             };
-            // Bound all three credit destinations, including reads before a rollback.
-            weight_meter.consume(db_weight.reads_writes(10, 7));
-            if Self::try_apply_consensus_operation(&operation).is_err() {
-                deferred_operations.push(operation);
-                continue;
-            }
             if let Some(allocation) = validator_allocation {
                 validator_delegate_stake_rewards.push(allocation);
             }
@@ -801,6 +762,95 @@ impl<T: Config> Pallet<T> {
             node_delegate_stake_rewards: validator_delegate_stake_rewards,
             node_delegate_account_allocations,
         });
+    }
+
+    /// Shared capacitor preparation. The caller commits the balance with the settlement fence.
+    pub(crate) fn prepare_consensus_capacitor_release(
+        weight_meter: &mut WeightMeter,
+        subnet_id: u32,
+        policy: &ConsensusPolicySnapshot,
+        has_node_weights: bool,
+        rewards_data: &mut RewardsData,
+    ) -> Option<u128> {
+        let db_weight = T::DbWeight::get();
+        let percentage_factor = Self::percentage_factor_as_u128();
+        let mut remaining_capacitor = None;
+        if has_node_weights && rewards_data.overall_subnet_reward > 0 {
+            weight_meter.consume(db_weight.reads(1));
+            let capacitor = SubnetRewardCapacitor::<T>::get(subnet_id);
+            if capacitor > 0 {
+                weight_meter.consume(db_weight.reads(1));
+                let release_percentage = SubnetRewardCapacitorReleasePercentage::<T>::get();
+                let supplement = capacitor
+                    .min(Self::percent_mul(
+                        rewards_data.overall_subnet_reward,
+                        release_percentage,
+                    ))
+                    .min(u128::MAX - rewards_data.overall_subnet_reward);
+                if supplement > 0 {
+                    let combined_reward = rewards_data.overall_subnet_reward + supplement;
+                    let (combined_rewards, _) = Self::calculate_rewards_with_policy(
+                        combined_reward,
+                        percentage_factor,
+                        policy,
+                    );
+                    *rewards_data = combined_rewards;
+                    remaining_capacitor = Some(capacitor - supplement);
+                }
+            }
+        }
+
+        remaining_capacitor
+    }
+
+    /// Freeze destinations, credit atomically, and retain failed credits for the shared retry worker.
+    pub(crate) fn settle_consensus_node_reward(
+        weight_meter: &mut WeightMeter,
+        deferred_operations: &mut Vec<ConsensusOperation<T::AccountId>>,
+        subnet_id: u32,
+        subnet_node_id: u32,
+        validator_id: u32,
+        account_reward: u128,
+    ) -> Option<(u128, Option<(u32, u128)>, Option<(T::AccountId, u128)>)> {
+        let db_weight = T::DbWeight::get();
+        // Freeze every destination before attempting the atomic reward group. A retry must
+        // not consult a changed beneficiary, reward rate, or a replacement delegate pool.
+        weight_meter.consume(T::WeightInfo::consensus_node_reward_snapshot());
+        let operation = Self::prepare_consensus_node_reward(
+            subnet_id,
+            subnet_node_id,
+            validator_id,
+            account_reward,
+        );
+        // Resolve reporting amounts before crediting. Invalid allocation data follows the
+        // same durable retry path as a failed credit, without aborting the remaining round.
+        let allocations = if let ConsensusOperation::NodeReward {
+            amount,
+            validator_pool,
+            delegate_account,
+            ..
+        } = &operation
+        {
+            Self::consensus_node_reward_allocations(*amount, validator_pool, delegate_account).ok()
+        } else {
+            None
+        };
+        let Some((account_reward, validator_allocation, delegate_account_allocation)) = allocations
+        else {
+            deferred_operations.push(operation);
+            return None;
+        };
+        // Bound all three credit destinations, including reads before a rollback.
+        weight_meter.consume(db_weight.reads_writes(10, 7));
+        if Self::try_apply_consensus_operation(&operation).is_err() {
+            deferred_operations.push(operation);
+            return None;
+        }
+        Some((
+            account_reward,
+            validator_allocation,
+            delegate_account_allocation,
+        ))
     }
 
     /// Subnet is not in consensus

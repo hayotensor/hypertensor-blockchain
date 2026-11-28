@@ -298,6 +298,12 @@ impl<T: Config> Pallet<T> {
         args: Option<ValidatorArgs<T>>,
         attest_data: Option<ValidatorArgs<T>>,
     ) -> DispatchResultWithPostInfo {
+        // Require Attestation before pending-removal cleanup or any consensus writes.
+        ensure!(
+            Self::subnet_uses_consensus(subnet_id, ConsensusMechanism::Attestation),
+            Error::<T>::InvalidConsensusMechanism
+        );
+
         // The validator is elected for the next blockchain epoch where rewards will be distributed.
         // Each subnet epoch overlaps with the blockchains epochs, and can submit consensus data for epoch
         // 2 on subnet epoch 1 (if after slot) or 2 (if before slot).
@@ -563,6 +569,12 @@ impl<T: Config> Pallet<T> {
         subnet_node_id: u32,
         data: Option<ValidatorArgs<T>>,
     ) -> DispatchResultWithPostInfo {
+        // Require Attestation before pending-removal cleanup or any consensus writes.
+        ensure!(
+            Self::subnet_uses_consensus(subnet_id, ConsensusMechanism::Attestation),
+            Error::<T>::InvalidConsensusMechanism
+        );
+
         let subnet_epoch = Self::get_current_subnet_epoch_as_u32(subnet_id);
 
         let subnet_node = Self::ensure_hotkey_owns_subnet_node(subnet_id, subnet_node_id, &hotkey)?;

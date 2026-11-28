@@ -2,6 +2,135 @@
 
 Date: 2026-08-30
 
+## Network-wide Matrix governance (2026-11-26)
+
+Matrix policy is a single global storage value updated immediately through the
+supermajority collective call `set_matrix_config`. Per-subnet configuration and
+pending updates are removed. Snapshots grow by 64 bytes for configurable curve
+exponents, commit percentage, performance threshold, promotion reputation, and
+operational node limits. The quadratic case preserves exact arithmetic; other
+positive u32 exponents use at most 32 binary-exponentiation iterations. Existing
+capacity measurements predate this configuration change. The technical 64-node
+bound and provisional weight reservations remain unchanged. New admission limits
+can be lowered without invalidating existing admitted rosters.
+
+## Matrix partial scoring (2026-11-26)
+
+Matrix now accepts sorted subsets with absolute Q18 scores. Reveal stores the
+submitted values without per-row normalization. Settlement accumulates a separate
+weight denominator per target and uses mean absolute error only across overlapping
+assessments for accuracy. Empty lists abstain; nonempty zero-only lists count as
+assessments. Maximum encoded row length, result size, and the 64-node bound are
+unchanged. Dense Matrix benchmark fixtures now use bounded absolute scores and
+store the same values a reveal would store. Historical capacity timings predate
+this algorithm and are not calibration for it. No production weights or node
+limits were changed by this update.
+
+## Matrix rewards for assessed workers (2026-11-26)
+
+Reward normalization now includes all assessed Active targets, including nodes
+that submit no scores or abstain. Each node result gains one byte for
+`has_received_assessment`; the same flag governs received-performance reputation
+checks. Matrix no longer applies the shared Attestation non-participation penalty.
+The no-scores fixture expects unchanged reputation. Historical measurements and
+provisional production weights are not recalibrated by this change.
+
+## Matrix node-based participation (2026-11-26)
+
+Matrix no longer uses a revealed-stake or validator-identity quorum. Any eligible
+nonzero row is accepted, with zero stake retaining zero influence. Accuracy
+references exclude the scorer's own row, replacing the per-validator aggregates
+with subtraction from column totals. Reputation and Probation updates depend on
+available evidence rather than identity turnout; `NoScores` retains allocation
+and applies non-participation penalties. Matrix still requires three admitted nodes.
+
+The obsolete reveal-quorum configuration field is removed from native and Solidity
+calls and snapshots. Results report nonzero-row node counts. The old failed-quorum
+capacity scenario is replaced with accepted sparse-stake and no-scores scenarios;
+the capacity runner/analyzer now expect these scenarios. Historical raw results
+and generated weights are unchanged. The historical campaigns below predate these
+changes; fresh Wasm calibration is still required before increasing the 64-node cap.
+
+## Matrix accuracy reputation (2026-11-26)
+
+Matrix round parameters now include the Q18 disagreement tolerance and maximum
+reputation decrease/increase. Settlement applies one bounded U256 quadratic per
+Active node with an independent reference, reusing the existing reputation writes
+and removal staging. The snapshot grows by 48 bytes and each result by one byte
+per node to distinguish unavailable references from maximal disagreement.
+Configuration and Solidity calls require the three new settings. Production
+Matrix weights remain provisional; the capacity measurements below predate this
+change and are not a recalibration of this implementation. Benchmark code and
+generated weights are unchanged by this reputation update.
+
+## Consensus mechanism dispatch guards (2026-11-25)
+
+`propose_attestation` and `attest` require an existing Attestation subnet at the start of their
+shared implementation helpers, before consensus writes or pending-node cleanup.
+Their dispatch weights now add the existing bounded subnet-lifecycle read
+allowance, covering one database read and the maximum subnet metadata proof.
+Generated submission weights are retained; no new timing coefficients are claimed.
+Matrix configuration, commit and reveal explicitly require Matrix.
+New tests cover native calls and helpers, retained round evidence, quarantined
+nodes, storage invariance on rejection, and successful Attestation calls.
+
+## Required registration consensus choice (2026-11-25)
+
+Registration now carries a required mechanism in its native and Solidity input.
+The registration benchmark exercises Matrix's extra validation with maximum
+metadata, bootnodes and initial-validator data. Twenty verified compiled-Wasm
+samples peaked at 0.623058 ms, with 28 reads and 25 writes. Including production
+RocksDB charges gives 3.823058 ms, below the existing 4.021741 ms allowance.
+Estimated proof is 6,196 bytes versus the installed 10,292 bytes. Existing
+registration weights are retained; no consensus execution weights change.
+
+Validation passed: 1,296 pallet tests/benchmark fixtures (one existing ignored),
+83 runtime tests, seven precompile tests and the optimized Wasm build. Existing
+attestation assertions are unchanged; shared registration inputs explicitly
+select Attestation. [Measurements and provenance](benchmark-results/registration-consensus-2026-11-25/)
+record the exact runtime/source hashes, commands and raw results.
+
+## Matrix capacity and block weight research (2026-11-25)
+
+Compiled-Wasm probes cover 64, 128, 224, 256, 320, 352, 384, 448 and 512 nodes.
+The combined dataset contains 1,700 timing samples and 170 storage measurements:
+920 / 92 from the initial sweep and 780 / 78 from additional larger-state calls,
+intermediate populations and a confirmation run at 512. Equivalent component
+pairs avoid a global affine fit across quadratic work. The original runtime and
+protocol source hashes were verified before reusing the optimized research Wasm.
+
+512 is the largest tested population that fits a single subnet's mandatory work:
+892.9 ms including RocksDB and selector allowance, and 6.69 MiB estimated proof.
+That is 44.6% / 20.9% of the full 2,000 ms / 32 MiB block, or 89.3% / 41.8% of
+the 1,000 ms / 16 MiB Network hook allowance. Its projected Matrix-only peak,
+including scheduled commits and block base, is 1,002.7 ms / 8.92 MiB. 448 nodes
+use 640.0 ms for mandatory work and leave more hook execution headroom.
+
+With all 16 subnets submitting complete matrices, 352 is the largest tested
+population fitting the Matrix-only block and normal-transaction budgets, but
+uses about 99% of the normal proof allowance. Reserving the entire Network hook
+allowance every block reduces the largest tested passing population to 256.
+224 retains at least 20% of the remaining submission allowance. These are
+projections from measured per-call profiles, with explicit traffic assumptions;
+they are not end-to-end full-network block-import measurements.
+
+The current 64-node runtime still charges provisional fixed weights. Its tested
+hook reservation is 572.218 ms / 4.44 MiB, and each signed Matrix submission
+books 29.745787 ms. New signed Executive checks admit 33 commits or 33 reveals
+after reserving the full Network hook allowance, then reject the next call for
+weight exhaustion. Both runtime Matrix capacity tests pass, including nonce and
+storage checks, rejection rollback, settlement and the next snapshot. The initial
+36 Matrix tests/benchmark fixtures remain unchanged. All timed Wasm scenarios
+ran with verification, separately from compilation and native tests.
+
+The [Matrix guide](src/consensus/matrix/README.md#capacity-measurements--2026-11-25)
+contains per-size block percentages, submission costs, assumptions and reproduction
+commands. [Original data](benchmark-results/matrix-2026-11-25/) and
+[follow-up data](benchmark-results/matrix-block-weight-2026-11-25/) retain raw
+samples, CSV/JSON analysis, runtime/source hashes, commands and validation logs.
+Production consensus code, generated weights and the Matrix bound of 64 are
+unchanged by this research. The ordinary runtime artifact hash is unchanged.
+
 ## Batched consensus failures and hook refunds (2026-11-24)
 
 Reward settlement collects failed operations in memory, then appends the original individual

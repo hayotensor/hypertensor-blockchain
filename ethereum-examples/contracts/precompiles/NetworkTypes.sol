@@ -79,6 +79,8 @@ struct SubnetRegistration {
     uint128 delegateStakePercentage;
     U32Entry[] initialValidators;
     Bootnode[] bootnodes;
+    // Required: 0 = Attestation, 1 = Matrix.
+    uint8 consensusMechanism;
 }
 // kind: 0 = subnet delegation, 1 = validator delegation. accountId is checked by the pallet.
 

@@ -1,0 +1,111 @@
+Pallet: "pallet_network", Extrinsic: "register_subnet", Lowest values: [], Highest values: [], Steps: 2, Repeat: 20
+Raw Storage Info
+========
+Storage: `Network::NetworkPaused` (r:1 w:0)
+Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::TotalSubnetUids` (r:1 w:1)
+Proof: `Network::TotalSubnetUids` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::RequireSubnetRegistrationWhitelist` (r:1 w:0)
+Proof: `Network::RequireSubnetRegistrationWhitelist` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::MinSubnetNodes` (r:1 w:0)
+Proof: `Network::MinSubnetNodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetName` (r:1 w:1)
+Proof: `Network::SubnetName` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::TotalSubnets` (r:1 w:1)
+Proof: `Network::TotalSubnets` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::MaxSubnets` (r:1 w:0)
+Proof: `Network::MaxSubnets` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetRepo` (r:1 w:1)
+Proof: `Network::SubnetRepo` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::MaxBootnodes` (r:1 w:0)
+Proof: `Network::MaxBootnodes` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::MinSubnetMinStake` (r:1 w:0)
+Proof: `Network::MinSubnetMinStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::MaxSubnetMinStake` (r:1 w:0)
+Proof: `Network::MaxSubnetMinStake` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::NetworkMaxStakeBalance` (r:1 w:0)
+Proof: `Network::NetworkMaxStakeBalance` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::MinDelegateStakePercentage` (r:1 w:0)
+Proof: `Network::MinDelegateStakePercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::MaxDelegateStakePercentage` (r:1 w:0)
+Proof: `Network::MaxDelegateStakePercentage` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `System::Number` (r:1 w:0)
+Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+Storage: `Network::LastRegistrationCost` (r:1 w:1)
+Proof: `Network::LastRegistrationCost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::MinRegistrationCost` (r:1 w:0)
+Proof: `Network::MinRegistrationCost` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::LastSubnetRegistrationBlock` (r:1 w:1)
+Proof: `Network::LastSubnetRegistrationBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::RegistrationCostDecayBlocks` (r:1 w:0)
+Proof: `Network::RegistrationCostDecayBlocks` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::RegistrationCostAlpha` (r:1 w:0)
+Proof: `Network::RegistrationCostAlpha` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `System::Account` (r:2 w:2)
+Proof: `System::Account` (`max_values`: None, `max_size`: Some(128), added: 2603, mode: `MaxEncodedLen`)
+Storage: `Network::AssignedSlots` (r:1 w:1)
+Proof: `Network::AssignedSlots` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Balances::TotalIssuance` (r:1 w:0)
+Proof: `Balances::TotalIssuance` (`max_values`: Some(1), `max_size`: Some(16), added: 511, mode: `MaxEncodedLen`)
+Storage: `System::ExecutionPhase` (r:1 w:0)
+Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+Storage: `System::EventCount` (r:1 w:1)
+Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+Storage: `System::Events` (r:1 w:1)
+Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::NewRegistrationCostMultiplier` (r:1 w:0)
+Proof: `Network::NewRegistrationCostMultiplier` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::SlotAssignment` (r:0 w:1)
+Proof: `Network::SlotAssignment` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetOwner` (r:0 w:1)
+Proof: `Network::SubnetOwner` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetBootnodes` (r:0 w:1)
+Proof: `Network::SubnetBootnodes` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetSlot` (r:0 w:1)
+Proof: `Network::SubnetSlot` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetMaxStakeBalance` (r:0 w:1)
+Proof: `Network::SubnetMaxStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::FriendlyUidSubnetId` (r:0 w:1)
+Proof: `Network::FriendlyUidSubnetId` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetDelegateStakeRewardsPercentage` (r:0 w:1)
+Proof: `Network::SubnetDelegateStakeRewardsPercentage` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetRegistrationEpoch` (r:0 w:1)
+Proof: `Network::SubnetRegistrationEpoch` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetDelegateStakeEmas` (r:0 w:1)
+Proof: `Network::SubnetDelegateStakeEmas` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetMinStakeBalance` (r:0 w:1)
+Proof: `Network::SubnetMinStakeBalance` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetsData` (r:0 w:1)
+Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::NodeRegistrationInitialValidatorIds` (r:0 w:1)
+Proof: `Network::NodeRegistrationInitialValidatorIds` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetNetFlows` (r:0 w:1)
+Proof: `Network::SubnetNetFlows` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetIdFriendlyUid` (r:0 w:1)
+Proof: `Network::SubnetIdFriendlyUid` (`max_values`: None, `max_size`: None, mode: `Measured`)
+
+Median Slopes Analysis
+========
+-- Extrinsic Time --
+
+Model:
+Time ~=    471.5
+              µs
+
+Reads = 28
+Writes = 25
+Recorded proof Size = 505
+
+Min Squares Analysis
+========
+-- Extrinsic Time --
+
+Model:
+Time ~=    471.5
+              µs
+
+Reads = 28
+Writes = 25
+Recorded proof Size = 505
+
+Created file: "/tmp/matrix-registration-benchmark/weights.rs"

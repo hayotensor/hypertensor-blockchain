@@ -23,6 +23,7 @@
 use super::*;
 
 mod capacity;
+mod matrix;
 mod pending_operations;
 mod promotions;
 
@@ -929,6 +930,7 @@ pub fn default_registration_subnet_data<T: Config>(
 ) -> RegistrationSubnetData<T> {
     let seed_bytes: &[u8] = &name;
     let add_subnet_data = RegistrationSubnetData::<T> {
+        consensus_mechanism: ConsensusMechanism::Attestation,
         name: name.clone(),
         repo: blake2_128(seed_bytes).to_vec(), // must be unique
         description: Vec::new(),
@@ -3317,6 +3319,214 @@ fn node_metadata_update_fixture<T: Config>(queued: bool, create: bool) -> (u32, 
 mod benchmarks {
     use super::*;
 
+    /// Research capacity only: no generated production weights are installed by these probes.
+    #[benchmark(extra)]
+    fn capacity_matrix_open(n: Linear<6, { 2 * MATRIX_MAX_NODES + 1 }>) {
+        let n = n / 2;
+        let f = matrix::fixture::<T>(n, 0, false);
+        MatrixRounds::<T>::remove(f.subnet, f.epoch);
+        #[block]
+        {
+            Network::<T>::open_matrix_round(f.subnet, f.epoch);
+        }
+        assert_eq!(
+            MatrixRounds::<T>::get(f.subnet, f.epoch)
+                .unwrap()
+                .identities
+                .len(),
+            n as usize
+        );
+    }
+
+    #[benchmark(extra)]
+    fn capacity_matrix_commit(n: Linear<6, { 2 * MATRIX_MAX_NODES + 1 }>) {
+        let n = n / 2;
+        let f = matrix::fixture::<T>(n, 0, false);
+        let hotkey = Network::<T>::get_subnet_node_associated_hotkey(f.subnet, 1).unwrap();
+        let commitment = T::Hashing::hash(&[27; 32]);
+        #[block]
+        {
+            assert_ok!(Network::<T>::commit_matrix_scores(
+                RawOrigin::Signed(hotkey).into(),
+                f.subnet,
+                f.epoch,
+                1,
+                commitment
+            ));
+        }
+        assert_eq!(
+            MatrixCommitments::<T>::get((f.subnet, f.epoch, 1)),
+            Some(commitment)
+        );
+    }
+
+    #[benchmark(extra)]
+    fn capacity_matrix_reveal(n: Linear<6, { 2 * MATRIX_MAX_NODES + 1 }>) {
+        let n = n / 2;
+        let f = matrix::fixture::<T>(n, 0, true);
+        let round = MatrixRounds::<T>::get(f.subnet, f.epoch).unwrap();
+        let expected = MatrixRows::<T>::take((f.subnet, f.epoch, 1)).unwrap();
+        let scores = matrix::raw_scores(n, 1);
+        let hotkey = Network::<T>::get_subnet_node_associated_hotkey(f.subnet, 1).unwrap();
+        frame_system::Pallet::<T>::set_block_number(round.reveal_block.into());
+        #[block]
+        {
+            assert_ok!(Network::<T>::reveal_matrix_scores(
+                RawOrigin::Signed(hotkey).into(),
+                f.subnet,
+                f.epoch,
+                1,
+                scores,
+                [27; 32]
+            ));
+        }
+        assert_eq!(MatrixRows::<T>::get((f.subnet, f.epoch, 1)), Some(expected));
+    }
+
+    #[benchmark(extra)]
+    fn capacity_matrix_commit_loaded(n: Linear<6, { 2 * MATRIX_MAX_NODES + 1 }>) {
+        let n = n / 2;
+        let f = matrix::fixture::<T>(n, 0, false);
+        matrix::max_submission_state::<T>(&f);
+        let hotkey = Network::<T>::get_subnet_node_associated_hotkey(f.subnet, 1).unwrap();
+        let commitment = T::Hashing::hash(&[27; 32]);
+        #[block]
+        {
+            assert_ok!(Network::<T>::commit_matrix_scores(
+                RawOrigin::Signed(hotkey).into(),
+                f.subnet,
+                f.epoch,
+                1,
+                commitment
+            ));
+        }
+        assert_eq!(
+            MatrixCommitments::<T>::get((f.subnet, f.epoch, 1)),
+            Some(commitment)
+        );
+    }
+
+    #[benchmark(extra)]
+    fn capacity_matrix_reveal_loaded(n: Linear<6, { 2 * MATRIX_MAX_NODES + 1 }>) {
+        let n = n / 2;
+        let f = matrix::fixture::<T>(n, 0, true);
+        matrix::max_submission_state::<T>(&f);
+        let round = MatrixRounds::<T>::get(f.subnet, f.epoch).unwrap();
+        let expected = MatrixRows::<T>::take((f.subnet, f.epoch, 1)).unwrap();
+        let scores = matrix::raw_scores(n, 1);
+        let hotkey = Network::<T>::get_subnet_node_associated_hotkey(f.subnet, 1).unwrap();
+        frame_system::Pallet::<T>::set_block_number(round.reveal_block.into());
+        #[block]
+        {
+            assert_ok!(Network::<T>::reveal_matrix_scores(
+                RawOrigin::Signed(hotkey).into(),
+                f.subnet,
+                f.epoch,
+                1,
+                scores,
+                [27; 32]
+            ));
+        }
+        assert_eq!(MatrixRows::<T>::get((f.subnet, f.epoch, 1)), Some(expected));
+    }
+
+    /// Measure mandatory work directly: provisional admission constants are not a capacity model.
+    #[benchmark(extra)]
+    fn capacity_matrix_slot(n: Linear<6, { 2 * MATRIX_MAX_NODES + 1 }>) {
+        let n = n / 2;
+        let f = matrix::fixture::<T>(n, 0, true);
+        matrix::advance::<T>(&f);
+        #[block]
+        {
+            Network::<T>::settle_matrix_round(f.subnet, f.epoch + 1);
+            Network::<T>::open_matrix_round(f.subnet, f.epoch + 1);
+        }
+        matrix::verify::<T>(&f, false);
+    }
+
+    #[benchmark(extra)]
+    fn capacity_matrix_failed_credits(n: Linear<6, { 2 * MATRIX_MAX_NODES + 1 }>) {
+        let n = n / 2;
+        let f = matrix::fixture::<T>(n, 0, true);
+        matrix::advance::<T>(&f);
+        TotalStake::<T>::put(u128::MAX);
+        #[block]
+        {
+            Network::<T>::settle_matrix_round(f.subnet, f.epoch + 1);
+            Network::<T>::open_matrix_round(f.subnet, f.epoch + 1);
+        }
+        matrix::verify::<T>(&f, true);
+    }
+
+    #[benchmark(extra)]
+    fn capacity_matrix_promotions(n: Linear<6, { 2 * MATRIX_MAX_NODES + 1 }>) {
+        let n = n / 2;
+        let f = matrix::fixture::<T>(n, n - 3, true);
+        matrix::advance::<T>(&f);
+        #[block]
+        {
+            Network::<T>::settle_matrix_round(f.subnet, f.epoch + 1);
+            Network::<T>::open_matrix_round(f.subnet, f.epoch + 1);
+        }
+        matrix::verify::<T>(&f, false);
+        for id in 4..=n {
+            assert!(!SubnetNodeProbationProgress::<T>::contains_key(
+                f.subnet, id
+            ));
+        }
+    }
+
+    #[benchmark(extra)]
+    fn capacity_matrix_sparse_stake(n: Linear<6, { 2 * MATRIX_MAX_NODES + 1 }>) {
+        let n = n / 2;
+        let f = matrix::fixture::<T>(n, 0, true);
+        // Dense reveals with just two positive-weight nodes still settle successfully.
+        for id in 3..=n {
+            MatrixRounds::<T>::mutate(f.subnet, f.epoch, |round| {
+                let round = round.as_mut().unwrap();
+                let old = round.stake.weights.insert(id, 0).unwrap();
+                round.stake.total_weight -= old;
+            });
+        }
+        matrix::advance::<T>(&f);
+        #[block]
+        {
+            Network::<T>::settle_matrix_round(f.subnet, f.epoch + 1);
+            Network::<T>::open_matrix_round(f.subnet, f.epoch + 1);
+        }
+        assert_eq!(
+            MatrixResults::<T>::get(f.subnet, f.epoch).unwrap().outcome,
+            MatrixOutcome::Accepted
+        );
+        assert!(MatrixRounds::<T>::contains_key(f.subnet, f.epoch + 1));
+    }
+
+    #[benchmark(extra)]
+    fn capacity_matrix_no_scores(n: Linear<6, { 2 * MATRIX_MAX_NODES + 1 }>) {
+        let n = n / 2;
+        let f = matrix::fixture::<T>(n, 0, false);
+        let reputation_before = SubnetNodeReputation::<T>::get(f.subnet, 1);
+        matrix::advance::<T>(&f);
+        #[block]
+        {
+            Network::<T>::settle_matrix_round(f.subnet, f.epoch + 1);
+            Network::<T>::open_matrix_round(f.subnet, f.epoch + 1);
+        }
+        assert_eq!(
+            MatrixResults::<T>::get(f.subnet, f.epoch).unwrap().outcome,
+            MatrixOutcome::NoScores
+        );
+        assert_eq!(
+            SubnetRewardCapacitor::<T>::get(f.subnet),
+            11_000 * PERCENTAGE_FACTOR_U128
+        );
+        assert_eq!(
+            SubnetNodeReputation::<T>::get(f.subnet, 1),
+            reputation_before
+        );
+        assert!(MatrixRounds::<T>::contains_key(f.subnet, f.epoch + 1));
+    }
+
     /// Two adjacent parameter values select the same case, so FRAME can analyze a fixed
     /// scenario without its single-value regression error. Never fit time across case IDs.
     #[benchmark(extra)]
@@ -3793,6 +4003,8 @@ mod benchmarks {
             0,
             T::MaxRegisteredNodesUpperBound::get(),
         );
+        // Matrix adds validation to the shared registration path; cover that branch.
+        register_subnet_data.consensus_mechanism = ConsensusMechanism::Matrix;
         register_subnet_data.name = vec![41; T::MaxVectorLength::get() as usize];
         register_subnet_data.repo = vec![42; T::MaxUrlLength::get() as usize];
         register_subnet_data.description = vec![43; T::MaxVectorLength::get() as usize];

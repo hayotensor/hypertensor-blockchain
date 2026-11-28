@@ -1,0 +1,6 @@
+{
+  ".maintain/analyze-matrix-capacity.py": "8102302e7cd8acb13e822fbff48e79e46233c0df43e3b66dbaf18b7fbe19b8b1",
+  ".maintain/benchmark-matrix-capacity.py": "d01dc0f7f5dc325589fc7f6951f30d42b9b276e114cdae0aefad35da6e7f6cc5",
+  "runtime/src/tests/matrix_capacity.rs": "3ce9175a8ca829528c996a249235ab29258761b9b6c03f9f6a7f84b6891e4ab0",
+  "pallets/network/src/consensus/matrix/README.md": "e6c3bf3201d9e4d0f24ebe438cf8249ca3adc72d8abc918f699deea81be0e8be"
+}

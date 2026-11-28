@@ -65,6 +65,7 @@ pub use admin::*;
 pub mod supply;
 pub use supply::*;
 pub mod consensus;
+pub use consensus::matrix::types::*;
 pub mod overwatch_nodes;
 pub use overwatch_nodes::*;
 pub mod bank;
@@ -1032,6 +1033,34 @@ pub mod pallet {
             balance: u128,
             reason: SwapRefundReason,
         },
+        ConsensusMechanismSelected {
+            subnet_id: u32,
+            mechanism: ConsensusMechanism,
+        },
+        MatrixConfigUpdated {
+            parameters: MatrixParameters,
+        },
+        MatrixRoundOpened {
+            subnet_id: u32,
+            subnet_epoch: u32,
+        },
+        MatrixScoresCommitted {
+            subnet_id: u32,
+            subnet_epoch: u32,
+            subnet_node_id: u32,
+            commitment: T::Hash,
+        },
+        MatrixScoresRevealed {
+            subnet_id: u32,
+            subnet_epoch: u32,
+            subnet_node_id: u32,
+            abstained: bool,
+        },
+        MatrixRoundSettled {
+            subnet_id: u32,
+            subnet_epoch: u32,
+            outcome: MatrixOutcome,
+        },
     }
 
     /// Errors that can be returned by this pallet.
@@ -1342,6 +1371,12 @@ pub mod pallet {
         SwapBalanceBelowMinimum,
         /// The active node election index is missing or disagrees with its slot vector.
         InvalidNodeElectionSlotIndex,
+        InvalidConsensusMechanism,
+        InvalidMatrixEpochLength,
+        InvalidMatrixScores,
+        MatrixRoundNotFound,
+        MatrixRoundClosed,
+        MatrixNodeQuarantined,
     }
 
     /// Consensus mechanism used by a subnet.
@@ -1363,6 +1398,8 @@ pub mod pallet {
     pub enum ConsensusMechanism {
         #[codec(index = 0)]
         Attestation,
+        #[codec(index = 1)]
+        Matrix,
     }
 
     impl Default for ConsensusMechanism {
@@ -1495,6 +1532,8 @@ pub mod pallet {
         pub delegate_stake_percentage: u128,
         pub initial_validators: BTreeMap<u32, u32>,
         pub bootnodes: BTreeMap<PeerId, NetworkBytes<T>>,
+        /// Required registration choice: Attestation (0) or Matrix (1).
+        pub consensus_mechanism: ConsensusMechanism,
     }
 
     /// Complete subnet information aggregated for RPC queries.
@@ -4840,6 +4879,56 @@ pub mod pallet {
         OptionQuery,
     >;
 
+    #[pallet::type_value]
+    pub fn DefaultMatrixConfig<T: Config>() -> MatrixParameters {
+        MatrixParameters {
+            accuracy_weight: PERCENTAGE_FACTOR_U128 / 2,
+            reputation_tolerance: PERCENTAGE_FACTOR_U128 / 10,
+            max_reputation_decrease: 3 * PERCENTAGE_FACTOR_U128 / 10,
+            max_reputation_increase: PERCENTAGE_FACTOR_U128 / 10,
+            reputation_increase_exponent: 2,
+            reputation_decrease_exponent: 2,
+            commit_phase_percentage: PERCENTAGE_FACTOR_U128 / 2,
+            performance_threshold: 0,
+            probation_promotion_reputation: PERCENTAGE_FACTOR_U128,
+            min_nodes: MATRIX_MIN_NODES,
+            max_nodes: MATRIX_MAX_NODES,
+        }
+    }
+    /// Network-wide Matrix policy. Governance writes immediately; rounds snapshot it at opening.
+    #[pallet::storage]
+    pub type MatrixConfig<T: Config> =
+        StorageValue<_, MatrixParameters, ValueQuery, DefaultMatrixConfig<T>>;
+
+    #[pallet::storage]
+    pub type MatrixRounds<T> =
+        StorageDoubleMap<_, Identity, u32, Identity, u32, MatrixRound, OptionQuery>;
+    #[pallet::storage]
+    pub type MatrixResults<T> =
+        StorageDoubleMap<_, Identity, u32, Identity, u32, MatrixResult, OptionQuery>;
+    #[pallet::storage]
+    pub type MatrixCommitments<T: Config> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, u32>,
+            NMapKey<Identity, u32>,
+            NMapKey<Identity, u32>,
+        ),
+        T::Hash,
+        OptionQuery,
+    >;
+    #[pallet::storage]
+    pub type MatrixRows<T> = StorageNMap<
+        _,
+        (
+            NMapKey<Identity, u32>,
+            NMapKey<Identity, u32>,
+            NMapKey<Identity, u32>,
+        ),
+        MatrixScores,
+        OptionQuery,
+    >;
+
     /// Next subnet epoch whose consensus history is to be pruned.
     #[pallet::storage]
     pub type ConsensusHistoryPruneCursor<T> = StorageMap<_, Identity, u32, u32, OptionQuery>;
@@ -4864,6 +4953,7 @@ pub mod pallet {
         AttestorWeights,
         SettlementStatus,
         Elections,
+        Matrix,
     }
 
     /// One small work record per removed subnet, recording the next history prefix to clear.
@@ -6215,7 +6305,7 @@ pub mod pallet {
         ///
         /// # Arguments
         ///
-        /// * `subnet_data` - Subnet registration data `RegistrationSubnetData`.
+        /// * `subnet_data` - Registration data including the required consensus mechanism.
         ///
         #[pallet::call_index(6)]
         #[pallet::weight(T::WeightInfo::register_subnet())]
@@ -7336,6 +7426,7 @@ pub mod pallet {
         #[pallet::call_index(69)]
         #[pallet::weight(
             T::WeightInfo::propose_attestation()
+                .saturating_add(Pallet::<T>::subnet_lifecycle_read_weight())
                 .saturating_add(Pallet::<T>::maximum_pending_admitted_cleanup_dispatch_weight())
         )]
         pub fn propose_attestation(
@@ -7364,9 +7455,11 @@ pub mod pallet {
 
         #[pallet::call_index(70)]
         #[pallet::weight(
-            T::WeightInfo::attest().saturating_add(
-                Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
-            )
+            T::WeightInfo::attest()
+                .saturating_add(Pallet::<T>::subnet_lifecycle_read_weight())
+                .saturating_add(
+                    Pallet::<T>::pending_node_cleanup_dispatch_weight(*subnet_id, *subnet_node_id)
+                )
         )]
         pub fn attest(
             origin: OriginFor<T>,
@@ -8404,6 +8497,74 @@ pub mod pallet {
             T::MajorityCollectiveOrigin::ensure_origin(origin)?;
             Self::do_set_subnet_net_flow_k(value)
         }
+
+        /// Select a consensus mechanism while the subnet is Registered.
+        #[pallet::call_index(188)]
+        #[pallet::weight(Pallet::<T>::matrix_submission_weight())]
+        pub fn owner_set_consensus_mechanism(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            mechanism: ConsensusMechanism,
+        ) -> DispatchResult {
+            let owner = ensure_signed(origin)?;
+            Self::is_paused()?;
+            Self::do_owner_set_consensus_mechanism(owner, subnet_id, mechanism)
+        }
+
+        /// Set network-wide Matrix policy immediately. Open rounds retain their snapshots.
+        #[pallet::call_index(189)]
+        #[pallet::weight(Pallet::<T>::matrix_submission_weight())]
+        pub fn set_matrix_config(
+            origin: OriginFor<T>,
+            parameters: MatrixParameters,
+        ) -> DispatchResult {
+            T::SuperMajorityCollectiveOrigin::ensure_origin(origin)?;
+            Self::do_set_matrix_config(parameters)
+        }
+
+        #[pallet::call_index(190)]
+        #[pallet::weight(Pallet::<T>::matrix_submission_weight())]
+        pub fn commit_matrix_scores(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_epoch: u32,
+            subnet_node_id: u32,
+            commitment: T::Hash,
+        ) -> DispatchResultWithPostInfo {
+            let hotkey = ensure_signed(origin)?;
+            Self::is_paused()?;
+            Self::do_commit_matrix_scores(
+                hotkey,
+                subnet_id,
+                subnet_epoch,
+                subnet_node_id,
+                commitment,
+            )
+        }
+
+        /// Reveal a sorted subset of other roster nodes with absolute Q18 scores (0..=1e18).
+        /// Omission is not a zero assessment; an empty list is an abstention.
+        #[pallet::call_index(191)]
+        #[pallet::weight(Pallet::<T>::matrix_submission_weight())]
+        pub fn reveal_matrix_scores(
+            origin: OriginFor<T>,
+            subnet_id: u32,
+            subnet_epoch: u32,
+            subnet_node_id: u32,
+            scores: MatrixScores,
+            salt: [u8; 32],
+        ) -> DispatchResultWithPostInfo {
+            let hotkey = ensure_signed(origin)?;
+            Self::is_paused()?;
+            Self::do_reveal_matrix_scores(
+                hotkey,
+                subnet_id,
+                subnet_epoch,
+                subnet_node_id,
+                scores,
+                salt,
+            )
+        }
     }
 
     impl<T: Config> Pallet<T> {
@@ -8457,7 +8618,9 @@ pub mod pallet {
         ///
         /// ## 6. Initial Node Operators (Whitelist)
         ///
-        /// - **Minimum Count**: At least `MinSubnetNodes` coldkeys must be whitelisted
+        /// - **Minimum Count**: Attestation requires `MinSubnetNodes` validator identities;
+        ///   Matrix requires enough node allowances for `max(3, MinSubnetNodes)` nodes,
+        ///   which may belong to a single validator identity
         /// - **Registration Slots**: Each coldkey must be allocated at least 1 registration slot
         /// - During registration period, only these coldkeys can register nodes
         /// - Removed upon activation (see `do_activate_subnet`)
@@ -8560,6 +8723,10 @@ pub mod pallet {
 
             Self::ensure_subnet_registration_allowed(&owner, subnet_id)?;
             Self::ensure_subnet_registration_metadata_bounded(&subnet_registration_data)?;
+            Self::ensure_consensus_mechanism_supported(
+                subnet_registration_data.consensus_mechanism,
+                0,
+            )?;
 
             // Ensure name is unique
             ensure!(
@@ -8635,15 +8802,31 @@ pub mod pallet {
                 Error::<T>::InvalidMinDelegateStakePercentage
             );
 
-            // --- Must have at least min subnet nodes as initial coldkeys
-            // Each coldkey must have at least 1 available registration slot
+            // Matrix counts node registration slots, not distinct validator identities.
+            // Attestation retains its existing minimum validator-map cardinality.
+            let initial_count = if subnet_registration_data.consensus_mechanism
+                == ConsensusMechanism::Matrix
+            {
+                subnet_registration_data
+                    .initial_validators
+                    .values()
+                    .fold(0u32, |total, slots| total.saturating_add(*slots))
+            } else {
+                subnet_registration_data.initial_validators.len() as u32
+            };
+            let minimum_initial_count = if subnet_registration_data.consensus_mechanism
+                == ConsensusMechanism::Matrix
+            {
+                MinSubnetNodes::<T>::get().max(MatrixConfig::<T>::get().min_nodes)
+            } else {
+                MinSubnetNodes::<T>::get()
+            };
             ensure!(
                 subnet_registration_data
                     .initial_validators
                     .values()
                     .all(|&value| value >= 1)
-                    && subnet_registration_data.initial_validators.len() as u32
-                        >= MinSubnetNodes::<T>::get(),
+                    && initial_count >= minimum_initial_count,
                 Error::<T>::InvalidSubnetRegistrationInitialColdkeys
             );
 
@@ -8694,7 +8877,7 @@ pub mod pallet {
                 repo: subnet_registration_data.repo,
                 description: subnet_registration_data.description,
                 misc: subnet_registration_data.misc,
-                consensus_mechanism: ConsensusMechanism::default(),
+                consensus_mechanism: subnet_registration_data.consensus_mechanism,
                 state: SubnetState::Registered,
                 consensus_eligible_from_subnet_epoch: None,
             };
@@ -9345,6 +9528,13 @@ pub mod pallet {
 
             // Per-epoch consensus history is cleared incrementally with leftover block weight.
             weight = weight.saturating_add(Self::queue_removed_subnet_consensus_history(subnet_id));
+            if subnet.consensus_mechanism == ConsensusMechanism::Matrix {
+                ConsensusHistoryCleanupQueue::<T>::insert(
+                    subnet_id,
+                    ConsensusHistoryCleanupStage::Matrix,
+                );
+                weight = weight.saturating_add(T::DbWeight::get().writes(3));
+            }
 
             Self::deposit_event(Event::SubnetDeactivated {
                 subnet_id: subnet_id,
@@ -9774,8 +9964,13 @@ pub mod pallet {
             );
 
             if subnet.state == SubnetState::Registered {
+                let limit = MaxSubnetNodes::<T>::get();
+                let limit = match subnet.consensus_mechanism {
+                    ConsensusMechanism::Attestation => limit,
+                    ConsensusMechanism::Matrix => limit.min(MatrixConfig::<T>::get().max_nodes),
+                };
                 ensure!(
-                    TotalAdmittedSubnetNodes::<T>::get(subnet_id) < MaxSubnetNodes::<T>::get(),
+                    TotalAdmittedSubnetNodes::<T>::get(subnet_id) < limit,
                     Error::<T>::MaxSubnetNodes
                 );
 
@@ -9947,7 +10142,8 @@ pub mod pallet {
             // We're about to call `insert_node_into_election_slot`. We must always check
             // max subnet nodes is not breached when calling this.
             ensure!(
-                TotalAdmittedSubnetNodes::<T>::get(subnet_id) < MaxSubnetNodes::<T>::get(),
+                TotalAdmittedSubnetNodes::<T>::get(subnet_id)
+                    < Self::subnet_node_capacity(subnet_id),
                 Error::<T>::MaxSubnetNodes
             );
 
@@ -10386,6 +10582,13 @@ pub mod pallet {
                         subnet_count.min(T::MaxPhysicalSubnetsUpperBound::get()),
                     )
                 };
+                // Matrix may require one additional bounded round read per subnet.
+                // Keep this provisional allowance separate from generated benchmark weights.
+                let step_weight = step_weight.saturating_add(
+                    T::DbWeight::get()
+                        .reads(subnet_count as u64)
+                        .saturating_add(Weight::from_parts(0, 16_384 * subnet_count as u64)),
+                );
                 if weight_meter.can_consume(step_weight) {
                     Self::handle_subnet_emission_weights(current_epoch);
                     weight_meter.consume(step_weight);

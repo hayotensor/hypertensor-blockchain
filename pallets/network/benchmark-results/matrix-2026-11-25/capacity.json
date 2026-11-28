@@ -1,0 +1,281 @@
+{
+  "hook_limits": {
+    "ms": 1000,
+    "proof_bytes": 16777216
+  },
+  "slot_fixed_allowance": {
+    "ms": 1,
+    "proof_bytes": 32768
+  },
+  "database_costs_ms": {
+    "read": 0.025,
+    "write": 0.1
+  },
+  "results": [
+    {
+      "nodes": 64,
+      "mandatory_ms": 81.296712,
+      "mandatory_proof_bytes": 526226,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_slot",
+      "signed_calls": {
+        "commit": {
+          "ms": 1.649549,
+          "proof_bytes": 18482,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": false
+        },
+        "reveal": {
+          "ms": 1.674045,
+          "proof_bytes": 21040,
+          "encoded_bytes": 1410,
+          "loaded_profile_measured": false
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 7,
+        "peak": {
+          "ms": 186.46420799999999,
+          "proof_bytes": 2249044,
+          "encoded_bytes": 104958
+        },
+        "average": {
+          "ms": 170.1680128,
+          "proof_bytes": 2023526.4000000001,
+          "encoded_bytes": 79820.8
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 1000,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160.0
+        },
+        "uniform_schedule_fits": true,
+        "uniform_schedule_fits_with_20_percent_headroom": true,
+        "average_within_budget": true
+      }
+    },
+    {
+      "nodes": 128,
+      "mandatory_ms": 143.10228,
+      "mandatory_proof_bytes": 960882,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_slot",
+      "signed_calls": {
+        "commit": {
+          "ms": 1.667389,
+          "proof_bytes": 21436,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": false
+        },
+        "reveal": {
+          "ms": 1.8397390000000002,
+          "proof_bytes": 25539,
+          "encoded_bytes": 2691,
+          "loaded_profile_measured": false
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 13,
+        "peak": {
+          "ms": 369.222412,
+          "proof_bytes": 4992078,
+          "encoded_bytes": 361452
+        },
+        "average": {
+          "ms": 359.12990720000005,
+          "proof_bytes": 4810240.0,
+          "encoded_bytes": 290816.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 1000,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160.0
+        },
+        "uniform_schedule_fits": true,
+        "uniform_schedule_fits_with_20_percent_headroom": true,
+        "average_within_budget": true
+      }
+    },
+    {
+      "nodes": 224,
+      "mandatory_ms": 249.77632300000002,
+      "mandatory_proof_bytes": 1920074,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_slot",
+      "signed_calls": {
+        "commit": {
+          "ms": 1.68668,
+          "proof_bytes": 31175,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": true
+        },
+        "reveal": {
+          "ms": 2.118891,
+          "proof_bytes": 37594,
+          "encoded_bytes": 4611,
+          "loaded_profile_measured": true
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 23,
+        "peak": {
+          "ms": 720.10677,
+          "proof_bytes": 12948770,
+          "encoded_bytes": 1081092
+        },
+        "average": {
+          "ms": 681.9583232,
+          "proof_bytes": 12323404.799999999,
+          "encoded_bytes": 852992.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 1000,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160.0
+        },
+        "uniform_schedule_fits": true,
+        "uniform_schedule_fits_with_20_percent_headroom": true,
+        "average_within_budget": true
+      }
+    },
+    {
+      "nodes": 256,
+      "mandatory_ms": 284.717772,
+      "mandatory_proof_bytes": 2321749,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_slot",
+      "signed_calls": {
+        "commit": {
+          "ms": 1.766092,
+          "proof_bytes": 32745,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": true
+        },
+        "reveal": {
+          "ms": 2.46767,
+          "proof_bytes": 39936,
+          "encoded_bytes": 5251,
+          "loaded_profile_measured": true
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 26,
+        "peak": {
+          "ms": 917.104552,
+          "proof_bytes": 15491580,
+          "encoded_bytes": 1388504
+        },
+        "average": {
+          "ms": 867.0744576000002,
+          "proof_bytes": 14885068.8,
+          "encoded_bytes": 1105920.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 1000,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160.0
+        },
+        "uniform_schedule_fits": true,
+        "uniform_schedule_fits_with_20_percent_headroom": false,
+        "average_within_budget": true
+      }
+    },
+    {
+      "nodes": 384,
+      "mandatory_ms": 509.821756,
+      "mandatory_proof_bytes": 4342103,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": true,
+      "limiting_time_case": "capacity_matrix_failed_credits",
+      "signed_calls": {
+        "commit": {
+          "ms": 1.7354720000000001,
+          "proof_bytes": 33037,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": false
+        },
+        "reveal": {
+          "ms": 2.364878,
+          "proof_bytes": 42864,
+          "encoded_bytes": 7811,
+          "loaded_profile_measured": false
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 39,
+        "peak": {
+          "ms": 1328.4028680000001,
+          "proof_bytes": 24447618,
+          "encoded_bytes": 3081156
+        },
+        "average": {
+          "ms": 1259.6275200000002,
+          "proof_bytes": 23316787.2,
+          "encoded_bytes": 2445312.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 1000,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160.0
+        },
+        "uniform_schedule_fits": false,
+        "uniform_schedule_fits_with_20_percent_headroom": false,
+        "average_within_budget": false
+      }
+    },
+    {
+      "nodes": 512,
+      "mandatory_ms": 892.884143,
+      "mandatory_proof_bytes": 7017921,
+      "fits_hook_limits": true,
+      "fits_with_20_percent_headroom": false,
+      "limiting_time_case": "capacity_matrix_slot",
+      "signed_calls": {
+        "commit": {
+          "ms": 2.03763,
+          "proof_bytes": 38413,
+          "encoded_bytes": 149,
+          "loaded_profile_measured": false
+        },
+        "reveal": {
+          "ms": 2.640248,
+          "proof_bytes": 50800,
+          "encoded_bytes": 10371,
+          "loaded_profile_measured": false
+        }
+      },
+      "all_16_subnets": {
+        "rows_per_phase_block": 52,
+        "peak": {
+          "ms": 2008.66952,
+          "proof_bytes": 38400856,
+          "encoded_bytes": 5439408
+        },
+        "average": {
+          "ms": 1916.0588288,
+          "proof_bytes": 36541644.800000004,
+          "encoded_bytes": 4308992.0
+        },
+        "block_limits_after_full_network_reservation": {
+          "ms": 1000,
+          "proof_bytes": 16777216,
+          "encoded_bytes": 3932160.0
+        },
+        "uniform_schedule_fits": false,
+        "uniform_schedule_fits_with_20_percent_headroom": false,
+        "average_within_budget": false
+      }
+    }
+  ],
+  "notes": [
+    "Optimized compiled Wasm on the recorded host, not end-to-end block import.",
+    "Point timing uses the slowest measured sample, not a global affine model.",
+    "Estimated proof bounds are from FRAME max PoV analysis for equivalent parameter pairs at each fixed node count.",
+    "Production Matrix bound and admission weights have not been changed.",
+    "Submission scheduling assumes all 16 subnets participate fully; other traffic competes for the same block capacity."
+  ]
+}

@@ -150,7 +150,9 @@ pub fn peer_set<T: Config>(
 pub fn registration<T: Config>(
     v: &abi::SubnetRegistration,
 ) -> Result<pallet_network::RegistrationSubnetData<T>, Error> {
+    let consensus_mechanism = consensus_mechanism(v.consensusMechanism)?;
     Ok(pallet_network::RegistrationSubnetData {
+        consensus_mechanism,
         name: metadata::<T>(&v.name)?,
         repo: url::<T>(&v.repo)?,
         description: metadata::<T>(&v.description)?,
@@ -285,5 +287,14 @@ pub fn reputation(v: &abi::ReputationUpdates) -> pallet_network::SubnetReputatio
         non_consensus_attestor_decrease: optional_u128(&v.nonConsensusAttestorDecrease),
         validator_absent_decrease: optional_u128(&v.validatorAbsentDecrease),
         validator_non_consensus_decrease: optional_u128(&v.validatorNonConsensusDecrease),
+    }
+}
+
+/// Decode the shared native/Solidity consensus discriminant without a fallback.
+pub fn consensus_mechanism(value: u8) -> Result<pallet_network::ConsensusMechanism, Error> {
+    match value {
+        0 => Ok(pallet_network::ConsensusMechanism::Attestation),
+        1 => Ok(pallet_network::ConsensusMechanism::Matrix),
+        _ => Err(revert("Network: invalid consensus mechanism")),
     }
 }

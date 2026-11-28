@@ -1,0 +1,12 @@
+cargo test --locked --offline -p pallet-network --features runtime-benchmarks --lib
+1296 passed; 0 failed; 1 existing ignored test
+
+SKIP_WASM_BUILD=1 cargo test --locked --offline -p hypertensor-runtime --lib
+83 passed; 0 failed
+
+SKIP_WASM_BUILD=1 cargo test --locked --offline -p network-precompiles --lib
+7 passed; 0 failed
+
+Optimized runtime Wasm build with runtime-benchmarks passed.
+Registration benchmark uses Matrix, maximum metadata and bounded registration maps; verification enabled.
+Production registration weights cover measured execution/database costs and estimated proof.

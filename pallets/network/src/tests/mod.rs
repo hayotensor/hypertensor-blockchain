@@ -62,3 +62,9 @@ fn physical_subnet_upper_bound_respects_epoch_capacity_and_benchmark_domain() {
     assert_eq!(crate::physical_subnet_upper_bound(20), 17);
     assert_eq!(crate::physical_subnet_upper_bound(100), 17);
 }
+
+mod matrix;
+
+mod registration_consensus;
+
+mod consensus_mechanism_gates;

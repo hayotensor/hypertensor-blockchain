@@ -355,8 +355,14 @@ impl<T: Config> Pallet<T> {
             return (false, Some(SubnetRemovalReason::MinReputation));
         }
 
-        // In registration, this equals total electable nodes
-        if TotalAdmittedSubnetNodes::<T>::get(subnet_id) < MinSubnetNodes::<T>::get() {
+        // Matrix requires at least three admitted nodes even if the network minimum
+        // is lowered. Attestation keeps the network minimum unchanged.
+        let mut minimum_nodes = MinSubnetNodes::<T>::get();
+        if Self::is_matrix_subnet(subnet_id) {
+            minimum_nodes = minimum_nodes.max(MatrixConfig::<T>::get().min_nodes);
+        }
+        // In registration, this equals total electable nodes.
+        if TotalAdmittedSubnetNodes::<T>::get(subnet_id) < minimum_nodes {
             return (false, Some(SubnetRemovalReason::MinSubnetNodes));
         }
 

@@ -355,3 +355,57 @@ Allocation remains a ceiling, not a guaranteed payout: existing eligibility, tim
   canonicalization and the validator/attestor reward multiplier functions.
 - [Round policy snapshots](src/utilities/era.rs): `consensus_policy_snapshot`.
 - [Storage defaults and configuration](src/lib.rs): reward percentages and subnet weight factors.
+
+## Matrix consensus node weights
+
+Matrix divides the same `RewardsData.subnet_node_rewards` budget using its final
+Q18 weights. Owner/subnet-delegate allocations and validator delegate/beneficiary
+splits use the same reward and retry helpers as Attestation. Matrix has no elected
+proposer or proposer base reward. Its configurable accuracy/performance blend,
+commit/reveal phases, participation rules, and capacitor/lifecycle behavior are
+specified in [the Matrix guide](src/consensus/matrix/README.md).
+
+Active Matrix nodes also gain or lose reputation through configurable power
+curves around an accuracy tolerance (quadratic by default). This replaces their positive-performance
+reputation increase, while preserving existing absence and minimum-weight
+penalties. Scoring is optional; Matrix applies no non-participation penalty.
+These reputation rates are independent of the emission
+blend and are frozen with each round; an unusable independent reference earns no
+accuracy increase and incurs no accuracy decrease. No participation or identity
+quorum gates Matrix rewards or reputation. Any nonempty eligible row is accepted;
+the scorer's own row is excluded from its accuracy reference, but sibling nodes
+are included. Zero-weight reveals contribute no voting influence.
+
+Partial lists contain absolute Q18 scores in [0, Q]; omissions are not zeros. Received
+performance averages only the positive-weight nodes that assessed that target. Accuracy
+is one minus mean absolute error over targets with another positive-weight assessment;
+there is no coverage penalty. Empty lists abstain; nonempty zero-only lists are assessments.
+Assessed Active nodes can receive performance rewards without submitting their
+own scores. Accuracy is zero for missing/empty rows, and otherwise follows the
+normal reference calculation. Both components normalize across assessed Active
+targets; Probation targets remain excluded. A positive-weight, non-abstaining peer
+row supplies an assessment even when its entry for the target is zero. Results
+record `has_received_assessment` to distinguish that zero from no external evidence.
+No assessment means no node reward. An explicit zero can still allow accuracy
+rewards; being assessed does not guarantee a positive payout. A 100% accuracy
+allocation disables the performance component, including worker-only rewards.
+
+If every row is missing or empty, `NoScores` retains the full scheduled
+allocation in the capacitor without behavioral reputation changes. A lone revealer
+has no external assessment or reference, so its own node weight is zero; assessed
+workers can earn from that row. Absence/minimum-weight penalties and Probation
+progress require an external weighted assessment; cancelled rounds freeze reputation
+and progression. Matrix requires three admitted nodes but does not require three
+submissions or validator identities.
+
+Matrix-specific parameters are network-wide governance settings in `MatrixConfig`.
+`set_matrix_config(parameters)` writes immediately; it requires the runtime's
+supermajority collective origin. Open rounds retain their immutable parameters.
+Gain/loss exponents, commit-phase percentage, performance threshold, promotion
+reputation, and operational node limits are configurable along with the reward
+blend and reputation rates. The default performance threshold is zero; at or
+below the configured threshold, assessed nodes receive the absence penalty and
+Probation progress resets. This threshold does not rewrite received scores or
+reward weights. Promotion requires the configured reputation (default Q) and the
+shared number of Probation rounds. Q18 precision and the supported roster bounds
+remain protocol constraints.

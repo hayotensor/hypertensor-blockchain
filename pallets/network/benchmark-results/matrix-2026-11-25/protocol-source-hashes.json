@@ -1,0 +1,11 @@
+{
+  "pallets/network/src/consensus/matrix/history.rs": "b4c5a13dd8642b3678ede28ecea849b64c9e42168bafa9c93a150be8796ed13f",
+  "pallets/network/src/consensus/matrix/math.rs": "ee9405d6272cc46a7204cad22176e79f0e595d813ff00e6a17adc330a5b782b1",
+  "pallets/network/src/consensus/matrix/mod.rs": "8b2411458bf1a2c0b74c7dfb0fb93d5a868037b7e491bc458f4bec15c541d7a1",
+  "pallets/network/src/consensus/matrix/settlement.rs": "ac42a381bd9a1b031b776bf867463a7da1d9b6262ad905cc50d66676d683f203",
+  "pallets/network/src/consensus/matrix/types.rs": "af174335db38805cbdc06ec494c98598429be2ebe7c016f4693b02588c23c743",
+  "pallets/network/src/lib.rs": "0c0c95b3740a7867af664a1e6c8758e280dc5669962779fea0e1fab4a23f9fd7",
+  "pallets/network/src/bank/rewards.rs": "d4768c6c81e653bc1ab010c58552b07aa09abb40485b16e5c587583f3278fcab",
+  "pallets/network/src/utilities/slot.rs": "345285f3ef4f515ed07eeb6727c1d69bd744e6418f664eecca51198f7a62c73e",
+  "runtime/src/configs/common.rs": "2faf2ec06f3f795de8c5a04fbeb51200f9e6ade16370c33c40d575eabc8c06a9"
+}

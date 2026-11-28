@@ -5,7 +5,9 @@ import "./NetworkTypes.sol";
 
 /// Native TENSOR base units; all mutations act as the immediate caller.
 interface ISubnets {
-    /// Network::register_subnet (call index 6).
+    /// Select 0=Attestation or 1=Matrix before activation (call index 188).
+    function ownerSetConsensusMechanism(uint32 subnetId, uint8 mechanism) external;
+    /// Network::register_subnet (call index 6). subnetData.consensusMechanism is required: 0=Attestation, 1=Matrix.
     function registerSubnet(uint128 maxCost, SubnetRegistration calldata subnetData) external;
     /// Network::activate_subnet (call index 7).
     function activateSubnet(uint32 subnetId) external;

@@ -465,7 +465,7 @@ impl<T: Config> Pallet<T> {
         (
             settlement
                 .saturating_add(T::WeightInfo::elect_validator(e))
-                .saturating_add(Self::subnet_lifecycle_read_weight()),
+                .saturating_add(Self::subnet_lifecycle_read_weight().saturating_mul(2)),
             refundable,
         )
     }
@@ -487,7 +487,10 @@ impl<T: Config> Pallet<T> {
                     0,
                     0,
                     T::MaxSubnetNodesUpperBound::get(),
-                )),
+                ))
+                .max(
+                    Self::matrix_slot_weight().saturating_add(Self::subnet_lifecycle_read_weight()),
+                ),
             )
     }
 
@@ -509,18 +512,32 @@ impl<T: Config> Pallet<T> {
         current_subnet_epoch: u32,
         subnet_id: u32,
     ) -> Option<Weight> {
-        let selectors = T::WeightInfo::emission_step_selectors();
+        let mechanism_selector = Self::subnet_lifecycle_read_weight();
+        let selectors = T::WeightInfo::emission_step_selectors().saturating_add(mechanism_selector);
         if !weight_meter.can_consume(selectors) {
             return None;
         }
         weight_meter.consume(selectors);
+        if Self::is_matrix_subnet(subnet_id) {
+            let mandatory = Self::matrix_slot_weight();
+            if !weight_meter.can_consume(mandatory) {
+                return None;
+            }
+            weight_meter.consume(mandatory);
+            Self::settle_matrix_round(subnet_id, current_subnet_epoch);
+            Self::emission_operational_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
+            return Some(Weight::zero());
+        }
         let (mandatory, refundable) =
             Self::select_subnet_slot_mandatory_weight(subnet_id, current_subnet_epoch);
+        // The mechanism selector is already paid; the remaining lifecycle read belongs to operations.
+        let mandatory = mandatory.saturating_sub(mechanism_selector);
         if !weight_meter.can_consume(mandatory) {
             return None;
         }
         weight_meter.consume(mandatory);
-        let enqueue_weight = Self::emission_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
+        let enqueue_weight =
+            Self::emission_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
         Some(refundable.saturating_sub(enqueue_weight))
     }
 
@@ -546,8 +563,11 @@ impl<T: Config> Pallet<T> {
         current_subnet_epoch: u32,
         subnet_id: u32,
     ) -> Weight {
-        let enqueue_weight =
-            Self::emission_settlement_step(&mut WeightMeter::new(), current_subnet_epoch, subnet_id);
+        let enqueue_weight = Self::emission_settlement_step(
+            &mut WeightMeter::new(),
+            current_subnet_epoch,
+            subnet_id,
+        );
         Self::emission_operational_step_prepaid(weight_meter, current_subnet_epoch, subnet_id);
         enqueue_weight
     }
@@ -686,7 +706,14 @@ impl<T: Config> Pallet<T> {
             if subnet.state == SubnetState::Active
                 && Self::_is_subnet_active_and_live(&subnet, current_subnet_epoch)
             {
-                Self::elect_validator(subnet_id, current_subnet_epoch);
+                match subnet.consensus_mechanism {
+                    ConsensusMechanism::Attestation => {
+                        Self::elect_validator(subnet_id, current_subnet_epoch)
+                    }
+                    ConsensusMechanism::Matrix => {
+                        Self::open_matrix_round(subnet_id, current_subnet_epoch)
+                    }
+                }
             }
 
             // Drain quarantined physical state only after the conditional election. This preserves
@@ -723,10 +750,14 @@ impl<T: Config> Pallet<T> {
                     // earlier priority.
                     weight_meter.consume(maintenance_weight);
                     let mut maintenance_meter = WeightMeter::with_limit(maintenance_weight);
-                    Self::handle_registration_queue(
+                    Self::handle_registration_queue_with_capacity(
                         &mut maintenance_meter,
                         subnet_id,
                         current_subnet_epoch,
+                        match subnet.consensus_mechanism {
+                            ConsensusMechanism::Attestation => u32::MAX,
+                            ConsensusMechanism::Matrix => MATRIX_MAX_NODES,
+                        },
                     );
                     Self::update_burn_rate_for_epoch(&mut maintenance_meter, subnet_id);
                 }
@@ -867,6 +898,22 @@ impl<T: Config> Pallet<T> {
         subnet_id: u32,
         current_subnet_epoch: u32,
     ) {
+        Self::handle_registration_queue_with_capacity(
+            weight_meter,
+            subnet_id,
+            current_subnet_epoch,
+            u32::MAX,
+        );
+    }
+
+    /// The slot already read the mechanism. Pass its cap without adding storage work to
+    /// the shared queue algorithm or changing the attestation admission budget.
+    pub(crate) fn handle_registration_queue_with_capacity(
+        weight_meter: &mut WeightMeter,
+        subnet_id: u32,
+        current_subnet_epoch: u32,
+        mechanism_capacity: u32,
+    ) {
         let db_weight = T::DbWeight::get();
 
         // Seven existing reads plus four queue-clock reads (including both slot lookups).
@@ -886,7 +933,7 @@ impl<T: Config> Pallet<T> {
 
         let subnet_node_queue_epochs =
             Self::get_subnet_node_queue_epochs_for_epoch(subnet_id, current_subnet_epoch);
-        let max_nodes = MaxSubnetNodes::<T>::get();
+        let max_nodes = MaxSubnetNodes::<T>::get().min(mechanism_capacity);
         let total_admitted_nodes = TotalAdmittedSubnetNodes::<T>::get(subnet_id);
         let churn_limit = ChurnLimit::<T>::get(subnet_id);
 
@@ -1086,7 +1133,14 @@ impl<T: Config> Pallet<T> {
             // so its eligible-node cardinality is the reward-allocation authority. The live
             // physical counter intentionally remains reserved for election/removal weight selection.
             eligibility_reads = eligibility_reads.saturating_add(1);
-            if let Some(round) = SubnetElectedValidator::<T>::get(subnet_id, current_subnet_epoch) {
+            let round_nodes = SubnetElectedValidator::<T>::get(subnet_id, current_subnet_epoch)
+                .map(|round| round.eligible_subnet_node_ids.len() as u32)
+                .or_else(|| {
+                    eligibility_reads = eligibility_reads.saturating_add(1);
+                    MatrixRounds::<T>::get(subnet_id, current_subnet_epoch)
+                        .map(|round| round.identities.len() as u32)
+                });
+            if let Some(electable_nodes) = round_nodes {
                 let balance = TotalSubnetDelegateStakeBalance::<T>::get(subnet_id);
                 let ema = Self::read_subnet_delegate_stake_ema(
                     *subnet_id,
@@ -1097,7 +1151,6 @@ impl<T: Config> Pallet<T> {
                 SubnetDelegateStakeEmas::<T>::insert(subnet_id, ema);
                 weight = weight.saturating_add(db_weight.writes(1));
                 let delegate_stake = ema.balance;
-                let electable_nodes = round.eligible_subnet_node_ids.len() as u32;
                 eligibility_reads = eligibility_reads.saturating_add(2);
                 // A u128 balance scaled by Q18, summed over at most u32::MAX subnet IDs,
                 // fits in U256. Keep fractional balances until after normalization.
@@ -1232,8 +1285,14 @@ impl<T: Config> Pallet<T> {
                 let subnet_epoch =
                     Self::get_subnet_epoch_with_block_as_u32(*subnet_id, allocation_block);
                 reads += 2;
-                SubnetElectedValidator::<T>::contains_key(subnet_id, subnet_epoch)
-                    .then_some(*subnet_id)
+                let elected = SubnetElectedValidator::<T>::contains_key(subnet_id, subnet_epoch);
+                let matrix = if elected {
+                    false
+                } else {
+                    reads += 1;
+                    MatrixRounds::<T>::contains_key(subnet_id, subnet_epoch)
+                };
+                (elected || matrix).then_some(*subnet_id)
             })
             .collect();
         let (weights, weight) =
@@ -1268,7 +1327,7 @@ impl<T: Config> Pallet<T> {
     /// Give an unusable or globally cancelled round a terminal outcome without inventing a
     /// consensus decision. Retain its allocation. Missing allocation is zero; invalid percentages
     /// cannot exceed the epoch budget. Cancellation has no effect on later elections.
-    fn cancel_consensus_round(subnet_id: u32, subnet_epoch: u32) -> Weight {
+    pub(crate) fn cancel_consensus_round(subnet_id: u32, subnet_epoch: u32) -> Weight {
         let db_weight = T::DbWeight::get();
         let mut weight = db_weight.reads(1);
         if ConsensusRoundSettlementStatus::<T>::get(subnet_id, subnet_epoch) != Some(false) {
@@ -1442,8 +1501,8 @@ impl<T: Config> Pallet<T> {
                         if inserted {
                             // The removal marker is already durable. Event capacity must not
                             // abort a settled round or prevent the next election.
-                            let _ = newly_pending_admitted_removals
-                                .try_push(validator_subnet_node_id);
+                            let _ =
+                                newly_pending_admitted_removals.try_push(validator_subnet_node_id);
                         }
                     }
                 }

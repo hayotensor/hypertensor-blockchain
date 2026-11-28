@@ -1,0 +1,2 @@
+["env", "SKIP_WASM_BUILD=1", "cargo", "test", "--locked", "--offline", "-p", "hypertensor-runtime", "--lib", "tests::matrix_capacity", "--", "--nocapture"]
+["python3", ".maintain/analyze-matrix-capacity.py", "pallets/network/benchmark-results/matrix-block-weight-2026-11-25", "--include", "pallets/network/benchmark-results/matrix-2026-11-25"]

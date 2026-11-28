@@ -147,3 +147,21 @@ routing and behavioral coverage. Shared ABI structs belong in `NetworkTypes.sol`
 The coverage tests detect added/removed extrinsics, missing selectors, and accidental
 governance exposure. Governance remains native until a separately designed council
 proposal/voting interface is implemented.
+
+Subnet registration requires `SubnetRegistration.consensusMechanism`: `0` for
+Attestation or `1` for Matrix. Other values revert. The field is part of the
+registration tuple and changes the `registerSubnet` selector; clients must use
+the current interface. Native callers supply `consensus_mechanism` in
+`RegistrationSubnetData`. The selected value is stored in the subnet record.
+
+Consensus calls enforce the subnet's selected mechanism through native dispatch:
+`proposeAttestation` and `attest` reject Matrix subnets;
+`commitMatrixScores` and `revealMatrixScores` reject Attestation subnets. Mechanism
+mismatches return the native `InvalidConsensusMechanism` error.
+
+Matrix parameters are governed by the native `set_matrix_config(parameters)` call,
+requiring `SuperMajorityCollectiveOrigin` (4/5 council approval in this runtime).
+There is no signed owner precompile selector for this operation. `MatrixConfig`
+is network-wide, writes immediately, and has no pending or per-subnet override.
+Existing rounds retain their snapshots. Matrix has no participation quorum setting.
+See the [Matrix reputation rules](../../pallets/network/src/consensus/matrix/README.md#accuracy-based-reputation).

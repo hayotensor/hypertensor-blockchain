@@ -1,0 +1,3053 @@
+[
+  {
+    "pallet": "pallet_network",
+    "instance": "Network",
+    "benchmark": "capacity_matrix_open",
+    "time_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 6824922,
+        "storage_root_time": 8013,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 6039979,
+        "storage_root_time": 9694,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 6953215,
+        "storage_root_time": 6491,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 6546997,
+        "storage_root_time": 7281,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 5245217,
+        "storage_root_time": 6780,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 7019589,
+        "storage_root_time": 5196,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 5869829,
+        "storage_root_time": 6863,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 6002344,
+        "storage_root_time": 8184,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 5382031,
+        "storage_root_time": 8334,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 5284031,
+        "storage_root_time": 5399,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 5161986,
+        "storage_root_time": 6226,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 5163354,
+        "storage_root_time": 10676,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 6145188,
+        "storage_root_time": 6588,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 5844060,
+        "storage_root_time": 26362,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 5237095,
+        "storage_root_time": 10215,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 8111187,
+        "storage_root_time": 6574,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 6657037,
+        "storage_root_time": 6743,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 5155402,
+        "storage_root_time": 11110,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 5759844,
+        "storage_root_time": 8191,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 6788213,
+        "storage_root_time": 6010,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      }
+    ],
+    "db_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 5951945,
+        "storage_root_time": 9066,
+        "reads": 938,
+        "repeat_reads": 226,
+        "writes": 4,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 6538311,
+        "storage_root_time": 11899,
+        "reads": 938,
+        "repeat_reads": 226,
+        "writes": 4,
+        "repeat_writes": 0,
+        "proof_size": 261392
+      }
+    ]
+  },
+  {
+    "pallet": "pallet_network",
+    "instance": "Network",
+    "benchmark": "capacity_matrix_commit",
+    "time_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 196747,
+        "storage_root_time": 4651,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 229354,
+        "storage_root_time": 3834,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 184536,
+        "storage_root_time": 4021,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 187419,
+        "storage_root_time": 3723,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 185125,
+        "storage_root_time": 5336,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 212283,
+        "storage_root_time": 3952,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 230370,
+        "storage_root_time": 4229,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 212480,
+        "storage_root_time": 6014,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 189158,
+        "storage_root_time": 4610,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 209572,
+        "storage_root_time": 4231,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 219780,
+        "storage_root_time": 5088,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 254613,
+        "storage_root_time": 6813,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 200741,
+        "storage_root_time": 4253,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 212134,
+        "storage_root_time": 4037,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 242182,
+        "storage_root_time": 4271,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 242176,
+        "storage_root_time": 4479,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 204258,
+        "storage_root_time": 4150,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 243038,
+        "storage_root_time": 5936,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 222571,
+        "storage_root_time": 5077,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 201769,
+        "storage_root_time": 4065,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      }
+    ],
+    "db_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 336810,
+        "storage_root_time": 4512,
+        "reads": 16,
+        "repeat_reads": 1,
+        "writes": 3,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 317314,
+        "storage_root_time": 4635,
+        "reads": 16,
+        "repeat_reads": 1,
+        "writes": 3,
+        "repeat_writes": 0,
+        "proof_size": 13578
+      }
+    ]
+  },
+  {
+    "pallet": "pallet_network",
+    "instance": "Network",
+    "benchmark": "capacity_matrix_reveal",
+    "time_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 513173,
+        "storage_root_time": 5845,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 344866,
+        "storage_root_time": 4020,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 426667,
+        "storage_root_time": 26447,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 354345,
+        "storage_root_time": 4794,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 374319,
+        "storage_root_time": 4399,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 354700,
+        "storage_root_time": 5056,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 388519,
+        "storage_root_time": 3764,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 448602,
+        "storage_root_time": 5260,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 425736,
+        "storage_root_time": 4442,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 334082,
+        "storage_root_time": 3572,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 424069,
+        "storage_root_time": 4435,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 441945,
+        "storage_root_time": 23444,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 351832,
+        "storage_root_time": 4177,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 567083,
+        "storage_root_time": 4613,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 387914,
+        "storage_root_time": 3920,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 456543,
+        "storage_root_time": 6082,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 472335,
+        "storage_root_time": 4582,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 329116,
+        "storage_root_time": 4114,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 348493,
+        "storage_root_time": 3705,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 351242,
+        "storage_root_time": 4403,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      }
+    ],
+    "db_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 426539,
+        "storage_root_time": 4441,
+        "reads": 17,
+        "repeat_reads": 1,
+        "writes": 3,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 450637,
+        "storage_root_time": 4262,
+        "reads": 17,
+        "repeat_reads": 1,
+        "writes": 3,
+        "repeat_writes": 0,
+        "proof_size": 15535
+      }
+    ]
+  },
+  {
+    "pallet": "pallet_network",
+    "instance": "Network",
+    "benchmark": "capacity_matrix_commit_loaded",
+    "time_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 316680,
+        "storage_root_time": 5124,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 219814,
+        "storage_root_time": 4217,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 291455,
+        "storage_root_time": 5461,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 243545,
+        "storage_root_time": 3785,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 248082,
+        "storage_root_time": 4067,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 253071,
+        "storage_root_time": 3946,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 247585,
+        "storage_root_time": 4702,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 238481,
+        "storage_root_time": 4673,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 284715,
+        "storage_root_time": 3822,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 356650,
+        "storage_root_time": 4952,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 327929,
+        "storage_root_time": 8766,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 277393,
+        "storage_root_time": 4228,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 230207,
+        "storage_root_time": 3920,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 243342,
+        "storage_root_time": 4357,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 262268,
+        "storage_root_time": 4182,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 365893,
+        "storage_root_time": 5931,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 301872,
+        "storage_root_time": 4066,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 235050,
+        "storage_root_time": 3562,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 324388,
+        "storage_root_time": 5059,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 234090,
+        "storage_root_time": 3935,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      }
+    ],
+    "db_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 343655,
+        "storage_root_time": 4307,
+        "reads": 17,
+        "repeat_reads": 1,
+        "writes": 3,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 518747,
+        "storage_root_time": 5226,
+        "reads": 17,
+        "repeat_reads": 1,
+        "writes": 3,
+        "repeat_writes": 0,
+        "proof_size": 18886
+      }
+    ]
+  },
+  {
+    "pallet": "pallet_network",
+    "instance": "Network",
+    "benchmark": "capacity_matrix_reveal_loaded",
+    "time_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 409108,
+        "storage_root_time": 4911,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 441054,
+        "storage_root_time": 4638,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 423522,
+        "storage_root_time": 4648,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 440565,
+        "storage_root_time": 4506,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 495045,
+        "storage_root_time": 3663,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 392746,
+        "storage_root_time": 4767,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 462032,
+        "storage_root_time": 51508,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 402740,
+        "storage_root_time": 4951,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 460720,
+        "storage_root_time": 4857,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 773104,
+        "storage_root_time": 4325,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 421453,
+        "storage_root_time": 4697,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 514452,
+        "storage_root_time": 5053,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 472667,
+        "storage_root_time": 3944,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 582065,
+        "storage_root_time": 10853,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 449479,
+        "storage_root_time": 4635,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 481753,
+        "storage_root_time": 9573,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 508071,
+        "storage_root_time": 4262,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 384307,
+        "storage_root_time": 4598,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 547195,
+        "storage_root_time": 4628,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 510104,
+        "storage_root_time": 4757,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      }
+    ],
+    "db_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 492625,
+        "storage_root_time": 5773,
+        "reads": 18,
+        "repeat_reads": 1,
+        "writes": 3,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 601611,
+        "storage_root_time": 5037,
+        "reads": 18,
+        "repeat_reads": 1,
+        "writes": 3,
+        "repeat_writes": 0,
+        "proof_size": 20843
+      }
+    ]
+  },
+  {
+    "pallet": "pallet_network",
+    "instance": "Network",
+    "benchmark": "capacity_matrix_slot",
+    "time_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 70698481,
+        "storage_root_time": 14187,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 68472243,
+        "storage_root_time": 12338,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 70257187,
+        "storage_root_time": 13757,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 64949743,
+        "storage_root_time": 12837,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 66895879,
+        "storage_root_time": 10801,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 68017810,
+        "storage_root_time": 9095,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 66588356,
+        "storage_root_time": 12206,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 67676344,
+        "storage_root_time": 10814,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 67528541,
+        "storage_root_time": 11533,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 65837274,
+        "storage_root_time": 14970,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 66956876,
+        "storage_root_time": 10490,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 69059931,
+        "storage_root_time": 12623,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 88701323,
+        "storage_root_time": 14938,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 69433888,
+        "storage_root_time": 11800,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 65561407,
+        "storage_root_time": 15836,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 65339553,
+        "storage_root_time": 10202,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 69730543,
+        "storage_root_time": 13702,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 65386120,
+        "storage_root_time": 9124,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 70015541,
+        "storage_root_time": 9231,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 69263827,
+        "storage_root_time": 9108,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      }
+    ],
+    "db_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 67768843,
+        "storage_root_time": 14298,
+        "reads": 2751,
+        "repeat_reads": 1365,
+        "writes": 913,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 67630245,
+        "storage_root_time": 16273,
+        "reads": 2751,
+        "repeat_reads": 1365,
+        "writes": 913,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      }
+    ]
+  },
+  {
+    "pallet": "pallet_network",
+    "instance": "Network",
+    "benchmark": "capacity_matrix_failed_credits",
+    "time_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 66369516,
+        "storage_root_time": 10362,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 64161578,
+        "storage_root_time": 11053,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 70515616,
+        "storage_root_time": 9610,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 68518704,
+        "storage_root_time": 7438,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 66286599,
+        "storage_root_time": 11534,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 69345305,
+        "storage_root_time": 8560,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 96880318,
+        "storage_root_time": 14101,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 65566585,
+        "storage_root_time": 9118,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 66837948,
+        "storage_root_time": 9434,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 66361593,
+        "storage_root_time": 11868,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 69712396,
+        "storage_root_time": 10915,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 67485896,
+        "storage_root_time": 12781,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 66836019,
+        "storage_root_time": 10316,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 66979824,
+        "storage_root_time": 14030,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 67540548,
+        "storage_root_time": 17043,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 73795677,
+        "storage_root_time": 12465,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 68117803,
+        "storage_root_time": 10924,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 66043552,
+        "storage_root_time": 7755,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 66548666,
+        "storage_root_time": 9127,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 66853867,
+        "storage_root_time": 8767,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      }
+    ],
+    "db_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 69135252,
+        "storage_root_time": 14447,
+        "reads": 2752,
+        "repeat_reads": 2484,
+        "writes": 462,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 70421022,
+        "storage_root_time": 13976,
+        "reads": 2752,
+        "repeat_reads": 2484,
+        "writes": 462,
+        "repeat_writes": 0,
+        "proof_size": 1329441
+      }
+    ]
+  },
+  {
+    "pallet": "pallet_network",
+    "instance": "Network",
+    "benchmark": "capacity_matrix_promotions",
+    "time_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 12285368,
+        "storage_root_time": 39031,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 12225894,
+        "storage_root_time": 7890,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 11984940,
+        "storage_root_time": 12695,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 12353033,
+        "storage_root_time": 8050,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 12470824,
+        "storage_root_time": 9777,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 18310722,
+        "storage_root_time": 17374,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 20964635,
+        "storage_root_time": 19553,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 14735144,
+        "storage_root_time": 9459,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 12986113,
+        "storage_root_time": 10380,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 11891069,
+        "storage_root_time": 7769,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 13376679,
+        "storage_root_time": 9274,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 12984259,
+        "storage_root_time": 6987,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 18311682,
+        "storage_root_time": 7139,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 13081343,
+        "storage_root_time": 7819,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 12826873,
+        "storage_root_time": 7973,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 14383921,
+        "storage_root_time": 6908,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 13615669,
+        "storage_root_time": 9658,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 13418696,
+        "storage_root_time": 8278,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 13125062,
+        "storage_root_time": 7409,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 13990101,
+        "storage_root_time": 9492,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      }
+    ],
+    "db_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 13878884,
+        "storage_root_time": 9057,
+        "reads": 1427,
+        "repeat_reads": 702,
+        "writes": 695,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 14153747,
+        "storage_root_time": 15153,
+        "reads": 1427,
+        "repeat_reads": 702,
+        "writes": 695,
+        "repeat_writes": 0,
+        "proof_size": 290172
+      }
+    ]
+  },
+  {
+    "pallet": "pallet_network",
+    "instance": "Network",
+    "benchmark": "capacity_matrix_quorum_failed",
+    "time_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 55230539,
+        "storage_root_time": 25584,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 54263715,
+        "storage_root_time": 8419,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 52224373,
+        "storage_root_time": 7608,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 53032291,
+        "storage_root_time": 10656,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 57536230,
+        "storage_root_time": 8612,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 54013680,
+        "storage_root_time": 8261,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 53181977,
+        "storage_root_time": 7020,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 59373720,
+        "storage_root_time": 7720,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 55568068,
+        "storage_root_time": 10441,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 56631181,
+        "storage_root_time": 8589,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 58894304,
+        "storage_root_time": 8886,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 55237972,
+        "storage_root_time": 8558,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 54427388,
+        "storage_root_time": 10054,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 53616755,
+        "storage_root_time": 8563,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 52189930,
+        "storage_root_time": 12014,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 55560041,
+        "storage_root_time": 7379,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 52487376,
+        "storage_root_time": 10432,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 53288390,
+        "storage_root_time": 17368,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 56013814,
+        "storage_root_time": 8658,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 53336858,
+        "storage_root_time": 8537,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      }
+    ],
+    "db_results": [
+      {
+        "components": [
+          [
+            "n",
+            448
+          ]
+        ],
+        "extrinsic_time": 55773419,
+        "storage_root_time": 14063,
+        "reads": 1168,
+        "repeat_reads": 456,
+        "writes": 7,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      },
+      {
+        "components": [
+          [
+            "n",
+            449
+          ]
+        ],
+        "extrinsic_time": 58079622,
+        "storage_root_time": 12872,
+        "reads": 1168,
+        "repeat_reads": 456,
+        "writes": 7,
+        "repeat_writes": 0,
+        "proof_size": 1273000
+      }
+    ]
+  }
+]

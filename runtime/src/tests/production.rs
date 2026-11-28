@@ -247,6 +247,13 @@ fn signed_extrinsics_remain_admissible_after_network_and_scheduler_reservations(
             // dispatch. This fixture is separate from the conservative hook reservation above.
             let subnet = 1;
             let nodes = NetworkMaxSubnetNodesUpperBound::get();
+            n::SubnetsData::<Runtime>::insert(subnet, n::SubnetData {
+                id: subnet,
+                consensus_mechanism: n::ConsensusMechanism::Attestation,
+                state: n::SubnetState::Active,
+                consensus_eligible_from_subnet_epoch: Some(0),
+                ..Default::default()
+            });
             n::SubnetSlot::<Runtime>::insert(subnet, block);
             for node in 1..=nodes {
                 n::SubnetNodesData::<Runtime>::insert(subnet, node, n::SubnetNode {

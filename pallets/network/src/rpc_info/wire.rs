@@ -14,6 +14,7 @@ fn rpc_bytes(value: impl Into<Vec<u8>>) -> rpc::RpcBytes {
 fn rpc_consensus_mechanism(value: ConsensusMechanism) -> rpc::ConsensusMechanism {
     match value {
         ConsensusMechanism::Attestation => rpc::ConsensusMechanism::Attestation,
+        ConsensusMechanism::Matrix => rpc::ConsensusMechanism::Matrix,
     }
 }
 
@@ -663,7 +664,9 @@ impl<T: Config> Pallet<T> {
             state: rpc_subnet_state(subnet.state),
             timing,
             consensus_eligible,
-            within_proposal_attestation_window: actionable_epoch.is_some()
+            within_proposal_attestation_window: subnet.consensus_mechanism
+                == ConsensusMechanism::Attestation
+                && actionable_epoch.is_some()
                 && Self::can_propose_or_attest_attestation(subnet_id),
             elected_validator_subnet_node_id,
             proposal_submitted,

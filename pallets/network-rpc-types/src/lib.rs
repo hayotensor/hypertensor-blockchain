@@ -182,6 +182,7 @@ pub enum NetworkQueryError {
 pub enum ConsensusMechanism {
     #[default]
     Attestation,
+    Matrix,
 }
 
 #[derive(

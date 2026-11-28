@@ -1881,6 +1881,7 @@ pub fn default_registration_subnet_data(
 ) -> RegistrationSubnetData<Test> {
     let seed_bytes: &[u8] = &name;
     let add_subnet_data = RegistrationSubnetData::<Test> {
+        consensus_mechanism: crate::ConsensusMechanism::Attestation,
         name: name.clone(),
         repo: blake2_128(seed_bytes).to_vec(), // must be unique
         description: Vec::new(),

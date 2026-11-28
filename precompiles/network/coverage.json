@@ -140,7 +140,7 @@
     "origin": "signed",
     "index": 6,
     "domain": "Subnets",
-    "signature": "registerSubnet(uint128,(bytes,bytes,bytes,bytes,uint128,uint128,uint128,(uint32,uint32)[],(bytes,bytes)[]))",
+    "signature": "registerSubnet(uint128,(bytes,bytes,bytes,bytes,uint128,uint128,uint128,(uint32,uint32)[],(bytes,bytes)[],uint8))",
     "status": "implemented",
     "authorization": "Immediate caller; native registration whitelist, subnet ownership or bootnode-access checks apply"
   },
@@ -2675,5 +2675,96 @@
     "domain": "Governance",
     "status": "deferred",
     "authorization": "Council approval: at least 2/3 of members in this runtime"
+  },
+  {
+    "name": "owner_set_consensus_mechanism",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "mechanism",
+        "ConsensusMechanism"
+      ]
+    ],
+    "origin": "signed",
+    "index": 188,
+    "domain": "Subnets",
+    "signature": "ownerSetConsensusMechanism(uint32,uint8)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native owner or effective node hotkey checks apply"
+  },
+  {
+    "name": "set_matrix_config",
+    "args": [
+      [
+        "parameters",
+        "MatrixParameters"
+      ]
+    ],
+    "origin": "supermajority",
+    "index": 189,
+    "domain": "Governance",
+    "status": "deferred",
+    "authorization": "Council approval: at least 4/5 of members in this runtime"
+  },
+  {
+    "name": "commit_matrix_scores",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_epoch",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ],
+      [
+        "commitment",
+        "T::Hash"
+      ]
+    ],
+    "origin": "signed",
+    "index": 190,
+    "domain": "Consensus",
+    "signature": "commitMatrixScores(uint32,uint32,uint32,bytes32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native owner or effective node hotkey checks apply"
+  },
+  {
+    "name": "reveal_matrix_scores",
+    "args": [
+      [
+        "subnet_id",
+        "u32"
+      ],
+      [
+        "subnet_epoch",
+        "u32"
+      ],
+      [
+        "subnet_node_id",
+        "u32"
+      ],
+      [
+        "scores",
+        "MatrixScores"
+      ],
+      [
+        "salt",
+        "[u8; 32]"
+      ]
+    ],
+    "origin": "signed",
+    "index": 191,
+    "domain": "Consensus",
+    "signature": "revealMatrixScores(uint32,uint32,uint32,(uint32,uint128)[],bytes32)",
+    "status": "implemented",
+    "authorization": "Immediate caller; native owner or effective node hotkey checks apply"
   }
 ]

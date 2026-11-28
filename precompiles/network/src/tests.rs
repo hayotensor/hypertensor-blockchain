@@ -19,7 +19,7 @@ fn manifest_covers_every_native_extrinsic_and_only_signed_calls_have_selectors()
             .map(|c| c["index"].as_u64().unwrap())
             .collect()
     );
-    assert_eq!(entries.len(), 151);
+    assert_eq!(entries.len(), 155);
     let mut implemented = 0;
     for e in &entries {
         let marker = format!("#[pallet::call_index({})]", e["index"]);
@@ -51,7 +51,7 @@ fn manifest_covers_every_native_extrinsic_and_only_signed_calls_have_selectors()
             assert!(e.get("signature").is_none());
         }
     }
-    assert_eq!(implemented, 70);
+    assert_eq!(implemented, 73);
 }
 
 #[test]
@@ -179,4 +179,53 @@ fn abi_parser_rejects_trailing_bytes_and_impossible_array_lengths() {
         .unwrap()
         .decode_charged()
         .is_err());
+}
+
+#[test]
+fn registration_abi_requires_and_preserves_consensus_choice() {
+    use pallet_revive::precompiles::alloy::sol_types::SolCall;
+    for (value, expected) in [
+        (0, pallet_network::ConsensusMechanism::Attestation),
+        (1, pallet_network::ConsensusMechanism::Matrix),
+    ] {
+        let call = abi::ISubnets::registerSubnetCall {
+            maxCost: 123,
+            subnetData: abi::SubnetRegistration {
+                consensusMechanism: value,
+                ..Default::default()
+            },
+        };
+        let decoded =
+            abi::ISubnets::registerSubnetCall::abi_decode_validate(&call.abi_encode()).unwrap();
+        assert_eq!(
+            convert::consensus_mechanism(decoded.subnetData.consensusMechanism).unwrap(),
+            expected
+        );
+    }
+    for invalid in [2, 255] {
+        assert!(convert::consensus_mechanism(invalid).is_err());
+    }
+    let old_signature = b"registerSubnet(uint128,(bytes,bytes,bytes,bytes,uint128,uint128,uint128,(uint32,uint32)[],(bytes,bytes)[]))";
+    let hash = pallet_revive::keccak_256(old_signature);
+    assert!(!abi::ISubnets::ISubnetsCalls::valid_selector(
+        hash[..4].try_into().unwrap()
+    ));
+}
+
+#[test]
+fn matrix_governance_configuration_has_no_signed_owner_selector() {
+    let hash = pallet_revive::keccak_256(
+        b"ownerUpdateMatrixConfig(uint32,uint128,uint128,uint128,uint128)",
+    );
+    assert!(!abi::ISubnets::ISubnetsCalls::valid_selector(
+        hash[..4].try_into().unwrap()
+    ));
+    let entries: Vec<serde_json::Value> =
+        serde_json::from_str(include_str!("../coverage.json")).unwrap();
+    let config = entries
+        .iter()
+        .find(|entry| entry["name"] == "set_matrix_config")
+        .unwrap();
+    assert_eq!(config["domain"], "Governance");
+    assert!(config.get("signature").is_none());
 }

@@ -41,6 +41,7 @@ fn non_transfer_rejects_network_value_calls() {
         network_call(pallet_network::Call::register_subnet {
             max_cost: 10,
             subnet_data: pallet_network::RegistrationSubnetData::<Runtime> {
+                consensus_mechanism: pallet_network::ConsensusMechanism::Attestation,
                 name: Vec::new(),
                 repo: Vec::new(),
                 description: Vec::new(),

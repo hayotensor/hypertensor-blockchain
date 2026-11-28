@@ -1,0 +1,246 @@
+    Blocking waiting for file lock on artifact directory
+warning: unused import: `string`
+  --> pallets/collective/src/lib.rs:48:25
+   |
+48 | use alloc::{boxed::Box, string, vec, vec::Vec};
+   |                         ^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+   --> pallets/collective/src/lib.rs:219:14
+    |
+219 |         type RuntimeEvent: From<Event<Self, I>>
+    |              ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `pallet-collective` (lib) generated 2 warnings (run `cargo fix --lib -p pallet-collective` to apply 1 suggestion)
+warning: unused import: `admin::*`
+  --> pallets/network/src/lib.rs:64:9
+   |
+64 | pub use admin::*;
+   |         ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `DispatchError`
+  --> pallets/network/src/consensus/attestation/subnet_validator.rs:19:37
+   |
+19 | use frame_support::pallet_prelude::{DispatchError, DispatchResultWithPostInfo};
+   |                                     ^^^^^^^^^^^^^
+
+warning: unused import: `sp_runtime::ArithmeticError`
+  --> pallets/network/src/consensus/attestation/subnet_validator.rs:20:5
+   |
+20 | use sp_runtime::ArithmeticError;
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+   --> pallets/network/src/lib.rs:218:14
+    |
+218 |         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+    |              ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: variable does not need to be mutable
+   --> pallets/network/src/utilities/subnet_node.rs:374:68
+    |
+374 |                 TotalSubnetElectableNodes::<T>::mutate(subnet_id, |mut n| n.saturating_inc());
+    |                                                                    ----^
+    |                                                                    |
+    |                                                                    help: remove this `mut`
+    |
+    = note: `#[warn(unused_mut)]` (part of `#[warn(unused)]`) on by default
+
+warning: variable does not need to be mutable
+   --> pallets/network/src/utilities/subnet_node.rs:375:51
+    |
+375 |                 TotalElectableNodes::<T>::mutate(|mut n| n.saturating_inc());
+    |                                                   ----^
+    |                                                   |
+    |                                                   help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> pallets/network/src/utilities/subnet_node.rs:408:72
+    |
+408 |                     TotalSubnetElectableNodes::<T>::mutate(subnet_id, |mut n| n.saturating_dec());
+    |                                                                        ----^
+    |                                                                        |
+    |                                                                        help: remove this `mut`
+
+warning: variable does not need to be mutable
+   --> pallets/network/src/utilities/subnet_node.rs:409:55
+    |
+409 |                     TotalElectableNodes::<T>::mutate(|mut n| n.saturating_dec());
+    |                                                       ----^
+    |                                                       |
+    |                                                       help: remove this `mut`
+
+warning: value assigned to `delegate_reward_rate` is never read
+  --> pallets/network/src/utilities/validator.rs:74:40
+   |
+74 |         let mut delegate_reward_rate = params.delegate_reward_rate;
+   |                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = help: maybe it is overwritten before being read?
+   = note: `#[warn(unused_assignments)]` (part of `#[warn(unused)]`) on by default
+
+warning: value assigned to `weight` is never read
+    --> pallets/network/src/lib.rs:8972:17
+     |
+8972 | /                 weight = weight.saturating_add(Self::do_remove_subnet(
+8973 | |                     subnet_id,
+8974 | |                     SubnetRemovalReason::EnactmentPeriod,
+8975 | |                 ));
+     | |__________________^
+     |
+     = help: maybe it is overwritten before being read?
+
+warning: value assigned to `weight` is never read
+    --> pallets/network/src/lib.rs:8996:17
+     |
+8996 |                 weight = weight.saturating_add(Self::do_remove_subnet(subnet_id, removal_reason));
+     |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+
+warning: value assigned to `weight` is never read
+    --> pallets/network/src/lib.rs:9043:13
+     |
+9043 |             weight = weight.saturating_add(db_weight.reads(2));
+     |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: maybe it is overwritten before being read?
+
+warning: variable does not need to be mutable
+     --> pallets/network/src/lib.rs:10114:13
+      |
+10114 |             mut subnet_node: SubnetNode,
+      |             ----^^^^^^^^^^^
+      |             |
+      |             help: remove this `mut`
+
+warning: unused variable: `db_weight`
+     --> pallets/network/src/lib.rs:10436:17
+      |
+10436 |             let db_weight = T::DbWeight::get();
+      |                 ^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_db_weight`
+      |
+      = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `block_number`
+     --> pallets/network/src/lib.rs:10679:24
+      |
+10679 |         fn on_finalize(block_number: BlockNumberFor<T>) {}
+      |                        ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_block_number`
+
+warning: associated function `handle_increase_account_delegate_stake` is never used
+   --> pallets/network/src/stake/subnet_delegate_staking.rs:174:19
+    |
+ 22 | impl<T: Config> Pallet<T> {
+    | ------------------------- associated function in this implementation
+...
+174 |     pub(crate) fn handle_increase_account_delegate_stake(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: associated function `handle_increase_account_validator_delegate_stake` is never used
+   --> pallets/network/src/stake/validator_delegate_staking.rs:174:19
+    |
+ 22 | impl<T: Config> Pallet<T> {
+    | ------------------------- associated function in this implementation
+...
+174 |     pub(crate) fn handle_increase_account_validator_delegate_stake(
+    |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: associated function `handle_validator_delegate_stake` is never used
+    --> pallets/network/src/bank/rewards.rs:1225:19
+     |
+  20 | impl<T: Config> Pallet<T> {
+     | ------------------------- associated function in this implementation
+...
+1225 |     pub(crate) fn handle_validator_delegate_stake(
+     |                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: unused `Result` that must be used
+  --> pallets/network/src/utilities/reputation.rs:33:9
+   |
+33 | /         SubnetReputation::<T>::try_mutate(
+34 | |             subnet_id,
+35 | |             |n: &mut u128| -> Result<u128, DispatchError> {
+36 | |                 let prev_reputation = *n;
+...  |
+44 | |             },
+45 | |         );
+   | |_________^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+   = note: `#[warn(unused_must_use)]` (part of `#[warn(unused)]`) on by default
+help: use `let _ = ...` to ignore the resulting value
+   |
+33 |         let _ = SubnetReputation::<T>::try_mutate(
+   |         +++++++
+
+warning: unused `Result` that must be used
+  --> pallets/network/src/utilities/reputation.rs:49:9
+   |
+49 | /         SubnetReputation::<T>::try_mutate(
+50 | |             subnet_id,
+51 | |             |n: &mut u128| -> Result<u128, DispatchError> {
+52 | |                 let prev_reputation = *n;
+...  |
+60 | |             },
+61 | |         );
+   | |_________^
+   |
+   = note: this `Result` may be an `Err` variant, which should be handled
+help: use `let _ = ...` to ignore the resulting value
+   |
+49 |         let _ = SubnetReputation::<T>::try_mutate(
+   |         +++++++
+
+warning: `pallet-network` (lib) generated 20 warnings (run `cargo fix --lib -p pallet-network` to apply 10 suggestions)
+warning: use of deprecated constant `pallet::RuntimeEvent::_w`: 
+                 It is deprecated to have `RuntimeEvent` associated type in the pallet config.
+                 Please instead remove it as it is redundant since associated bound gets appended automatically: 
+                 
+                 pub trait Config: frame_system::Config<RuntimeEvent: From<Event<Self>>> { }.
+         
+                 For more info see:
+                     <https://github.com/paritytech/polkadot-sdk/pull/7229>
+   --> pallets/atomic-swap/src/lib.rs:214:14
+    |
+214 |         type RuntimeEvent: From<Event<Self>> + IsType<<Self as frame_system::Config>::RuntimeEvent>;
+    |              ^^^^^^^^^^^^
+    |
+    = note: `#[warn(deprecated)]` on by default
+
+warning: `pallet-atomic-swap` (lib) generated 1 warning
+   Compiling hypertensor-runtime v0.1.0 (/home/bob/hypertensor-blockchain-matrix/runtime)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 2m 18s
+     Running unittests src/lib.rs (target/debug/deps/hypertensor_runtime-5ed6164aa25e9737)
+
+running 1 test
+matrix_signed_overhead,commit,595787000,8675,149
+matrix_signed_overhead,reveal,595787000,8675,1410
+test tests::matrix_capacity::matrix_signed_transaction_overhead ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 81 filtered out; finished in 1.76s
+

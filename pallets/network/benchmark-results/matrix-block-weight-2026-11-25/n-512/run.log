@@ -1,0 +1,149 @@
+Pallet: "pallet_network", Extrinsic: "capacity_matrix_commit_loaded", Lowest values: [1024], Highest values: [1025], Steps: 2, Repeat: 10
+Raw Storage Info
+========
+Storage: `Network::NetworkPaused` (r:1 w:0)
+Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetsData` (r:1 w:0)
+Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::MatrixRounds` (r:1 w:0)
+Proof: `Network::MatrixRounds` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:0)
+Proof: `Network::ConsensusRoundSettlementStatus` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::LastNetworkUnpauseBlock` (r:1 w:0)
+Proof: `Network::LastNetworkUnpauseBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetSlot` (r:1 w:0)
+Proof: `Network::SubnetSlot` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetNodesData` (r:1 w:0)
+Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetNodeValidatorId` (r:1 w:0)
+Proof: `Network::SubnetNodeValidatorId` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetNodeIdHotkey` (r:1 w:0)
+Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::ValidatorIdHotkey` (r:1 w:0)
+Proof: `Network::ValidatorIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:0)
+Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:0)
+Proof: `Network::PendingQueuedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `System::Number` (r:1 w:0)
+Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+Storage: `Network::MatrixCommitments` (r:1 w:1)
+Proof: `Network::MatrixCommitments` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `System::ExecutionPhase` (r:1 w:0)
+Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+Storage: `System::EventCount` (r:1 w:1)
+Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+Storage: `System::Events` (r:1 w:1)
+Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+
+Median Slopes Analysis
+========
+-- Extrinsic Time --
+
+Model:
+Time ~=    19050
+    + n        0
+              µs
+
+Reads = 17 + (0 * n)
+Writes = 3 + (0 * n)
+Recorded proof Size = 32584 + (0 * n)
+
+Min Squares Analysis
+========
+-- Extrinsic Time --
+
+Data points distribution:
+    n   mean µs  sigma µs       %
+ 1024     406.9      36.2    8.8%
+ 1025     387.2      19.4    5.0%
+
+Quality and confidence:
+param     error
+n         18.36
+
+Model:
+Time ~=    20510
+    + n        0
+              µs
+
+Reads = 17 + (0 * n)
+Writes = 3 + (0 * n)
+Recorded proof Size = 32584 + (0 * n)
+
+Pallet: "pallet_network", Extrinsic: "capacity_matrix_reveal_loaded", Lowest values: [1024], Highest values: [1025], Steps: 2, Repeat: 10
+Raw Storage Info
+========
+Storage: `Network::NetworkPaused` (r:1 w:0)
+Proof: `Network::NetworkPaused` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetsData` (r:1 w:0)
+Proof: `Network::SubnetsData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::MatrixRounds` (r:1 w:0)
+Proof: `Network::MatrixRounds` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::ConsensusRoundSettlementStatus` (r:1 w:0)
+Proof: `Network::ConsensusRoundSettlementStatus` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::LastNetworkUnpauseBlock` (r:1 w:0)
+Proof: `Network::LastNetworkUnpauseBlock` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetSlot` (r:1 w:0)
+Proof: `Network::SubnetSlot` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetNodesData` (r:1 w:0)
+Proof: `Network::SubnetNodesData` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetNodeValidatorId` (r:1 w:0)
+Proof: `Network::SubnetNodeValidatorId` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::SubnetNodeIdHotkey` (r:1 w:0)
+Proof: `Network::SubnetNodeIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::ValidatorIdHotkey` (r:1 w:0)
+Proof: `Network::ValidatorIdHotkey` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::PendingAdmittedNodeRemovals` (r:1 w:0)
+Proof: `Network::PendingAdmittedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::PendingQueuedNodeRemovals` (r:1 w:0)
+Proof: `Network::PendingQueuedNodeRemovals` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `System::Number` (r:1 w:0)
+Proof: `System::Number` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+Storage: `Network::MatrixRows` (r:1 w:1)
+Proof: `Network::MatrixRows` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `Network::MatrixCommitments` (r:1 w:0)
+Proof: `Network::MatrixCommitments` (`max_values`: None, `max_size`: None, mode: `Measured`)
+Storage: `System::ExecutionPhase` (r:1 w:0)
+Proof: `System::ExecutionPhase` (`max_values`: Some(1), `max_size`: Some(5), added: 500, mode: `MaxEncodedLen`)
+Storage: `System::EventCount` (r:1 w:1)
+Proof: `System::EventCount` (`max_values`: Some(1), `max_size`: Some(4), added: 499, mode: `MaxEncodedLen`)
+Storage: `System::Events` (r:1 w:1)
+Proof: `System::Events` (`max_values`: Some(1), `max_size`: None, mode: `Measured`)
+
+Median Slopes Analysis
+========
+-- Extrinsic Time --
+
+Model:
+Time ~=        0
+    + n    11.65
+              µs
+
+Reads = 18 + (0 * n)
+Writes = 3 + (0 * n)
+Recorded proof Size = 34749 + (0 * n)
+
+Min Squares Analysis
+========
+-- Extrinsic Time --
+
+Data points distribution:
+    n   mean µs  sigma µs       %
+ 1024     769.4     47.38    6.1%
+ 1025     794.8     87.05   10.9%
+
+Quality and confidence:
+param     error
+n          0.02
+
+Model:
+Time ~=      701
+    + n    0.079
+              µs
+
+Reads = 18 + (0 * n)
+Writes = 3 + (0 * n)
+Recorded proof Size = 34749 + (0 * n)
+
+Created file: "/tmp/matrix-block-weight-20261125/n-512/weights.rs"

@@ -6,9 +6,9 @@ Subnet ownership is an on-chain role. Every owner-only extrinsic requires the cu
 
 ## Becoming a Subnet Owner
 
-A user becomes a subnet owner by registering a subnet. During registration, the registering account becomes the owner of the new subnet and defines the subnet's initial configuration, including its name, repository, description, bootnodes, stake limits, delegate reward split, and initial validator registration rules.
+A user becomes a subnet owner by registering a subnet. During registration, the registering account becomes the owner of the new subnet and defines the subnet's initial configuration, including its name, repository, description, bootnodes, stake limits, delegate reward split, and initial validator registration rules. Registration requires an explicit `consensus_mechanism` choice of `Attestation` or `Matrix` in `RegistrationSubnetData`; this is stored in `SubnetData` immediately. Owners can change the selection before activation using `owner_set_consensus_mechanism`.
 
-After registration, the subnet enters its registration and enactment flow. The owner is responsible for bringing the subnet to a state where it can activate, including ensuring that enough nodes and delegate stake are available. An activation attempt is not allowed until `MinSubnetRegistrationEpochs` has elapsed. After that point, an unmet activation condition during the registration period returns an error and leaves the subnet registered. During enactment, a delegate-stake shortfall alone returns `SubnetActivationConditionsNotMetYet` and preserves the subnet for funding and retry before the deadline. Insufficient reputation or node count still removes it, even if delegation is also insufficient; new nodes cannot register during enactment. An activation attempt after the enactment deadline still removes the subnet regardless of funding. A successful activation makes the subnet `Active` immediately and schedules its first validator-election attempt for its assigned slot in the following general epoch.
+After registration, the subnet enters its registration and enactment flow. The owner is responsible for bringing the subnet to a state where it can activate, including ensuring that enough nodes and delegate stake are available. An activation attempt is not allowed until `MinSubnetRegistrationEpochs` has elapsed. After that point, an unmet activation condition during the registration period returns an error and leaves the subnet registered. During enactment, a delegate-stake shortfall alone returns `SubnetActivationConditionsNotMetYet` and preserves the subnet for funding and retry before the deadline. Insufficient reputation or node count still removes it, even if delegation is also insufficient; new nodes cannot register during enactment. An activation attempt after the enactment deadline still removes the subnet regardless of funding. A successful activation makes the subnet `Active` immediately and schedules its first consensus round for its assigned slot in the following general epoch.
 
 An account can also become a subnet owner when the current owner transfers ownership to it and the receiving account accepts the transfer.
 
@@ -17,6 +17,12 @@ An account can also become a subnet owner when the current owner transfers owner
 Subnet owners act as operators and stewards for their subnets. They should keep subnet information accurate, maintain usable bootnodes, choose sensible node and validator parameters, and react when the subnet needs maintenance.
 
 Owner settings are still bounded by network rules. Many parameters have minimums, maximums, cooldowns, or delayed activation so a subnet owner cannot arbitrarily bypass protocol-level safety limits.
+
+Matrix algorithm settings are network-wide and controlled by collective governance
+through `set_matrix_config(parameters)`. Subnet owners cannot change `MatrixConfig`.
+Updates are immediate in global storage, and each new round snapshots the settings.
+See [the Matrix guide](src/consensus/matrix/README.md) for the algorithm. Owners still
+choose the subnet's consensus mechanism at registration or before activation.
 
 ## Owner Features
 

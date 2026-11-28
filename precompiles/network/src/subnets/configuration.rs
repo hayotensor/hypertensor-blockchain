@@ -2,6 +2,10 @@ use crate::{abi::ISubnets::ISubnetsCalls as Calls, convert, Config};
 use pallet_revive::precompiles::Error;
 pub(super) fn convert<T: Config>(input: &Calls) -> Result<Option<pallet_network::Call<T>>, Error> {
     Ok(Some(match input {
+        Calls::ownerSetConsensusMechanism(args) => pallet_network::Call::owner_set_consensus_mechanism {
+            subnet_id: args.subnetId,
+            mechanism: convert::consensus_mechanism(args.mechanism)?,
+        },
         Calls::ownerUpdateName(args) => pallet_network::Call::owner_update_name { subnet_id: args.subnetId, value: convert::metadata::<T>(&args.value)? },
         Calls::ownerUpdateRepo(args) => pallet_network::Call::owner_update_repo { subnet_id: args.subnetId, value: convert::url::<T>(&args.value)? },
         Calls::ownerUpdateDescription(args) => pallet_network::Call::owner_update_description { subnet_id: args.subnetId, value: convert::metadata::<T>(&args.value)? },

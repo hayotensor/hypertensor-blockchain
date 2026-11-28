@@ -1,0 +1,10 @@
+Compiled-Wasm follow-up: 780 timing samples and 78 storage measurements, with verification enabled.
+Combined with the original dataset: 1,700 timing samples and 170 storage measurements.
+
+SKIP_WASM_BUILD=1 cargo test --locked --offline -p hypertensor-runtime --lib tests::matrix_capacity -- --nocapture
+2 passed; 0 failed
+
+Signed Executive admission: 33 commits / 33 reveals after full Network reservation; the next call exhausts weight.
+Rejection rolled back; successful storage writes and signer nonce verified.
+Current 64-node hook settles the preceding round and stores the next snapshot.
+Ordinary 64-node Wasm artifact SHA-256 is unchanged; no research build replaced it.

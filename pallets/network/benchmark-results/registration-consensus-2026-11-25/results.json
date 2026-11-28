@@ -1,0 +1,221 @@
+[
+  {
+    "pallet": "pallet_network",
+    "instance": "Network",
+    "benchmark": "register_subnet",
+    "time_results": [
+      {
+        "components": [],
+        "extrinsic_time": 623058,
+        "storage_root_time": 3353,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 502080,
+        "storage_root_time": 2952,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 490831,
+        "storage_root_time": 2610,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 501387,
+        "storage_root_time": 2331,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 463174,
+        "storage_root_time": 2537,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 480540,
+        "storage_root_time": 2526,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 436689,
+        "storage_root_time": 2397,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 457062,
+        "storage_root_time": 2195,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 471597,
+        "storage_root_time": 4672,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 473899,
+        "storage_root_time": 2227,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 508405,
+        "storage_root_time": 3562,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 531062,
+        "storage_root_time": 2505,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 429286,
+        "storage_root_time": 2822,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 581323,
+        "storage_root_time": 2731,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 453004,
+        "storage_root_time": 8199,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 458908,
+        "storage_root_time": 2826,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 428206,
+        "storage_root_time": 2547,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 433858,
+        "storage_root_time": 1970,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 422583,
+        "storage_root_time": 2286,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      },
+      {
+        "components": [],
+        "extrinsic_time": 427036,
+        "storage_root_time": 2351,
+        "reads": 0,
+        "repeat_reads": 0,
+        "writes": 0,
+        "repeat_writes": 0,
+        "proof_size": 505
+      }
+    ],
+    "db_results": [
+      {
+        "components": [],
+        "extrinsic_time": 657224,
+        "storage_root_time": 3142,
+        "reads": 28,
+        "repeat_reads": 28,
+        "writes": 25,
+        "repeat_writes": 0,
+        "proof_size": 505
+      }
+    ]
+  }
+]

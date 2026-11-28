@@ -184,3 +184,14 @@ deadlines. Unpause while already running adds no extension.
 Domain errors include a typed JSON value in the error `data` field.
 
 Accounts use the SDK `AccountId32` type and serialize as SS58 strings.
+
+### Matrix consensus
+
+Subnet information can report `consensusMechanism: "matrix"`. The existing
+`network_getConsensusRound` response remains Attestation-specific and returns no
+round for Matrix. Matrix subnets do not advertise an attestation window. Read
+`MatrixRounds`, `MatrixRows`, `MatrixResults`, and `MatrixCommitments` through runtime
+metadata at a consistent block hash. `MatrixConfig` is one network-wide storage
+value with no subnet key and no pending counterpart. Governance updates it
+immediately; round records retain the parameters snapshotted when they opened.
+See the [Matrix protocol](../src/consensus/matrix/README.md) for fields and phases.

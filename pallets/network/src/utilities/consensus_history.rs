@@ -146,6 +146,24 @@ impl<T: Config> Pallet<T> {
             weight_meter.consume(probe_weight);
             visited += 1;
             if !SubnetElectedValidator::<T>::contains_key(subnet_id, cursor) {
+                let matrix_probe = db_weight
+                    .reads(1)
+                    .saturating_add(Weight::from_parts(0, 16_384));
+                if !weight_meter.can_consume(matrix_probe.saturating_add(cursor_write_weight)) {
+                    break;
+                }
+                weight_meter.consume(matrix_probe);
+                if MatrixRounds::<T>::contains_key(subnet_id, cursor) {
+                    // Keep enough weight to persist the common cursor after partial cleanup.
+                    let mut matrix_meter = WeightMeter::with_limit(
+                        weight_meter.remaining().saturating_sub(cursor_write_weight),
+                    );
+                    let complete = Self::prune_matrix_round(&mut matrix_meter, subnet_id, cursor);
+                    weight_meter.consume(matrix_meter.consumed());
+                    if !complete {
+                        break;
+                    }
+                }
                 cursor = cursor.saturating_add(1);
                 continue;
             }
@@ -261,6 +279,7 @@ impl<T: Config> Pallet<T> {
         let value_bytes = match stage {
             Attestations | ProposalArgs => T::ValidatorArgsLimit::get() as u64 + 5,
             SubmissionMaxItems | SettlementStatus => 32,
+            Matrix => 32_768,
             // The combined fixed-round bound conservatively covers each of these value types.
             Submissions | AttestorWeights | Elections => {
                 128 * T::MaxSubnetNodesUpperBound::get() as u64
@@ -293,6 +312,29 @@ impl<T: Config> Pallet<T> {
         ConsensusHistoryCleanupLastSubnet::<T>::put(subnet_id);
         let original_stage = stage;
         let progress_weight = Self::removed_history_progress_weight();
+        if stage == Matrix {
+            // At most one Matrix round (128 row/commitment keys) per removed-subnet visit.
+            // A second probe can finish the queue record, but cannot delete another round.
+            for visit in 0..2 {
+                let probe = Self::removed_history_step_weight(Matrix);
+                if !weight_meter.can_consume(probe.saturating_add(progress_weight)) {
+                    return;
+                }
+                weight_meter.consume(probe);
+                let Some(epoch) = MatrixRounds::<T>::iter_key_prefix(subnet_id).next() else {
+                    weight_meter.consume(progress_weight);
+                    ConsensusHistoryCleanupQueue::<T>::remove(subnet_id);
+                    return;
+                };
+                if visit != 0 {
+                    return;
+                }
+                if !Self::prune_matrix_round(weight_meter, subnet_id, epoch) {
+                    return;
+                }
+            }
+            return;
+        }
         // Advance within each prefix instead of seeking from its beginning after every delete.
         // This avoids repeatedly traversing backend keys already deleted in this block's overlay.
         let mut last_key = None;
@@ -318,6 +360,7 @@ impl<T: Config> Pallet<T> {
             }
             weight_meter.consume(step_weight);
             match stage {
+                Matrix => unreachable!("Matrix cleanup is handled before the attestation stages"),
                 Attestations => {
                     let next = match last_key.take() {
                         Some(key) => SubnetConsensusAttestationData::<T>::iter_key_prefix_from(

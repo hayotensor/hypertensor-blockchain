@@ -1,0 +1,22 @@
+{
+  "runtime_sha256": "c6e684b724a6ee1e36d1963e2579becbd31151a85f33c6df8f0c962efbef3083",
+  "source_sha256": {
+    "pallets/network/src/lib.rs": "b2875dc1597e911b1229ef9792d49fc1c561242d58a1442b29645b59e919a68d",
+    "pallets/network/src/consensus/matrix/mod.rs": "84b876039e0af1b8040e660a83b17ff6ba5cc8cf797a8852b072fd13dfa37017",
+    "pallets/network/src/benchmarking.rs": "229385bf075b749d91fc9c6ebe64b0a9d6033830085566454dd7be19e3bf7fad",
+    "precompiles/network/interfaces/NetworkTypes.sol": "6897984f06194c2e95625e97214b476d3ca0601d07784efc3128ee5b9db5d213"
+  },
+  "mechanism": "Matrix",
+  "wasm_execution": "compiled",
+  "wasm_build_type": "release",
+  "timing_samples": 20,
+  "storage_samples": 1,
+  "max_sample_ns": 623058,
+  "reads": 28,
+  "writes": 25,
+  "estimated_proof_bytes": 6196,
+  "point_ref_time_with_rocksdb": 3823058000,
+  "installed_ref_time_with_rocksdb": 4021741000,
+  "installed_proof_bytes": 10292,
+  "production_weights_changed": false
+}

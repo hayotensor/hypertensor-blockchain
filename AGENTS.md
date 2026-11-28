@@ -286,15 +286,40 @@ Implement the following in the subnet application:
 
 Optional `args` and `attest_data` are bounded application-defined bytes; define
 their encoding and verification in the subnet protocol. They do not cause the
-runtime to execute a custom scoring algorithm. `Attestation` is the implemented
-`ConsensusMechanism` in this checkout.
+runtime to execute a custom scoring algorithm. Registration requires an explicit
+`consensus_mechanism`: `Attestation` or `Matrix`. Before activation an owner may
+change that choice with `owner_set_consensus_mechanism`. Matrix uses per-node commit/reveal, shared
+validator-delegate voting weights, and a configurable accuracy/performance blend.
+Active Matrix nodes also gain or lose reputation through configurable quadratic
+accuracy curves, with parameters snapshotted per round. The collective sets the
+network-wide `MatrixParameters` through `set_matrix_config(parameters)` using
+`SuperMajorityCollectiveOrigin` (4/5 in this runtime). `MatrixConfig` is one global
+storage value: updates write immediately, with no pending configuration or subnet
+overrides. New rounds snapshot the updated settings; existing rounds retain theirs. Matrix accepts any eligible nonempty revealed rows regardless of
+turnout, voting stake share, or validator-identity count. Accuracy references exclude
+only the scorer's node; sibling nodes remain included.
+Partial lists contain absolute Q18 scores in [0, Q]; omissions are not zeros. Received
+performance averages only the positive-weight nodes that assessed that target. Accuracy
+is one minus mean absolute error over targets with another positive-weight assessment;
+there is no coverage penalty. Empty lists abstain; nonempty zero-only lists are assessments.
+Assessed Active nodes can receive performance rewards without submitting scores. Missing/empty rows have
+no accuracy component and no automatic non-participation penalty. An explicit
+zero assessment differs from no assessment; `has_received_assessment` records this
+in Matrix results. No assessment means no node rewards. Probation retains
+performance-based recovery when weighted assessments exist.
+Matrix requires at least three admitted nodes and initially supports 64. Its complete protocol and metadata-backed
+read contract are in [the Matrix guide](pallets/network/src/consensus/matrix/README.md).
+The consensus-worker instructions below describe Attestation.
 
 ### Registration and activation sequence
 
-1. Register the bootstrap validator identities first. Use at least
+1. Register the bootstrap validator identities first. For Attestation, use at least
    `MinSubnetNodes` distinct IDs in the registration map, each with a positive
    node allowance. Normal consensus needs at least three distinct validator
    identities; many nodes controlled by one identity do not satisfy this.
+   For Matrix, the map must instead provide at least `max(3, MinSubnetNodes)` node
+   allowances in total, with positive allowances for every listed validator. One
+   validator may supply all of them; activation checks admitted node population.
 2. Read `RequireSubnetRegistrationWhitelist`, `SubnetRegistrationWhitelist`,
    `MaxSubnets`, available slots, registration cost state, stake bounds, delegate
    percentage bounds, and registration/enactment lengths. If registration is
@@ -312,6 +337,7 @@ runtime to execute a custom scoring algorithm. `Attestation` is the implemented
    | `delegate_stake_percentage` | Q18 subnet reward allocation to subnet delegates |
    | `initial_validators` | `BTreeMap<validator_id: u32, maximum_node_registrations: u32>`; IDs, not coldkey addresses |
    | `bootnodes` | Nonempty `BTreeMap<PeerId, NetworkBytes>` with valid binary multiaddresses |
+   | `consensus_mechanism` | Required `Attestation` (0) or `Matrix` (1); stored directly at registration |
 
 4. Owner signs `register_subnet(max_cost, subnet_data)`. The current dynamic
    registration cost must fit the explicit `max_cost`; it is separate from node
